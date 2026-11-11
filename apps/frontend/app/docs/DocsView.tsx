@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
-import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS } from '../../lib/v5/site-copy';
+import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, SIGN_IN_EXPIRED } from '../../lib/v5/site-copy';
 import DocsNav from './DocsNav';
+import ExpiredNote from './ExpiredNote';
 import InstallCard from './InstallCard';
 
 /** The cards' 32px radius (the card primitives carry 36px). */
@@ -9,9 +10,10 @@ const r32 = (card: string) => card.replace('rounded-[36px]', 'rounded-[32px]');
 const CARD_TITLE = 'ek-serif text-[32px] leading-none';
 
 /** One of the cards: a Kaftan title, then one 15px line in the card's soft colour. */
-function InfoCard({ id, card, soft, title, text, children }: { id: string; card: string; soft: string; title: string; text: string; children?: React.ReactNode }) {
+function InfoCard({ id, card, soft, title, text, lead, children }: { id: string; card: string; soft: string; title: string; text: string; lead?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className={`${r32(card)} flex scroll-mt-24 flex-col gap-2.5 p-7`}>
+      {lead}
       <h2 id={`${id}-title`} className={CARD_TITLE}>
         {title}
       </h2>
@@ -45,7 +47,7 @@ export default function DocsView() {
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
           <InfoCard id="session" card={CARD_NAVY} soft="text-s-on-navy-soft" title={DOCS_SESSION.title} text={DOCS_SESSION.text} />
-          <InfoCard id="record" card={CARD_BLUE} soft="text-s-on-blue-soft" title={DOCS_RECORD.title} text={DOCS_RECORD.text} />
+          <InfoCard id="record" card={CARD_BLUE} soft="text-s-on-blue-soft" title={DOCS_RECORD.title} text={DOCS_RECORD.text} lead={<ExpiredNote text={SIGN_IN_EXPIRED} />} />
           <InfoCard id="screening" card={CARD_PANEL} soft="text-s-muted" title={DOCS_SCREEN.title} text={DOCS_SCREEN.text} />
           <section id="programs" aria-labelledby="programs-title" className={`${r32(CARD_PANEL)} col-span-full flex scroll-mt-24 flex-col gap-2.5 p-7`}>
             <h2 id="programs-title" className={CARD_TITLE}>

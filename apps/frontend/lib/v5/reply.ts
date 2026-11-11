@@ -8,6 +8,7 @@ import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { ledgerCounts } from './ledger';
+import { closesWords, dayWords } from './deadline';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
@@ -48,13 +49,14 @@ export function numbered<P extends { in_person: boolean; claimed_since?: string 
   };
 }
 
-/** "09:14 UTC" for today (UTC), "Nov 5, 22:10 UTC" for another day; "earlier today" when the time does not read. Pure. */
+/** "09:14 UTC" for today (UTC), "Nov 5, 22:10 UTC" for another day (the day through `dayWords`, L23-11: "Nov 5, 2025,
+ *  22:10 UTC" in another year); "earlier today" when the time does not read. Pure. */
 export const clock = (iso: string, now: Date) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'earlier today';
   const hm = `${d.toISOString().slice(11, 16)} UTC`;
   if (d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return hm;
-  return `${new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d)}, ${hm}`;
+  return `${dayWords(d, now)}, ${hm}`;
 };
 
 /** "$25,000". Pure. */
@@ -335,7 +337,7 @@ export function reportLines(r: Pick<R, 'approvals_again' | 'applied_overnight'>)
   return out;
 }
 
-export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'>>): string | null {
+export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'>>, now: Date = new Date()): string | null {
   const s = r.since;
   // L13-17 (v6.1.14): a close a listed line already says ("closes in 3 days") is not repeated here.
   const onLine = new Set([...r.ready, ...(r.gaps ?? [])].filter((p) => p.closes_in).map((p) => p.program_id));
@@ -344,9 +346,9 @@ export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'
   const parts: string[] = [];
   if (s.new.length > 0) parts.push(`${s.new.length} new ${s.new.length === 1 ? 'program' : 'programs'} you fit`);
   for (const c of s.changed) parts.push(`${c.title}: ${c.what}`);
-  for (const c of closing) parts.push(`${c.title} closes ${new Date(c.closes_at).toISOString().slice(0, 10)}`);
-  const day = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(s.from));
-  return `Since ${day}: ${parts.join('; ')}.`;
+  // L23-9, L23-11 (v6.1.16): the one closes wording and the one date formatter.
+  for (const c of closing) parts.push(`${c.title} ${closesWords(c.closes_at, now, 'UTC')}`);
+  return `Since ${dayWords(new Date(s.from), now)}: ${parts.join('; ')}.`;
 }
 
 /** "you sign in to Google in your agent's browser" (#14, v6.1.15), "you sign in by email". Pure. */
@@ -396,7 +398,8 @@ function beforeTonight(r: R, tonight: number): string | null {
     ];
     const steps = [...clauses, ...yes];
     const more = new Set([...groups.values(), outside].flat()).size;
-    const head = tonight === 1 ? "Tonight's send goes ahead." : "Tonight's sends go ahead.";
+    // L23-1 (v6.1.16): no time is promised; the send goes ahead when the agent next checks.
+    const head = tonight === 1 ? 'The send goes ahead.' : 'The sends go ahead.';
     const add = steps.length > 0 ? `These would add ${more} more: ${steps.join('; ')}.` : null;
     return add || missing ? [head, add, missing].filter(Boolean).join(' ') : null;
   }
@@ -536,7 +539,7 @@ function sendable(r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] {
 /** Of those, the ones an agent can send alone: every required answer filled (v6.1.9 S6, fix round 1). Pure. */
 const agentCanApply = (r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] => sendable(r).filter((p) => emptyAnswers(p).length === 0);
 
-/** With standing approval: "Before tonight (nothing is sent until these are in): your problem for A; ..." for the
+/** With standing approval: "Before I send (nothing is sent until these are in): your problem for A; ..." (L23-1) for the
  *  sendable programs that wait on a required answer, grouped by the same answers; null when none waits. Pure. */
 function waitingLine(r: R): string | null {
   if (!r.auto_apply) return null;
@@ -550,11 +553,12 @@ function waitingLine(r: R): string | null {
     groups.set(words, [...(groups.get(words) ?? []), p.title]);
   }
   if (groups.size === 0) return null;
-  return `Before tonight (nothing is sent until these are in): ${[...groups].map(([w, t]) => `${w} for ${listWords(t, t.length)}`).join('; ')}.`;
+  return `Before I send (nothing is sent until these are in): ${[...groups].map(([w, t]) => `${w} for ${listWords(t, t.length)}`).join('; ')}.`;
 }
 
-/** The closing when tonight's sends under standing approval already reached max_per_night (v6.1.9 N1). */
-export const LIMIT_USED = "Tonight's limit is used; the next sends wait until tomorrow.";
+/** The closing when the sends under standing approval in the last 24 hours already reached max_per_night (v6.1.9 N1;
+ *  L23-1 v6.1.16: the 24 hours the server keeps, not a night). */
+export const LIMIT_USED = 'Your daily limit is used; the next sends wait until 24 hours have passed.';
 
 /**
  * What the agent sends alone tonight: the ready programs it can send, up to max_per_night less the sends under standing
@@ -598,11 +602,69 @@ export function repoNoteText(notes: RepoNote[]): string {
     .join(' ');
 }
 
+/**
+ * L23-1 (v6.1.16, ruling 10 re-pins it in Task 11): the standing-approval closing; nothing runs at night, so no time is
+ * promised. Pure.
+ */
+export const standingLine = (titles: string[]): string =>
+  `Under your standing approval: ${listWords(titles, titles.length)}. I apply the next time your agent checks; say stop to hold any.`;
+
+/**
+ * One `Say` per reply (L23-21, v6.1.16): when a reply would carry more than one, only the first of these keeps its `Say`
+ * sentence; the others keep their fact sentence and drop the `Say` one: (1) the not-sent-since-yes line, (2) the
+ * started-not-sent line, (3) the record sign-in line, (4) the closing.
+ */
+export const ONE_SAY_ORDER = ['not_sent', 'started_not_sent', 'record_sign_in', 'closing'] as const;
+/** A sentence that asks the builder to say something ("Say yes ...", "Or say the numbers ..."). */
+const SAY_SENTENCE = /^(Or )?[Ss]ay\b/;
+/** Whether a line carries a `Say` sentence. Pure. */
+export const carriesSay = (line: string): boolean => line.split(/(?<=[.?!])\s+/).some((x) => SAY_SENTENCE.test(x));
+/** The line without its `Say` sentences (ONE_SAY_ORDER), '' when nothing else is left. Pure. */
+export const withoutSay = (line: string): string => line.split(/(?<=[.?!])\s+/).filter((x) => !SAY_SENTENCE.test(x)).join(' ');
+/** A keeper of ONE_SAY_ORDER: the first line through it that carries a `Say` keeps it, every later one drops it. Pure. */
+export function oneSay(): (line: string) => string {
+  let said = false;
+  return (line) => {
+    if (!carriesSay(line)) return line;
+    if (said) return withoutSay(line);
+    said = true;
+    return line;
+  };
+}
+
+/** L23-1 (v6.1.16): a day after a yes with no send recorded, said once, first. Null when none. Pure. */
+export function notSentLine(r: Pick<R, 'not_sent'>, now: Date): string | null {
+  const n = r.not_sent;
+  if (!n || n.programs.length === 0) return null;
+  return `Nothing was sent for ${listWords(n.programs.map((p) => p.title), n.programs.length)} since you said yes on ${dayWords(new Date(n.since), now)}. Say yes again and I apply now.`;
+}
+
+/** L23-7 (v6.1.16): at most this many started-not-sent lines, the rest counted. */
+const RELEASED_SHOWN = 3;
+/** L23-7 (v6.1.16): a claim left unsent for 24 hours, one line per program (at most three, the rest counted). Pure. */
+export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[] {
+  const shown = r.released.slice(0, RELEASED_SHOWN).map((p) => `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
+  const rest = r.released.length - shown.length;
+  return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
+}
+
+/** L23-4 (v6.1.16): the results question for each program past its results date, shown once a day per installation. Pure. */
+export const outcomeLines = (r: Pick<R, 'ask_outcome'>, now: Date): string[] =>
+  r.ask_outcome.map((a) => `Results for ${a.title} were due ${dayWords(new Date(a.due_at), now)}. Did you hear back?`);
+
 /** What the builder sees. The since line never shows on the first find; `now` reads the claim times. */
 export function replyText(r: R, first: boolean, now: Date = new Date()): string {
   const blocks: string[] = [];
-  const since = first ? null : sinceLine(r);
+  // ONE_SAY_ORDER (L23-21): the not-sent line, the started-not-sent lines, then the closing, in that order.
+  const say = oneSay();
+  const notSent = notSentLine(r, now);
+  if (notSent) blocks.push(say(notSent));
+  const started = startedNotSentLines(r, now).map(say);
+  if (started.length > 0) blocks.push(started.join('\n'));
+  const since = first ? null : sinceLine(r, now);
   if (since) blocks.push(since);
+  // L23-16 (v6.1.16): the same list as the last find, and nothing else moved: said first, then the money lines.
+  else if (!first && r.nothing_new_since) blocks.push(`Nothing new since ${dayWords(new Date(r.nothing_new_since), now)}.`);
   const ready = r.ready.filter((p) => !p.in_person);
   const inPerson = r.ready.filter((p) => p.in_person);
   // O2 (v6.1.10): a rule-only in-person program is in the In person block, after the ready ones.
@@ -653,6 +715,10 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const l = r.ledger;
   // v6.1.14: the /me page's name for it, never the internal "ledger"; L21-1 (v6.1.16): /me's totals line is the same words.
   if (l.applied > 0) blocks.push(`Your applications: ${ledgerCounts(l)}`);
+  // L23-6 (v6.1.16): results dates have their own line; closing soon is about programs not sent.
+  if ((l.results_soon ?? []).length > 0) blocks.push(`Results due soon: ${listWords(l.results_soon!.map((x) => x.title), l.results_soon!.length)}.`);
+  const outcomes = outcomeLines(r, now);
+  if (outcomes.length > 0) blocks.push(outcomes.join('\n'));
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);
   const waiting = waitingLine(r);
@@ -666,7 +732,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   if (notes.length > 0) blocks.push(repoNoteText(notes));
   const closing =
     tonight > 0
-      ? `Applying tonight to ${listWords(tonightList.map((p) => p.title), tonight)}. Say stop to hold any.`
+      // L23-1 (v6.1.16): nothing runs at night; the agent applies the next time it checks.
+      ? standingLine(tonightList.map((p) => p.title))
       : [
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           ...(limitUsed ? [LIMIT_USED] : []),
@@ -697,7 +764,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
     : r.sign_in
       ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
       : proof ? signInSentence(null, read, true) : null;
-  blocks.push([closing, signIn, r.linked_notice].filter(Boolean).join(' '));
+  const last = [say(closing), signIn, r.linked_notice].filter(Boolean).join(' ');
+  if (last) blocks.push(last);
   return blocks.join('\n\n');
 }
 
@@ -733,10 +801,10 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     // With standing approval the agent does not wait for a yes; the limits replace it.
     // The submit rule itself is in the server instructions, once (v6.1.8); here only what this reply adds.
     ...(r.auto_apply ? [standing] : ['Fill field by field; form_id names the form field when given.']),
-    ...(tonightIn(r).limitUsed ? ['Tonight\'s limit is used: send nothing alone until 24 hours after the last send under standing approval.'] : []),
-    // L13-9 (v6.1.14): tonight's list is over every ready program, so it may name ones past the shown list.
+    ...(tonightIn(r).limitUsed ? ['The daily limit is used: send nothing alone until 24 hours after the last send under standing approval.'] : []),
+    // L13-9 (v6.1.14): the standing-approval list is over every ready program, so it may name ones past the shown list.
     ...(tonightIn(r).list.some((t) => !r.ready.some((p) => p.program_id === t.program_id))
-      ? ["Tonight's list names programs past the shown list: call find with program_id for each one's fields before you send it."]
+      ? ["The standing-approval list names programs past the shown list: call find with program_id for each one's fields before you send it."]
       : []),
     'Call track with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',
     'Pass users and live_url in the project whenever you know them; never invent them.',
@@ -759,13 +827,19 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.gaps.some((g) => [g.gap, ...g.also].some(startedQuestion)))
     lines.push('"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at in the project next time, or, when they started after the program\'s start, call track with gap_done and that gap\'s item. Never invent the date.');
   if (o.more > 0) lines.push(`${o.more} more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.`);
+  // L23-4 (v6.1.16): the builder text asks; the agent passes the answers on.
   if (r.ask_outcome.length > 0)
-    lines.push(`Ask once how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
+    lines.push(`The reply asks how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
+  if (r.not_sent && r.not_sent.programs.length > 0)
+    lines.push(`Nothing was sent for ${r.not_sent.programs.map((p) => p.title).join(', ')} after the standing-approval line named them; on the builder's yes, send them now within the limits.`);
   if (r.linked) lines.push('Fit approved answers by cutting, never by adding; the style contract travels on each field.');
   if (r.record_missing.length > 0)
     lines.push('Ask for the missing record items once, all together, and save each with record. record_missing names only what these programs need; record get names everything the record lacks.');
   if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by another of the builder\'s agents: do not submit it.');
-  if (r.released.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${r.released.join(', ')}.`);
+  // L23-7 (v6.1.16): by title, as the builder's lines name them.
+  if (r.released.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${r.released.map((p) => p.title).join(', ')}.`);
+  // L23-14 (v6.1.16): the repo read failed; the stored tier and its date stood.
+  if (r.problems?.includes(EVIDENCE_NOT_READ)) lines.push("The builder's repo could not be read today; the tier from the last read was used.");
   const paused = r.problems?.includes(READS_PAUSED) === true;
   // One line per fact: reads paused says the match is as reported itself.
   if (r.as_reported && !paused) lines.push('No public repo was read, so the match used the facts you reported; tell the builder the match used what they reported, not a repo read.');

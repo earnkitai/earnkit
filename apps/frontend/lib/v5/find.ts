@@ -6,20 +6,20 @@
 import { z } from 'zod';
 import { dropControls } from './controls';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
-import { appliedOvernight, CLAIM_HOURS, releaseStale } from '../v6/claims';
+import { appliedOvernight, CLAIM_HOURS, releaseStale, type Released } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
-import { timeLeftWords } from './deadline';
+import { closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { lastFindAt, markFind, markFindAuto, newlyLinkedLogin, rememberProject } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, saveReport, summary, type Ledger } from './ledger';
+import { clearPromised, lastFindAt, lastList, listHash, markFind, markFindAuto, markList, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, outcomeAsksDue, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
+import { closedAt, isOpenAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, type LooseRules } from './tool-input';
@@ -156,7 +156,9 @@ export type FindReply = {
   gaps: GapProgram[];
   not_fit?: { program_id: string; title: string; reason: string }[];
   ledger: Ledger;
-  ask_outcome: { program_id: string; title: string }[];
+  /** L23-4 (v6.1.16): applied programs past their results date with no result, that this installation has not asked
+   *  about today; the builder text asks each. */
+  ask_outcome: OutcomeDue[];
   as_reported: boolean;
   problems?: string[];
   /** What the builder is told about the repo read, one sentence each (v6.1.8, B20 and C59). */
@@ -166,7 +168,12 @@ export type FindReply = {
   blockers: Blocker[];
   evidence_summary: { tier: string | null; line: string } | null;
   applied_overnight: { program_id: string; title: string }[];
-  released: string[];
+  /** Claims left unsent for 24 hours, released by this find (L23-7, v6.1.16: with their titles and start times). */
+  released: Released[];
+  /** L23-1 (v6.1.16): programs a standing-approval line named over 24 hours ago with nothing recorded since, and when. */
+  not_sent?: { programs: Promised[]; since: string };
+  /** L23-16 (v6.1.16): the shown list is the same as at the last project find, which was at this time (ISO). */
+  nothing_new_since?: string;
   auto_apply: boolean;
   /** With auto_apply: the most the agent applies to in one night. */
   max_per_night?: number;
@@ -248,7 +255,8 @@ const ownerOf = (ctx: FindContext) => ownerKey(ctx.installationId, ctx.builderId
 /** The money as the tile and the guide show it (`moneyOf` in programs-read), lowercase mid-sentence (#12, I2,
  *  v6.1.15): one reader, so a reply, a tile and a guide never disagree. Pure. */
 export const moneyOf = (p: Program): string => moneyAt(tileMoney(p), 'mid');
-const closesIn = (p: Program, now: Date) => (p.ends_at ? timeLeftWords(p.ends_at, now) : null);
+/** The closes wording without "closes " (L23-9, v6.1.16): "in under an hour", "today", "tomorrow", "in 5 days", "Nov 20". */
+const closesIn = (p: Program, now: Date) => (p.ends_at && Date.parse(p.ends_at) > now.getTime() ? closesWords(p.ends_at, now, programZone(p)).replace(/^closes /, '') : null);
 const EMPTY_FACTS: RepoFacts = {
   name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
   builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
@@ -374,8 +382,10 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const ownDone = doneHere?.own.get(id) ?? new Set<string>();
   const verdict = project ? gateFor(side, facts)(evaluate(row, facts, done, ctx.now), row) : undefined;
   const left = closesIn(p, ctx.now);
-  const open = isOpen(p, ctx.now);
-  const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'rolling';
+  // L23-2 (v6.1.16): open or closed from the clock (`isOpenAt`, `closedAt`), whatever status the daily run last wrote.
+  const open = isOpenAt(p, ctx.now);
+  const closed = closedAt(p, ctx.now);
+  const when = closed ? 'closed' : p.status === 'upcoming' ? null : left ? `closes ${left}` : 'rolling';
   const guide = guideText(row, ctx.now);
   // The rules list stays in guide.rules; the builder sees it only with no project (no verdict to give) or on asking.
   const guideRules = !project || ask === 'rules' ? guideLines(guide) : [];
@@ -401,14 +411,28 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const link = signStep ? await linkOf(ctx) : null;
   // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
   const signIn = signStep ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), true) : null;
-  const show = p.status === 'upcoming'
-    ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
-    : !open
-      // Low 20 (v6.1.13): closed is said once, and a closed program's rules are not listed.
-      ? [`${p.title}, ${moneyOf(p)}, ${when}.`]
+  // L23-18 (v6.1.16): a closed program the builder sent says when, and when results come.
+  const sent = closed ? await sentOf(ownerOf(ctx), id) : null;
+  const due = sent ? resultsDateOf(row) : null;
+  // L23-8 (v6.1.16): another agent of the builder's holds a live claim on it: that is said in place of the yes.
+  const hold = open ? (await claimed(ownerOf(ctx))).get(id) : undefined;
+  const heldSince = hold && hold.by !== ctx.installationId && Date.parse(hold.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000 ? hold.since : null;
+  const show = closed
+    // Low 20 (v6.1.13), L23-20 (v6.1.16): closed is said once, and a closed program's rules are not listed.
+    ? sent
+      ? [`${p.title}, ${moneyOf(p)}.`, `Closed. You applied ${dayWords(sent, ctx.now)}; results ${due ? dayWords(due, ctx.now) : 'not announced'}.`]
+      : [`${p.title}, ${moneyOf(p)}, ${when}.`]
+    : p.status === 'upcoming'
+      ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
       : verdict
         ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
+  if (heldSince) {
+    const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
+    // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
+    if (verdict?.status === 'ready' && !p.in_person) show[show.length - 1] = heldLine;
+    else show.push(heldLine);
+  }
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
   return {
@@ -432,7 +456,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
-    ).join('\n'),
+    ).concat(heldSince ? ["Claimed by another of the builder's agents: do not submit it."] : []).join('\n'),
     program: pub,
     fields,
     guide,
@@ -464,7 +488,7 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   // Linked, the report a project find would give from this agent's last find (fix round 1): what moved, the answers
   // that wait again (C48) and what was sent under standing approval, in the closing block, since this find stamps.
   const report = ctx.builderId === null ? null : await linkedReport(ctx, programs);
-  const closing = report ? [sinceLine(report), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
+  const closing = report ? [sinceLine(report, ctx.now), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
   const reply = {
     show_to_builder: unlinkedNow
       ? `${list}\n\n${notice}`
@@ -526,12 +550,12 @@ const readerOf = (ctx: FindContext) => ctx.evidence ?? ((s: Subject) => readEvid
 const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
 
 /** An unlinked find: every record field empty (find adds the blockers the empty record has). */
-const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers' | 'evidence_summary' | 'applied_overnight' | 'released' | 'auto_apply'> => ({
+const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers' | 'evidence_summary' | 'applied_overnight' | 'released' | 'auto_apply'> & { released: Released[] } => ({
   linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false,
 });
 
 /** The record's part of the reply, for a linked find. */
-function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], overnight: FindReply['applied_overnight'], sentToday: number, repoPassed: boolean) {
+function linkedPart(side: RecordSide, rows: ProgramRow[], released: Released[], overnight: FindReply['applied_overnight'], sentToday: number, repoPassed: boolean) {
   const policy = side.record.policy;
   return {
     linked: true,
@@ -598,7 +622,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   if (side) problems.push(...side.problems);
   // A project_id the record does not hold is named, and the match goes on by the repo (v6.1.7, C17).
   if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
-  const released = side ? await releaseStale(owner, ctx.now) : [];
+  // L23-7, L23-19 (v6.1.16): stale claims are released on every project find, linked or not, and said by title.
+  const released = await releaseStale(owner, ctx.now);
   const skip = await excluded(owner);
   const all = i.filter?.all === true;
   // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
@@ -680,7 +705,13 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   );
 
   /** Every ready program in `order` as the list would show it (the shown one when it is shown), held ones marked. */
-  const tonightAll = (side: RecordSide, order: Verdict[], shown: ReadyProgram[]) => {
+  const tonightAll = (side: RecordSide, given: Verdict[], shown: ReadyProgram[]) => {
+    // L23-9 (v6.1.16): a program closing within 24 hours goes first; one closing within the hour is never left out.
+    const day = (v: Verdict) => {
+      const e = byId.get(v.program_id)!.file.ends_at;
+      return e !== null && Date.parse(e) - ctx.now.getTime() <= 86_400_000;
+    };
+    const order = [...given.filter(day), ...given.filter((v) => !day(v))];
     const rows = order.map((v) => byId.get(v.program_id)!);
     const every = order.map((v) => {
       const own = shown.find((p) => p.program_id === v.program_id);
@@ -703,8 +734,19 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const again = side ? unapprovedSince(side.record, last) : 0;
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
-  const ask = await askOutcome(owner, open, ctx.now);
+  // L23-4 (v6.1.16): every applied program past its results date with no result, asked once a day by each installation.
+  const ask = await outcomeAsksDue(ctx.installationId, owner, await askOutcome(owner, open, ctx.now), ctx.now);
   await markAsked(owner, ask.map((a) => a.program_id), ctx.now);
+  // L23-1 (v6.1.16): a standing-approval line over 24 hours old whose programs have no application since: said once.
+  const promise = side ? await promisedOf(ctx.installationId) : null;
+  const promiseDue = promise !== null && ctx.now.getTime() - promise.at.getTime() > 86_400_000;
+  const sentSince = promiseDue ? await excluded(owner) : new Set<string>();
+  const notSent = promiseDue ? promise.programs.filter((p) => !sentSince.has(p.program_id)) : [];
+  if (promiseDue) await clearPromised(ctx.installationId);
+  // L23-16 (v6.1.16): the shown list's hash against the last project find's.
+  const shownIds = [...ready.map((p) => p.program_id), ...gaps.map((g) => g.program_id)];
+  const hash = listHash(shownIds);
+  const prevList = await lastList(ctx.installationId);
 
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
@@ -718,6 +760,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
     ...(tonight ? { tonight } : {}),
+    ...(notSent.length > 0 ? { not_sent: { programs: notSent, since: promise!.at.toISOString() } } : {}),
+    ...(prevList && prevList.hash === hash ? { nothing_new_since: prevList.at.toISOString() } : {}),
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
@@ -728,6 +772,13 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const description = project.description ? null : facts.description ? 'readme' : 'none';
   const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: [agentNote(r, { more, description }), unreadNote(unread)].filter(Boolean).join('\n'), ...r };
   await markFind(ctx.installationId, ctx.now, remembered, key);
+  await markList(ctx.installationId, hash, ctx.now);
+  // L23-1 (v6.1.16): the programs the standing-approval line named, kept with the first time a still-open promise was made.
+  if (tonight && tonight.programs.length > 0) {
+    const kept = promise && !promiseDue ? promise : null;
+    const merged = [...(kept?.programs ?? []), ...tonight.programs.filter((p) => !kept?.programs.some((k) => k.program_id === p.program_id))];
+    await markPromised(ctx.installationId, merged.map((p) => ({ program_id: p.program_id, title: p.title })), kept?.at ?? ctx.now);
+  }
   // L13-7 (v6.1.14): whether standing approval was on, so a send after it is turned off says so.
   if (side) await markFindAuto(ctx.installationId, side.record.policy.auto_apply);
   await noticeTaken(ctx, notice);

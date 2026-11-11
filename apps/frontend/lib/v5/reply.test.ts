@@ -107,19 +107,20 @@ test('the since line: only when something changed, never on the first find', () 
       'Ready to apply (1):',
       "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 4 of 4 answers.",
       '',
-      'Your applications: 2 sent, 1 won, 1 waiting, 1 closing soon.',
+      'Your applications: 2 sent, 1 won, 1 waiting.',
       '',
       'Say yes and I apply to Alliance ALL19.',
     ].join('\n'),
   );
   assert.ok(!replyText(r, true).includes('Since'));
   // A win shows what was won, never what was asked (3.6).
-  assert.match(replyText({ ...r, ledger: { ...r.ledger, won_usd: 25000 } }, false), /^Your applications: 2 sent, 1 won \(\$25,000\), 1 waiting, 1 closing soon\.$/m);
+  assert.match(replyText({ ...r, ledger: { ...r.ledger, won_usd: 25000 } }, false), /^Your applications: 2 sent, 1 won \(\$25,000\), 1 waiting\.$/m);
   // L16-2 (v6.1.16): a builder's own win that corrected a rejection reads as the one win.
   assert.match(replyText({ ...r, ledger: { ...LEDGER0, applied: 1, won: 1, won_usd: 150 } }, false), /^Your applications: 1 sent, 1 won \(\$150\)\.$/m);
   // L13-17: a close that is on no shown line keeps its date; with nothing else moved and every close shown, no since line.
   const away = { ...r, since: { ...r.since, closing: [...r.since.closing, { program_id: 'e', title: 'Elsewhere Grant', closes_at: '2026-11-09T00:00:00.000Z' }] } };
-  assert.match(replyText(away, false), /^Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Elsewhere Grant closes 2026-11-09\.$/m);
+  // L23-9, L23-11 (v6.1.16): the one closes wording, never an ISO date.
+  assert.match(replyText(away, false, new Date('2026-11-04T12:00:00Z')), /^Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Elsewhere Grant closes in 5 days\.$/m);
   const onlyShown = { ...r, since: { ...r.since, new: [], changed: [] } };
   assert.doesNotMatch(replyText(onlyShown, false), /Since/);
 });
@@ -128,7 +129,9 @@ test('L13-18 (v6.1.14): the applications line counts sent, won, rejected and wai
   const line = (l: Partial<typeof LEDGER0>) => replyText(base({ ledger: { ...LEDGER0, ...l } }), false).split('\n\n').find((b) => b.startsWith('Your applications'));
   assert.equal(line({ applied: 1, rejected: 1 }), 'Your applications: 1 sent, 1 rejected.');
   assert.equal(line({ applied: 4, won: 1, won_usd: 5000, rejected: 1, pending: 2 }), 'Your applications: 4 sent, 1 won ($5,000), 1 rejected, 2 waiting.');
-  assert.equal(line({ applied: 2, won: 1, won_usd: 900, pending: 1, closing_soon: [{ program_id: 'x', title: 'X', closes_at: '' }] }), 'Your applications: 2 sent, 1 won ($900), 1 waiting, 1 closing soon.');
+  assert.equal(line({ applied: 2, won: 1, won_usd: 900, pending: 1, closing_soon: [{ program_id: 'x', title: 'X', closes_at: '' }] }), 'Your applications: 2 sent, 1 won ($900), 1 waiting.');
+  // L23-6 (v6.1.16): closing soon names programs not sent, so the applications line never counts it; results due soon is its own line.
+  assert.ok(replyText(base({ ledger: { ...LEDGER0, applied: 1, pending: 1, results_soon: [{ program_id: 'x', title: 'X Grant', results_at: '' }] } }), false).includes('\n\nResults due soon: X Grant.\n\n'));
   // A result with no outcome counted (no result) is only sent.
   assert.equal(line({ applied: 1 }), 'Your applications: 1 sent.');
 });
@@ -222,7 +225,7 @@ test('every closing line, and the copy rules', () => {
 });
 
 test('agentNote: fields, yes only, track after each, the counts left out, ask once', () => {
-  const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant' }] }, { more: 2 });
+  const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant', due_at: '2026-11-01T00:00:00Z' }] }, { more: 2 });
   for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'form_id', 'track', 'won', 'Zeta Grant', '2 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'])
     assert.ok(n.includes(s), s);
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more: gaps'));
@@ -326,7 +329,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
     'Say yes and I apply to all 4. Or say the numbers to skip.',
   ]);
   assert.doesNotMatch(text.replace(/Click Grant/g, ''), /click/i);
-  assert.doesNotMatch(text, /Before tonight/);
+  assert.doesNotMatch(text, /Before I send/);
   // Standing approval with nothing an agent can send alone (every program blocked): nothing goes tonight.
   assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /\n\nBefore applying: you sign in to Google/);
   // Standing approval and one program free to send: the agent applies tonight.
@@ -334,25 +337,25 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const tonight = replyText(free, false);
   // N4 (v6.1.9): tonight waits on none of the builder's steps; they would add more.
   assert.ok(tonight.split('\n\n').includes(
-    "Tonight's send goes ahead. These would add 4 more: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "The send goes ahead. These would add 4 more: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   ), tonight);
-  assert.doesNotMatch(tonight, /Before tonight|nothing is sent until/);
-  assert.match(tonight, /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
+  assert.doesNotMatch(tonight, /Before I send|nothing is sent until/);
+  assert.match(tonight, /\n\nUnder your standing approval: Free\. I apply the next time your agent checks; say stop to hold any\.$/);
   // N1 (v6.1.9): the sends already made in the last 24 hours leave less room; none left, no tonight list.
   const two = base({ ...free, ready: [...free.ready, ready({ program_id: 'f2', title: 'Free Two', from_record: 1, total: 1 })], max_per_night: 2 });
-  assert.match(replyText({ ...two, auto_sent_today: 0 }, false), /\n\nApplying tonight to Free and Free Two\. Say stop to hold any\.$/);
-  assert.match(replyText({ ...two, auto_sent_today: 1 }, false), /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
+  assert.match(replyText({ ...two, auto_sent_today: 0 }, false), /\n\nUnder your standing approval: Free and Free Two\. I apply the next time your agent checks; say stop to hold any\.$/);
+  assert.match(replyText({ ...two, auto_sent_today: 1 }, false), /\n\nUnder your standing approval: Free\. I apply the next time your agent checks; say stop to hold any\.$/);
   const used = replyText({ ...two, auto_sent_today: 2 }, false);
-  assert.equal(used.split('\n\n').at(-1), "Tonight's limit is used; the next sends wait until tomorrow. Say yes and I apply to all 6. Or say the numbers to skip.");
-  assert.doesNotMatch(used, /Applying tonight|Tonight's send/);
+  assert.equal(used.split('\n\n').at(-1), "Your daily limit is used; the next sends wait until 24 hours have passed. Say yes and I apply to all 6. Or say the numbers to skip.");
+  assert.doesNotMatch(used, /Under your standing approval|The sends? goes? ahead/);
   assert.match(used, /\n\nBefore applying: you sign in to Google/);
-  assert.ok(agentNote({ ...two, auto_sent_today: 2 }, { more: 0 }).includes("Tonight's limit is used: send nothing alone until 24 hours after the last send under standing approval."));
+  assert.ok(agentNote({ ...two, auto_sent_today: 2 }, { more: 0 }).includes("The daily limit is used: send nothing alone until 24 hours after the last send under standing approval."));
   // An outside-approval program reads as a step that would add one more.
   const out = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true }] });
-  assert.ok(replyText(out, false).split('\n\n').includes("Tonight's sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1."));
+  assert.ok(replyText(out, false).split('\n\n').includes("The sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1."));
   // L13-10 (v6.1.14): over the builder's limit, the reason is named.
   const over = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true, over_limit_usd: 10_000 }] });
-  assert.ok(replyText(over, false).split('\n\n').includes("Tonight's sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1, over your $10,000 limit."), replyText(over, false));
+  assert.ok(replyText(over, false).split('\n\n').includes("The sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1, over your $10,000 limit."), replyText(over, false));
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
   // The Before block names the sign-ins and the submits; the note does not repeat them, nor the submit rule (v6.1.8).
@@ -372,9 +375,9 @@ test('standing approval: the closing line counts what an agent can send alone, a
     max_per_night: 2,
   });
   // Four have a sign-in or a click, one is claimed: three are free, capped at two.
-  assert.match(replyText(r, false), /\n\nApplying tonight to F1 and F2\. Say stop to hold any\.$/);
+  assert.match(replyText(r, false), /\n\nUnder your standing approval: F1 and F2\. I apply the next time your agent checks; say stop to hold any\.$/);
   assert.doesNotMatch(replyText(r, false), /Say yes/);
-  assert.match(replyText({ ...r, max_per_night: 9 }, false), /Applying tonight to F1, F2 and F3\. Say stop to hold any\.$/);
+  assert.match(replyText({ ...r, max_per_night: 9 }, false), /Under your standing approval: F1, F2 and F3\. I apply the next time your agent checks; say stop to hold any\.$/);
   // Nothing an agent can send alone: the usual closing.
   assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /Say yes and I apply to all 4\. Or say the numbers to skip\.$/);
   const note = agentNote(r, { more: 0 });
@@ -818,13 +821,13 @@ test('S6 fix round 1 (v6.1.9): tonight names only sends with every required answ
     ready: [ready({ title: 'Full Grant' }), ready({ title: 'Short Grant', needs: ['the problem'] })],
   });
   const blocks = replyText(r, true).split('\n\n');
-  assert.equal(blocks.at(-1), 'Applying tonight to Full Grant. Say stop to hold any.');
-  assert.ok(blocks.includes('Before tonight (nothing is sent until these are in): your problem for Short Grant.'), blocks.join('\n\n'));
+  assert.equal(blocks.at(-1), 'Under your standing approval: Full Grant. I apply the next time your agent checks; say stop to hold any.');
+  assert.ok(blocks.includes('Before I send (nothing is sent until these are in): your problem for Short Grant.'), blocks.join('\n\n'));
   // Nothing can go tonight: no tonight line, the wait is named, and the builder can still say yes.
   const none = base({ auto_apply: true, max_per_night: 5, auto_sent_today: 0, linked: true, ready: [ready({ title: 'Short Grant', needs: ['the problem'] })] });
   const show = replyText(none, true);
-  assert.doesNotMatch(show, /Applying tonight|Tonight's send/);
-  assert.match(show, /Before tonight \(nothing is sent until these are in\): your problem for Short Grant\.\n\nSay yes and I apply to Short Grant\.$/);
+  assert.doesNotMatch(show, /Under your standing approval|The sends? goes? ahead/);
+  assert.match(show, /Before I send \(nothing is sent until these are in\): your problem for Short Grant\.\n\nSay yes and I apply to Short Grant\.$/);
 });
 
 test('fix round 1 (v6.1.9): a contract the read still does not find tells the agent to pass its address', () => {
@@ -903,7 +906,7 @@ test('F5 (v6.1.12): the missing email is named once per reply: the Before block 
   // With standing approval, the wait names the problem only.
   const auto = replyText(base({ linked: true, auto_apply: true, max_per_night: 5, auto_sent_today: 0, record_missing: ['your email'], ready: [p] }), true);
   assert.equal(auto.match(/email/g)!.length, 1, auto);
-  assert.match(auto, /Before tonight \(nothing is sent until these are in\): your problem for Prose Grant\./);
+  assert.match(auto, /Before I send \(nothing is sent until these are in\): your problem for Prose Grant\./);
   // Only the email missing: the drafted line ends at the counts.
   const only = ready({ title: 'Mail Grant', total: 2, from_record: 1, need_you: ['your email'], needs: ['your email'] });
   const one = replyText(base({ linked: true, record_missing: ['your email'], ready: [only] }), true);

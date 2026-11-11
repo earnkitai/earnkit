@@ -67,7 +67,7 @@ before(async () => {
 const cardLinks = (markup: string) => markup.match(/href="\/programs\/[^"]+"/g) ?? [];
 const tileOf = (i: number): Tile => ({
   id: `t-${i}`, title: `Tile ${i} Grants`, organizer: `Org ${i}`, money: i % 2 ? '$50K' : '$1M in prizes', big: i % 2 === 1,
-  when: i % 3 ? 'Closes Dec 1' : 'Rolling', kind: 'grant', status: 'active', logo: null,
+  when: i % 3 ? 'Closes Dec 1' : 'Rolling', closes_at: i % 3 ? '2026-12-01T12:00:00Z' : null, zone: 'UTC', kind: 'grant', status: 'active', logo: null,
 });
 const TILES45 = Array.from({ length: 45 }, (_, i) => tileOf(i));
 const LANDING45: Landing = { chip: '$1.7M in grants and prizes open now', tiles: TILES45, featured: TILES45.slice(0, 6), total: 45 };
@@ -372,10 +372,12 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
   const saved = process.env.EARNKIT_URL;
   process.env.EARNKIT_URL = 'https://earnkit.com';
   try {
-    for (const headers of [{}, { cookie: 'ek_me=forged' }] as Record<string, string>[]) {
+    // L23-15 (v6.1.16): a cookie whose session is gone (ended, or never one) goes to the expired line, the cookie cleared.
+    for (const [headers, to] of [[{}, '/docs#record'], [{ cookie: 'ek_me=forged' }, '/docs?expired=1#record']] as [Record<string, string>, string][]) {
       const r = await proxy(new Request('http://10.0.0.7:8080/me', { headers }) as never);
       assert.equal(r.status, 302);
-      assert.equal(r.headers.get('location'), 'https://earnkit.com/docs#record');
+      assert.equal(r.headers.get('location'), `https://earnkit.com${to}`);
+      assert.equal(/ek_me=;.*Max-Age=0/.test(r.headers.get('set-cookie') ?? ''), to.includes('expired'), to);
     }
   } finally {
     if (saved === undefined) delete process.env.EARNKIT_URL;
@@ -459,12 +461,13 @@ test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city 
 test('L21-5 (v6.1.16): the landing, programs-list and guide caches are keyed through cacheKey, which holds the build id', async () => {
   const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
   // The landing and /programs share the landing read; the guide ids and each guide have their own.
-  for (const key of ['landing-v6.3', 'guide-ids-v5', 'guide-v6.1.15']) assert.match(src, new RegExp(`cachedRead\\([^\\n]*\\['${key.replaceAll('.', '\\.')}'\\]\\)`), key);
+  // L23-2 (v6.1.16): the guide's row is cached; its page is derived from the clock at render.
+  for (const key of ['landing-v6.4', 'guide-ids-v6', 'guide-row-v6.1.16']) assert.match(src, new RegExp(`cachedRead\\([^\\n]*\\['${key.replaceAll('.', '\\.')}'\\]\\)`), key);
   assert.ok(!/unstable_cache/.test(src), 'no cache made around cacheKey');
   const cached = readFileSync(join(import.meta.dirname, '../../app/lib/cached.ts'), 'utf8');
   assert.match(cached, /unstable_cache\(read, cacheKey\(key\),/);
   const { BUILD_ID, cacheKey } = await import('../../app/lib/cached');
-  assert.equal(cacheKey(['guide-v6.1.15']).at(-1), BUILD_ID);
+  assert.equal(cacheKey(['guide-row-v6.1.16']).at(-1), BUILD_ID);
   // No other page cache bypasses it.
   for (const dir of ['app', 'app/lib', 'app/programs', 'app/programs/[id]']) {
     const d = join(import.meta.dirname, '../..', dir);

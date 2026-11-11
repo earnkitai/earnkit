@@ -48,15 +48,21 @@ const MAX_ID = 2_147_483_647;
 
 /**
  * GET /me (the proxy): no live session is a 302 to /docs#record with no body; with one the page renders. L21-14
- * (v6.1.16): signed out, a code-shaped `?link=` goes to /link/<code>, which signs in and comes back to the code.
+ * (v6.1.16): signed out, a code-shaped `?link=` goes to /link/<code>, which signs in and comes back to the code. L23-15
+ * (v6.1.16): an `ek_me` cookie whose session is gone goes to /docs?expired=1#record (the docs say the sign-in expired)
+ * and the dead cookie is cleared.
  */
 export async function meGet(request: Request, deps: Deps = {}): Promise<Response> {
-  const builder = await sessionBuilder(request.headers.get('cookie'), deps.now ?? new Date());
+  const cookie = request.headers.get('cookie');
+  const builder = await sessionBuilder(cookie, deps.now ?? new Date());
   if (!builder) {
     const code = new URL(request.url).searchParams.get('link') ?? '';
+    const expired = cookieValue(cookie, COOKIE) !== null;
     // The proxy needs an absolute Location, on the public origin (the request URL can be the internal one).
-    const to = codeShaped(code) ? `/link/${code}` : '/docs#record';
-    return new Response(null, { status: 302, headers: { Location: `${publicOrigin(request)}${to}`, 'Cache-Control': 'no-store' } });
+    const to = codeShaped(code) ? `/link/${code}` : expired ? '/docs?expired=1#record' : '/docs#record';
+    const headers: Record<string, string> = { Location: `${publicOrigin(request)}${to}`, 'Cache-Control': 'no-store' };
+    if (expired) headers['Set-Cookie'] = clearCookie();
+    return new Response(null, { status: 302, headers });
   }
   const res = NextResponse.next();
   res.headers.set('Cache-Control', 'no-store');
@@ -204,7 +210,7 @@ export async function editPost(request: Request, deps: Deps = {}): Promise<Respo
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   const path = g.form.get('path') ?? '';
-  const blocks = recordBlocks(await getRecord(g.builder.id));
+  const blocks = recordBlocks(await getRecord(g.builder.id), g.now);
   const block = blocks.find((b) => b.fields.some((f) => f.path === path));
   const f = block?.fields.find((x) => x.path === path);
   // Standing approval changes only through /me/policy; the skip list is its one edit row.
@@ -274,7 +280,7 @@ export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Res
   const id = /^\d{1,10}$/.test(raw) ? Number(raw) : 0;
   if (id < 1 || id > MAX_ID) return problemAt(g, ME_ERRORS.field);
   // L21-7, L21-15 (v6.1.16): the agent named as /me shows it; one that is not the builder's says so.
-  const agent = (await agentList(g.builder.id)).find((a) => a.id === id);
+  const agent = (await agentList(g.builder.id, g.now)).find((a) => a.id === id);
   if (!agent || !(await unlinkInstallation(id, g.builder.id, g.now))) return problemAt(g, ME_UNLINK_NOT_YOURS);
   // M1 (fix round 1): mid-sentence an unnamed agent's label starts lower case; a name stays as written.
   return noteAt(g, ME_UNLINKED(agent.client_name ? agent.label : agent.label.charAt(0).toLowerCase() + agent.label.slice(1)));

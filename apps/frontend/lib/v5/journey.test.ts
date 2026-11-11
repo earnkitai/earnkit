@@ -33,7 +33,7 @@ const CLOSINGS = [
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. Ask again any time and I show what is new\.$/,
-  /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
+  /Under your standing approval: [^\n]+\. I apply the next time your agent checks; say stop to hold any\.$/,
 ];
 const seen: string[] = [];
 
@@ -162,7 +162,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   const z = (first.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.deepEqual(z.fields.find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
   assert.ok(z.from_record >= 2);
-  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 2 days. Long odds: few prizes for many entries. Drafted: 17 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 2 more.');
+  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 3 days. Long odds: few prizes for many entries. Drafted: 17 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 2 more.');
 
   const topReady = (first.ready as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
   const top = topReady.program_id;
@@ -172,9 +172,9 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   assert.equal(started.show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
   const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
-  // F1 (v6.1.10): the find held it back ("Before tonight") for answers only the builder gives that the record lacks,
+  // F1 (v6.1.10): the find held it back ("Before I send") for answers only the builder gives that the record lacks,
   // so naming every key does not make the send one under standing approval.
-  assert.match(first.show_to_builder as string, /Before tonight \(nothing is sent until these are in\): [^\n]+ for Arbitrum Mentorship Program: Cohort 2\./);
+  assert.match(first.show_to_builder as string, /Before I send \(nothing is sent until these are in\): [^\n]+ for Arbitrum Mentorship Program: Cohort 2\./);
   assert.equal(applied.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
 
   const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
@@ -203,7 +203,7 @@ test('every line the builder saw follows the copy rules and ends with one closin
     const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '').replace(/ Sign in once and I (check that|remember you)\.$/, '');
     if (/^\d+\. .*: proof that /m.test(show)) assert.match(show.split('\n').at(-1)!, /Sign in once\b/, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying tonight)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Under your standing approval)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).
     for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }

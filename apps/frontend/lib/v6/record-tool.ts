@@ -38,6 +38,8 @@ export type RecordReply = {
 
 const SIGN_IN_NOTE = 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.';
 const NOT_READY = "I can't save that yet, so I keep it for this chat.";
+/** L23-21 (v6.1.16): a record get with no sign-in and no link to give; its one `Say` (ONE_SAY_ORDER's third). */
+export const NOTHING_SAVED = 'Nothing saved yet. Say yes to sign in and I keep your record.';
 const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.';
 const BROKEN = 'Your record could not be read; nothing was saved.';
 const BROKEN_NOTE = 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.';
@@ -68,7 +70,8 @@ async function unlinked(installationId: number, now: Date, setting: boolean): Pr
   const deleted = (await unlinkedReason(installationId)) === 'deleted' && (await takeUnlinkedNotice(installationId));
   const lead = (show: string) => (deleted ? `${DELETED_NOTICE} ${show}` : show);
   const link = await signInLink(installationId, now);
-  if (!link) return { show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false };
+  // L23-21 (v6.1.16): a get is no save: it says nothing is saved yet and offers the sign-in.
+  if (!link) return { show_to_builder: lead(setting ? NOT_READY : NOTHING_SAVED), agent_note: SIGN_IN_NOTE, linked: false };
   const show = setting ? `Not saved. Sign in once at ${link}, then tell me again.` : signInLine(link);
   return { show_to_builder: lead(show), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
 }

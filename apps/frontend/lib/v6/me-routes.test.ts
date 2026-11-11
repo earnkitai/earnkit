@@ -81,12 +81,18 @@ test('a wrong or old csrf comes back to /me with the expired line and nothing ch
 });
 
 test('meGet without a session redirects to /docs#record', async () => {
-  for (const cookie of [undefined, 'ek_me=forged']) {
+  // L23-15 (v6.1.16): a cookie whose session is gone lands on the expired line, and the cookie is cleared.
+  for (const [cookie, to] of [[undefined, '/docs#record'], ['ek_me=forged', '/docs?expired=1#record']] as const) {
     const r = await meGet(new Request('https://earnkit.test/me', { headers: cookie ? { cookie } : {} }), deps);
     assert.equal(r.status, 302);
-    assert.equal(r.headers.get('location')?.replace(/^https:\/\/[^/]+/, ''), '/docs#record');
+    assert.equal(r.headers.get('location')?.replace(/^https:\/\/[^/]+/, ''), to);
+    assert.equal((r.headers.get('set-cookie') ?? '').startsWith('ek_me=;'), cookie !== undefined);
     assert.equal(await r.text(), '');
   }
+  // An ended session (day 31) is the same as a forged one.
+  const ended = await signedIn();
+  const day31 = await meGet(new Request('https://earnkit.test/me', { headers: { cookie: ended.cookie } }), { ...deps, now: new Date(NOW.getTime() + 31 * 86_400_000) });
+  assert.equal(day31.headers.get('location')?.replace(/^https:\/\/[^/]+/, ''), '/docs?expired=1#record');
   // Behind the proxy the request URL is the internal one; the Location is the public origin, like every other redirect.
   const inside = await meGet(new Request('http://10.0.0.7:8080/me'), deps);
   assert.equal(inside.headers.get('location'), 'https://earnkit.test/docs#record');

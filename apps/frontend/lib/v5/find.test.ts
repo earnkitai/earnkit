@@ -23,7 +23,7 @@ const CLOSINGS = [
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. Ask again any time and I show what is new\.$/,
-  /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
+  /Under your standing approval: [^\n]+\. I apply the next time your agent checks; say stop to hold any\.$/,
 ];
 
 async function installation() {
@@ -66,7 +66,7 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply (1):',
-      '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 32 days. Long odds: few prizes for many entries. Drafted: 19 of 22 answers. Needs your top 3 successes, funding raised before and current TVL range.',
+      '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries. Drafted: 19 of 22 answers. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       // L1c-3 (v6.1.10): the project's own chain (Base) first, rule-free then rule-bearing; then the chain-agnostic
       // FLOSS/fund; the Arc deploy (another chain) after them, past the cap.
@@ -489,7 +489,9 @@ test('a result past due is asked once', async () => {
     const t = await mcpCall(ctx(id), 'track', { program_id: 'f-due', status: 'applied' });
     assert.equal(t.isError, false, t.text);
     const first = await mcpCall(ctx(id), 'find', { project: PROJECT });
-    assert.deepEqual(first.reply!.ask_outcome, [{ program_id: 'f-due', title: 'Due Grant' }]);
+    assert.deepEqual(first.reply!.ask_outcome, [{ program_id: 'f-due', title: 'Due Grant', due_at: '2026-11-01T00:00:00.000Z' }]);
+    // L23-4 (v6.1.16): the builder text asks, once a day for this installation.
+    assert.match(first.reply!.show_to_builder as string, /\nResults for Due Grant were due Nov 1\. Did you hear back\?\n/);
     assert.match(first.reply!.agent_note as string, /Due Grant/);
     const second = await mcpCall(ctx(id), 'find', { project: PROJECT });
     assert.deepEqual(second.reply!.ask_outcome, []);
@@ -601,7 +603,7 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.deepEqual(blockers.find((b) => b.program_id === 'z-fellows')?.needs, ['founder_video']);
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
-  assert.equal(show.split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 32 days. Long odds: few prizes for many entries. Drafted: 16 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 3 more.');
+  assert.equal(show.split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries. Drafted: 16 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 3 more.');
   // v6.1.6 (R21): Y Combinator is in person, so its line names what attending takes and the Before block does not.
   assert.match(show, /\n\nBefore applying: [^\n]*Still missing for these programs: [^\n]+\./);
   assert.doesNotMatch(show.split('\n\n').find((b) => b.startsWith('Before applying: '))!, /Y Combinator/);
@@ -968,7 +970,7 @@ test('auto_apply changes the closing line and the agent note; never removes a pr
     assert.match(show, tonightRe(free.slice(0, 2).map((p) => p.title)));
     assert.doesNotMatch(show, /Say yes/);
   } else assert.match(show, /\n\nSay yes and I apply to Arbitrum Mentorship Program: Cohort 2\./);
-  for (const p of waits) assert.match(show, new RegExp(`\n\nBefore tonight \\(nothing is sent until these are in\\): [^\n]*for [^\n]*${p.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  for (const p of waits) assert.match(show, new RegExp(`\n\nBefore I send \\(nothing is sent until these are in\\): [^\n]*for [^\n]*${p.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.equal(r.reply!.auto_apply, true);
   assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
   assert.ok(!ids(r.reply!.ready).includes('z-fellows'));
@@ -978,7 +980,7 @@ type B = { program_id: string; sign_in: string | null; needs_click: boolean; out
 /** The closing line when the agent applies tonight: the programs named (C40). */
 const tonightRe = (titles: string[]) => {
   const words = titles.length <= 1 ? titles.join('') : `${titles.slice(0, -1).join(', ')} and ${titles.at(-1)}`;
-  return new RegExp(`\\n\\nApplying tonight to ${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. Say stop to hold any\\.${NOTICE_TAIL}$`);
+  return new RegExp(`\\n\\nUnder your standing approval: ${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. I apply the next time your agent checks; say stop to hold any\\.${NOTICE_TAIL}$`);
 };
 /** The ready programs the agent may send alone tonight: no sign-in, click or approval limit in the way. */
 const freeOf = (reply: Record<string, unknown>, waiting = false) => {
@@ -1030,7 +1032,7 @@ test('max_ask_usd keeps a larger ask out of tonight and names it; a program with
     assert.ok(free.includes('f-open') && !free.includes('f-big'), JSON.stringify(free));
     const show = r.reply!.show_to_builder as string;
     // N4 (v6.1.9): tonight goes ahead; the ask outside the approval would add more.
-    assert.match(show, /Tonight's sends? goes? ahead\. These would add \d+ more: [^\n]*you say yes yourself to [^\n]*Big Grant[^\n]*, over your \$10,000 limit[.;]/);
+    assert.match(show, /The sends? goes? ahead\. These would add \d+ more: [^\n]*you say yes yourself to [^\n]*Big Grant[^\n]*, over your \$10,000 limit[.;]/);
     assert.doesNotMatch(show, /yes yourself to [^\n]*Open Grant/);
     assert.match(show, tonightRe(freeRows.map((p) => p.title)));
     // With auto_apply off, the limits change nothing.
@@ -1064,8 +1066,10 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   await claim(`b:${builderId}`, 'y-combinator', 'earnkit', other.id as number, new Date(NOW.getTime() - H));
   await claim(`b:${builderId}`, 'arbitrum-mentorship-cohort-2', 'earnkit', id, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
-  assert.deepEqual(r.reply!.released, ['alliance-all19']);
-  assert.match(r.reply!.agent_note as string, /released: alliance-all19/);
+  // L23-7 (v6.1.16): released by title, with when it was started; the builder hears it, and the agent note names the title.
+  assert.deepEqual(r.reply!.released, [{ program_id: 'alliance-all19', title: 'Alliance ALL19', started_at: new Date(NOW.getTime() - 25 * H).toISOString() }]);
+  assert.match(r.reply!.agent_note as string, /released: Alliance ALL19\./);
+  assert.match(r.reply!.show_to_builder as string, /^Alliance ALL19: started Nov 3, nothing sent\. Say yes to apply or say skip\.\n/);
   const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.ok(ids(ready).includes('alliance-all19'));
   assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
@@ -1198,7 +1202,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
     r.reply!.show_to_builder,
     [
       'Ready to apply (1):',
-      '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 32 days. Long odds: few prizes for many entries. Drafted: 19 of 22 answers. Needs your top 3 successes, funding raised before and current TVL range.',
+      '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries. Drafted: 19 of 22 answers. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       // L1c-3 (v6.1.10): the project's own chain (Base) first, rule-free then rule-bearing; then the chain-agnostic
       // FLOSS/fund; the Arc deploy (another chain) after them, past the cap.
@@ -2341,7 +2345,8 @@ test('O4 (v6.1.10): the no-project open list marks each in-person program', asyn
   const show = r.reply!.show_to_builder as string;
   const lines = show.split('\n');
   // Lane 20 (v6.1.16): Monad Blitz Oregon is closed; Guangzhou is the open Monad Blitz.
-  for (const l of ['Monad Blitz @广州 (Guangzhou), $1,500 in prizes, closes in 16 days, in person.', 'Alliance ALL19, $400,000 at admission, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated, closes in 30 days, in person.', 'Kiroween 2026, $100,000 in prizes, closes in 30 days.'])
+  // L23-9 (v6.1.16): the one closes wording, a day past 14 days.
+  for (const l of ['Monad Blitz @广州 (Guangzhou), $1,500 in prizes, closes Nov 21, in person.', 'Alliance ALL19, $400,000 at admission, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated, closes Dec 4, in person.', 'Kiroween 2026, $100,000 in prizes, closes Dec 4.'])
     assert.ok(lines.includes(l), show);
 });
 
@@ -2366,7 +2371,7 @@ test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds t
   assert.deepEqual([night.need_you, night.needs], [['the problem'], ['the problem']]);
   // Off the tonight list, named as waiting (F1).
   assert.doesNotMatch(show.split('\n\n').at(-1)!, /Night Grant/);
-  assert.match(show, /Before tonight \(nothing is sent until these are in\): [^\n]*your problem for [^\n]*Night Grant/);
+  assert.match(show, /Before I send \(nothing is sent until these are in\): [^\n]*your problem for [^\n]*Night Grant/);
   // With a repo the same line, and the record is never asked for a project with its repo or site (lane 8 #10).
   const repo = await mcpCall(c, 'find', { project: { ...PROJECT, name: 'Night App' } });
   assert.ok(!(repo.reply!.record_missing as string[]).includes('a project with its repo or site'), JSON.stringify(repo.reply!.record_missing));
@@ -2514,10 +2519,10 @@ test('L13-9 (v6.1.14): one tonight list, the same by default and in filter.all; 
     // More go tonight than the default list shows.
     const shown = (byDefault.reply!.ready as { in_person: boolean }[]).filter((p) => !p.in_person).length;
     assert.ok(tonight.programs.length > shown, `${tonight.programs.length} vs ${shown}`);
-    const line = (r: typeof all) => /Applying tonight to [^\n]+?\. Say stop to hold any\./.exec(r.reply!.show_to_builder as string)?.[0];
+    const line = (r: typeof all) => /Under your standing approval: [^\n]+?\. I apply the next time your agent checks; say stop to hold any\./.exec(r.reply!.show_to_builder as string)?.[0];
     assert.ok(line(byDefault));
     assert.equal(line(byDefault), line(all));
-    assert.match(byDefault.reply!.agent_note as string, /Tonight's list names programs past the shown list: call find with program_id for each one's fields before you send it\./);
+    assert.match(byDefault.reply!.agent_note as string, /The standing-approval list names programs past the shown list: call find with program_id for each one's fields before you send it\./);
   } finally {
     await sql()`DELETE FROM programs WHERE id LIKE 'l139-%'`;
   }

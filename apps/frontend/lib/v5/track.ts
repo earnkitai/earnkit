@@ -11,9 +11,9 @@ import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
-import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
-import { closeDay } from './deadline';
-import { dayOf, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
+import { closedAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
+import { closeDay, dayWords } from './deadline';
+import { OTHER_CLAIM_NOTE, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -442,25 +442,34 @@ async function act(
     skipped: `Skipped ${title}. I won't bring it up again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };
-  // v6.1.9: a send after the program closed is still recorded, and says so.
-  const closed = i.status === 'applied' && row && !isOpen(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
-    // v6.1.16 Task 16 (ruling 40): the day in the program's zone, as its Closes line says it (Task 9's dayWords absorbs this).
-    ? `${row.file.title} closed on ${closeDay(row.file) ?? dayOf(new Date(row.file.ends_at))}; recorded anyway.`
+  // v6.1.9: a send after the program closed is still recorded, and says so. L23-2 (v6.1.16): closed from the clock.
+  const closedDay = i.status === 'applied' && row && closedAt(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
+    // v6.1.16 Task 16 (ruling 40): the day in the program's zone, as its Closes line says it, through dayWords (L23-11).
+    ? closeDay(row.file, ctx.now) ?? dayWords(new Date(row.file.ends_at), ctx.now)
     : null;
+  const closed = closedDay ? `${row!.file.title} closed on ${closedDay}; recorded anyway.` : null;
+  // L23-3 (v6.1.16): a send over another agent's live claim is recorded; the agent hears to tell the builder.
+  const otherClaim = res.ok && 'other_claim' in res;
   if (i.status === 'applied' && outside)
     return {
       ...(await applicationIdOf(owner, i.program_id)),
-      show_to_builder: [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
+      // L23-20 (v6.1.16): one closed sentence, never two.
+      show_to_builder: outside === HAD_CLOSED && closedDay
+        ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
+        : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
+      agent_note: [...(otherClaim ? [OTHER_CLAIM_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.'].join(' '),
       ledger: await summary(owner, programs, ctx.now),
     };
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
   return {
     ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id) : {}),
     show_to_builder: closed ?? lines[i.status],
-    agent_note: i.status === 'applied' && standing && outside === null
-      ? "Done for tonight. The builder's next find reports it; do not call find again until they ask."
-      : 'Call find again for the updated ledger.',
+    agent_note: otherClaim
+      ? OTHER_CLAIM_NOTE
+      : i.status === 'applied' && standing && outside === null
+        // L23-1 (v6.1.16): no night is promised.
+        ? "Done for now. The builder's next find reports it; do not call find again until they ask."
+        : 'Call find again for the updated ledger.',
     ledger: await summary(owner, programs, ctx.now),
   };
 }

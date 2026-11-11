@@ -44,7 +44,11 @@ test('unlinked and sign-in not configured: linked false, no sign_in, the session
   assert.equal(r.isError, false, r.text);
   assert.equal(r.reply!.linked, false);
   assert.equal('sign_in' in r.reply!, false);
-  assert.equal(r.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
+  // L23-21 (v6.1.16), lane 23 E15: a get is no save; one Say.
+  assert.equal(r.reply!.show_to_builder, 'Nothing saved yet. Say yes to sign in and I keep your record.');
+  assert.equal((r.reply!.show_to_builder as string).match(/\bSay\b/g)?.length, 1);
+  const set = await mcpCall({ installationId: await installation(), builderId: null, now: NOW }, 'record', { set: { person: { name: 'Ada' } } });
+  assert.equal(set.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
   assert.equal(r.reply!.agent_note, 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.');
   assert.equal('record' in r.reply!, false);
 });
@@ -269,9 +273,9 @@ test('C51: after the account is deleted, the next record call of a linked agent 
   const c = await linked();
   await deleteBuilder(c.builderId, NOW);
   const first = await mcpCall({ ...c, builderId: null }, 'record', { get: true });
-  assert.equal(first.reply!.show_to_builder, "Your record was deleted at earnkit.com/me; this agent is unlinked. I can't save that yet, so I keep it for this chat.");
+  assert.equal(first.reply!.show_to_builder, 'Your record was deleted at earnkit.com/me; this agent is unlinked. Nothing saved yet. Say yes to sign in and I keep your record.');
   const second = await mcpCall({ ...c, builderId: null }, 'record', { get: true });
-  assert.equal(second.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
+  assert.equal(second.reply!.show_to_builder, 'Nothing saved yet. Say yes to sign in and I keep your record.');
 });
 
 test('C50 and B17: a brief counts items, not blocks; an answer the builder rewrote (no short) asks the agent to redraft its short', async () => {

@@ -107,22 +107,22 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): won $100, rejected, a further paym
   assert.deepEqual(rows.map((x) => [x.status, Number(x.amount_usd), x.corrected]), [['won', 150, true]]);
 });
 
-test('Review Focus 1, tightened by v6.1.13 B3: A started, B applied records nothing, A applied is the one application; B hears it was already sent', async () => {
+test('Review Focus 1, re-pinned by L23-3 (v6.1.16): A started, B applied is recorded with the warning and clears the claim; A hears it was already sent', async () => {
   const { a, c, owner } = await twoAgents();
   await sql()`UPDATE installations SET client_name = 'Codex' WHERE id = ${c.installationId}`;
   await upsertProgram(programFixture({ id: 't7-rf1', title: 'Focus Grant' }), 'file', NOW);
   assert.equal((await track(a, { program_id: 't7-rf1', status: 'started' })).show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
   const over = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(over.show_to_builder, 'Your other agent is handling that one; nothing recorded.');
-  assert.equal(over.agent_note, 'Nothing was recorded.');
-  const sent = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(sent.show_to_builder, "Tracked. Ask me how it went once results are out.");
-  const again = await track({ ...c, now: new Date(NOW.getTime() + 3 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(again.show_to_builder, 'Already sent here on Nov 4 by Claude Code; nothing recorded.');
+  // L23-3 (v6.1.16): a real send is never refused or lost.
+  assert.equal(over.show_to_builder, 'Tracked. Ask me how it went once results are out.');
+  assert.equal(over.agent_note, 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.');
+  assert.equal(over.ledger.applied, 1);
+  const again = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
+  assert.equal(again.show_to_builder, 'Already sent here on Nov 4 by Codex; nothing recorded.');
   assert.equal(again.agent_note, 'Nothing was recorded.');
   assert.equal(again.ledger.applied, 1);
-  const rows = await sql()`SELECT status, installation_id FROM applications WHERE owner = ${owner} AND program_id = 't7-rf1'`;
-  assert.deepEqual(rows.map((r) => [r.status, r.installation_id]), [['applied', a.installationId]]);
+  const rows = await sql()`SELECT status, installation_id, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 't7-rf1'`;
+  assert.deepEqual(rows.map((r) => [r.status, r.installation_id, r.claimed_at, r.claimed_by]), [['applied', c.installationId, null, null]]);
 });
 
 test('a result for a program gone from the catalog uses the title stored when it was sent (v6.1.7, C36)', async () => {
@@ -455,10 +455,10 @@ test('B18: an agent send is under standing approval only within every limit; oth
 
   const first = await send('b18-a');
   assert.equal(first.show_to_builder, "Tracked. Ask me how it went once results are out.");
-  assert.equal(first.agent_note, "Done for tonight. The builder's next find reports it; do not call find again until they ask.");
+  assert.equal(first.agent_note, "Done for now. The builder's next find reports it; do not call find again until they ask.");
   assert.equal(await auto('b18-a'), true);
   const second = await send('b18-b', new Date(NOW.getTime() + 60_000));
-  assert.equal(second.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
+  assert.equal(second.show_to_builder, 'Sent, but outside your standing approval: the daily limit was reached.');
   assert.match(second.agent_note, /Call find again for the updated ledger\.$/);
   assert.equal(await auto('b18-b'), false);
   const cases: [string, string][] = [
@@ -503,7 +503,7 @@ test('Review Focus 4 (v6.1.9 N2): recording an old win today does not use tonigh
   assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${owner} AND program_id = 'rf4-new'`)[0].auto_applied, true);
   // The second send today is past the limit.
   const next = await track({ ...linked, now: new Date(NOW.getTime() + 120_000) }, { program_id: 'rf4-next', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.equal(next.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
+  assert.equal(next.show_to_builder, 'Sent, but outside your standing approval: the daily limit was reached.');
 });
 
 test('N2 (v6.1.9): a row from before the send time was kept counts by its at', async () => {
@@ -518,7 +518,7 @@ test('N2 (v6.1.9): a row from before the send time was kept counts by its at', a
   await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, auto_applied)
     VALUES (${'b:' + b.id}, ${c.installationId}, 'n2-legacy', 'applied', ${new Date(NOW.getTime() - 3_600_000)}, true)`;
   const r = await track({ ...c, builderId: b.id }, { program_id: 'n2-now', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.equal(r.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
+  assert.equal(r.show_to_builder, 'Sent, but outside your standing approval: the daily limit was reached.');
 });
 
 test('N1 (v6.1.9): the tonight list leaves out the sends already made under standing approval in the last 24 hours', async () => {
@@ -537,9 +537,9 @@ test('N1 (v6.1.9): the tonight list leaves out the sends already made under stan
   await upsertProgram(programFixture({ id: 'n1-beta', title: 'N1 Beta Grant', category: 'grant' }), 'file', NOW);
   const project = { name: 'N1 App', description: 'An app for builders.', live_url: 'https://n1.example' };
   const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n\n').at(-1);
-  assert.match((await closing())!, /^Applying tonight to /);
+  assert.match((await closing())!, /^Under your standing approval: /);
   await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.match((await closing())!, /^Tonight's limit is used; the next sends wait until tomorrow\. Say yes and I apply/);
+  assert.match((await closing())!, /^Your daily limit is used; the next sends wait until 24 hours have passed\. Say yes and I apply/);
   // A day later the room is back.
   const tomorrow = ((await find({ ...a2, builderId: b.id, now: new Date(NOW.getTime() + 86_400_000 + 60_000) }, { project })) as { show_to_builder: string }).show_to_builder;
   assert.doesNotMatch(tomorrow, /limit is used/);
@@ -627,14 +627,15 @@ test('v6.1.9: applied as the first call after the account was deleted answers th
 
 test('v6.1.16 Task 16 (ruling 40): the closed line names the day in the program\'s zone, as its Closes line does; the 9 catalog programs whose UTC day differs', async () => {
   const days: Record<string, string> = {
-    'a16z-speedrun': 'Nov 1', 'arc-microgrants-studio': 'Nov 1', 'arc-microgrants': 'Oct 14', 'colosseum-eternal': 'Mar 20',
+    // L23-11 (v6.1.16): through dayWords, with the year when it is not this one.
+    'a16z-speedrun': 'Nov 1', 'arc-microgrants-studio': 'Nov 1', 'arc-microgrants': 'Oct 14', 'colosseum-eternal': 'Mar 20, 2027',
     'colosseum-worlds-fair': 'Oct 12', 'monad-blitz-oregon': 'Nov 10', 'monad-metropolis': 'Oct 13',
     'solana-incubator-cohort-6': 'Dec 4', 'ugreen-ai-nas-hackathon-2026': 'Nov 15',
   };
   const dir = findProgramsDir()!;
   for (const [id, day] of Object.entries(days)) {
     const file = ProgramFile.parse(JSON.parse(readFileSync(join(dir, `${id}.json`), 'utf8')));
-    assert.equal(closeDay(file), day, id);
+    assert.equal(closeDay(file, NOW), day, id);
   }
   const c = await ctx();
   const oregon = ProgramFile.parse(JSON.parse(readFileSync(join(dir, 'monad-blitz-oregon.json'), 'utf8')));
@@ -701,7 +702,7 @@ test('I1 (v6.1.9 final): the night sequence: a send under standing approval, no 
   // The night routine: its find, then the send; the note tells the agent to stop there.
   await find(at(night, 10), { project });
   const sent = await track(at(night, 10.1), { program_id: 'i1-a', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.equal(sent.agent_note, "Done for tonight. The builder's next find reports it; do not call find again until they ask.");
+  assert.equal(sent.agent_note, "Done for now. The builder's next find reports it; do not call find again until they ask.");
   assert.doesNotMatch(sent.agent_note, /Call find again/);
   // The morning: the builder's other installation reports it.
   const morning = (await find(at(day, 18), { project })) as { applied_overnight: { program_id: string }[]; show_to_builder: string };
@@ -914,7 +915,7 @@ test('Review Focus 4 (v6.1.12, F8): a send under standing approval to a program 
   const send = (id: string) => track({ ...c, builderId: b.id }, { program_id: id, status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
   const auto = async (id: string) => (await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].auto_applied;
   const late = await send('f8-hours');
-  assert.equal(late.show_to_builder, 'f8-hours closed on Nov 4; recorded anyway. Sent, but outside your standing approval: it had closed.');
+  assert.equal(late.show_to_builder, 'f8-hours closed on Nov 4; recorded anyway, not under your standing approval.');
   assert.equal(await auto('f8-hours'), false);
   assert.equal(late.ledger.applied, 1);
   // Within the hour it still counts: the agent sent it as it closed.
@@ -931,7 +932,7 @@ test('Review Focus 4 (v6.1.12, F8): a send under standing approval to a program 
   await p('f8-hour-1', H + 60_000);
   assert.equal((await send('f8-hour')).show_to_builder, 'f8-hour closed on Nov 4; recorded anyway.');
   assert.equal(await auto('f8-hour'), true);
-  assert.equal((await send('f8-hour-1')).show_to_builder, 'f8-hour-1 closed on Nov 4; recorded anyway. Sent, but outside your standing approval: it had closed.');
+  assert.equal((await send('f8-hour-1')).show_to_builder, 'f8-hour-1 closed on Nov 4; recorded anyway, not under your standing approval.');
   assert.equal(await auto('f8-hour-1'), false);
 });
 
@@ -1018,24 +1019,23 @@ test('B6 (v6.1.13, Review Focus 5): a send with 300 field keys is recorded, keep
   assert.equal(schema.properties.fields_used.items?.type, 'string');
 });
 
-test('B3 (v6.1.13): applied over another agent\'s live claim records nothing; the holder\'s own send is unchanged', async () => {
+test('B3 (v6.1.13), re-pinned by L23-3 (v6.1.16): applied over another agent\'s live claim is recorded, the claim cleared, the agent warned', async () => {
   const { a, c, owner } = await twoAgents();
   await upsertProgram(programFixture({ id: 'b3-claim', title: 'Claim Grant' }), 'file', NOW);
   assert.equal((await track(a, { program_id: 'b3-claim', status: 'started', project: { name: 'Xproj' } })).show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
   const history = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = 'b3-claim'`)[0].n;
   const before = await history();
   const other = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Yproj' }, fields_used: ['project_name'] });
-  assert.equal(other.show_to_builder, 'Your other agent is handling that one; nothing recorded.');
-  assert.equal(other.agent_note, 'Nothing was recorded.');
-  assert.equal(other.ledger.applied, 0);
-  assert.equal(await history(), before);
-  const [held] = await sql()`SELECT status, installation_id, claimed_by, project_id FROM applications WHERE owner = ${owner} AND program_id = 'b3-claim'`;
-  assert.deepEqual([held.status, held.installation_id, held.claimed_by, held.project_id], ['started', a.installationId, a.installationId, 'name:xproj']);
-  // The holder sends it as before.
+  assert.equal(other.show_to_builder, 'Tracked. Ask me how it went once results are out.');
+  assert.equal(other.agent_note, 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.');
+  assert.equal(other.ledger.applied, 1);
+  assert.equal(await history(), before + 1);
+  const [sent] = await sql()`SELECT status, installation_id, claimed_by, project_id FROM applications WHERE owner = ${owner} AND program_id = 'b3-claim'`;
+  assert.deepEqual([sent.status, sent.installation_id, sent.claimed_by, sent.project_id], ['applied', c.installationId, null, 'name:yproj']);
+  // The holder's send after it hears it was already sent; nothing changes.
   const mine = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Xproj' }, fields_used: ['project_name'] });
-  assert.equal(mine.show_to_builder, "Tracked. Ask me how it went once results are out.");
-  const [sent] = await sql()`SELECT status, installation_id, project_id FROM applications WHERE owner = ${owner} AND program_id = 'b3-claim'`;
-  assert.deepEqual([sent.status, sent.installation_id, sent.project_id], ['applied', a.installationId, 'name:xproj']);
+  assert.match(mine.show_to_builder, /^Already sent here on Nov 4 by .+; nothing recorded\.$/);
+  assert.equal(await history(), before + 1);
   // A claim past its 24 hours holds nothing: another agent's send is recorded.
   await upsertProgram(programFixture({ id: 'b3-stale', title: 'Stale Grant' }), 'file', NOW);
   await track(a, { program_id: 'b3-stale', status: 'started' });

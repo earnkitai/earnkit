@@ -41,7 +41,7 @@ Then ask your agent: "What can I earn?"
    the record and the repo, and what is one change away.
 3. The builder says yes. The agent calls track with started, drafts and submits in its own browser,
    then calls track with applied. EarnKit never submits.
-4. The agent calls track with the result, won or rejected. EarnKit asks once how it went.
+4. The agent calls track with the result, won or rejected. Once results are due, EarnKit asks how it went until one is recorded.
 
 ## The four tools
 
