@@ -140,10 +140,18 @@ export function dateStatus(file: Pick<Program, 'status' | 'starts_at' | 'ends_at
   return null;
 }
 
-/** Moves the program to `status` (an upcoming program's opens_note goes); writes the program_changes row. */
-async function flip(file: Program, source: 'file' | 'api', status: 'active' | 'closed', now: Date): Promise<void> {
+/**
+ * The file as its dates call for it at `now` (L30-1), shared by the daily run and the deploy's sync (fix round 1, I1),
+ * so a deploy never writes a program back against its dates: `moved` (an upcoming program's opens_note dropped),
+ * `blocked` (an upcoming program at its start with no submission requirements: it stays until its file has them), or
+ * null when it stays. Pure.
+ */
+export function movedByDate(file: Program, now: Date): { to: 'active' | 'closed'; file: Program } | { blocked: true } | null {
+  const to = dateStatus(file, now);
+  if (!to) return null;
+  if (to === 'active' && file.submission_requirements.length === 0) return { blocked: true };
   const { opens_note: _note, ...rest } = file;
-  await upsertProgram({ ...rest, status } as Program, source, now);
+  return { to, file: { ...rest, status: to } as Program };
 }
 
 export type HealthRun = { checked: number; stale: string[]; changed: string[]; closed: string[]; opened: string[]; failed: Failed[] };
@@ -207,13 +215,13 @@ export async function runHealth(
         fail(r.id, err);
       }
     }
-    const to = dateStatus(file, now);
-    if (!to) return;
+    const move = movedByDate(file, now);
+    if (!move) return;
     // L30-1: an upcoming program opens only with its requirements in the file; until then it stays and the owner hears.
-    if (to === 'active' && file.submission_requirements.length === 0) return fail(r.id, 'opens today but has no submission requirements', 'catalog');
+    if ('blocked' in move) return fail(r.id, 'opens today but has no submission requirements', 'catalog');
     try {
-      await flip(file, r.source, to, now);
-      (to === 'closed' ? out.closed : out.opened).push(r.id);
+      await upsertProgram(move.file, r.source, now);
+      (move.to === 'closed' ? out.closed : out.opened).push(r.id);
     } catch (err) {
       // The schema refusing the moved file is the catalog's to fix.
       fail(r.id, err, err instanceof Error && err.name === 'ZodError' ? 'catalog' : undefined);

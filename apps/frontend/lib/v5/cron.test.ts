@@ -1,7 +1,7 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { cronPost, RUN_BUDGET_MS } from './cron';
+import { cronPost, HEALTH_BUDGET_MS, RUN_BUDGET_MS } from './cron';
 import { errorCode } from './health';
 import { SafeFetchError } from './safe-fetch';
 import type { Mailer } from './mail';
@@ -396,4 +396,23 @@ test('L22-13 (v6.1.16): the daily status flip expires every catalog surface (rev
   } finally {
     watchCatalogRevalidation(null);
   }
+});
+
+test('fix round 1 (M1): the walk gets its own share; a walk that uses all of it still leaves the queue 220 s and the run ends inside 420 s', async () => {
+  assert.equal(HEALTH_BUDGET_MS, 180_000);
+  const start = 2_000_000;
+  let t = start;
+  let healthDeadline = 0;
+  const calls: { deadline?: number }[] = [];
+  const res = await cronPost(req(`Bearer ${SECRET}`), {
+    ...deps, clock: () => t,
+    // The slowest a real walk can be: its last probe ends at its deadline.
+    runHealth: async (_now, d) => ((healthDeadline = d!.deadline!), (t = d!.deadline!), quietHealth()),
+    workQueue: async (o) => (calls.push(o), (t = o.deadline!), { read: 1, left: 0, jobs_finished: [] }),
+  });
+  const body = (await res.json()) as Body;
+  assert.equal(healthDeadline, start + 180_000);
+  assert.deepEqual(body.failed, []);
+  assert.equal(calls[0].deadline! - (start + 180_000), 220_000);
+  assert.ok(t - start < RUN_BUDGET_MS);
 });

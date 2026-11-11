@@ -1,14 +1,14 @@
 /**
  * POST /api/cron, once a day (v6.1.16 Task 16: the daily run tells the truth). Steps, in order, each in its own try:
  * the freshness walk (links, page changes, status moves by date), the sweeps (repo cache over 30 days, project reports
- * over 180, screen jobs over 180, link codes, sessions and spent OAuth codes over a day, OAuth clients over 30 days with
- * no installation, the evidence cache over 180 days, rate windows over 2 days), the queue's share (5 minutes at most,
- * within the run's budget), then the owner's digest. One `deadline = start + RUN_BUDGET_MS`; health and the queue
- * start only before it (else `failed` with `budget`); the sweeps and the digest always run. Every failure is in
- * `failed: [{ id, step, error }]` (a program's id, or null for a whole step; `error` one of db, fetch, timeout, budget,
- * error by the error's class, the message only in the server log); the answer is 200 with the list, 500 only
- * when every step failed. A JSON body { job_id } is the owner's trigger: that job's queue only. Bearer CRON_SECRET only
- * (503 while it is unset).
+ * over 180, screen jobs over 180, link codes, sessions and spent OAuth codes over a day, OAuth clients over 30 days that
+ * never exchanged a code, the evidence cache over 180 days, rate windows over 2 days), the queue's share (5 minutes at
+ * most, within the run's budget), then the owner's digest. One `deadline = start + RUN_BUDGET_MS`; the walk has its own
+ * share (HEALTH_BUDGET_MS); health and the queue start only before the deadline (else `failed` with `budget`); the
+ * sweeps and the digest always run. Every failure is in `failed: [{ id, step, error }]` (a program's id, or null for a
+ * whole step; `error` one of db, fetch, timeout, budget, catalog, parse, error by the error's class, the message only
+ * in the server log); the answer is 200 with the list, 500 only when every step failed. A JSON body { job_id } is the
+ * owner's trigger: that job's queue only. Bearer CRON_SECRET only (503 while it is unset).
  */
 import { sweepEvidence } from '../v6/evidence';
 import { sweepScreens } from '../v6/screen-jobs';
@@ -29,6 +29,11 @@ export const RUN_BUDGET_MS = 420_000;
 export { PROBE_MS, PROBE_PARALLEL } from './health';
 /** The queue's share ends this long before the run's deadline, for its last read and the digest. */
 const SCREEN_TAIL_MS = 20_000;
+/**
+ * Fix round 1 (M1): the walk's own share of the run. Its probes end by `start + HEALTH_BUDGET_MS` (a probe starts only
+ * when it can finish), so the queue always keeps at least RUN_BUDGET_MS - HEALTH_BUDGET_MS - SCREEN_TAIL_MS (220 s).
+ */
+export const HEALTH_BUDGET_MS = 180_000;
 
 export type Step = 'health' | 'sweep_repo' | 'sweep_reports' | 'sweep_screens' | 'sweep_auth' | 'sweep_evidence' | 'sweep_windows' | 'screen' | 'digest';
 const STEPS: Step[] = ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'screen', 'digest'];
@@ -117,7 +122,8 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     }
   }
 
-  const deadline = clock() + RUN_BUDGET_MS;
+  const start = clock();
+  const deadline = start + RUN_BUDGET_MS;
   const fails: RunFailure[] = [];
   /** Runs one step in its own try; a throw is listed and the run goes on. */
   const step = async <T>(name: Step, run: () => Promise<T>): Promise<T | null> => {
@@ -139,7 +145,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   let health: HealthRun | null = null;
   if (inBudget('health')) {
     health = await step('health', () => (deps.runHealth ?? runHealth)(now, {
-      link: deps.link, resolve: deps.resolve, transport: deps.transport, limit: deps.limit, deadline, clock,
+      link: deps.link, resolve: deps.resolve, transport: deps.transport, limit: deps.limit, deadline: start + HEALTH_BUDGET_MS, clock,
     }));
     if (health) {
       for (const f of health.failed) fails.push({ ...f, step: 'health' });
