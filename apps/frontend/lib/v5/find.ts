@@ -15,8 +15,8 @@ import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signIn
 import { closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, outcomeAsksDue, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
+import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, outcomeAsksDue, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -25,7 +25,7 @@ import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, proj
 import { readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, STANDING_NOTE, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -164,6 +164,14 @@ export type FindReply = {
   gaps: GapProgram[];
   not_fit?: { program_id: string; title: string; reason: string }[];
   ledger: Ledger;
+  /** L29-1 (v6.1.16 Task 15): every application by name, newest first; the builder's line names five. */
+  applications?: ApplicationItem[];
+  /** L29-7 (v6.1.16 Task 15): in the JSON, `ready` is what the agent may send; these two are the ready programs the
+   *  builder applies to in person, and the ones the builder presses submit on (or that need their click). */
+  in_person?: ReadyProgram[];
+  you_send?: ReadyProgram[];
+  /** L29-26 (v6.1.16 Task 15): the default view left programs or lines out ("say more" is filter.all). */
+  more?: boolean;
   /** L23-4 (v6.1.16): applied programs past their results date with no result, that this installation has not asked
    *  about today; the builder text asks each. */
   ask_outcome: OutcomeDue[];
@@ -258,6 +266,20 @@ export function shownReadyOf<T>(readyV: T[], all: boolean, inPerson: (v: T) => b
   const remoteV = readyV.filter((v) => !inPerson(v));
   const attendV = readyV.filter(inPerson);
   return [...cappedOf(remoteV, MAX_READY, soon), ...cappedOf(attendV, MAX_IN_PERSON, soon)];
+}
+
+/**
+ * L29-7 (v6.1.16 Task 15): the reply's JSON lists: `ready` is what the agent may send; `in_person` the ready programs
+ * the builder attends; `you_send` the ones the builder presses submit on. Each keeps its number. Pure.
+ */
+function jsonLists<T extends Omit<FindReply, 'show_to_builder' | 'agent_note'>>(r: T): T & Pick<FindReply, 'in_person' | 'you_send'> {
+  const click = new Set(r.blockers.filter((b) => b.needs_click).map((b) => b.program_id));
+  return {
+    ...r,
+    ready: r.ready.filter((p) => !p.in_person && !click.has(p.program_id)),
+    in_person: r.ready.filter((p) => p.in_person),
+    you_send: r.ready.filter((p) => !p.in_person && click.has(p.program_id)),
+  };
 }
 
 /** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
@@ -490,7 +512,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
               ...(verdict?.status === 'gap' && contractLookedAgain(gapOf(row, verdict, done)) ? [CONTRACT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
-              ...(standing ? [STANDING_NOTE, STOP_NOTE] : []),
+              ...(standing ? [standingNote([id]), STOP_NOTE] : []),
               ...(dropped ? [dropped] : []),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
@@ -518,10 +540,14 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   // Template row 12 (v6.1.15): its own sentence, so it starts with a capital.
   if (programs.length > MAX_LISTED) lines.push(`And ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
+  // L29-1, L29-2 (v6.1.16 Task 15): the applications by name whenever there are any, project or not; then the ask for
+  // the project is one line, in place of the open list.
+  const applications = await applicationsOf(ownerOf(ctx));
+  const appsLine = applicationsLine(applications, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
   const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : "Tell me which project and I'll match it.";
-  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\n${ask}` : 'Nothing is open right now. Ask again any time and I show what is new.';
+  const list = appsLine ? `${appsLine}\n${ask}` : programs.length > 0 ? `Open now:\n${lines.join('\n')}\n${ask}` : 'Nothing is open right now. Ask again any time and I show what is new.';
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
   // Linked, the report a project find would give from this agent's last find (fix round 1): what moved, the answers
@@ -539,7 +565,7 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
     ].join('\n'),
     since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
-    ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
+    ready: [], gaps: [], ledger, applications, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
     ...(report ? { applied_overnight: report.applied_overnight, ...(report.approvals_again ? { approvals_again: report.approvals_again } : {}) } : {}),
     ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}), linked_notice: notice,
   };
@@ -787,7 +813,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
-    ledger, ask_outcome: ask, as_reported: facts.as_reported,
+    ledger, applications: await applicationsOf(owner), ask_outcome: ask, as_reported: facts.as_reported,
     ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
@@ -807,11 +833,22 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';
   // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
-  const said = replyParts(r, last === null, ctx.now, await lastOfferOf(ctx.installationId));
+  const said = replyParts(r, last === null, ctx.now, await lastOfferOf(ctx.installationId), { all });
   await markOffer(ctx.installationId, said.offer, ctx.now);
-  const reply = { show_to_builder: said.text, agent_note: [agentNote(r, { more, description }), unreadNote(unread)].filter(Boolean).join('\n'), ...r };
+  // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
+  const reply = {
+    show_to_builder: said.text,
+    agent_note: [agentNote(r, { more, description, hidden: said.hidden }), unreadNote(unread)].filter(Boolean).join('\n'),
+    ...jsonLists(r),
+    more: more > 0 || said.hidden.length > 0,
+  };
   await markFind(ctx.installationId, ctx.now, remembered, key);
-  await markList(ctx.installationId, hash, ctx.now);
+  // L29-15 (v6.1.16 Task 15): the numbers the builder sees, so track takes "3" for the program numbered 3.
+  const byNumber: string[] = [];
+  for (const p of [...ready, ...gaps]) byNumber[p.n - 1] = p.program_id;
+  await markList(ctx.installationId, hash, ctx.now, Array.from(byNumber, (x) => x ?? ''));
+  // L29-11 (v6.1.16 Task 15): what the next send needs from the builder, for record's note (an unfiltered linked find).
+  if (side && i.filter?.category === undefined) await markNextNeeds(ctx.installationId, (sendableOf(r)[0]?.need_you ?? []));
   // L23-1 (v6.1.16): the programs the standing-approval line named, kept with the first time a still-open promise was made.
   if (tonight && tonight.programs.length > 0) {
     const kept = promise && !promiseDue ? promise : null;

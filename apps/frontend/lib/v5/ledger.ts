@@ -462,6 +462,59 @@ export function ledgerCounts(l: Ledger): string {
   return `${counts.join(', ')}.`;
 }
 
+/** L29-1 (v6.1.16 Task 15): one application as find's JSON lists it; `amount` through `amountsText` (a win only). */
+export type ApplicationItem = {
+  program_id: string;
+  title: string;
+  status: 'waiting' | 'won' | 'rejected' | 'no_result' | 'held';
+  sent_at: string | null;
+  result_at: string | null;
+  amount: string | null;
+};
+
+/**
+ * L29-1 (v6.1.16 Task 15): the owner's applications by name, newest first: every sent one (waiting or with its result)
+ * and the ones the builder held. Skips are not applications, nor is a live claim (an agent filling the form now; a claim
+ * left unsent is released and said by Task 9's started-not-sent line).
+ */
+export async function applicationsOf(owner: string): Promise<ApplicationItem[]> {
+  const rows = await sql()<{ program_id: string; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown }[]>`
+    SELECT program_id, status, title, sent_at, at, held_at, amount_usd, amounts FROM applications
+    WHERE owner = ${owner} AND status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL) ORDER BY COALESCE(sent_at, held_at, at) DESC, program_id`;
+  const titles = new Map((await programsById(rows.filter((r) => !r.title).map((r) => r.program_id))).map((p) => [p.id, p.file.title]));
+  return rows.map((r) => {
+    const status: ApplicationItem['status'] = r.status === 'applied' ? 'waiting' : r.status === 'started' ? 'held' : (r.status as ApplicationItem['status']);
+    const a = r.status === 'won' ? amountsOf(r) : null;
+    const sent = r.status === 'started' ? null : (r.sent_at ?? r.at);
+    return {
+      program_id: r.program_id, title: r.title ?? titles.get(r.program_id) ?? r.program_id, status,
+      sent_at: sent ? sent.toISOString() : null,
+      result_at: RESULTS.includes(r.status) ? r.at.toISOString() : null,
+      amount: a ? amountsText(a) : null,
+    };
+  });
+}
+
+/** L29-1: at most this many applications are named on the builder's line; the JSON lists all. */
+export const APPLICATIONS_SHOWN = 5;
+
+/**
+ * L29-1 (v6.1.16 Task 15): "Your applications: PayPal AI Hackathon (sent Nov 3, waiting), Thiel Fellowship (sent Oct 30,
+ * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)". Null when there are none. Pure.
+ */
+export function applicationsLine(apps: ApplicationItem[], now: Date): string | null {
+  if (apps.length === 0) return null;
+  const words = (a: ApplicationItem): string => {
+    const day = a.sent_at ? dayWords(new Date(a.sent_at), now) : null;
+    if (a.status === 'held') return 'held';
+    const result = a.status === 'won' ? (a.amount ? `won ${a.amount}` : `won, ${AMOUNT_NOT_GIVEN}`) : a.status === 'no_result' ? 'no result' : a.status;
+    return day ? `sent ${day}, ${result}` : result;
+  };
+  const shown = apps.slice(0, APPLICATIONS_SHOWN).map((a) => `${a.title} (${words(a)})`);
+  const rest = apps.length - shown.length;
+  return `Your applications: ${shown.join(', ')}${rest > 0 ? ` and ${rest} more` : ''}.`;
+}
+
 /** L23-18 (v6.1.16): when this owner sent the program (an `applied` row waiting on its result), or null. */
 export async function sentOf(owner: string, programId: string): Promise<Date | null> {
   const [r] = await sql()<{ sent: Date }[]>`

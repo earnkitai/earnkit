@@ -13,6 +13,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { getRecord, linkInstallation, saveRecord, upsertBuilder } from '../v6/builders';
 import { approvePath, mergeRecord } from '../v6/record';
 import { evidence, liveRows } from '../v6/fixtures/evidence-builder';
+/** L29-7 (v6.1.16 Task 15): every ready program of a find reply: what the agent may send, in person and the builder's to send. */
+const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unknown[]) ?? []), ...((r.in_person as unknown[]) ?? []), ...((r.you_send as unknown[]) ?? [])];
 
 process.env.EARNKIT_AUTH_SECRET ??= 'journey-test-secret-0123456789abcdef';
 after(() => sql().end());
@@ -23,22 +25,25 @@ const H = 3_600_000;
 const CLOSINGS = [
   // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
   // L24-9 (v6.1.16 Task 11): "ready" when other blocks are listed.
-  /Say yes and I apply to all \d+( ready)?\. Or say the numbers to skip\.$/,
+  // L29-17, L29-27 (v6.1.16 Task 15): no second action; a yes that needs answers names them.
+  /Say yes and (?:tell me [^\n]+, and )?I apply to all \d+( ready)?\.$/,
+  /Say yes and tell me [^\n]+, and I (?:apply to|draft) [^\n]+\.$/,
+  /Nothing is ready yet\. Do real people use it\? Say yes, sign in once, and I check\.$/,
   // L16-11 (v6.1.16): one ready program is named.
   // L24-8, L24-10 (v6.1.16 Task 11): the do offer and the drafts fold into this one.
   /Say yes and I apply to (?!all \d+( ready)?\. )[^\n]+\.$/,
   // L24-28 (v6.1.16 Task 11): the one ready program over the limit.
   /[^\n]+ is over your limit\. Say yes and I apply\.$/,
-  /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
+  /Say yes and I draft all \d+ for you to send\.$/,
   /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.| Say "do \d+" and I [^\n]+\.)?$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I get it ready\.| Say "do \d+" and I [^\n]+\.)?$/,
   // Final fix (v6.1.12, I1): the users yes on a program with a setup step or a rule left.
   /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. Ask again any time and I show what is new\.$/,
   // L24-11 (v6.1.16 Task 11): the one standing-approval line.
-  /Applying to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
+  /Applying now to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
 ];
 const seen: string[] = [];
 
@@ -80,7 +85,9 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   assert.ok(gaps.length > 0 || /Nothing fits yet\. Ask again any time and I show what is new\.$/.test(show), show);
   // A program's own setup steps ("First: sign in to its hub") and its blockers ("Before applying: Sign in once to
   // its hub", v6.1.3 R4) are the program's, not EarnKit asking who they are.
-  const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person \(\d+\):\n(\d+\. [^\n]*\n?)+/m, '');
+  // L29-34 (v6.1.16 Task 15): the users question's ruled sign-in checks the product, it never asks who they are.
+  const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person \(\d+\):\n(\d+\. [^\n]*\n?)+/m, '')
+    .replace('Do real people use it? Say yes, sign in once, and I check.', '');
   assert.doesNotMatch(ours, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
   assert.equal(reply.as_reported, false);
 });
@@ -88,7 +95,7 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
 test('the owner: ready or the builder codes gap, then applied and won on the ledger', async () => {
   const id = await stranger();
   const reply = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  const ready = (reply.ready as { program_id: string }[]).map((p) => p.program_id);
+  const ready = (allReady(reply) as { program_id: string }[]).map((p) => p.program_id);
   const gaps = reply.gaps as { program_id: string; kind?: string; gap?: { kind: string } }[];
   const inGaps = gaps.some((g) => g.program_id === 'base-builder-grants');
   assert.ok(ready.includes('base-builder-grants') || inGaps, JSON.stringify({ ready, gaps }));
@@ -98,18 +105,19 @@ test('the owner: ready or the builder codes gap, then applied and won on the led
   const t = await track(id, { program_id: top, status: 'applied' });
   assert.equal((t.ledger as { applied: number }).applied, 1);
   const after1 = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  assert.match(after1.show_to_builder as string, /Your applications: 1 sent/);
+  // L29-1 (v6.1.16 Task 15): the applications by name.
+  assert.match(after1.show_to_builder as string, /Your applications: [^\n]+ \(sent Nov 4, waiting\)\./);
 
   const w = await track(id, { program_id: top, status: 'won', amount_usd: 5000 });
   assert.equal((w.ledger as { won: number }).won, 1);
   const after2 = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  assert.match(after2.show_to_builder as string, /Your applications: 1 sent.*, 1 won/);
+  assert.match(after2.show_to_builder as string, /Your applications: [^\n]+ \(sent Nov 4, won \$5,000\)\./);
 });
 
 test('a program closing in 3 days appears in since.closing on the second call', async () => {
   const id = await stranger();
   const first = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  const pick = (first.ready as { program_id: string }[])[0].program_id;
+  const pick = (allReady(first) as { program_id: string }[])[0].program_id;
   const p = (await getProgram(pick))!.file;
   const ends = new Date(NOW.getTime() + 3 * 24 * H).toISOString();
   await upsertProgram({ ...p, ends_at: ends }, 'file', new Date(NOW.getTime() + H));
@@ -134,9 +142,10 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   const { rec, project: p } = project('earnkit');
   const live = async () => evidence({ live: liveRows({ url: 'https://earnkit.com', url_ok: true }) });
   const at = (now: Date) => ({ installationId: id, builderId: b.id, now, gh: rec.fetch, evidence: live });
+  // L29-9 (v6.1.16 Task 15): a send outside the standing approval is recorded and answered as a refusal (isError).
   const call = async (now: Date, tool: string, args: Record<string, unknown>) => {
     const r = await mcpCall(at(now), tool, args);
-    assert.equal(r.isError, false, r.text);
+    assert.equal(r.isError, /^Sent, but outside your standing approval/.test(String(r.reply?.show_to_builder)), r.text);
     seen.push(r.reply!.show_to_builder as string);
     return r.reply!;
   };
@@ -149,10 +158,10 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
       traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01.' },
     },
   });
-  assert.match(set.show_to_builder as string, /^Tracked 7 facts\. /);
+  assert.equal(set.show_to_builder, 'Tracked 7 facts.');
   // v6.1.4: Z Fellows is the fourth in-person program, past the default two, so the full list shows it.
   const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
-  const z0 = (before.ready as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
+  const z0 = (allReady(before) as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.notEqual(z0.fields.find((f) => f.key === 'problem')!.from, 'record');
 
   // The builder approves on /me and turns standing approval on there.
@@ -164,28 +173,32 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   // Z Fellows is past the default two in-person programs (v6.1.4), so the full list shows the one the record fills.
   const first = await call(t1, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   assert.equal(first.linked, true);
-  const z = (first.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
+  const z = (allReady(first) as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.deepEqual(z.fields.find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
   assert.ok(z.from_record >= 2);
-  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 3 days. Long odds: few prizes for many entries. Drafted: 17 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 2 more.');
+  // L29-26 (v6.1.16 Task 15): the full view is names and money; the counts are in the JSON.
+  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000.');
 
-  const topReady = (first.ready as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
+  const topReady = (allReady(first) as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
   const top = topReady.program_id;
   // v6.1.9 S6: a send under standing approval names every required answer it filled.
   const required = topReady.fields.filter((f) => f.required).map((f) => f.key);
   const started = await call(new Date(t1.getTime() + 60_000), 'track', { program_id: top, status: 'started', project_id: 'earnkit' });
-  assert.equal(started.show_to_builder, 'Started Arbitrum Mentorship Program: Cohort 2.');
+  // L29-32 (v6.1.16 Task 15): started has no builder text; the note names it.
+  assert.equal(started.show_to_builder, '');
+  assert.match(started.agent_note as string, /^Started Arbitrum Mentorship Program: Cohort 2\. /);
   const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
   // F1 (v6.1.10): the find held it back ("Before I send") for answers only the builder gives that the record lacks,
   // so naming every key does not make the send one under standing approval.
-  assert.match(first.show_to_builder as string, /Before I send \(nothing is sent until these are in\): [^\n]+ for Arbitrum Mentorship Program: Cohort 2\./);
+  // L29-6 (v6.1.16 Task 15): it is not on the list the approval covers.
+  assert.ok(!((first.tonight as { programs: { program_id: string }[] } | undefined)?.programs ?? []).some((x) => x.program_id === top));
   assert.equal(applied.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
 
   const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
   assert.deepEqual(next.applied_overnight, []);
   assert.doesNotMatch(next.show_to_builder as string, /Applied under your standing approval/);
-  assert.ok(!(next.ready as { program_id: string }[]).some((x) => x.program_id === top));
+  assert.ok(!(allReady(next) as { program_id: string }[]).some((x) => x.program_id === top));
 });
 
 test('every line the builder saw follows the copy rules and ends with one closing line', () => {
@@ -205,10 +218,12 @@ test('every line the builder saw follows the copy rules and ends with one closin
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
     // Fix round 1 (v6.1.14, F2): a proof gap with no link to give adds the linkless sign-in to the closing line.
-    const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '').replace(/ Sign in once and I (check that|remember you)\.$/, '');
-    if (/^\d+\. .*: proof that /m.test(show)) assert.match(show.split('\n').at(-1)!, /Sign in once\b/, show);
+    // L29-33 (v6.1.16 Task 15): the closing is its own line; the sign-in and the linked notice are their own lines.
+    const CLOSING_START = /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes)/;
+    const last = show.split('\n').find((l) => CLOSING_START.test(l)) ?? '';
+    if (/^\d+\. .*: proof that /m.test(show)) assert.match(show, /^Sign in once\b/m, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying to |.+ is over your limit\. Say yes)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).
     for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }

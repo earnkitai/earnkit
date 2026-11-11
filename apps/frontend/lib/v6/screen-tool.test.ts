@@ -638,9 +638,11 @@ test('Review Focus 11 (v6.1.16): $1,000 tracked + $2,500.50 and EUR 2,000 screen
   assert.equal(eur.reply.show_to_builder, 'Recorded 1 outcome.');
   const line = 'Your applications: 3 sent, 3 won ($3,500.50 and EUR 2,000).';
   const f = await mcpCall(b, 'find', { project: { name: 'Money App', description: 'Payments for coffee shops.' } });
-  assert.equal(appsLine(f.reply!.show_to_builder as string), line);
-  const again = await mcpCall(b, 'track', { program_id: 'rf11-a', status: 'won', amount_usd: 1000 });
+  // L29-1, ruling 29 (v6.1.16 Task 15): find names each application in the one money format; the totals are the JSON's and /me's.
+  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: Grants rf11-a (sent Nov 6, won $1,000), Grants rf11-b (sent Nov 6, won $2,500.50), Grants rf11-c (sent Nov 6, won EUR 2,000).');
   const { ledgerCounts } = await import('../v5/ledger');
+  assert.equal(`Your applications: ${ledgerCounts(f.reply!.ledger as never)}`, line);
+  const again = await mcpCall(b, 'track', { program_id: 'rf11-a', status: 'won', amount_usd: 1000 });
   assert.equal(`Your applications: ${ledgerCounts(again.reply!.ledger as never)}`, line);
   const secret = process.env.EARNKIT_AUTH_SECRET;
   process.env.EARNKIT_AUTH_SECRET ??= 's'.repeat(40);
@@ -664,7 +666,9 @@ test('L22-1 (v6.1.16): a screened win with no amount is counted and named: 2 won
   await post('l221-a', [{ outcome: 'won', amount_usd: 5000 }]);
   await post('l221-b', [{ outcome: 'won' }]);
   const f = await mcpCall(b, 'find', { project: { name: 'Money App', description: 'Payments for coffee shops.' } });
-  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: 2 sent, 2 won ($5,000, one amount not given).');
+  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: Grants l221-a (sent Nov 6, won $5,000), Grants l221-b (sent Nov 6, won, amount not given).');
+  const { ledgerCounts } = await import('../v5/ledger');
+  assert.equal(`Your applications: ${ledgerCounts(f.reply!.ledger as never)}`, 'Your applications: 2 sent, 2 won ($5,000, one amount not given).');
 });
 
 test('L22-4, L22-5, L22-9 (v6.1.16): $10,000.99 and 50000 EUR are refused on a $10,000 cap with the owner line; nothing stored', async () => {
@@ -719,7 +723,9 @@ test('L22-3 (v6.1.16): a further payment adds within one currency and keeps both
   const ledger = await sql()`SELECT program_id, amounts FROM applications WHERE owner = ${`b:${b.builderId}`} ORDER BY program_id`;
   assert.deepEqual(ledger.map((x) => x.amounts), [{ EUR: 2500 }, { USD: 1000, EUR: 500 }]);
   const f = await mcpCall(b, 'find', { project: { name: 'Money App', description: 'Payments for coffee shops.' } });
-  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: 2 sent, 2 won ($1,000 and EUR 3,000).');
+  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: Grants l223-a (sent Nov 6, won EUR 2,500), Grants l223-b (sent Nov 6, won $1,000 and EUR 500).');
+  const { ledgerCounts } = await import('../v5/ledger');
+  assert.equal(`Your applications: ${ledgerCounts(f.reply!.ledger as never)}`, 'Your applications: 2 sent, 2 won ($1,000 and EUR 3,000).');
 });
 
 test('L22-12 (v6.1.16): a results page carries each applicant\'s posted result and amount', async () => {

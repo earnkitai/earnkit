@@ -553,8 +553,8 @@ test('N1 (v6.1.9): the tonight list leaves out the sends already made under stan
   // shown on a second fixture; users left unsaid keeps the users yes (F3) out of the closing.
   await upsertProgram(programFixture({ id: 'n1-beta', title: 'N1 Beta Grant', category: 'grant' }), 'file', NOW);
   const project = { name: 'N1 App', description: 'An app for builders.', live_url: 'https://n1.example' };
-  const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n\n').at(-1);
-  assert.match((await closing())!, /^Applying to [^\n]+ under your standing approval\./);
+  const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n').at(-1);
+  assert.match((await closing())!, /^Applying now to [^\n]+ under your standing approval\./);
   await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
   assert.match((await closing())!, /^Your daily limit is used; the next sends wait until 24 hours have passed\. Say yes and I apply/);
   // A day later the room is back.
@@ -840,7 +840,7 @@ test('F1 fix round 2 (v6.1.10): find and track judge one fixture by the same lis
   const fromFind = unvouchedRequired(ready.fields).map((f: { key: string }) => f.key);
   assert.deepEqual(fromFind, ['problem', 'linkedin']);
   assert.deepEqual(ready.need_you, ['the problem', 'your LinkedIn']);
-  assert.doesNotMatch(r.show_to_builder.split('\n\n').at(-1)!, /Same Grant/);
+  assert.doesNotMatch(r.show_to_builder.split('\n').at(-1)!, /Same Grant/);
   const row = (await getProgram('fr2-same'))!;
   const i = { program_id: 'fr2-same', status: 'applied' as const, submitted_by: 'agent' as const, fields_used: fields.map((f) => f.key), project };
   assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, i, row), fromFind);
