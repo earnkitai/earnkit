@@ -63,7 +63,8 @@ const Project = z.object({
   answers: Answers.prefault({}),
   /** EarnKit only (find): when the evidence was last read, the tier then and its verified usage line. */
   evidence_read_at: iso.optional(),
-  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional() }).strip().optional(),
+  // v6.1.16 Task 9 (controller ruling): `repo_url`, the repo the tier was read from, so a failed re-read keeps it only for that repo.
+  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional(), repo_url: line(300).optional() }).strip().optional(),
 }).strip();
 export type Project = z.infer<typeof Project>;
 const Docs = z.object({

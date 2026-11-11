@@ -65,6 +65,9 @@ export async function storedRecordContext(builderId: number, projectId: string |
 const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]).includes(t ?? '');
 
 /** Loads the record and, for a project with a repo or site, the builder's own tier under the 24-hour rule. */
+/** v6.1.16 Task 9 (controller ruling): days a stored tier stands after a failed re-read of the same repo. */
+export const READ_GRACE_DAYS = 14;
+
 export async function recordSide(
   o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },
 ): Promise<RecordSide> {
@@ -96,21 +99,20 @@ export async function recordSide(
     // The stored tier and line stand; nothing new is stored.
     return { ...side, problems: [EVIDENCE_NOT_READ] };
   }
-  // L23-14 (v6.1.16): the repo read failed (private or missing, a 404, a timeout): the stored tier and its date stand,
-  // and the builder hears that today's read failed and which read it uses.
-  if (evidence && subject.repo_url && evidence.code === null && evidence.notes.some((n) => n.startsWith('not read')) && side.summary && stored?.read_at) {
-    const at = o.now.toISOString();
-    await withRecord(o.builderId, o.now, (cur) => {
-      const mine = cur.projects.find((x) => x.id === project.id);
-      if (!mine) return { record: null, result: null };
-      mine.evidence_read_at = at;
-      return { record: cur, result: null };
-    });
-    return {
-      ...side,
-      summary: { tier: side.summary.tier, line: `I could not read your repo today; using what I read on ${dayWords(new Date(stored.read_at), o.now)}.` },
-      problems: [...side.problems, EVIDENCE_NOT_READ],
-    };
+  // L23-14 (v6.1.16): the repo read failed (private or missing, a 404, a timeout). Controller ruling: the stored tier
+  // stands only within READ_GRACE_DAYS of its read and only for the repo it was read from; else the project reads
+  // unverified. Nothing is written, so evidence_read_at stays and the next find tries again.
+  if (evidence && subject.repo_url && evidence.code === null && evidence.notes.some((n) => n.startsWith('not read'))) {
+    const readAt = stored?.read_at ? Date.parse(stored.read_at) : NaN;
+    const sameRepo = !!stored?.repo_url && stored.repo_url === subject.repo_url;
+    const fresh = Number.isFinite(readAt) && o.now.getTime() - readAt <= READ_GRACE_DAYS * 86_400_000;
+    if (side.summary && stored && sameRepo && fresh)
+      return {
+        ...side,
+        summary: { tier: side.summary.tier, line: `I could not read your repo today; using what I read on ${dayWords(new Date(readAt), o.now)}.` },
+        problems: [...side.problems, EVIDENCE_NOT_READ],
+      };
+    return { ...side, tier: 'unverified', summary: { tier: 'unverified', line: 'I could not read your repo today.' }, verifiedUsage: null, problems: [...side.problems, EVIDENCE_NOT_READ] };
   }
   const p = place(evidence, { identical_pitch: 0, shared_contributors: 0 }, undefined, o.now);
   const summary = evidence ? evidenceSummary(p, evidence) : null;
@@ -121,7 +123,7 @@ export async function recordSide(
     const mine = cur.projects.find((x) => x.id === project.id);
     if (!mine) return { record: null, result: null };
     mine.evidence_read_at = at;
-    if (summary?.tier) mine.last_tier = { tier: summary.tier, line: summary.line.slice(0, 280), read_at: at, ...(usage ? { usage: usage.slice(0, 280) } : {}) };
+    if (summary?.tier) mine.last_tier = { tier: summary.tier, line: summary.line.slice(0, 280), read_at: at, ...(usage ? { usage: usage.slice(0, 280) } : {}), ...(subject.repo_url ? { repo_url: subject.repo_url.slice(0, 300) } : {}) };
     return { record: cur, result: null };
   });
   return { ...side, tier: summary?.tier ?? side.tier, summary: summary ?? side.summary, verifiedUsage: summary ? usage : side.verifiedUsage };
