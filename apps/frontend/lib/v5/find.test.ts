@@ -15,15 +15,20 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;
 const CLOSINGS = [
   // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
-  /Say yes and I apply to all \d+\. Or say the numbers to skip\.$/,
-  /Say yes and I apply to (?!all \d+\. )[^\n]+\.$/,
+  // L24-9 (v6.1.16 Task 11): "ready" when other blocks are listed.
+  /Say yes and I apply to all \d+( ready)?\. Or say the numbers to skip\.$/,
+  // L24-8, L24-10 (v6.1.16 Task 11): the do offer and the drafts fold into this one.
+  /Say yes and I apply to (?!all \d+( ready)?\. )[^\n]+\.$/,
+  // L24-28 (v6.1.16 Task 11): the one ready program over the limit.
+  /[^\n]+ is over your limit\. Say yes and I apply\.$/,
   /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
   /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.| Say "do \d+" and I [^\n]+\.)?$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. Ask again any time and I show what is new\.$/,
-  /Under your standing approval: [^\n]+\. I apply the next time your agent checks; say stop to hold any\.$/,
+  // L24-11 (v6.1.16 Task 11): the one standing-approval line.
+  /Applying to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
 ];
 
 async function installation() {
@@ -983,7 +988,8 @@ type B = { program_id: string; sign_in: string | null; needs_click: boolean; out
 /** The closing line when the agent applies tonight: the programs named (C40). */
 const tonightRe = (titles: string[]) => {
   const words = titles.length <= 1 ? titles.join('') : `${titles.slice(0, -1).join(', ')} and ${titles.at(-1)}`;
-  return new RegExp(`\\n\\nUnder your standing approval: ${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. I apply the next time your agent checks; say stop to hold any\\.${NOTICE_TAIL}$`);
+  // L24-11 (v6.1.16 Task 11): the one standing line: stop to hold, or the yes for the ones outside the approval.
+  return new RegExp(`\\n\\nApplying to ${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} under your standing approval\\. (?:Say stop and I hold any of them\\.|Say yes and I also apply to [^\\n]+?\\.)${NOTICE_TAIL}$`);
 };
 /** The ready programs the agent may send alone tonight: no sign-in, click or approval limit in the way. */
 const freeOf = (reply: Record<string, unknown>, waiting = false) => {
@@ -1034,9 +1040,9 @@ test('max_ask_usd keeps a larger ask out of tonight and names it; a program with
     const free = ids(freeRows);
     assert.ok(free.includes('f-open') && !free.includes('f-big'), JSON.stringify(free));
     const show = r.reply!.show_to_builder as string;
-    // N4 (v6.1.9): tonight goes ahead; the ask outside the approval would add more.
-    assert.match(show, /The sends? goes? ahead\. These would add \d+ more: [^\n]*you say yes yourself to [^\n]*Big Grant[^\n]*, over your \$10,000 limit[.;]/);
-    assert.doesNotMatch(show, /yes yourself to [^\n]*Open Grant/);
+    // L24-11 (v6.1.16 Task 11): the ask outside the approval takes the standing line's yes.
+    assert.match(show, /under your standing approval\. Say yes and I also apply to [^\n]*Big Grant/);
+    assert.doesNotMatch(show, /also apply to [^\n]*Open Grant/);
     assert.match(show, tonightRe(freeRows.map((p) => p.title)));
     // With auto_apply off, the limits change nothing.
     const off = await linkedWith({ ...OWNER_RECORD, policy: { max_ask_usd: 10_000, categories: ['grant'] } });
@@ -1460,8 +1466,9 @@ test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule y
   }
   assert.deepEqual(lines[0], lines[1]);
   assert.deepEqual(lines[0], [
-    // Review Focus 1 (v6.1.14): the closing names the answers, so the line does not.
-    ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken.', 'Thiel Fellowship needs your online application answers; then I draft it for you to send.'].join('\n'),
+    // L24-2 (v6.1.16 Task 11): the rule yes settled only the rule; the next reply offers the draft afresh. After that
+    // offer (apply), the list's closing names the answers (Review Focus 1, v6.1.14), so the line does not.
+    ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.', 'Say yes and I draft it for you to send.'].join('\n'),
     '1. Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken.',
     // Fix round 1 (T3-R1): FUTO is one real step away, code in a repo, with no yes of its own (T3-R5).
     FUTO_CODE.replace(/^1\./, '2.'),
@@ -1589,7 +1596,7 @@ test('L1d-1 (v6.1.11), C1 (v6.1.13), ruling 12 (v6.1.16): another agent\'s claim
   const line = show.split('\n').find((l) => l.includes('Y Combinator'))!;
   assert.match(line, / Being handled by your other agent\.$/);
   assert.doesNotMatch(show, /another project/);
-  assert.match(show.split('\n').find((l) => /^\d+\. Alliance ALL19/.test(l))!, / Being handled by your other agent since 11:00 UTC\.$/);
+  assert.match(show.split('\n').find((l) => /^\d+\. Alliance ALL19/.test(l))!, / Being handled by your other agent\.$/);
   assert.equal(show.split('\n').filter((l) => l.includes('Being handled')).length, 2);
   // It is no yes: the same list less one to say yes to; it neither pins nor leads the list (L17-6, v6.1.16: a held
   // remote one moves after the ones this agent can send, so the lists are compared as sets).
@@ -1847,7 +1854,7 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   const line = lineOf(blockOf(show, 'One step away'), g.n);
   // L1e-2 (v6.1.13): a ready program takes the closing's yes, so the rule reads as a plain sentence.
   assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: ${BASE_RULE}.`);
-  assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.'));
+  assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Draft it and show the builder; submit only on a yes to the draft.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
   assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Tracked. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
@@ -2236,12 +2243,12 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   const rule = (before.reply!.verdict as { gaps: { kind: string; item: string }[] }).gaps.find((g) => g.kind === 'rule')!;
   await mcpCall(c, 'track', { program_id: 'solana-foundation-grants', status: 'gap_done', item: rule.item });
   const after = await mcpCall(c, 'find', { program_id: 'solana-foundation-grants', project });
-  // N3 (v6.1.12, Review Focus 2): answers still missing, so the line carries its needs and the closing names them;
-  // the yes stands, and no second yes is asked.
+  // L24-2 (v6.1.16 Task 11): the yes to the rule settled the rule only; the next reply offers apply afresh.
   const lines = (after.reply!.show_to_builder as string).split('\n');
-  // Review Focus 1 (v6.1.14): the closing names the needs, so line 1 does not.
-  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants, amount not stated. Drafted: 9 of 10 answers.');
-  assert.equal(lines.at(-1), 'Solana Foundation Grants needs your requested amount; then I apply.');
+  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants, amount not stated. Drafted: 9 of 10 answers. Needs your requested amount.');
+  assert.equal(lines.at(-1), 'Say yes and I apply to Solana Foundation Grants.');
+  assert.doesNotMatch(after.reply!.show_to_builder as string, /Your yes stands/);
+  // After that apply offer the yes stands (N3, v6.1.12): the closing names the answers still missing.
   const list = await mcpCall(c, 'find', { project });
   const ready = (list.reply!.ready as { program_id: string; rule_yes?: true }[]).find((p) => p.program_id === 'solana-foundation-grants');
   assert.equal(ready?.rule_yes, true);
@@ -2249,7 +2256,7 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   assert.doesNotMatch(show, /Your yes stands/);
   // The others ready (as many as earlier tests left open) are asked for their yes after it.
   // F2 (fix round 1, v6.1.14): a proof gap is listed and this context gives no link, so the linkless sign-in ends it.
-  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants needs your requested amount; then I apply\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)? Sign in once and I check that\.$/);
+  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants needs your requested amount; then I apply\.( Say yes and I apply(?: to all \d+(?: ready)?\. Or say the numbers to skip)?\.)? Sign in once and I check that\.$/);
 });
 
 test('N9 (v6.1.9): the one-program detail tells the agent to pass project_id when the project is not in the record', async () => {
@@ -2391,13 +2398,12 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   const ask = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal((ask.reply!.show_to_builder as string).split('\n').at(-1), 'Say yes if they do and I draft it.');
   await mcpCall(c, 'track', { program_id: 'floss-fund-zerodha', status: 'gap_done', item: 'users', project: CLI });
-  // FLOSS/fund still needs its manifest link: its line says so and the closing asks for it, never a second yes (N3,
-  // v6.1.12), on the detail and in the list alike.
+  // L24-2 (v6.1.16 Task 11): the yes answered the users question only ("I draft it"); the next reply offers apply
+  // afresh. After that offer the list's closing names the manifest link (N3, v6.1.12) and line 1 does not.
   const floss = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  // Review Focus 1 (v6.1.14): the closing names the manifest link, so line 1 does not.
-  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. First: publish a funding manifest on your site or repo.', 'FLOSS/fund needs your funding manifest link; then I apply.'].join('\n'));
+  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.', 'Say yes and I apply to FLOSS/fund.'].join('\n'));
   const listed = await mcpCall(c, 'find', { project: CLI });
-  assert.match((listed.reply!.show_to_builder as string).split('\n\n').at(-1)!, /^FLOSS\/fund needs your funding manifest link; then I apply\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
+  assert.match((listed.reply!.show_to_builder as string).split('\n\n').at(-1)!, /^FLOSS\/fund needs your funding manifest link; then I apply\.( Say yes and I apply(?: to all \d+(?: ready)?(?:\. Or say the numbers to skip|, or "do \d+" and I add the codes first))?\.)?$/);
   assert.equal((listed.reply!.show_to_builder as string).match(/funding manifest link/g)!.length, 1, listed.reply!.show_to_builder as string);
   // Fully ready (the one answer is the agent's draft): the yes stands, for the users yes and the rule yes alike.
   const { programFixture } = await import('./fixtures/program');
@@ -2522,7 +2528,7 @@ test('L13-9 (v6.1.14): one tonight list, the same by default and in filter.all; 
     // More go tonight than the default list shows.
     const shown = (byDefault.reply!.ready as { in_person: boolean }[]).filter((p) => !p.in_person).length;
     assert.ok(tonight.programs.length > shown, `${tonight.programs.length} vs ${shown}`);
-    const line = (r: typeof all) => /Under your standing approval: [^\n]+?\. I apply the next time your agent checks; say stop to hold any\./.exec(r.reply!.show_to_builder as string)?.[0];
+    const line = (r: typeof all) => /Applying to [^\n]+? under your standing approval\. Say (stop and I hold any of them|yes and I also apply to [^\n]+?)\./.exec(r.reply!.show_to_builder as string)?.[0];
     assert.ok(line(byDefault));
     assert.equal(line(byDefault), line(all));
     assert.match(byDefault.reply!.agent_note as string, /The standing-approval list names programs past the shown list: call find with program_id for each one's fields before you send it\./);
@@ -2702,7 +2708,7 @@ test('L23-1 (v6.1.16): a day after the standing-approval line, nothing sent: the
     const first = await mcpCall(c(NOW), 'find', { project: PROJECT });
     const named = (first.reply!.tonight as { programs: { program_id: string; title: string }[] }).programs;
     assert.ok(ids(named).includes('tt-promise'));
-    assert.match(first.reply!.show_to_builder as string, /Under your standing approval: [^\n]*\. I apply the next time your agent checks; say stop to hold any\./);
+    assert.match(first.reply!.show_to_builder as string, /Applying to [^\n]* under your standing approval\. Say stop and I hold any of them\./);
     const [kept] = await sql()`SELECT promised, promised_at FROM installations WHERE id = ${id}`;
     assert.deepEqual(ids(kept.promised), ids(named));
     // Within 24 hours nothing is said.
@@ -2888,4 +2894,83 @@ test('Task 9 fix round 1 (N5): unlinking an agent clears its kept standing-appro
   assert.ok(await promisedOf(id));
   assert.equal(await unlinkInstallation(id, builderId, NOW), true);
   assert.equal(await promisedOf(id), null);
+});
+
+// v6.1.16 Task 11 (lane 24).
+
+const L24_CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev', repo_url: 'https://github.com/BurntSushi/ripgrep' };
+
+test('L24-2 (Review Focus 14): a yes to a question settles only the question; the next reply offers apply afresh; after an apply offer the yes stands', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { ruleItem } = await import('./eligibility');
+  await upsertProgram(programFixture({ id: 'l24-us', title: 'L24 Users Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l24-rule', title: 'L24 Rule Grant', eligibility: [{ kind: 'rule', note: 'a first-time founder' }] }), 'file', NOW);
+  try {
+    const c = ctx(await installation());
+    const last = async (id: string) => ((await mcpCall(c, 'find', { program_id: id, project: L24_CLI })).reply!.show_to_builder as string).split('\n').at(-1);
+    // The users question ("I draft it"), the builder's yes, then the next reply.
+    assert.equal(await last('l24-us'), 'Say yes if they do and I draft it.');
+    await mcpCall(c, 'track', { program_id: 'l24-us', status: 'gap_done', item: 'users', project: L24_CLI });
+    assert.equal(await last('l24-us'), 'Say yes and I apply to L24 Users Grant.');
+    // That was an apply offer: now the yes stands.
+    assert.equal(await last('l24-us'), 'Your yes stands for L24 Users Grant: I apply now.');
+    // The rule question ("Say yes if that is you and I draft it."), the yes, then the apply offer afresh.
+    assert.equal(await last('l24-rule'), 'Say yes if that is you and I draft it.');
+    await mcpCall(c, 'track', { program_id: 'l24-rule', status: 'gap_done', item: ruleItem('a first-time founder'), project: L24_CLI });
+    assert.equal(await last('l24-rule'), 'Say yes and I apply to L24 Rule Grant.');
+    // The list after a look-again question: no "Your yes stands"; after an apply offer it stands.
+    await sql()`UPDATE installations SET last_offer = 'look_again' WHERE id = ${c.installationId}`;
+    const list = await mcpCall(c, 'find', { project: L24_CLI });
+    assert.doesNotMatch(list.reply!.show_to_builder as string, /Your yes stands/);
+    assert.equal((await sql()`SELECT last_offer FROM installations WHERE id = ${c.installationId}`)[0].last_offer, 'apply');
+    const again = await mcpCall(c, 'find', { project: L24_CLI });
+    assert.match(again.reply!.show_to_builder as string, /Your yes stands for [^\n]*L24 (Users|Rule) Grant/);
+    for (const r of [list, again]) assert.doesNotMatch(r.reply!.agent_note as string, /without asking again/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('l24-us', 'l24-rule')`;
+  }
+});
+
+test('L24-13, L24-29: the one-program reply under standing approval says so with the list note; it carries the project problems', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'l24-y1', title: 'L24 Alpha Grant', category: 'grant' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } });
+    const c = { ...ctx(id), builderId, evidence: LIVE };
+    const r = await mcpCall(c, 'find', { program_id: 'l24-y1', project: { ...PROJECT, name: 'A'.repeat(200) } });
+    const show = r.reply!.show_to_builder as string;
+    assert.equal(show.split('\n').at(-1), 'Under your standing approval; I apply when your agent next checks. Say stop and I hold it.');
+    const note = r.reply!.agent_note as string;
+    assert.ok(note.includes('Standing approval is on: for each ready program within the limits'), note);
+    assert.ok(note.includes('On stop, call track held for each one.'));
+    assert.deepEqual(r.reply!.problems, ['name cut to 80 characters']);
+    assert.ok(note.includes('Some project facts were dropped: name cut to 80 characters.'), note);
+    // Held: never under standing approval, on the list or the one-program reply.
+    await mcpCall(c, 'track', { program_id: 'l24-y1', status: 'held', project: PROJECT });
+    const held = await mcpCall(c, 'find', { program_id: 'l24-y1', project: PROJECT });
+    assert.notEqual((held.reply!.show_to_builder as string).split('\n').at(-1), 'Under your standing approval; I apply when your agent next checks. Say stop and I hold it.');
+    const list = await mcpCall(c, 'find', { project: PROJECT, filter: { all: true } });
+    assert.ok(!ids((list.reply!.tonight as { programs: unknown }).programs).includes('l24-y1'));
+    assert.match(list.reply!.show_to_builder as string, /On hold until you say go \(1\):\n\d+\. L24 Alpha Grant/);
+    // started lifts the hold.
+    await mcpCall(c, 'track', { program_id: 'l24-y1', status: 'started', project: PROJECT });
+    const back = await mcpCall(c, 'find', { project: PROJECT, filter: { all: true } });
+    assert.doesNotMatch(back.reply!.show_to_builder as string, /On hold/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l24-y1'`;
+  }
+});
+
+test('L24-1 (ruling 12): another agent\'s project name never reaches this agent\'s reply', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-l24-' + Math.random()}, 'Cursor') RETURNING id`;
+  const { linkInstallation } = await import('../v6/builders');
+  await linkInstallation(other.id as number, builderId, NOW);
+  const name = 'Neutral Words Stand In Here For All 52';
+  const { track } = await import('./track');
+  await track({ installationId: other.id as number, builderId, now: NOW }, { program_id: 'y-combinator', status: 'started', project: { name, description: 'x' } });
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+  const all = JSON.stringify(r.reply);
+  for (const w of ['Neutral', 'Stand', 'neutral words']) assert.ok(!all.includes(w), w);
+  assert.match(r.reply!.show_to_builder as string, /Y Combinator[^\n]* Being handled by your other agent\./);
 });

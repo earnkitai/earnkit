@@ -22,18 +22,23 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;
 const CLOSINGS = [
   // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
-  /Say yes and I apply to all \d+\. Or say the numbers to skip\.$/,
+  // L24-9 (v6.1.16 Task 11): "ready" when other blocks are listed.
+  /Say yes and I apply to all \d+( ready)?\. Or say the numbers to skip\.$/,
   // L16-11 (v6.1.16): one ready program is named.
-  /Say yes and I apply to (?!all \d+\. )[^\n]+\.$/,
+  // L24-8, L24-10 (v6.1.16 Task 11): the do offer and the drafts fold into this one.
+  /Say yes and I apply to (?!all \d+( ready)?\. )[^\n]+\.$/,
+  // L24-28 (v6.1.16 Task 11): the one ready program over the limit.
+  /[^\n]+ is over your limit\. Say yes and I apply\.$/,
   /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
   /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.| Say "do \d+" and I [^\n]+\.)?$/,
   // Final fix (v6.1.12, I1): the users yes on a program with a setup step or a rule left.
   /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. Ask again any time and I show what is new\.$/,
-  /Under your standing approval: [^\n]+\. I apply the next time your agent checks; say stop to hold any\.$/,
+  // L24-11 (v6.1.16 Task 11): the one standing-approval line.
+  /Applying to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
 ];
 const seen: string[] = [];
 
@@ -169,7 +174,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   // v6.1.9 S6: a send under standing approval names every required answer it filled.
   const required = topReady.fields.filter((f) => f.required).map((f) => f.key);
   const started = await call(new Date(t1.getTime() + 60_000), 'track', { program_id: top, status: 'started', project_id: 'earnkit' });
-  assert.equal(started.show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
+  assert.equal(started.show_to_builder, 'Started Arbitrum Mentorship Program: Cohort 2.');
   const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
   // F1 (v6.1.10): the find held it back ("Before I send") for answers only the builder gives that the record lacks,
@@ -203,7 +208,7 @@ test('every line the builder saw follows the copy rules and ends with one closin
     const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '').replace(/ Sign in once and I (check that|remember you)\.$/, '');
     if (/^\d+\. .*: proof that /m.test(show)) assert.match(show.split('\n').at(-1)!, /Sign in once\b/, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Under your standing approval)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying to |.+ is over your limit\. Say yes)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).
     for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }

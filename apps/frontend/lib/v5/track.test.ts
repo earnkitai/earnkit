@@ -538,7 +538,7 @@ test('N1 (v6.1.9): the tonight list leaves out the sends already made under stan
   await upsertProgram(programFixture({ id: 'n1-beta', title: 'N1 Beta Grant', category: 'grant' }), 'file', NOW);
   const project = { name: 'N1 App', description: 'An app for builders.', live_url: 'https://n1.example' };
   const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n\n').at(-1);
-  assert.match((await closing())!, /^Under your standing approval: /);
+  assert.match((await closing())!, /^Applying to [^\n]+ under your standing approval\./);
   await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
   assert.match((await closing())!, /^Your daily limit is used; the next sends wait until 24 hours have passed\. Say yes and I apply/);
   // A day later the room is back.

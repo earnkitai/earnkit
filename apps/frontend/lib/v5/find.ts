@@ -15,7 +15,7 @@ import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signIn
 import { closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { clearPromised, lastFindAt, lastList, listHash, markFind, markFindAuto, markList, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
+import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, outcomeAsksDue, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
@@ -25,7 +25,7 @@ import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, proj
 import { readLoosely, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly, tonightOf } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, STANDING_NOTE, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -112,8 +112,8 @@ export type ReadyProgram = {
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
   claimed_since?: string;
-  /** C1 (v6.1.13): the other project the claim is for, by name, when it is not this one. */
-  held_for?: string;
+  /** L24-4 (v6.1.16 Task 11): the builder held it (track held): listed on hold, never sent until a started lifts it. */
+  held?: true;
   /** The builder confirmed its rules (track gap_done) or, F3 (v6.1.10), said real people use it: that yes stands, so
    *  the closing asks for no second one (v6.1.9). */
   rule_yes?: true;
@@ -196,6 +196,8 @@ export type ProgramReply = {
   sign_in?: string;
   /** Whether the installation is linked, as the default find says it (v6.1.14 fix round 1, F3). */
   linked: boolean;
+  /** L24-29 (v6.1.16 Task 11): what the project report had dropped or cut, as the list reply names them. */
+  problems?: string[];
 };
 export type FindContext = {
   installationId: number;
@@ -262,16 +264,6 @@ const EMPTY_FACTS: RepoFacts = {
   builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
-/** The name of the project a claim is for (C1, v6.1.13): the record project by id or key, else the name the owner
- *  reported for that key (`reported`, fix round 1 M3), else the name in a `name:` key, else the repo's path; null when
- *  there is none. Pure. */
-function heldProjectName(project: string, side: RecordSide, reported: string | null): string | null {
-  const own = side.record.projects.find((p) => p.id === project || projectKeyOf(p) === project);
-  const name = own?.name ?? (reported || null) ?? (project.startsWith('name:') ? project.slice(5) : project.replace(/^https:\/\/[^/]+\/?/, ''));
-  const clean = name.trim().replace(/[.!?;:,]+$/, '').trim();
-  return clean || null;
-}
-
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
  *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
 async function factsOf(project: Project, ctx: FindContext, key: string): Promise<RepoFacts> {
@@ -321,39 +313,52 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
   };
 };
 
+/** L24-2 (v6.1.16 Task 11): the kind of the `Say` a one-program gap action offers, null when it offers none. Pure. */
+const actionOffer = (action: string | null): OfferKind | null =>
+  action === null ? null : /^Say "do"/.test(action) ? 'do' : /^Say yes if /.test(action) ? 'draft' : /^Say yes/.test(action) ? 'apply' : null;
+
 /**
  * The verdict as the find list would render it, without the number, then its one action (v6.1.8, 1b): ready, yes and
  * EarnKit applies (or drafts, when the builder presses submit); a gap, its action (`gapAction`); not a fit or in
- * person, the line alone. The rules list only when asked (`withRules`), between the line and the action. Pure.
+ * person, the line alone. The rules list only when asked (`withRules`), between the line and the action. With the
+ * lines, the kind of the `Say` they offer (L24-2, v6.1.16 Task 11): "Your yes stands" only after an apply offer
+ * (`lastOffer`); a program on the standing-approval list (`standing`, L24-13) closes on STANDING_ONE. Pure.
  */
-function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null; done: Set<string> }): string[] {
+function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null; done: Set<string>; lastOffer: OfferKind | null; standing: boolean }): { lines: string[]; offer: OfferKind | null } {
   const p = row.file;
-  if (v.status === 'no') return [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules];
+  if (v.status === 'no') return { lines: [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules], offer: null };
   if (v.status === 'gap') {
     const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
     // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once, last; when it is the only step it is the action.
     const signLast = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
+    const action = gapAction(g, o.signIn);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
-    return [gapLine(g, true, gapActionStep(g, o.signIn)), ...o.rules, gapAction(g, o.signIn), signLast].filter((l): l is string => l !== null);
+    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn)), ...o.rules, action, signLast].filter((l): l is string => l !== null), offer: actionOffer(action) };
   }
   const r = { ...ready(), n: 0 };
-  if (r.in_person) return [inPersonLine(r, true), ...o.rules];
+  if (r.in_person) return { lines: [inPersonLine(r, true), ...o.rules], offer: null };
+  if (o.standing) return { lines: [readyLine(r, o.linked, o.now, true), ...o.rules, STANDING_ONE], offer: 'stop' };
   // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you. L1e-3 (v6.1.13): one
-  // the builder submits too, in the draft wording.
-  const stands = r.rule_yes && r.need_you.length === 0 ? [r.title] : [];
-  const yesStands = o.draftOnly ? [] : stands;
+  // the builder submits too, in the draft wording. L24-2 (v6.1.16 Task 11): only after an apply offer.
+  const said = r.rule_yes && yesStands(o.lastOffer);
+  const stands = said && r.need_you.length === 0 ? [r.title] : [];
+  const yesStandsFor = o.draftOnly ? [] : stands;
   const draftStands = o.draftOnly ? stands : [];
   // N3 (v6.1.12): the yes stands for one that still needs answers too; the closing names them, never a second yes.
-  const yesWaits = r.rule_yes && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you, ...(o.draftOnly ? { draft: true as const } : {}) }] : [];
+  const yesWaits = said && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you, ...(o.draftOnly ? { draft: true as const } : {}) }] : [];
   // Review Focus 1 (v6.1.14): the closing names the needs of a yes that waits, so the line does not.
-  return [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, draftStands, yesWaits, title: r.title })];
+  const c = closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands: yesStandsFor, draftStands, yesWaits, title: r.title });
+  return { lines: [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, c.text], offer: c.offer };
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
-async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string): Promise<ProgramReply> {
+async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string, given: string[] = []): Promise<ProgramReply> {
   // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
   // organizer too, and several are asked about.
   const { row, suggest } = await programByName(id, ctx.now);
+  // L24-2 (v6.1.16 Task 11): the last offer this installation showed, read before this reply replaces it.
+  const lastOffer = await lastOfferOf(ctx.installationId);
+  await markOffer(ctx.installationId, null, ctx.now);
   if (!row)
     return {
       show_to_builder: unknownProgramLine(suggest),
@@ -381,6 +386,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const done = doneHere?.of(id) ?? new Set<string>();
   const ownDone = doneHere?.own.get(id) ?? new Set<string>();
   const verdict = project ? gateFor(side, facts)(evaluate(row, facts, done, ctx.now), row) : undefined;
+  // L24-29 (v6.1.16 Task 11): the project's problems, as the list reply carries them.
+  const problems = project ? [...given, ...(facts.problems ?? []), ...(side?.problems ?? [])] : [];
   const left = closesIn(p, ctx.now);
   // L23-2 (v6.1.16): open or closed from the clock (`isOpenAt`, `closedAt`), whatever status the daily run last wrote.
   const open = isOpenAt(p, ctx.now);
@@ -418,7 +425,19 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const due = sent ? resultsDateOf(row) : null;
   // L23-8 (v6.1.16): another agent of the builder's holds a live claim on it: that is said in place of the yes.
   const hold = open ? (await claimed(ownerOf(ctx))).get(id) : undefined;
-  const heldSince = hold && hold.by !== ctx.installationId && Date.parse(hold.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000 ? hold.since : null;
+  const heldSince = hold && !hold.held && hold.by !== ctx.installationId && Date.parse(hold.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000 ? hold.since : null;
+  // L24-13 (v6.1.16 Task 11): a ready program the standing approval sends alone (the list's tonightOf over this one).
+  const policy = side?.record.policy ?? (ctx.builderId !== null ? rec?.record.policy : undefined);
+  const standing = open && !heldSince && !hold?.held && verdict?.status === 'ready' && !p.in_person && policy?.auto_apply === true && rec !== null
+    && tonightOf({
+      auto_apply: true, max_per_night: policy.max_per_night,
+      auto_sent_today: await autoSentSince(ownerOf(ctx), new Date(ctx.now.getTime() - 86_400_000)),
+      ready: [{ ...readyOf(row, verdict, facts, ctx.now, rec, ownDone), n: 1 }], blockers: blockersOf([row], rec.record),
+    }).list.length === 1;
+  const said = !closed && !upcoming && verdict
+    ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done, lastOffer, standing })
+    : null;
+  let offer: OfferKind | null = said?.offer ?? null;
   const show = closed
     // Low 20 (v6.1.13), L23-20 (v6.1.16): closed is said once, and a closed program's rules are not listed.
     ? sent
@@ -426,17 +445,21 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       : [`${p.title}, ${moneyOf(p)}, ${when}.`]
     : upcoming
       ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
-      : verdict
-        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
+      : said
+        ? said.lines
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
-    if (verdict?.status === 'ready' && !p.in_person) show[show.length - 1] = heldLine;
-    else show.push(heldLine);
+    if (verdict?.status === 'ready' && !p.in_person) {
+      show[show.length - 1] = heldLine;
+      offer = null;
+    } else show.push(heldLine);
   }
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
+  await markOffer(ctx.installationId, offer, ctx.now);
+  const dropped = droppedNote(problems);
   return {
     show_to_builder: show.join('\n'),
     agent_note: (open
@@ -456,6 +479,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
               ...(verdict?.status === 'gap' && contractLookedAgain(gapOf(row, verdict, done)) ? [CONTRACT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
+              ...(standing ? [STANDING_NOTE, STOP_NOTE] : []),
+              ...(dropped ? [dropped] : []),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
     ).concat(heldSince ? ["Claimed by another of the builder's agents: do not submit it."] : []).join('\n'),
@@ -464,6 +489,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     guide,
     ...(verdict ? { verdict } : {}),
     rules,
+    ...(problems.length > 0 ? { problems } : {}),
     ...(link ? { sign_in: link } : {}),
     linked: ctx.builderId !== null,
   };
@@ -612,7 +638,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     const report = key !== projectKeyOf(project) && !project.repo_url ? { ...project, repo_url: (await reportOf(ownerOf(ctx), nameKeyOf(project)))?.repo_url } : project;
     for (const k of new Set([key, projectKeyOf(project), nameKeyOf(project)])) await saveReport(ownerOf(ctx), k, report as Project, ctx.now);
   }
-  if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key);
+  if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key, problems);
+  // L24-2 (v6.1.16 Task 11): the open list offers no yes.
+  if (!project) await markOffer(ctx.installationId, null, ctx.now);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null, rawName(i.project));
 
   const facts = await factsOf(project, ctx, key);
@@ -687,21 +715,18 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // Only another installation's claim marks a program: this agent's own claim is its to send. A claim on another
   // project marks it too, by that project's name (C1, v6.1.13), never pinning it (L1d-1); a claim with no project holds
   // it on every project's list, by default and in the full list (L13-8, L12-1, v6.1.14).
+  // L24-1 (v6.1.16 Task 11): never another project's name (ruling 12). L24-4: a claim the builder held is theirs, not
+  // another agent's: it is marked `held`, from any installation.
   const holds = side
-    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId))
+    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId && !h.held))
     : new Map<string, { since: string; project: string | null }>();
-  const heldReports = new Map<string, string | null>();
-  for (const v of shownReady) {
-    const h = holds.get(v.program_id);
-    if (h?.project && !here(h.project) && !heldReports.has(h.project)) heldReports.set(h.project, (await reportOf(owner, h.project))?.name ?? null);
-  }
+  const builderHeld = new Set([...allClaims].filter(([, h]) => h.held).map(([id]) => id));
+  const marked = (id: string, r: Omit<ReadyProgram, 'n'>): Omit<ReadyProgram, 'n'> => {
+    const hold = holds.get(id);
+    return hold ? { ...r, claimed_since: hold.since } : builderHeld.has(id) ? { ...r, held: true } : r;
+  };
   const { ready, gaps } = numbered(
-    shownReady.map((v) => {
-      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id));
-      const hold = holds.get(v.program_id);
-      const other = hold && hold.project !== null && !here(hold.project) ? heldProjectName(hold.project, side!, heldReports.get(hold.project) ?? null) : null;
-      return hold ? { ...r, claimed_since: hold.since, ...(other ? { held_for: other } : {}) } : r;
-    }),
+    shownReady.map((v) => marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)))),
     shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v))),
     (g) => g.in_person && rulesOnly([g.gap, ...g.also]),
   );
@@ -718,9 +743,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     const every = order.map((v) => {
       const own = shown.find((p) => p.program_id === v.program_id);
       if (own) return own;
-      const hold = holds.get(v.program_id);
-      const r = { ...readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)), n: 0 };
-      return hold ? { ...r, claimed_since: hold.since } : r;
+      return { ...marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id))), n: 0 };
     });
     const t = tonightOf({ auto_apply: true, max_per_night: side.record.policy.max_per_night, auto_sent_today: sentToday, ready: every, blockers: blockersOf(rows, side.record) });
     return { programs: t.list.map((p) => ({ program_id: p.program_id, title: p.title })), limit_used: t.limitUsed };
@@ -772,7 +795,10 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     : undefined;
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';
-  const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: [agentNote(r, { more, description }), unreadNote(unread)].filter(Boolean).join('\n'), ...r };
+  // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
+  const said = replyParts(r, last === null, ctx.now, await lastOfferOf(ctx.installationId));
+  await markOffer(ctx.installationId, said.offer, ctx.now);
+  const reply = { show_to_builder: said.text, agent_note: [agentNote(r, { more, description }), unreadNote(unread)].filter(Boolean).join('\n'), ...r };
   await markFind(ctx.installationId, ctx.now, remembered, key);
   await markList(ctx.installationId, hash, ctx.now);
   // L23-1 (v6.1.16): the programs the standing-approval line named, kept with the first time a still-open promise was made.

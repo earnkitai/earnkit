@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { type Db, sql } from './db';
 import { cleanText } from './controls';
+import type { OfferKind } from './reply';
 import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
 
 /** `audience`: the resource the token was issued for (null for installations from before v6.1.16). */
@@ -207,4 +208,15 @@ export async function lastList(id: number): Promise<{ hash: string; at: Date } |
 /** Stores this project find's list hash and time (after each project find). */
 export async function markList(id: number, hash: string, now: Date): Promise<void> {
   await sql()`UPDATE installations SET last_list_hash = ${hash}, last_list_at = ${now} WHERE id = ${id}`;
+}
+
+/** L24-2 (v6.1.16 Task 11): the kind of the last `Say` this installation's find offered, or null. */
+export async function lastOfferOf(id: number): Promise<OfferKind | null> {
+  const [row] = await sql()<{ o: string | null }[]>`SELECT last_offer AS o FROM installations WHERE id = ${id}`;
+  return (row?.o as OfferKind | null | undefined) ?? null;
+}
+
+/** L24-2: stores the kind of the `Say` this find's reply offered (null when it offered none). */
+export async function markOffer(id: number, offer: OfferKind | null, now: Date): Promise<void> {
+  await sql()`UPDATE installations SET last_offer = ${offer}, last_offer_at = ${now} WHERE id = ${id}`;
 }
