@@ -184,6 +184,23 @@ test('an unknown or expired code: the page says so (404 in the data); a post goe
   assert.equal(`${LINK_STATES.expired.title} ${LINK_STATES.expired.line}`, EXPIRED);
 });
 
+test('L31-6 (v6.1.16 Task 17, controller ruling): in production the sign-in callback sets __Host-ek_me and expires any old ek_me', async () => {
+  const id = await install();
+  const code = await createLinkCode(id, NOW);
+  const { state, cookie: link } = await start(code);
+  const saved = process.env.NODE_ENV;
+  (process.env as Record<string, string>).NODE_ENV = 'production';
+  try {
+    const r = await callback(state, link);
+    assert.equal(r.status, 302);
+    const set = r.headers.getSetCookie();
+    assert.match(set[0], /^__Host-ek_me=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/);
+    assert.ok(set.includes('ek_me=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'), JSON.stringify(set));
+  } finally {
+    (process.env as Record<string, string | undefined>).NODE_ENV = saved;
+  }
+});
+
 test('callbackGet signs in and sends the builder to /me?link=<code>: a session, ek_link cleared, nothing linked, the code unused', async () => {
   const id = await install();
   const code = await createLinkCode(id, NOW);

@@ -157,8 +157,9 @@ test('L19-1: PATCH and PUT on /mcp are 405 with Allow: POST, DELETE, OPTIONS; th
   assert.deepEqual(config.matcher.slice(0, 3), ['/me', '/oauth/authorize', '/.well-known/:path*']);
   // L27-3, L27-4 (v6.1.16): a guide path and a /link page (one segment, no dot) for the 404 rewrite and the 405.
   assert.deepEqual(config.matcher.slice(3, 5), ['/programs/:id([^/.]+)', '/link/:code([^/.]+)']);
-  assert.equal(config.matcher.length, 6);
-  assert.ok(config.matcher[5].includes('[Mm][Cc][Pp]') && config.matcher[5].includes('[Oo][Aa][Uu][Tt][Hh]/'));
+  // L31-1 (v6.1.16 Task 17): a page entry for every page's 405, which never matches /mcp, /oauth/, /api/, /me/ or /link/.
+  assert.equal(config.matcher.length, 7);
+  for (const m of config.matcher.slice(5)) assert.ok(m.includes('[Mm][Cc][Pp]') && m.includes('[Oo][Aa][Uu][Tt][Hh]/'), m);
 });
 
 const accepting = (accept: string | null) => {

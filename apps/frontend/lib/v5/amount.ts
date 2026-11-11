@@ -8,6 +8,14 @@
 const CODE = /^[A-Za-z]{3}$/;
 const SYMBOLS: Record<string, string> = { $: 'USD', '€': 'EUR', '£': 'GBP' };
 
+/**
+ * The one refusal for an amount that cannot be read, on track and on the screen (L31-5, ruling 43, v6.1.16 Task 17).
+ * Task 15 (L29-25) owns this text and its schema words; keep this the only copy when it lands.
+ */
+export const AMOUNT_UNREAD = 'Tell me the amount as a number, like 5000 for $5,000.';
+/** L16-14 (v6.1.16): a dot used as a thousands separator ("5.000"), the one form with its own line. */
+export const AMOUNT_DOT = 'Amount not read: use a dot only for cents, no thousands separator.';
+
 export type ReadAmount = { value: number; currency: string };
 
 /**

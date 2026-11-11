@@ -17,7 +17,7 @@ import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord 
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
-import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
+import { clearCookies, endSession, sessionBuilder, sessionToken } from './sessions';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -26,6 +26,12 @@ const text = (status: number, body: string, headers: Record<string, string> = {}
   new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 const back = (location: string, headers: Record<string, string> = {}) =>
   new Response(null, { status: 303, headers: { Location: location, 'Cache-Control': 'no-store', ...headers } });
+/** A 303 that expires every session cookie name (L31-6, v6.1.16 Task 17: the old ek_me too, for one release). */
+const signedOut = (location: string) => {
+  const res = back(location);
+  for (const c of clearCookies()) res.headers.append('Set-Cookie', c);
+  return res;
+};
 /** Who a line is for and when it was written. */
 type For = { builder: { id: number }; now: Date };
 /**
@@ -62,16 +68,32 @@ export async function meGet(request: Request, deps: Deps = {}): Promise<Response
   const builder = await sessionBuilder(cookie, deps.now ?? new Date());
   if (!builder) {
     const code = new URL(request.url).searchParams.get('link') ?? '';
-    const expired = cookieValue(cookie, COOKIE) !== null;
+    const expired = sessionToken(cookie) !== null;
     // The proxy needs an absolute Location, on the public origin (the request URL can be the internal one).
     const to = codeShaped(code) ? `/link/${code}` : expired ? '/docs?expired=1#record' : '/docs#record';
-    const headers: Record<string, string> = { Location: `${publicOrigin(request)}${to}`, 'Cache-Control': 'no-store' };
-    if (expired) headers['Set-Cookie'] = clearCookie();
+    const headers = new Headers({ Location: `${publicOrigin(request)}${to}`, 'Cache-Control': 'no-store' });
+    // Task 17: both cookie names are cleared while the old one is still read.
+    if (expired) for (const c of clearCookies()) headers.append('Set-Cookie', c);
     return new Response(null, { status: 302, headers });
   }
   const res = NextResponse.next();
   res.headers.set('Cache-Control', 'no-store');
   return res;
+}
+
+/**
+ * Whether a /me post came from EarnKit's own page (L31-3, v6.1.16 Task 17): its Origin is the public origin, or it
+ * has no Origin and its Referer's origin is. Neither header, or an unreadable Referer, is false.
+ */
+export function sameOrigin(request: Request): boolean {
+  const us = publicOrigin(request);
+  const from = request.headers.get('origin');
+  if (from !== null) return from === us;
+  try {
+    return new URL(request.headers.get('referer') ?? '').origin === us;
+  } catch {
+    return false;
+  }
 }
 
 /** The checks every post shares; on success the builder, the form and the time. */
@@ -83,12 +105,12 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   if (body instanceof Response) return body;
   if (body === null) return text(413, ME_ERRORS.large);
   const now = deps.now ?? new Date();
-  const from = request.headers.get('origin');
-  if (from && from !== publicOrigin(request)) return text(403, ME_ERRORS.expired);
+  // L31-3 (v6.1.16 Task 17): a same-origin Origin, or with none a same-origin Referer, before the session and csrf.
+  if (!sameOrigin(request)) return text(403, ME_ERRORS.notFromUs);
   const builder = await sessionBuilder(request.headers.get('cookie'), now);
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
-  const session = cookieValue(request.headers.get('cookie'), COOKIE) ?? '';
+  const session = sessionToken(request.headers.get('cookie')) ?? '';
   if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return problemAt({ builder, now }, ME_ERRORS.expired);
   return { builder, form, now };
 }
@@ -395,8 +417,10 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
   // L27-9 (v6.1.16): a refused delete comes back to the delete card with its line beside the form.
   if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm, 'delete');
   await deleteBuilder(g.builder.id, g.now);
+  // L31-6 (v6.1.16 Task 17): and the session behind any other cookie the request carries; both names expire.
+  await endSession(request.headers.get('cookie'));
   // L21-9 (v6.1.16): the home page says the account is deleted.
-  return back('/?deleted=1', { 'Set-Cookie': clearCookie() });
+  return signedOut('/?deleted=1');
 }
 
 /** POST /me/signout: csrf; ends this session. */
@@ -404,5 +428,5 @@ export async function signoutPost(request: Request, deps: Deps = {}): Promise<Re
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   await endSession(request.headers.get('cookie'));
-  return back('/', { 'Set-Cookie': clearCookie() });
+  return signedOut('/');
 }

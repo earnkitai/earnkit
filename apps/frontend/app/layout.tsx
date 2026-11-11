@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
@@ -7,7 +7,7 @@ import Header from '@/app/components/common/Header';
 import { SITE } from '@/lib/v5/site-theme';
 import { SITE_METADATA } from '@/app/lib/meta';
 import { SKIP_LINK } from '@/lib/v5/site-copy';
-import { COOKIE } from '@/lib/v6/sessions';
+import { sessionToken } from '@/lib/v6/sessions';
 
 // Self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
@@ -71,7 +71,7 @@ export default async function RootLayout({
           {SKIP_LINK}
         </a>
         <div id="site-root">
-          <Header signedIn={Boolean((await cookies()).get(COOKIE)?.value)} />
+          <Header signedIn={Boolean(sessionToken((await headers()).get('cookie')))} />
           <main id="content" tabIndex={-1}>
             {children}
           </main>

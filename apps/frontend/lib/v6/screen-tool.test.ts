@@ -274,7 +274,7 @@ test('Low 18 (v6.1.13), L15-15 (v6.1.14): an applicant repeated exactly is scree
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${jobId}`)[0].n, 1);
   for (const amount of [{ amount_usd: 0 }, { amount_usd: -5 }, { amount: 'lots' }, { amount: '2,000', currency: 'euros' }, { amount_usd: 5, currency: 'EUR' }]) {
     const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'same', outcome: 'won', ...amount }] });
-    assert.equal(r.reply!.show_to_builder, 'Recorded 0 outcomes. Tell me the amount for same.', JSON.stringify(amount));
+    assert.equal(r.reply!.show_to_builder, 'Recorded 0 outcomes. Tell me the amount as a number, like 5000 for $5,000.', JSON.stringify(amount));
     assert.doesNotMatch(r.reply!.show_to_builder as string, /you won|whole dollars/);
   }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ${jobId}`)[0].n, 0);
@@ -397,7 +397,7 @@ test('L15-15, L15-16 (v6.1.14): cents and currency codes are read; only a bad or
     { ref: 'f', outcome: 'rejected' },
   ] });
   assert.equal(r.reply!.show_to_builder, 'Recorded 4 outcomes; not passed to a builder: a (no EarnKit application), b (no EarnKit application), c (no EarnKit application) and f (no EarnKit application). '
-    + "Tell me the amount for e. Over the program's $5,000 cap: d at $6,000. Nothing recorded for it.");
+    + "Tell me the amount as a number, like 5000 for $5,000. Over the program's $5,000 cap: d at $6,000. Nothing recorded for it.");
   assert.equal(r.reply!.agent_note, 'Nothing reached a builder: a: no EarnKit application, b: no EarnKit application, c: no EarnKit application, f: no EarnKit application, e: amount not read and d: over what the program pays. '
     + 'Not matched to an EarnKit application: a, b, c and f. '
     + 'Not recorded, the amount could not be read: e. Send amount_usd, or amount with a three-letter currency code, above 0. '
@@ -546,7 +546,7 @@ test('L16-14 (v6.1.16): a dot used as a thousands separator is its own line, onc
   const r = await mcpCall(c, 'screen', { job_id: q.reply!.job_id, outcomes: [
     { ref: 'a', outcome: 'won', amount: '2.500' }, { ref: 'b', outcome: 'won', amount: '1.000 EUR' }, { ref: 'c', outcome: 'won', amount: 'lots' },
   ] });
-  assert.equal(r.reply!.show_to_builder, 'Recorded 0 outcomes. Tell me the amount for c. Amount not read: use a dot only for cents, no thousands separator.');
+  assert.equal(r.reply!.show_to_builder, 'Recorded 0 outcomes. Tell me the amount as a number, like 5000 for $5,000. Amount not read: use a dot only for cents, no thousands separator.');
   assert.match(r.reply!.agent_note as string, /Not recorded, a dot used as a thousands separator: a and b\. Send 2500 or 2,500; a dot is for cents only\./);
   const one = await mcpCall(c, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'a', outcome: 'won', amount: '2.500' }] });
   assert.equal(one.reply!.show_to_builder, 'Recorded 0 outcomes. Amount not read: use a dot only for cents, no thousands separator.');
@@ -743,4 +743,13 @@ test('M2 (v6.1.16 Task 8 fix round 1): 10000.004 on a $10,000 cap is refused on 
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = 'm2-b'`)[0].status, 'applied');
   // Under the cap a sub-cent amount is stored to the cent.
   assert.equal((await mcpCall(b, 'track', { program_id: 'm2-b', status: 'won', amount_usd: 9999.994 })).reply!.show_to_builder, 'Tracked: $9,999.99 from Grants m2-b.');
+});
+
+test('L31-5 (v6.1.16 Task 17, ruling 43): one bad-amount line on the screen; the dot-thousands form keeps its own', async () => {
+  const c = await reviewerOf('scr-l315');
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-l315', applicants: [{ ref: 'a', name: 'A' }] });
+  for (const [amount, line] of [['abc', 'Tell me the amount as a number, like 5000 for $5,000.'], ['2,500.50.1', 'Tell me the amount as a number, like 5000 for $5,000.'], ['5.000', 'Amount not read: use a dot only for cents, no thousands separator.']]) {
+    const r = await mcpCall(c, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'a', outcome: 'won', amount }] });
+    assert.equal(r.reply!.show_to_builder, `Recorded 0 outcomes. ${line}`, amount);
+  }
 });

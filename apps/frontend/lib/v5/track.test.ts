@@ -64,7 +64,7 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   const second = await track(c, { program_id: 't7-one', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   assert.equal(second.show_to_builder, 'Already sent here on Nov 4 by Claude Code; nothing recorded.');
   assert.equal(second.agent_note, 'Nothing was recorded.');
-  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0 })).show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0 })).show_to_builder, 'Tell me the amount as a number, like 5000 for $5,000.' /* L31-5 */);
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Tracked: $3,000 from One Grant.');
   // L16-2 (v6.1.16): no_result over a result is refused; a rejection would be a correction (the next test).
   const rej = await track(c, { program_id: 't7-one', status: 'no_result' });
@@ -352,7 +352,8 @@ test('TrackInput caps: program_id and item at 80, amount_usd finite and at least
   ];
   for (const input of refused) {
     const r = await track(c, input);
-    assert.equal(r.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.', JSON.stringify(input));
+    // L31-5 (v6.1.16 Task 17): an unreadable amount is the one bad-amount line.
+    assert.equal(r.show_to_builder, input.status === 'won' ? 'Tell me the amount as a number, like 5000 for $5,000.' : 'I could not read that. Send the program, a status, and for a win the amount.', JSON.stringify(input));
     assert.match(r.agent_note, /^Nothing was recorded\. (program_id|item|amount_usd): .+\.$/, JSON.stringify(input));
   }
   const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
@@ -1431,10 +1432,37 @@ test('L22-2, L22-3, L22-7, L25-13 (v6.1.16): track takes amount and currency; a 
   assert.deepEqual(h.map((x) => `${Number(x.amount)} ${x.currency}`).sort(), ['1000 USD', '2000 EUR', '2000 EUR', '2500 EUR', '500 EUR']);
   // L22-6: a dot-thousands amount has its own line; an unreadable one the unread line.
   assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: '5.000' }), 'Amount not read: use a dot only for cents, no thousands separator.');
-  assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: 'lots' }), 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: 'lots' }), 'Tell me the amount as a number, like 5000 for $5,000.');
 });
 
 test('L25-13 (v6.1.16): the track description says amount_usd may carry cents', async () => {
   const { TRACK_DESCRIPTION } = await import('./tool-text');
   assert.match(TRACK_DESCRIPTION, /amount_usd may carry cents/);
+});
+
+test('L31-4 (v6.1.16 Task 17): a fullwidth program id is read as the real one, named in the reply and the problems line', async () => {
+  const c = await ctx();
+  const title = (await sql()<{ t: string }[]>`SELECT file->>'title' AS t FROM programs WHERE id = 'base-builder-grants'`)[0].t;
+  const r = await track(c, { program_id: 'ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ', status: 'skipped' });
+  assert.ok(r.show_to_builder.includes(title), r.show_to_builder);
+  assert.match(r.agent_note, /Some arguments were not read: program id read as base-builder-grants\./);
+  // An ASCII id gets no problems line.
+  const plain = await track(await ctx(), { program_id: 'base-builder-grants', status: 'skipped' });
+  assert.doesNotMatch(plain.agent_note, /program id read as/);
+});
+
+test('L31-5 (v6.1.16 Task 17, ruling 43): one bad-amount line on track; the dot-thousands form keeps its own', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't17-amt', title: 'Amount Grant', max_award_usd: 9000 }), 'file', NOW);
+  await track(c, { program_id: 't17-amt', status: 'applied' });
+  const UNREAD = 'Tell me the amount as a number, like 5000 for $5,000.';
+  for (const [args, line] of [
+    [{ amount: 'abc' }, UNREAD], [{ amount: '2,500.50.1' }, UNREAD], [{ amount_usd: -500 }, UNREAD], [{ amount_usd: '5,000' }, UNREAD],
+    [{ amount: '5.000' }, 'Amount not read: use a dot only for cents, no thousands separator.'],
+  ] as [Record<string, unknown>, string][]) {
+    const r = await track(c, { program_id: 't17-amt', status: 'won', ...args });
+    assert.equal(r.show_to_builder, line, JSON.stringify(args));
+  }
+  // Anything else unread keeps the general line.
+  assert.equal((await track(c, { program_id: 't17-amt', status: 'won!' })).show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
 });
