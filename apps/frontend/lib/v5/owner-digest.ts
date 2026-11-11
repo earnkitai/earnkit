@@ -1,8 +1,10 @@
 /**
- * The owner's one email a day: programs closed by their deadline, links that failed, source pages
- * that changed, and the day's changes to live programs, each with a revert link when one can be
- * made. Nothing happened, nothing sent. The idempotency key is the UTC day.
+ * The owner's one email a day: programs closed by their deadline, programs opened by their start date, links that
+ * failed, source pages that changed, and the day's changes to live programs, each with a revert link when one can be
+ * made. Nothing happened, nothing sent; mail not set up (RESEND_API_KEY unset), 'mail off'. The idempotency key is the
+ * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again.
  */
+import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { ownerMail, type Mailer } from './mail';
 import { ProgramFile } from './program-file';
@@ -12,6 +14,8 @@ import { revertExpiry, revertUrl } from './programs-pending';
 export type DigestChange = { id: string; title: string; fields: string[]; revertUrl: string | null; revertNote?: string };
 export type DigestHealth = {
   closed: { id: string; title: string }[];
+  /** v6.1.16 Task 16 (L30-1): upcoming programs the daily run opened at their start date. */
+  opened?: { id: string; title: string }[];
   failing: { id: string; title: string; url: string }[];
   changed: { id: string; title: string; url: string }[];
 };
@@ -27,11 +31,14 @@ const FIELD_WORDS: Record<string, string> = {
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-/** The email body, or null when the four lists are all empty. Pure. */
+/** The email body, or null when the lists are all empty. Pure. */
 export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth): string | null {
   const blocks: string[] = [];
   if (health.closed.length > 0) {
     blocks.push(['Closed because the deadline passed', ...health.closed.map((p) => `- ${oneLine(p.title)} (${p.id})`)].join('\n'));
+  }
+  if (health.opened?.length) {
+    blocks.push(['Opened because the start date came', ...health.opened.map((p) => `- ${oneLine(p.title)} (${p.id})`)].join('\n'));
   }
   if (health.failing.length > 0) {
     blocks.push(['Links that did not load', ...health.failing.map((p) => `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
@@ -71,8 +78,15 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>): Prom
   }
 }
 
-/** Gathers the UTC day's events, mails the digest if there is one. */
-export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent' | 'none'> {
+/** The digest's idempotency key: the UTC day and the first 16 hex of the body's sha256. Pure. */
+export const digestKey = (day: string, body: string) => `owner-digest:${day}:${createHash('sha256').update(body).digest('hex').slice(0, 16)}`;
+
+/**
+ * Gathers the UTC day's events, mails the digest if there is one: 'sent', 'none' (nothing to say, or this body was
+ * already sent today), or 'mail off' (RESEND_API_KEY unset, checked first, nothing read or sent).
+ */
+export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent' | 'none' | 'mail off'> {
+  if (!process.env.RESEND_API_KEY?.trim()) return 'mail off';
   const day = now.toISOString().slice(0, 10);
   const dayStart = new Date(`${day}T00:00:00Z`);
   const dayEnd = new Date(dayStart.getTime() + 86_400_000);
@@ -91,11 +105,20 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
     WHERE p.status IN ('active', 'upcoming') AND h.checked_at >= ${dayStart} AND h.checked_at < ${dayEnd}
       AND (NOT h.source_ok OR NOT h.submit_ok OR h.changed_at >= ${dayStart})
     ORDER BY p.id`;
+  const openedRows = await db<TitleRow[]>`
+    SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
+    WHERE c.at > ${since} AND c.at <= ${now} AND c.fields = ARRAY['status']::text[]
+      AND p.status = 'active' AND (p.file->>'starts_at') IS NOT NULL AND (p.file->>'starts_at')::timestamptz <= c.at ORDER BY p.id`;
+  const opened = new Set(openedRows.map((r) => r.id));
   const changeRows = await db<(TitleRow & { fields: string[] })[]>`
     SELECT p.id, p.file, c.fields FROM program_changes c JOIN programs p ON p.id = c.program_id
     WHERE c.at > ${since} AND c.at <= ${now} AND p.status IN ('active', 'upcoming') ORDER BY c.id`;
 
-  const health: DigestHealth = { closed: closedRows.map((r) => ({ id: r.id, title: titleOf(r) })), failing: [], changed: [] };
+  const health: DigestHealth = {
+    closed: closedRows.map((r) => ({ id: r.id, title: titleOf(r) })),
+    opened: openedRows.map((r) => ({ id: r.id, title: titleOf(r) })),
+    failing: [], changed: [],
+  };
   for (const r of healthRows) {
     const f = ProgramFile.safeParse(r.file).data;
     if (!f) continue;
@@ -107,6 +130,8 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
   const failures = new Set<string>();
   const changes: DigestChange[] = [];
   for (const r of changeRows) {
+    // The opening is its own block; its status-only change row is not listed again.
+    if (opened.has(r.id) && r.fields.length === 1 && r.fields[0] === 'status') continue;
     if (!links.has(r.id)) links.set(r.id, await revertLinkFor(r.id, now, failures));
     const l = links.get(r.id)!;
     changes.push({ id: r.id, title: titleOf(r), fields: r.fields, revertUrl: l.url, ...(l.note && { revertNote: l.note }) });
@@ -115,7 +140,12 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
 
   const text = dailyOwnerText(day, changes, health);
   if (text === null) return 'none';
-  if (!(await ownerMail(`EarnKit programs: ${day}`, text, `owner-digest:${day}`, mailer))) return 'none';
-  await db`INSERT INTO owner_digests (day, sent_at) VALUES (${day}, ${now}) ON CONFLICT (day) DO UPDATE SET sent_at = EXCLUDED.sent_at`;
+  const key = digestKey(day, text);
+  const hash = key.slice(key.lastIndexOf(':') + 1);
+  const [sent] = await db<{ body_hash: string | null }[]>`SELECT body_hash FROM owner_digests WHERE day = ${day}`;
+  if (sent?.body_hash === hash) return 'none';
+  if (!(await ownerMail(`EarnKit programs: ${day}`, text, key, mailer))) return 'mail off';
+  await db`INSERT INTO owner_digests (day, sent_at, body_hash) VALUES (${day}, ${now}, ${hash})
+    ON CONFLICT (day) DO UPDATE SET sent_at = EXCLUDED.sent_at, body_hash = EXCLUDED.body_hash`;
   return 'sent';
 }
