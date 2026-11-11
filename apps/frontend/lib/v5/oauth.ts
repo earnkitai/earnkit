@@ -6,6 +6,7 @@
  * fetched through the SSRF-safe JSON fetch and cached in process.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { RateLimitError, enforce } from './rate-limit';
 import { type Resolver, type Transport, safeFetchJson } from './safe-fetch';
 
 const CODE_TTL_MS = 5 * 60 * 1000;
@@ -229,23 +230,40 @@ export function isCimdClientId(clientId: string): boolean {
 }
 
 /** The fetch behind a client ID metadata document, injectable so tests never touch the network. */
-export type ClientDeps = { resolve?: Resolver; transport?: Transport; timeoutMs?: number; now?: () => number };
+export type ClientDeps = {
+  resolve?: Resolver;
+  transport?: Transport;
+  timeoutMs?: number;
+  now?: () => number;
+  /** Counts one uncached fetch for a document host; throws RateLimitError over the cap (default: cimdFetch). */
+  fetchLimit?: (host: string) => Promise<unknown>;
+};
 
 const CIMD_OK_MS = 60 * 60 * 1000;
 const CIMD_FAILED_MS = 5 * 60 * 1000;
+/** How long the last good copy is served when a refetch cannot be made (fix round 1, M2: stale-if-error). */
+const CIMD_STALE_MS = 24 * 60 * 60 * 1000;
 const CIMD_CACHE_MAX = 1_000;
 const MAX_REDIRECT_URIS = 10;
-const cimdCache = new Map<string, { at: number; ok: ClientPayload } | { at: number; failed: true }>();
+/** `at`: when it was last read good; `failedAt`: the last refetch that could not be made, while the good copy is served. */
+type CimdEntry = { at: number; ok: ClientPayload; failedAt?: number } | { at: number; failed: true };
+const cimdCache = new Map<string, CimdEntry>();
 
 /** Empties the document cache (tests only). */
 export const clearCimdCache = () => cimdCache.clear();
 
-function remember(url: string, entry: { at: number; ok: ClientPayload } | { at: number; failed: true }) {
+function remember(url: string, entry: CimdEntry) {
   cimdCache.delete(url);
   cimdCache.set(url, entry);
   // Oldest first: a Map iterates in insertion order.
   while (cimdCache.size > CIMD_CACHE_MAX) cimdCache.delete(cimdCache.keys().next().value as string);
 }
+
+/**
+ * Uncached document fetches per document host an hour (fix round 1, M1): nobody can use the authorize page to make
+ * EarnKit hammer a public site (a query string per request misses the cache). Over it: no fetch, the failure page.
+ */
+const cimdFetchLimit = (host: string) => enforce('cimdFetch', host, 'Too many client document reads for this host.');
 
 /** A fetched document's client, or null when any check fails. Pure. */
 function cimdPayload(url: string, doc: unknown): ClientPayload | null {
@@ -263,25 +281,43 @@ function cimdPayload(url: string, doc: unknown): ClientPayload | null {
 /**
  * A client ID metadata document's client: fetched through `safeFetchJson` (https, public addresses only, no redirects,
  * 5 s, 10 KB, JSON), its `client_id` equal to the URL, its redirect URIs allowed (at most 10), its name not EarnKit's.
- * Cached per URL: 1 hour when good, 5 minutes when not, at most 1,000 URLs (oldest dropped first). Any failure
- * throws `invalid_client` with CIMD_FAILED.
+ * Cached per URL, at most 1,000 URLs (oldest dropped first): a good document 1 hour. A refetch that cannot be made (a
+ * fetch error, or the per-host fetch cap) keeps serving the last good copy for up to 24 hours from its last good read,
+ * and waits 5 minutes before trying again; a document read but failing a check replaces it. A URL with no good copy
+ * caches its failure 5 minutes (never one refused by the fetch cap). Any failure throws `invalid_client` with CIMD_FAILED.
  */
 export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<ClientPayload> {
   const now = (deps.now ?? Date.now)();
   const hit = cimdCache.get(url);
-  if (hit && now - hit.at < ('ok' in hit ? CIMD_OK_MS : CIMD_FAILED_MS)) {
-    if ('ok' in hit) return hit.ok;
-    throw new OAuthError('invalid_client', CIMD_FAILED);
-  }
-  let client: ClientPayload | null = null;
+  const good = hit && 'ok' in hit && now - hit.at < CIMD_STALE_MS ? hit : null;
+  if (good && (now - good.at < CIMD_OK_MS || (good.failedAt !== undefined && now - good.failedAt < CIMD_FAILED_MS))) return good.ok;
+  if (hit && 'failed' in hit && now - hit.at < CIMD_FAILED_MS) throw new OAuthError('invalid_client', CIMD_FAILED);
+  const refused = () => new OAuthError('invalid_client', CIMD_FAILED);
   try {
-    client = cimdPayload(url, await safeFetchJson(url, { resolve: deps.resolve, transport: deps.transport, timeoutMs: deps.timeoutMs }));
-  } catch {
-    client = null;
+    await (deps.fetchLimit ?? cimdFetchLimit)(new URL(url).host);
+  } catch (err) {
+    if (!(err instanceof RateLimitError)) throw err;
+    // Over the cap: no fetch, and nothing new cached (a cap is not the document's fault).
+    if (good) return good.ok;
+    throw refused();
   }
-  if (!client) {
+  let doc: unknown;
+  try {
+    doc = await safeFetchJson(url, { resolve: deps.resolve, transport: deps.transport, timeoutMs: deps.timeoutMs });
+  } catch {
+    // The read could not be made: the last good copy stands (stale-if-error).
+    if (good) {
+      remember(url, { ...good, failedAt: now });
+      return good.ok;
+    }
     remember(url, { at: now, failed: true });
-    throw new OAuthError('invalid_client', CIMD_FAILED);
+    throw refused();
+  }
+  const client = cimdPayload(url, doc);
+  if (!client) {
+    // The vendor's document now fails a check: it replaces any good copy.
+    remember(url, { at: now, failed: true });
+    throw refused();
   }
   remember(url, { at: now, ok: client });
   return client;

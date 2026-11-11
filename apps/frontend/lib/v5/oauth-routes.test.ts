@@ -3,6 +3,7 @@ import { after, beforeEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
+import { RateLimitError } from './rate-limit';
 import { clearCimdCache, registerClient, registrationLimitKey, type ClientDeps } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { connectInstallation } from './installations';
@@ -11,7 +12,10 @@ import { type CimdResponse, cimdFixture } from './fixtures/cimd';
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
 process.env.EARNKIT_URL = 'https://earnkit.test';
 after(() => sql().end());
-beforeEach(() => clearCimdCache());
+beforeEach(async () => {
+  clearCimdCache();
+  await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch:%'`;
+});
 
 const DOC_URL = 'https://client.example/cimd.json';
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
@@ -113,7 +117,8 @@ test('an unlisted redirect_uri is refused on our page, never redirected', async 
 test('a 5,001 ms stall is refused with the failure page', async () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    const f = cimdFixture({ stall: true });
+    // The fetch cap's database call is left out: its driver's timers would be mocked too.
+    const f = { ...cimdFixture({ stall: true }), fetchLimit: noLimit };
     const p = authorize(DOC_URL, f);
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
     mock.timers.tick(5_001);
@@ -147,7 +152,7 @@ test('cache: a failure is kept 5 minutes, a good document 1 hour', async () => {
 });
 
 test('cache: at most 1,000 documents, oldest dropped first', async () => {
-  const f = cimdFixture((u) => ({ body: doc({}, u.href) }));
+  const f = { ...cimdFixture((u) => ({ body: doc({}, u.href) })), fetchLimit: noLimit };
   const urls = Array.from({ length: 1_001 }, (_, i) => `https://many.example/c${i}.json`);
   for (const u of urls) assert.equal((await authorize(u, f)).status, 302);
   assert.equal(f.requests.length, 1_001);
@@ -196,4 +201,61 @@ test('limits: two client documents on one host count against one client key per 
   ]);
   assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'installHour:10.63.1.1'`).length, 1);
   assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'installBlock:10.63.0.0/16'`).length, 1);
+});
+
+test('fix round 1, M1: at most 30 uncached document fetches per host an hour; over it, the failure page and no request', async () => {
+  const f = cimdFixture((u) => ({ body: doc({}, u.href) }));
+  for (let i = 0; i < 30; i++) assert.equal((await authorize(`${DOC_URL}?n=${i}`, f)).status, 302, `fetch ${i}`);
+  assert.equal(f.requests.length, 30);
+  await assertFailed(await authorize(`${DOC_URL}?n=30`, f), 'over the cap');
+  assert.equal(f.requests.length, 30, 'no request over the cap');
+  // Cached documents still serve, and another host has its own cap.
+  assert.equal((await authorize(`${DOC_URL}?n=0`, f)).status, 302);
+  assert.equal((await authorize('https://other-host.example/cimd.json', f)).status, 302);
+  assert.equal(f.requests.length, 31);
+  const [row] = await sql()`SELECT count FROM rate_windows WHERE key = 'cimdFetch:client.example'`;
+  assert.equal(row.count, 31);
+  // A refusal by the cap is not cached as the document's failure: once the window allows, it is fetched.
+  await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch:%'`;
+  assert.equal((await authorize(`${DOC_URL}?n=30`, f)).status, 302);
+  assert.equal(f.requests.length, 32);
+});
+
+test('fix round 1, M2: a failed refetch keeps the last good document for up to 24 hours; a failing check replaces it', async () => {
+  let at = 2_000_000_000_000;
+  const now = () => at;
+  let answer: CimdResponse = { body: doc() };
+  const f = { ...cimdFixture(() => answer), now };
+  assert.equal((await authorize(DOC_URL, f)).status, 302);
+  // An hour on, the document's host answers 503: the last good copy still signs builders in.
+  answer = { status: 503, body: {} };
+  at += 60 * 60 * 1000 + 1;
+  assert.equal((await authorize(DOC_URL, f)).status, 302);
+  assert.equal(f.requests.length, 2);
+  // Within 5 minutes of that failure, no refetch.
+  at += 5 * 60 * 1000 - 1;
+  assert.equal((await authorize(DOC_URL, f)).status, 302);
+  assert.equal(f.requests.length, 2);
+  // Then it tries again, and a timeout-like failure (here a redirect) still serves the good copy.
+  answer = { status: 302, location: 'https://public.example/x.json' };
+  at += 2;
+  assert.equal((await authorize(DOC_URL, f)).status, 302);
+  assert.equal(f.requests.length, 3);
+  // Over the fetch cap, the good copy is served too, with no request.
+  const capped = { ...f, fetchLimit: async () => { throw new RateLimitError('cap', 60); } };
+  at += 5 * 60 * 1000;
+  assert.equal((await authorize(DOC_URL, capped)).status, 302);
+  assert.equal(f.requests.length, 3);
+  // 24 hours after the last good read, the stale copy is gone: the failure page.
+  at = 2_000_000_000_000 + 24 * 60 * 60 * 1000;
+  await assertFailed(await authorize(DOC_URL, f), 'stale past 24 hours');
+  assert.equal(f.requests.length, 4);
+
+  // A document read but failing a check replaces the good copy at once.
+  clearCimdCache();
+  answer = { body: doc() };
+  assert.equal((await authorize(DOC_URL, f)).status, 302);
+  answer = { body: doc({ redirect_uris: ['https://elsewhere.example/cb'] }) };
+  at += 60 * 60 * 1000 + 1;
+  await assertFailed(await authorize(DOC_URL, f), 'changed document');
 });
