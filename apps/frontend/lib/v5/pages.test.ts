@@ -8,7 +8,7 @@ import { upsertProgram } from './programs';
 import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CTA_INSTALL, EARN_ALL, EARN_EMPTY, HERO_SUB, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import { CTA_INSTALL, EARN_ALL, EARN_EMPTY, HERO_SUB, HERO_TITLE, ONE_LINE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
 import SchemaOrg from '../../app/components/ui/SchemaOrg';
 import type { Landing, Tile } from './landing';
 import Home from '../../app/page';
@@ -17,8 +17,12 @@ import Steps from '../../app/components/landing/Steps';
 import Opportunities, { Logo } from '../../app/components/landing/Opportunities';
 import ProgramsPage from '../../app/programs/page';
 import ProgramGuidePage, { generateMetadata as guideMetadata } from '../../app/programs/[id]/page';
-import DocsPage from '../../app/docs/page';
-import TermsPage from '../../app/terms/page';
+import DocsPage, { generateMetadata as docsMetadata } from '../../app/docs/page';
+import TermsPage, { generateMetadata as termsMetadata } from '../../app/terms/page';
+import { metadata as homeMetadata } from '../../app/page';
+import { metadata as programsMetadata } from '../../app/programs/page';
+import { metadata as notFoundMetadata } from '../../app/not-found';
+import { firstLine, SITE_METADATA as layoutMetadata } from '../../app/lib/meta';
 import { GET as llmsGet } from '../../app/llms.txt/route';
 import { GET as statsGet } from '../../app/api/stats/route';
 import { GET as programsGet } from '../../app/api/programs/route';
@@ -75,20 +79,22 @@ test('/ shows the hero, the steps, at most six programs, the link to all of them
   for (const step of STEPS) assert.ok(t.includes(step), step);
   assert.ok(t.includes('Open now'));
   assert.ok(cardLinks(m).length <= 6, String(cardLinks(m).length));
-  assert.match(t, /See all \d+ programs/);
+  assert.ok(t.includes('See all programs.'));
   assert.ok(!m.includes('href="/programs/zz-page-soon"') && !m.includes('href="/programs/zz-page-shut"'));
   assert.ok(t.includes('Add EarnKit to your agent'));
   assert.ok(!/Leaderboard|Feed|Bench|Activity/.test(t));
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
 });
 
-test('the landing with 45 programs: six cards, then one link "See all 45 programs" to /programs (v6.2.0)', () => {
+test('the landing with 45 programs: six cards, then one link "See all programs." to /programs (v6.2.0, L25-15)', () => {
   const m = html(React.createElement(HomeView, { landing: LANDING45 }));
   const t = textOf(m);
   assert.deepEqual(cardLinks(m), TILES45.slice(0, 6).map((x) => `href="/programs/${x.id}"`));
-  assert.equal(EARN_ALL(45), 'See all 45 programs');
-  assert.match(m, /<a[^>]*href="\/programs"[^>]*>See all 45 programs<\/a>/);
-  assert.equal(t.split('See all 45 programs').length, 2);
+  // L25-15 (v6.1.16): no count on the link.
+  assert.equal(EARN_ALL, 'See all programs.');
+  assert.match(m, /<a[^>]*href="\/programs"[^>]*>See all programs\.<\/a>/);
+  assert.equal(t.split('See all programs.').length, 2);
+  assert.ok(!t.includes('See all 45'));
   assert.ok(t.includes('Closes Dec 1') && t.includes('Rolling'));
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
 });
@@ -114,7 +120,7 @@ test('the landing grid is 1, 2 then 3 columns; /programs keeps auto-fit (v6.2.0)
 
 test('no featured programs but some listed: the title, "Nothing is open right now." and the pill (v6.2.0)', () => {
   const t = textOf(html(React.createElement(Opportunities, { programs: [], total: 45 })));
-  assert.equal(t, `Open now ${EARN_EMPTY} ${EARN_ALL(45)}`);
+  assert.equal(t, `Open now ${EARN_EMPTY} ${EARN_ALL}`);
   assert.equal(EARN_EMPTY, 'Nothing is open right now.');
 });
 
@@ -156,15 +162,62 @@ test('the steps: one card, an ordered list of the three lines with serif numeral
   assert.equal(textOf(m), STEPS.map((s, i) => `${i + 1} ${s}`).join(' '));
 });
 
-test('#1 (v6.1.15): the meta description and SchemaOrg copy the hero line: it fills the forms, never applies', () => {
+test('#1 (v6.1.15), L25-2 (v6.1.16): the meta description, every share card and SchemaOrg say the one line: it fills the forms, never applies', async () => {
+  assert.equal(ONE_LINE, 'Your agent finds the grants and prizes your repo fits and fills the forms. Free.');
+  assert.equal(HERO_SUB, ONE_LINE);
   const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
-  assert.ok(layout.includes('const DESCRIPTION = `${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`;'));
-  assert.equal(`${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`, 'Add EarnKit to your agent and ask: What can I earn? Your agent finds the grants and prizes you fit and fills the forms. Free.');
+  assert.ok(layout.includes('export const metadata: Metadata = SITE_METADATA;'));
   assert.ok(!layout.includes('applies'));
+  assert.equal(layoutMetadata.description, ONE_LINE);
+  assert.equal(layoutMetadata.openGraph?.description, ONE_LINE);
+  assert.equal(homeMetadata.description, ONE_LINE);
+  assert.equal(homeMetadata.openGraph?.description, ONE_LINE);
   const ld = JSON.parse(/<script[^>]*>([\s\S]*)<\/script>/.exec(html(React.createElement(SchemaOrg)))![1]) as { description: string };
-  assert.equal(ld.description, 'Your agent finds the grants and prizes you fit and fills the forms. Free. Agents connect at https://earnkit.com/mcp.');
-  assert.ok(ld.description.startsWith(HERO_SUB));
+  assert.equal(ld.description, 'Your agent finds the grants and prizes your repo fits and fills the forms. Free. Agents connect at https://earnkit.com/mcp.');
   assert.ok(!ld.description.includes('applies'));
+});
+
+test('L25-6 (v6.1.16, Review Focus 13): every page has its own share card: og:url is the canonical, and no two og:titles match', async () => {
+  await upsertProgram(programFixture({ id: 'zz-page-card', title: 'Page Card Grants', summary: 'Up to $7,500 · rolling', max_award_usd: 7500, description: 'Grants for card makers. Second sentence here.' }), 'file', new Date());
+  const metas = [
+    ['/', homeMetadata],
+    ['/docs', docsMetadata()],
+    ['/programs', programsMetadata],
+    ['/terms', termsMetadata()],
+    ['/programs/zz-page-open', await guideMetadata(params('zz-page-open'))],
+    ['/programs/zz-page-soon', await guideMetadata(params('zz-page-soon'))],
+    ['/programs/zz-page-card', await guideMetadata(params('zz-page-card'))],
+  ] as const;
+  const titles = new Set<string>();
+  for (const [path, m] of metas) {
+    const og = m.openGraph as { url?: string; title?: string; description?: string; images?: unknown[] };
+    assert.equal(String(m.alternates?.canonical), path === '/' ? 'https://earnkit.com' : `https://earnkit.com${path}`, path);
+    assert.equal(String(og.url), String(m.alternates?.canonical), path);
+    assert.ok(og.title && og.description && (og.images ?? []).length === 1, path);
+    titles.add(String(og.title));
+  }
+  assert.equal(titles.size, metas.length);
+  assert.equal(docsMetadata().title, 'Add EarnKit to your agent · EarnKit');
+  assert.equal(programsMetadata.title, 'Programs · EarnKit');
+  assert.equal(termsMetadata().title, 'Terms · EarnKit');
+  const card = (await guideMetadata(params('zz-page-card'))).openGraph as { title?: string; description?: string };
+  assert.equal(card.title, 'Page Card Grants: Up to $7,500');
+  assert.equal(card.description, 'Grants for card makers.');
+  assert.equal(firstLine(''), ONE_LINE);
+});
+
+test('L25-21 (v6.1.16): the 404 has no canonical and one robots noindex', async () => {
+  assert.equal(layoutMetadata.alternates, undefined);
+  assert.equal(layoutMetadata.robots, undefined);
+  assert.equal((layoutMetadata.openGraph as { url?: string }).url, undefined);
+  // The unmatched-path 404: Next adds its own noindex to a 404 response, so the page sets none (one meta, checked on
+  // the built server); the unknown guide answers 200 and carries the one noindex itself.
+  assert.deepEqual(notFoundMetadata, { title: 'Not found · EarnKit' });
+  const guide = await guideMetadata(params('nope'));
+  assert.equal(guide.title, 'Not found · EarnKit');
+  assert.deepEqual(guide.robots, { index: false });
+  assert.equal('alternates' in guide, false);
+  assert.equal('openGraph' in guide, false);
 });
 
 test('no rust look remains in the landing components (v6.2.0)', () => {
@@ -199,6 +252,13 @@ test('/programs/<id> renders the guide; a missing logo file renders no image', a
   assert.ok(m.includes('>Sources:</span>'), m);
   const meta = await guideMetadata(params('zz-page-open'));
   assert.match(String(meta.title), /Page Open Grants/);
+  assert.ok(t.includes('What the form asks'));
+});
+
+test('L25-18 (v6.1.16): a guide whose form lists nothing has no "What the form asks"', async () => {
+  const t = textOf(html(await ProgramGuidePage(params('zz-page-soon'))));
+  assert.ok(t.includes('Page Soon Grants'));
+  assert.ok(!t.includes('What the form asks'), t);
 });
 
 test('/programs/<id>: an upcoming and a closed program still render', async () => {
@@ -229,11 +289,14 @@ test('/docs: the seven sections, under 460 words, the copy rules', () => {
   // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
   // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (455 now).
   assert.ok(words < 460, `docs page is ${words} words`);
+  // L25-4, L25-8, L25-11 (v6.1.16): the other-agent line under the tabs, the approval line, the results promise.
+  for (const line of ['Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.', 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.', 'Results come once a day, within 24 hours,'])
+    assert.ok(t.includes(line), line);
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });
 
-test('/terms: five sections; "token" only in "launch a token"', () => {
+test('/terms: five sections; no "token" (L25-22)', () => {
   const m = html(TermsPage());
   const t = textOf(m);
   // The record page is a link, not a path (lane 5, 3.30).
@@ -241,7 +304,8 @@ test('/terms: five sections; "token" only in "launch a token"', () => {
   assert.ok(t.replaceAll(' .', '.').includes('You can edit or delete it any time on your record page.'), t);
   assert.ok(!/\s\/me\b/.test(t), t);
   for (const s of ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']) assert.ok(t.includes(s), s);
-  assert.ok(!BANNED.test(t.replaceAll('launch a token', '')), t.match(BANNED)?.[0]);
+  assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
+  assert.ok(!/\btokens?\b/i.test(t), t);
   assert.ok(!t.includes('—'));
 });
 

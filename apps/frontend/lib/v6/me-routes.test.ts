@@ -294,7 +294,7 @@ test('a non-form body is 415 and a 100 KB body is 413', async () => {
 });
 
 const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
-const linkInst = async () => (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'me-link-' + Math.random()}, 'Claude Code', ${NOW}) RETURNING id`)[0].id as number;
+const linkInst = async () => (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'me-link-' + Math.random()}, 'Claude Code (earnkit)', ${NOW}) RETURNING id`)[0].id as number; // shown as Claude Code (L25-1)
 const instBuilder = async (id: number) => (await sql()`SELECT builder_id FROM installations WHERE id = ${id}`)[0].builder_id as number | null;
 const codeRow = async (id: number) => (await sql()`SELECT used_at, expires_at FROM link_codes WHERE installation_id = ${id}`)[0];
 

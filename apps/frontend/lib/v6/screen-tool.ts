@@ -40,11 +40,14 @@ export const ScreenInput = z
 export const SCREEN_MAX = 200;
 export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?: string; results?: ScreenResults; next_page?: number | null; recorded?: number };
 
+/** How a reviewer asks for access, from the tool (L25-10, v6.1.16): the /docs line, with the page named, not "below". */
+const ASK_ACCESS = 'Ask for reviewer access through the X link on earnkit.com/docs.';
+
 export const SCREEN_TEXT = {
-  unlinked: (link: string) => `Sign in once at ${link} so EarnKit knows which program you review for.`,
+  unlinked: (link: string) => `Sign in once at ${link}, then ask for reviewer access through the X link on earnkit.com/docs.`,
   unlinkedNoLink: 'Screening is for program reviewers.',
-  notReviewer: 'Screening is for program reviewers, and you do not review that program.',
-  noProgram: 'You review no program yet.',
+  notReviewer: `Screening is for program reviewers, and you do not review that program. ${ASK_ACCESS}`,
+  noProgram: `You review no program yet. ${ASK_ACCESS}`,
   limit: 'You can queue ten screens a day.',
   whichProgram: 'Name the program you are screening for.',
   empty: 'Hand me at least one applicant.',
@@ -55,8 +58,8 @@ export const SCREEN_TEXT = {
   /** C2 (v6.1.13): over SCREEN_MAX applicants or outcomes in one call. */
   overMax: 'At most 200 at a time; send the rest in another call.',
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
-  /** L15-13 (v6.1.14): the results promise when the whole list fits the next daily run. */
-  promise: 'Results come in daily runs; the first by tomorrow morning.',
+  /** L15-13 (v6.1.14): the results promise when the whole list fits the next daily run; L25-11 (v6.1.16): the /docs words. */
+  promise: 'Results come once a day, within 24 hours.',
   /** L15-15 (v6.1.14): a win whose amount cannot be read, owner-shaped; only those applicants are not recorded. */
   amountFor: (refs: string) => `Tell me the amount for ${refs}.`,
   /** L16-14 (v6.1.16): a dot-thousands amount ("2.500"), shown once; the refs are in the agent note. */

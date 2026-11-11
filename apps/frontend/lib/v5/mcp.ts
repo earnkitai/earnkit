@@ -69,6 +69,9 @@ export function createMcpServer(ctx: McpContext): McpServer {
   server.registerTool(
     'find',
     {
+      // L25-5 (v6.1.16): a title for each tool; find only reads.
+      title: 'Find what you can earn',
+      annotations: { readOnlyHint: true },
       description: FIND_DESCRIPTION,
       // L13-4 (v6.1.14): registered leniently like the others; find reads its arguments itself (findInputOf).
       inputSchema: lenient(FindArgs),
@@ -77,17 +80,17 @@ export function createMcpServer(ctx: McpContext): McpServer {
   );
   server.registerTool(
     'track',
-    { description: TRACK_DESCRIPTION, inputSchema: lenient(TrackInput) },
+    { title: 'Track an application', description: TRACK_DESCRIPTION, inputSchema: lenient(TrackInput) },
     (args) => run(ctx, 'track', args, () => track({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   server.registerTool(
     'record',
-    { description: RECORD_DESCRIPTION, inputSchema: lenient(RecordInput) },
+    { title: 'Your record', description: RECORD_DESCRIPTION, inputSchema: lenient(RecordInput) },
     (args) => run(ctx, 'record', args, () => recordTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   server.registerTool(
     'screen',
-    { description: SCREEN_DESCRIPTION, inputSchema: lenient(ScreenInput) },
+    { title: 'Screen applicants', description: SCREEN_DESCRIPTION, inputSchema: lenient(ScreenInput) },
     (args) => run(ctx, 'screen', args, () => screenTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   return server;

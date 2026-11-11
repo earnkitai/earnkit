@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { builderOf, cleanClientName, connectInstallation, lastGaps, lastProjectKey, markFind, rememberProject, saveInstallation } from './installations';
+import { builderOf, cleanClientName, connectInstallation, displayName, lastGaps, lastProjectKey, markFind, rememberProject, saveInstallation } from './installations';
 import { linkInstallation, upsertBuilder } from '../v6/builders';
 
 after(() => sql().end());
@@ -82,4 +82,15 @@ test('v6.1.16 Task 5: a revoked installation never connects; its audience is kep
   assert.equal(await connectInstallation(token), null);
   const [row] = await sql()`SELECT revoked_at FROM installations WHERE id = ${id}`;
   assert.ok(row.revoked_at instanceof Date);
+});
+
+test('L25-1 (v6.1.16): displayName drops one trailing parenthetical; a name that is only one keeps it', () => {
+  assert.equal(displayName('Claude Code (earnkit)'), 'Claude Code');
+  assert.equal(displayName('Windsurf (EarnKit) '), 'Windsurf');
+  assert.equal(displayName('Cursor'), 'Cursor');
+  assert.equal(displayName('A (b) (c)'), 'A (b)');
+  assert.equal(displayName('(earnkit)'), '(earnkit)');
+  assert.equal(displayName('Evil‮ (x)'), 'Evil');
+  assert.equal(displayName(null), null);
+  assert.equal(displayName(''), null);
 });

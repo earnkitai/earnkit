@@ -301,3 +301,15 @@ test('L21-10, L21-12, L21-13, L21-22 (v6.1.16): unnamed agents by day, projects 
   const none = renderToStaticMarkup(MeView({ data: await meData(fresh, NOW, 'sess'), problem: null }));
   assert.ok(none.includes('No projects yet.') && !none.includes('data-me-linked'));
 });
+
+test('L25-1 (v6.1.16): /me and the link banner show "Claude Code (earnkit)" as "Claude Code"; the stored name is unchanged', async () => {
+  const b = await upsertBuilder({ github_id: 810_251, login: 'paren', name: null, avatar_url: null }, NOW);
+  const id = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${'Claude Code (earnkit)'}, ${NOW}) RETURNING id`)[0].id as number;
+  const code = await createLinkCode(id, NOW);
+  assert.equal((await meData(b, NOW, 'sess', code)).link?.parts?.[1], 'Claude Code');
+  await sql()`UPDATE installations SET builder_id = ${b.id}, linked_at = ${NOW} WHERE id = ${id}`;
+  const linked = await meData(b, NOW, 'sess');
+  assert.equal(linked.installations[0].label, 'Claude Code');
+  assert.ok(renderToStaticMarkup(MeView({ data: linked, problem: null })).includes('<bdi>Claude Code</bdi>'));
+  assert.equal((await sql()`SELECT client_name FROM installations WHERE id = ${id}`)[0].client_name, 'Claude Code (earnkit)');
+});

@@ -6,6 +6,7 @@
 import { sql } from '../v5/db';
 import { randomBytes } from 'node:crypto';
 import type { Db } from '../v5/db';
+import { displayName } from '../v5/installations';
 import { programsById } from '../v5/programs';
 
 export const CLAIM_HOURS = 24;
@@ -39,7 +40,8 @@ type Row = { status: string; claimed_at: Date | null; claimed_by: number | null;
 const clientOf = async (installationId: number | null): Promise<string | null> => {
   if (installationId === null) return null;
   const [r] = await sql()<{ client_name: string | null }[]>`SELECT client_name FROM installations WHERE id = ${installationId}`;
-  return r?.client_name ?? null;
+  // L25-1 (v6.1.16): the shown name, "Claude Code" for "Claude Code (earnkit)".
+  return displayName(r?.client_name);
 };
 
 /** Who holds the row: a live claim's agent and time, or the sending installation and its time. */
@@ -50,7 +52,7 @@ const holder = (row: Row) => (row.status === 'started' ? { since: row.claimed_at
  * already sent answers `already` with when and which agent; a skip answers `skipped`; a stale claim is taken
  * over, and the claiming installation's own live claim is renewed (claimed_at moves to now).
  */
-export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date): Promise<ClaimResult> {
+export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date, note: string | null = null): Promise<ClaimResult> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
   const out = await sql().begin(async (tx) => {
     // One claim decision at a time per owner and program, even when no row exists yet.
@@ -61,7 +63,7 @@ export async function claim(owner: string, programId: string, projectId: string 
     const row = await read();
     if (row?.status === 'skipped') return { skipped: true as const };
     if (row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId) {
-      await tx`UPDATE applications SET claimed_at = ${now}, application_id = COALESCE(application_id, ${newApplicationId()})
+      await tx`UPDATE applications SET claimed_at = ${now}, note = COALESCE(${note}, note), application_id = COALESCE(application_id, ${newApplicationId()})
         WHERE owner = ${owner} AND program_id = ${programId}`;
       return { ok: true as const };
     }
@@ -69,9 +71,9 @@ export async function claim(owner: string, programId: string, projectId: string 
     // T5-F1 (v6.1.14): the application's own id is issued with the claim, before the form is filled, so the agent
     // can put it in the form; a stale claim taken over keeps its id; the send keeps it (ledger.record).
     const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by, application_id)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, ${projectId}, ${now}, ${installationId}, ${newApplicationId()})
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, ${projectId}, ${now}, ${installationId}, ${newApplicationId()})
       ON CONFLICT (owner, program_id) DO UPDATE
-        SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, note = NULL, at = EXCLUDED.at,
+        SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
             application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
             project_id = EXCLUDED.project_id, claimed_at = EXCLUDED.claimed_at, claimed_by = EXCLUDED.claimed_by,
             submitted_by = NULL, fields_used = NULL, auto_applied = false
@@ -83,7 +85,7 @@ export async function claim(owner: string, programId: string, projectId: string 
     }
     // L17-2 (v6.1.16): every history row names its source; a claim is always an agent's.
     await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, 'builder')`;
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder')`;
     return { ok: true as const };
   });
   if ('ok' in out) return { ok: true };

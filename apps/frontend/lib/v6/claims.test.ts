@@ -116,3 +116,18 @@ test('L1d-1 (v6.1.11): claimed returns each claim\'s stored project; the hold st
   const other = await claim(owner, 'cl-proj', 'https://github.com/x/b', c, new Date(NOW.getTime() + H));
   assert.equal(other.ok, false);
 });
+
+test('L25-1 (v6.1.16): a claim held by "Claude Code (earnkit)" names it "Claude Code"; the stored name is unchanged', async () => {
+  await upsertProgram(programFixture({ id: 'cl-25', title: 'Claim Name Grant' }), 'file', NOW);
+  const b = await upsertBuilder({ github_id: ++gh, login: 'cl' + gh, name: 'Cl', avatar_url: null }, NOW);
+  const a = await installation('Claude Code (earnkit)');
+  const c = await installation('Cursor');
+  await linkInstallation(a, b.id, NOW);
+  await linkInstallation(c, b.id, NOW);
+  const owner = ownerKey(a, b.id);
+  assert.deepEqual(await claim(owner, 'cl-25', null, a, NOW, 'Drafted the pitch.'), { ok: true });
+  assert.equal((await sql()`SELECT note FROM applications WHERE owner = ${owner} AND program_id = 'cl-25'`)[0].note, 'Drafted the pitch.');
+  const second = await claim(owner, 'cl-25', null, c, new Date(NOW.getTime() + H));
+  assert.deepEqual(second, { ok: false, already: { since: NOW.toISOString(), by: 'Claude Code', sent: false } });
+  assert.equal((await sql()`SELECT client_name FROM installations WHERE id = ${a}`)[0].client_name, 'Claude Code (earnkit)');
+});

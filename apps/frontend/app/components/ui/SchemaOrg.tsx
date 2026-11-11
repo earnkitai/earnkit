@@ -1,4 +1,4 @@
-import { HERO_SUB } from '../../../lib/v5/site-copy';
+import { ONE_LINE } from '../../../lib/v5/site-copy';
 
 export default function SchemaOrg() {
   const schema = {
@@ -8,7 +8,7 @@ export default function SchemaOrg() {
     url: 'https://earnkit.com',
     logo: 'https://earnkit.com/logo.png',
     slogan: 'Get funded for what you ship.',
-    description: `${HERO_SUB} Agents connect at https://earnkit.com/mcp.`,
+    description: `${ONE_LINE} Agents connect at https://earnkit.com/mcp.`,
     sameAs: ['https://x.com/EarnKitAI'],
     parentOrganization: {
       '@type': 'Organization',

@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
 import { readBody } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
-import { cleanClientName } from '../v5/installations';
+import { displayName } from '../v5/installations';
 import {
   ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_SAVED, ME_UNLINKED, ME_UNLINK_NOT_YOURS, ME_VALUE_WORDS, UNKNOWN_CODE,
 } from '../v5/site-copy';
@@ -303,7 +303,7 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
     return (await linkedBy(code, g.builder.id)) ? noteAt(g, ALREADY_LINKED)
       : (await deniedCode(code)) ? noteAt(g, ME_LINK_NOT)
       : problemAt(g, (await codeState(code, g.now)) === 'unknown' ? UNKNOWN_CODE : ME_ERRORS.linkExpired);
-  return noteAt(g, ME_LINK_DONE(cleanClientName(live?.client_name)));
+  return noteAt(g, ME_LINK_DONE(displayName(live?.client_name)));
 }
 
 /** POST /me/delete: csrf, confirm (the GitHub login). Removes everything theirs and the cookie. */

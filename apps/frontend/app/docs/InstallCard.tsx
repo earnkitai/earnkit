@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, tabKeyTarget, type Agent } from '../components/sections/agents';
+import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, OTHER_AGENT_LINE, tabKeyTarget, type Agent } from '../components/sections/agents';
 
 export { tabKeyTarget };
 import { segRail, segTab } from '../components/site/SegTabs';
@@ -120,7 +120,7 @@ export function AgentPanel({ agent }: { agent: Agent }) {
 /**
  * v3.1 site Task 10: the docs install card's agent tabs (AGENTS order, Grok Bot first) and the chosen agent's panel.
  * Task 11: the tabs wrap on a phone and rove: only the chosen tab is in the Tab order, the arrow keys (and Home, End)
- * move to and choose the next one.
+ * move to and choose the next one. Under the panel, the line for any other agent (L25-4, v6.1.16).
  */
 export default function InstallCard() {
   const [active, setActive] = useState(0);
@@ -159,6 +159,8 @@ export default function InstallCard() {
       <div id="docs-agent-panel" role="tabpanel" aria-labelledby={`docs-tab-${active}`}>
         <AgentPanel agent={agent} />
       </div>
+      {/* L25-4 (v6.1.16): any agent without a tab. */}
+      <p className="text-[15px] text-s-ink-body">{OTHER_AGENT_LINE}</p>
     </div>
   );
 }

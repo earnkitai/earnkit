@@ -125,6 +125,8 @@ test('B6: DELETE /mcp is unchanged: the same handler as POST; no token is the 40
   process.env.EARNKIT_URL = 'https://earnkit.test';
   const r = await route.DELETE(new Request('https://earnkit.test/mcp', { method: 'DELETE' }));
   assert.equal(r.status, 401);
+  // L25-17 (v6.1.16): the 401 says what to do.
+  assert.deepEqual(await r.json(), { error: 'invalid_token', error_description: 'Sign in to EarnKit from your agent to use it.' });
   if (was === undefined) delete process.env.EARNKIT_URL;
   else process.env.EARNKIT_URL = was;
   assert.match(r.headers.get('www-authenticate') ?? '', /^Bearer resource_metadata="https:\/\/earnkit\.test\/\.well-known\/oauth-protected-resource\/mcp"$/);
@@ -150,7 +152,11 @@ test('L19-1: PATCH and PUT on /mcp are 405 with Allow: POST, DELETE, OPTIONS; th
   // A matched path has its whole body buffered by Next before the route runs (no 5 s timeout, no early 413), so the
   // body-carrying endpoints stay out of the proxy; their unusual methods are an edge rule.
   const { config } = await import('../../proxy');
-  assert.deepEqual(config.matcher, ['/me', '/oauth/authorize', '/.well-known/:path*']);
+  // L25-20 (v6.1.16): a fourth entry for capitalised page paths, which never matches /mcp or /oauth (proxy.test.ts
+  // checks it through Next's own matcher parser).
+  assert.deepEqual(config.matcher.slice(0, 3), ['/me', '/oauth/authorize', '/.well-known/:path*']);
+  assert.equal(config.matcher.length, 4);
+  assert.ok(config.matcher[3].includes('[Mm][Cc][Pp]') && config.matcher[3].includes('[Oo][Aa][Uu][Tt][Hh]/'));
 });
 
 const accepting = (accept: string | null) => {

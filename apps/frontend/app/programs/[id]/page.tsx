@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { getGuidePage } from '../../lib/landing-cache';
+import { firstLine, pageMeta } from '../../lib/meta';
 import { guideMeta } from '../../../lib/v5/guide';
 import { NOT_FOUND_METADATA } from '../../../lib/v5/site-copy';
 import GuideView, { Unavailable } from './GuideView';
@@ -14,11 +15,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = await getGuidePage(id);
   if (page === null) return NOT_FOUND_METADATA;
   if (page === 'error') return { title: 'Program guide · EarnKit' };
-  return {
+  // L25-6 (v6.1.16): the guide's own card, "{Title}: {money}" over its description's first sentence.
+  return pageMeta({
+    path: `/programs/${id}`,
     title: `${page.guide.title} · EarnKit`,
     description: guideMeta(page.guide),
-    alternates: { canonical: `https://earnkit.com/programs/${id}` },
-  };
+    ogTitle: `${page.guide.title}: ${page.guide.money}`,
+    ogDescription: firstLine(page.guide.description),
+  });
 }
 
 /**

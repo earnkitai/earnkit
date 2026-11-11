@@ -36,7 +36,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
     RECORD_DESCRIPTION,
-    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.",
+    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives (a partial record: facts, and answers keyed by kind, each { text }); with brief for the question and facts behind one answer kind.",
   );
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(
@@ -51,6 +51,21 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
   assert.ok(SERVER_INSTRUCTIONS.startsWith(SESSION_START));
   assert.ok(!SERVER_INSTRUCTIONS.includes('in your own words'));
+});
+
+test('L25-5 (v6.1.16): tools/list gives every tool a title; find alone is read-only', async () => {
+  const tools = await mcpListTools(await ctx());
+  assert.deepEqual(tools.map((t) => [t.name, t.title]), [
+    ['find', 'Find what you can earn'],
+    ['track', 'Track an application'],
+    ['record', 'Your record'],
+    ['screen', 'Screen applicants'],
+  ]);
+  assert.equal(tools[0].annotations?.readOnlyHint, true);
+  for (const t of tools.slice(1)) assert.equal(t.annotations?.readOnlyHint, undefined, t.name);
+  // L25-24 (v6.1.16): track's note is described.
+  const note = (tools[1].inputSchema as { properties: Record<string, { description?: string }> }).properties.note;
+  assert.equal(note.description, 'What you want remembered about this send.');
 });
 
 test('find strips unknown keys; track refuses them with its one line, the detail in the agent note (C35, C21)', async () => {

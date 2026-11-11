@@ -1,6 +1,6 @@
 /**
  * Every string the site shows that is not data, and the pure formatters the cards use.
- * Plain words: no emoji, no em dash. The terms page alone may say "launch a token".
+ * Plain words: no emoji, no em dash.
  */
 import { categoryOf } from './program-file';
 import { usdFull } from './programs-read';
@@ -27,7 +27,9 @@ export function programKind(p: Partial<Parameters<typeof categoryOf>[0]> & { rew
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
-export const HERO_SUB = 'Your agent finds the grants and prizes you fit and fills the forms. Free.';
+/** The one line about EarnKit (L25-2, v6.1.16): the hero, the meta description, every share card and SchemaOrg. */
+export const ONE_LINE = 'Your agent finds the grants and prizes your repo fits and fills the forms. Free.';
+export const HERO_SUB = ONE_LINE;
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 /** The nav pill says the CTA's words: one install action (v6.1.15, #13). */
 export const NAV_INSTALL = CTA_INSTALL;
@@ -36,14 +38,14 @@ export const STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I 
 
 /** Several of the six are rolling, so not "this week" (v6.1.14). */
 export const EARN_TITLE = 'Open now';
-/** The link under the landing's six to /programs. */
-export const EARN_ALL = (n: number): string => `See all ${n} programs`;
+/** The link under the landing's six to /programs, with no count (L25-15, v6.1.16). */
+export const EARN_ALL = 'See all programs.';
 export const EARN_EMPTY = 'Nothing is open right now.';
 export const ROLLING = 'Rolling';
 export const NOT_OPEN_YET = 'Not open yet';
 export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';
-export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.';
+export const PROGRAMS_DESCRIPTION = 'Every grant, prize and investment EarnKit lists, with the money and the close date.';
 /** A button that reads as a sentence (L21-21, v6.1.16). */
 export const ALL_PROGRAMS = 'See all programs.';
 export const FOOT_CTA = 'Ask your agent: What can I earn?';
@@ -81,33 +83,39 @@ export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 export const DOCS_STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
-  // #4 (v6.1.15): the yes sentence is landing step 3, word for word.
-  text: `Ask your agent: What can I earn? It drafts every fit with the facts from the repo. ${STEPS[2]} It tracks the result.`,
+  // L25-9 (v6.1.16): who submits, in one sentence.
+  text: 'Ask your agent: What can I earn? It drafts every fit with the facts from the repo. You say yes and it submits, or hands you the draft to send, and tracks the result.',
 };
+/** What an agent sends, and where saved answers wait (L25-8, v6.1.16): /docs, the Terms and llms.txt. */
+export const APPROVAL_LINE = 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.';
+/** How a program's reviewer gets access (L25-10, v6.1.16); the screen tool's non-reviewer replies say it too. */
+export const REVIEWER_ACCESS = 'Sign in once with GitHub and ask for reviewer access through the X link below.';
 export const DOCS_RECORD = {
   title: 'Your record',
-  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.',
+  // L25-8 (v6.1.16): the approval sentence; the rest shortened so the docs stay under their word cap.
+  text: `Sign in once with GitHub from your agent's link, and your agents share one record: facts, links, documents and answers. ${APPROVAL_LINE} Delete it any time.`,
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
   // #15 (v6.1.15): each tier glossed in plain words.
   text: "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
-/** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each. */
+/** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each; v6.1.16: the second and third
+ *  shortened, so /docs stays under its word cap with the other-agent line and the VS Code tab (L25-4). */
 export const DOCS_PROGRAMS = {
   title: 'For program owners',
   items: [
-    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
-    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
-    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
-    'Other programs see nothing of your screens, results or decisions.',
-    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+    `${REVIEWER_ACCESS} Your team is marked the same way and shares your screens.`,
+    "A screen reads only public evidence, never a builder's record or another applicant's text.",
+    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never through yours.',
+    'Other programs never see your screens, results or decisions.',
+    'Results come once a day, within 24 hours, and are kept 180 days with your decisions.',
   ],
 } as const;
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
-  // v6.1.15: never "owner" for EarnKit (concept picks); shorter, so the docs stay under 420 words with the longer steps.
-  text: 'EarnKit and a research bot check every program weekly and its links daily. Stale ones drop off.',
+  // v6.1.15: never "owner" for EarnKit (concept picks). L25-12 (v6.1.16): no "weekly"; how long a dead page stays.
+  text: 'EarnKit and a research bot check every program. Links are probed daily; a program whose page stays down leaves the list within about two weeks.',
 };
 export const DOCS_TERMS = { title: 'Terms', text: 'What EarnKit reads, stores and never does.', link: 'Read the terms' };
 
@@ -125,19 +133,20 @@ export const TERMS_SECTIONS = [
     title: 'What it stores',
     lines: [
       'An anonymous installation for each connected agent.',
+      "The agent's name, your GitHub login once you sign in, and your address for at most two days to stop abuse.",
       'The applications you tell it about.',
       'Program data.',
     ],
   },
   {
     title: 'What it never does',
-    lines: ['EarnKit will never submit for you, hold a wallet, launch a token, sell data or email builders.'],
+    lines: ['EarnKit never submits for you; your agent does, or you do. It never holds a wallet, sells data or emails builders.'],
   },
   {
     title: 'Your record',
     lines: [
       'Once you sign in with GitHub, EarnKit keeps one private record for you: the facts, links and answers you or your agent give it, your applications and your linked agents.',
-      'Only you and your linked agents see it. Nothing your agent wrote is sent until you approve it.',
+      `Only you and your linked agents see it. ${APPROVAL_LINE}`,
       'You can edit or delete it any time on your record page.',
     ],
   },

@@ -1,6 +1,10 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
 import { AGENTS, MCP_URL, type Agent } from './agents';
-import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SESSION_START, TRACK_DESCRIPTION } from './tool-text';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, TRACK_DESCRIPTION } from './tool-text';
+import { APPROVAL_LINE } from './site-copy';
+
+/** llms.txt's first session step (L25-7, v6.1.16): find first, record once signed in. */
+export const LLMS_SESSION_FIRST = 'The agent calls find with the project it is in; once signed in, record with get.';
 
 /** One agent's way in: its commands and the steps after them when it has commands, its message, else its steps. */
 function connectLines(a: Agent): string {
@@ -32,7 +36,7 @@ Then ask your agent: "What can I earn?"
 
 ## How a session goes
 
-1. ${SESSION_START} EarnKit reads the public repo; for a private repo it uses what the agent reports.
+1. ${LLMS_SESSION_FIRST} EarnKit reads the public repo; for a private repo it uses what the agent reports.
 2. The reply lists every program the repo fits, money first, with the application pre-filled from
    the record and the repo, and what is one change away.
 3. The builder says yes. The agent calls track with started, drafts and submits in its own browser,
@@ -49,9 +53,9 @@ Then ask your agent: "What can I earn?"
 ## The record
 
 The first find gives a one-time sign-in link, earnkit.com/link/<code>. The builder signs in once
-with GitHub, and from then on every agent of theirs shares one record and one ledger. An answer the
-agent writes is never sent until the builder approves it at https://earnkit.com/me, where they can
-also edit or delete everything. Unlinked agents keep working with no sign-in.
+with GitHub, and from then on every agent of theirs shares one record and one ledger.
+${APPROVAL_LINE} The record page is https://earnkit.com/me, where the builder can also edit or delete
+everything. Unlinked agents keep working with no sign-in.
 
 ## Screening
 
@@ -60,8 +64,8 @@ Their agent calls screen with the applicant list, as its description above says.
 evidence behind it: the repo, the chain and the site, 25 applicants a page. A reviewer never sees a
 builder's record, another program's name, screens or results, or another applicant's text. A
 program's reviewers share its screens and results, which stay with the program when a reviewer
-leaves. A reviewer never posts the result of their own application. Results come in daily runs and
-are kept 180 days with the program's decisions.
+leaves. A reviewer never posts the result of their own application. Results come once a day, within
+24 hours, and are kept 180 days with the program's decisions.
 
 ## Program pages
 

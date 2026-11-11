@@ -278,3 +278,10 @@ test('codeState (L21-6, L21-17, v6.1.16): live, used, expired, or unknown (malfo
   assert.equal(await consumeLinkCode(code, b.id, NOW), 'linked');
   assert.equal(await codeState(code, NOW), 'used');
 });
+
+test('L25-1 (v6.1.16, fix round 1): the confirm page names "Claude Code (earnkit)" as "Claude Code"', async () => {
+  const code = await createLinkCode(await install('Claude Code (earnkit)'), NOW);
+  const html = await (await linkGet(req(`/link/${code}`), code, { now: NOW })).text();
+  assert.ok(html.includes('Link the agent calling itself <strong><bdi>Claude Code</bdi></strong>, first seen Nov 6, to your GitHub account?'), html);
+  assert.ok(!html.includes('(earnkit)'));
+});

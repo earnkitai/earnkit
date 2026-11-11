@@ -16,6 +16,7 @@ import { getProgram, programsById, type ProgramRow } from './programs';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
 import { projectKeyOf, type Project } from './project-input';
 import { usdFull } from './programs-read';
+import { displayName } from './installations';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
@@ -228,7 +229,7 @@ export async function record(
     if (resulted && (status === 'applied' || RESULTS.includes(status)))
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')
-      return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${row.client_name ?? 'another agent'}; nothing recorded.` } as const;
+      return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${displayName(row.client_name) ?? 'another agent'}; nothing recorded.` } as const;
     // B3 (v6.1.13): a live claim of another installation of this owner holds the program; only its holder sends it.
     if (status === 'applied' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)

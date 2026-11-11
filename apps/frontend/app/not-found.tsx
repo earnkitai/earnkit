@@ -1,9 +1,14 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
 import { CARD_RUST, PAGE_COL, PILL_WHITE } from './components/site/ui';
-import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_METADATA, NOT_FOUND_TEXT } from '../lib/v5/site-copy';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT, NOT_FOUND_TITLE } from '../lib/v5/site-copy';
 
-export const metadata = NOT_FOUND_METADATA;
+/**
+ * L25-21 (v6.1.16): the title only. Next writes its own robots noindex into a 404 response's head, so a second one
+ * here made two; no canonical either (the layout sets none). A guide for an unknown id answers 200 with this content,
+ * so its generateMetadata returns NOT_FOUND_METADATA, which carries the one noindex itself.
+ */
+export const metadata = { title: NOT_FOUND_TITLE };
 
 /**
  * Launch ready L10: every unknown page and handle gets the site's own 404 (never Next's white default).

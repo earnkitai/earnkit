@@ -78,7 +78,8 @@ async function named(client: string | null): Promise<number> {
 }
 
 test('a second applied from another agent of the owner names the first and keeps it (v6.1.7, B13)', async () => {
-  const one = await named('Claude Code');
+  // L25-1 (v6.1.16, fix round 1): the stored "Claude Code (earnkit)" is named "Claude Code".
+  const one = await named('Claude Code (earnkit)');
   const two = await named(null);
   const b = `b:${2 ** 30 + 7}`;
   // Both agents are linked to the owner's builder (fix round 2: only a linked agent writes a b: ledger).
