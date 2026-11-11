@@ -33,7 +33,7 @@ export class RedirectError extends SafeFetchError {
 
 type Resolved = { address: string; family: 4 | 6 };
 /** Resolves `host` to its addresses; must stop when `signal` aborts (the overall deadline). */
-type Resolver = (
+export type Resolver = (
   host: string,
   signal: AbortSignal,
 ) => Promise<Resolved[]>;
@@ -49,7 +49,7 @@ type TransportResponse = {
   close?: () => void;
 };
 /** Connects to `address` (already vetted) while speaking TLS and HTTP to `url.hostname`. */
-type Transport = (req: {
+export type Transport = (req: {
   url: URL;
   address: string;
   family: 4 | 6;
@@ -486,4 +486,32 @@ export async function safeProbePage(
   const phrase = errorPageText(page);
   if (phrase) throw new ErrorPageError(phrase);
   return page;
+}
+
+/** The most a JSON document may be (an OAuth client ID metadata document, v6.1.15 Task 14). */
+export const JSON_MAX_BYTES = 10_240;
+
+/**
+ * Fetches a small JSON document (v6.1.15 Task 14: an OAuth client ID metadata document) and returns it parsed. The same
+ * guarded GET as every other fetch here: https on 443, every resolved address public, the connection pinned to it, 5 s
+ * for the whole fetch. Any 3xx throws `RedirectError` and is never followed (no second request; safeProbePage's
+ * same-site hop is not on this path). A body over `maxBytes` (default 10,240), a content type that is not
+ * application/json (parameters allowed), or invalid JSON throws `SafeFetchError`.
+ */
+export async function safeFetchJson(
+  url: string,
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number; maxBytes?: number } = {},
+): Promise<unknown> {
+  const { body, contentType } = await safeFetch(url, {
+    ...deps,
+    maxBytes: deps.maxBytes ?? JSON_MAX_BYTES,
+    accept: 'application/json',
+    userAgent: 'EarnKit-oauth/1',
+  });
+  if (!contentType || !/^\s*application\/json\s*(;|$)/i.test(contentType)) throw new SafeFetchError('not a JSON document');
+  try {
+    return JSON.parse(body.toString('utf8'));
+  } catch {
+    throw new SafeFetchError('not valid JSON');
+  }
 }

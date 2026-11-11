@@ -2,9 +2,11 @@
  * OAuth for the hosted MCP endpoint: OAuth 2.1 with PKCE and dynamic client registration, as MCP
  * clients expect. Anonymous: the authorize step approves at once. The issued token is the
  * installation; client ids and codes are signed with EARNKIT_AUTH_SECRET, so nothing is stored
- * until the token exchange.
+ * until the token exchange. A client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14):
+ * fetched through the SSRF-safe JSON fetch and cached in process.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { type Resolver, type Transport, safeFetchJson } from './safe-fetch';
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 
@@ -64,7 +66,7 @@ export function isAllowedRedirectUri(uri: string) {
 }
 
 /** `r`: the redirect URIs; `n`: the registration nonce; `cn`: the registered name, cleaned. */
-type ClientPayload = { r: string[]; n?: string; cn?: string };
+export type ClientPayload = { r: string[]; n?: string; cn?: string };
 type CodePayload = { c: string; r: string; ch: string; e: number; n: string };
 
 /** A registered client name as stored: letters, digits, spaces and a few marks, at most 40 characters, or null. Pure. */
@@ -159,8 +161,12 @@ export function hostedRedirectHost(uris: readonly string[]): string | null {
 /** A client's key in the limits: the first 32 hex of sha256(client_id). Never log client ids. Pure. */
 export const clientKeyOf = (clientId: string) => createHash('sha256').update(clientId).digest('hex').slice(0, 32);
 
-/** What a new installation counts against besides its IP: its own registration. Pure. */
-export const registrationLimitKey = (clientId: string) => `client:${clientKeyOf(clientId)}`;
+/**
+ * What a new installation counts against besides its IP: its own registration, or for a client ID metadata document
+ * the document's host (`client:host:{host}`), so one hosted service's users share one per-client ceiling. Pure.
+ */
+export const registrationLimitKey = (clientId: string) =>
+  isCimdClientId(clientId) ? `client:host:${new URL(clientId).host}` : `client:${clientKeyOf(clientId)}`;
 
 /** The register ceiling's key: the hosted service every redirect is on, else the registration when given, else none. Pure. */
 export function clientLimitKey(uris: readonly string[], clientId?: string): string | null {
@@ -211,17 +217,99 @@ export function redirectClass(uri: string): { cls: RedirectClass; host: string |
   return { cls: (AGENT_REDIRECT_URIS as readonly string[]).includes(uri) ? 'agent_host' : 'other', host: u.host };
 }
 
+/** The page text for a client ID metadata document that fails any check (v6.1.15 Task 14). Builder text. */
+export const CIMD_FAILED = "Connecting EarnKit failed. Your agent's client document could not be read.";
+
+/** A client_id that names a URL (http or https): a client ID metadata document, never a registered id. Pure. */
+export function isCimdClientId(clientId: string): boolean {
+  if (!/^https?:\/\//i.test(clientId) || !URL.canParse(clientId)) return false;
+  const p = new URL(clientId).protocol;
+  return p === 'https:' || p === 'http:';
+}
+
+/** The fetch behind a client ID metadata document, injectable so tests never touch the network. */
+export type ClientDeps = { resolve?: Resolver; transport?: Transport; timeoutMs?: number; now?: () => number };
+
+const CIMD_OK_MS = 60 * 60 * 1000;
+const CIMD_FAILED_MS = 5 * 60 * 1000;
+const CIMD_CACHE_MAX = 1_000;
+const MAX_REDIRECT_URIS = 10;
+const cimdCache = new Map<string, { at: number; ok: ClientPayload } | { at: number; failed: true }>();
+
+/** Empties the document cache (tests only). */
+export const clearCimdCache = () => cimdCache.clear();
+
+function remember(url: string, entry: { at: number; ok: ClientPayload } | { at: number; failed: true }) {
+  cimdCache.delete(url);
+  cimdCache.set(url, entry);
+  // Oldest first: a Map iterates in insertion order.
+  while (cimdCache.size > CIMD_CACHE_MAX) cimdCache.delete(cimdCache.keys().next().value as string);
+}
+
+/** A fetched document's client, or null when any check fails. Pure. */
+function cimdPayload(url: string, doc: unknown): ClientPayload | null {
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return null;
+  const d = doc as { client_id?: unknown; redirect_uris?: unknown; client_name?: unknown };
+  if (d.client_id !== url) return null;
+  const uris = d.redirect_uris;
+  if (!Array.isArray(uris) || uris.length === 0 || uris.length > MAX_REDIRECT_URIS) return null;
+  if (!uris.every((u): u is string => typeof u === 'string' && isAllowedRedirectUri(u))) return null;
+  const cn = clientNameOf(d.client_name);
+  if (reservedClientName(d.client_name) || reservedClientName(cn)) return null;
+  return { r: [...uris], ...(cn && { cn }) };
+}
+
+/**
+ * A client ID metadata document's client: fetched through `safeFetchJson` (https, public addresses only, no redirects,
+ * 5 s, 10 KB, JSON), its `client_id` equal to the URL, its redirect URIs allowed (at most 10), its name not EarnKit's.
+ * Cached per URL: 1 hour when good, 5 minutes when not, at most 1,000 URLs (oldest dropped first). Any failure
+ * throws `invalid_client` with CIMD_FAILED.
+ */
+export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<ClientPayload> {
+  const now = (deps.now ?? Date.now)();
+  const hit = cimdCache.get(url);
+  if (hit && now - hit.at < ('ok' in hit ? CIMD_OK_MS : CIMD_FAILED_MS)) {
+    if ('ok' in hit) return hit.ok;
+    throw new OAuthError('invalid_client', CIMD_FAILED);
+  }
+  let client: ClientPayload | null = null;
+  try {
+    client = cimdPayload(url, await safeFetchJson(url, { resolve: deps.resolve, transport: deps.transport, timeoutMs: deps.timeoutMs }));
+  } catch {
+    client = null;
+  }
+  if (!client) {
+    remember(url, { at: now, failed: true });
+    throw new OAuthError('invalid_client', CIMD_FAILED);
+  }
+  remember(url, { at: now, ok: client });
+  return client;
+}
+
+/**
+ * The client behind a client_id: a URL goes to its client ID metadata document (checked first, only for a value that
+ * parses as a URL, so a registered id never reaches it); else a signed id is verified as before. Null when unknown.
+ */
+export async function clientOf(clientId: string, deps: ClientDeps = {}): Promise<ClientPayload | null> {
+  if (isCimdClientId(clientId)) return cimdClient(clientId, deps);
+  return verify<ClientPayload>('client', clientId);
+}
+
 /**
  * Validates an authorize request: an unknown client or unregistered redirect throws (shown on our
  * page, never redirected); one without response_type=code and a PKCE S256 challenge goes back to
  * the redirect with invalid_request.
  */
-export function checkAuthorize(params: URLSearchParams): CheckedAuthorize | { error: URL } {
+export async function checkAuthorize(params: URLSearchParams, deps: ClientDeps = {}): Promise<CheckedAuthorize | { error: URL }> {
   const clientId = params.get('client_id') ?? '';
   const redirectUri = params.get('redirect_uri') ?? '';
-  const client = verify<ClientPayload>('client', clientId);
+  const client = await clientOf(clientId, deps);
   if (!client) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
-  if (!client.r.includes(redirectUri)) throw new OAuthError('invalid_redirect_uri', 'redirect_uri was not registered');
+  if (!client.r.includes(redirectUri)) {
+    // A document that does not list the redirect fails like any other document check.
+    if (isCimdClientId(clientId)) throw new OAuthError('invalid_client', CIMD_FAILED);
+    throw new OAuthError('invalid_redirect_uri', 'redirect_uri was not registered');
+  }
   const state = params.get('state');
   const challenge = params.get('code_challenge');
   if (params.get('response_type') !== 'code' || !challenge || params.get('code_challenge_method') !== 'S256') {
@@ -236,8 +324,8 @@ export function checkAuthorize(params: URLSearchParams): CheckedAuthorize | { er
 }
 
 /** The redirect with a code (and RFC 9207's iss). `_who` is always null: the approval is anonymous. */
-export function issueCode(req: PendingAuthorize, _who: null, issuer?: string): URL {
-  const client = verify<ClientPayload>('client', req.client_id);
+export async function issueCode(req: PendingAuthorize, _who: null, issuer?: string, deps: ClientDeps = {}): Promise<URL> {
+  const client = await clientOf(req.client_id, deps);
   if (!client || !client.r.includes(req.redirect_uri)) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
   const back = new URL(req.redirect_uri);
   if (req.state) back.searchParams.set('state', req.state);
@@ -254,7 +342,10 @@ export function issueCode(req: PendingAuthorize, _who: null, issuer?: string): U
  * code yields the same token. Each token is its own installation: a re-authorization starts a
  * fresh ledger (nothing proves two tokens are one builder).
  */
-export function exchangeCode(form: URLSearchParams): { token: string; limitKey: string; hostedHost: string | null; clientName: string | null } {
+export async function exchangeCode(
+  form: URLSearchParams,
+  deps: ClientDeps = {},
+): Promise<{ token: string; limitKey: string; hostedHost: string | null; clientName: string | null }> {
   if (form.get('grant_type') !== 'authorization_code') throw new OAuthError('unsupported_grant_type', 'Only authorization_code is supported');
   const code = form.get('code') ?? '';
   const payload = verify<CodePayload>('code', code);
@@ -266,7 +357,8 @@ export function exchangeCode(form: URLSearchParams): { token: string; limitKey: 
   if (b64(createHash('sha256').update(form.get('code_verifier') ?? '').digest()) !== payload.ch)
     throw new OAuthError('invalid_grant', 'PKCE verification failed');
 
-  const client = verify<ClientPayload>('client', payload.c);
+  // The code keeps the client_id; a document is re-read through its cache (a failed read refuses the exchange).
+  const client = await clientOf(payload.c, deps);
   return {
     token: `ek_${mac('token', code)}`,
     limitKey: registrationLimitKey(payload.c),
@@ -286,6 +378,7 @@ export function authorizationServerMetadata(origin: string) {
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none'],
     authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
   };
 }
 
