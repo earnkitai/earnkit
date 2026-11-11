@@ -211,8 +211,13 @@ A `won` above the program's `max_award_usd`, else its `pool_usd`, else 10,000,00
 Ledger invariants (v6.1.7, `ledger.ts record`, every write under one advisory lock per owner and program, the same lock
 `claims.claim` takes, and every refusal returns before any write): one application and one result per program. A
 second `applied` from any of the builder's agents records nothing and answers "Already sent here on {day} by {agent};
-nothing recorded." A second result answers that it already has one, except a second win with an amount over a win
-with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
+nothing recorded." v6.1.16 (L16-1, L16-2): the ledger holds the latest result. A won or rejected, unmarked, over a
+different result (won and rejected either way, a win with another amount or currency note, or over "no result"),
+from the program's screen or the builder's own track, is a correction: it replaces status, amount and note, its
+history row has `corrected` true, and `record` returns `corrected: true`. A further payment over a result that is not
+a win writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
+result is still refused ("That one already has a result here: ..."), the same result is "Already tracked.". A second
+win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
 "Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
 amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Track keys are
@@ -629,8 +634,16 @@ Rows read
 before v6.1.14 may carry the old cross-program `xp.*` values until they expire (now 180 days, `KEEP_DAYS`, L15-14; T8-F4 accepted). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
-outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say
-whether a ledger took it. `xpCounts` gives each read the program's own earlier screens in 90 days sharing the repo
+outcome replaces the first only when not older, and the note names what it replaced (L13-12; an earlier win in another
+currency as given, "(was won EUR 2,500)", L16-4). v6.1.16: a further payment over no kept win (`none`, `rejected`,
+`shortlisted`) writes nothing and the show line adds "Further payment refused: the current result is {status}; post a
+win first." (L16-1); a payment key retry or the outcome kept already is a repeat, not counted as recorded unless the
+ledger took it (FR-4), and a call of repeats only reads "Already recorded; nothing new." (L16-16); an id's ambiguity
+counts only rows of the application's own project (L16-3). `recordOutcomes` returns `passed` (outcomes a ledger holds)
+and `reasons`/`notPassed` in `NOT_PASSED` words; the agent note leads "Tell the builder the outcomes are recorded."
+only when one passed, else "Nothing reached a builder: {ref}: {why} ..." (L16-9), and the show line names each
+recorded outcome that reached no builder: "Recorded {n} outcome(s); not passed to a builder: {ref} ({why})." (L22-11).
+A page past the last reads "{totals} No more results." (L16-12). `xpCounts` gives each read the program's own earlier screens in 90 days sharing the repo
 or a deployer and the outcomes it reported ("seen in n earlier screens of this program in 90 days", never a flag);
 another program's screens and outcomes are never counted or shown (L15-11 v6.1.14, as the terms say). Marking a
 reviewer again without a contact keeps the saved one (L15-2).
