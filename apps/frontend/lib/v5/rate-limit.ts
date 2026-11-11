@@ -30,6 +30,8 @@ export const LIMITS = {
   repoRead: { limit: 10, windowSeconds: 86_400 },
   /** GET /link/<code> and the GitHub sign-in callback, per client IP, one window for both. */
   linkGet: { limit: 60, windowSeconds: 3_600 },
+  /** Uncached OAuth client document fetches, per document host (v6.1.15 Task 14 fix round 1, M1). */
+  cimdFetch: { limit: 30, windowSeconds: 3_600 },
   /** screen jobs, per reviewer ('b:<builder>'), per UTC day: counted once the call passed every other refusal. */
   screenJobs: { limit: 10, windowSeconds: 86_400 },
 } as const;

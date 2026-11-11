@@ -5,7 +5,7 @@
  */
 import { json, readCapped, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
-import { INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
+import { CIMD_FAILED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
 import { BLOCK_LIMITED, BLOCK_WARN_SHARE, LIMITS, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
@@ -27,7 +27,8 @@ async function enforceBlock(name: 'oauthRegisterBlock' | 'installBlock', ip: str
 }
 
 function logLimited(route: string, limit: string, key: string | null) {
-  const host = key?.startsWith('host:') ? key.slice(5) : key ? 'per-registration client' : 'no client';
+  // A client document's host is public (its URL is the client_id); a registered id is never logged.
+  const host = key?.startsWith('host:') ? key.slice(5) : key?.startsWith('client:host:') ? `document on ${key.slice(12)}` : key ? 'per-registration client' : 'no client';
   console.warn(`[oauth] ${route} refused by ${limit} (${host})`);
 }
 
@@ -42,11 +43,14 @@ const tooMany = (err: RateLimitError) =>
 const page = (text: string, status: number, headers: Record<string, string> = {}) =>
   new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 
-export async function tokenPost(request: Request) {
+/** `client`: the client document fetch (tests inject a fixture; no test touches the network). */
+type TokenDeps = { client?: ClientDeps };
+
+export async function tokenPost(request: Request, deps: TokenDeps = {}) {
   try {
     const params = await readParams(request, MAX_OAUTH_BODY);
     if (params === null) return tooLarge();
-    const { token, limitKey, hostedHost, clientName } = exchangeCode(params);
+    const { token, limitKey, hostedHost, clientName } = await exchangeCode(params, deps.client);
     // T6-F2 (v6.1.14): a client id signed before the check may carry a reserved name; it never installs (saveInstallation
     // refuses too). Checked before the limits, so a refusal spends none.
     if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
@@ -61,7 +65,10 @@ export async function tokenPost(request: Request) {
         limit = 'installBlock';
         await enforceBlock('installBlock', ip);
         limit = hostedHost ? 'installClientHosted' : 'installClient';
-        await enforce(limit as 'installClient' | 'installClientHosted', limitKey, TOO_MANY_CLIENT);
+        // A client document is one client for all its users (claude.ai's is everyone's), so its ceiling is per
+        // document host and address block: one network never spends another's installs (v6.1.13 B1, v6.1.15 Task 14).
+        const key = limitKey.startsWith('client:host:') ? `${limitKey}:${blockOf(ip)}` : limitKey;
+        await enforce(limit as 'installClient' | 'installClientHosted', key, TOO_MANY_CLIENT);
       } catch (err) {
         if (err instanceof RateLimitError) logLimited('token', limit, hostedHost ? `host:${hostedHost}` : limitKey);
         throw err;
@@ -76,19 +83,21 @@ export async function tokenPost(request: Request) {
   }
 }
 
-type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown> };
+type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps };
 const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
 
 /** Anonymous approval: a valid request is sent straight back to its client with a code. */
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
     await (deps.limit ?? authorizeLimit)(request);
-    const checked = checkAuthorize(new URL(request.url).searchParams);
+    const checked = await checkAuthorize(new URL(request.url).searchParams, deps.client);
     if ('error' in checked) return Response.redirect(checked.error, 302);
-    return Response.redirect(issueCode(checked.req, null, publicOrigin(request)), 302);
+    return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), deps.client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });
     // Unknown client or redirect URI: shown here, never redirected to an unverified URI.
+    // A client document that fails any check: its own line, already a whole sentence (v6.1.15 Task 14).
+    if (err instanceof OAuthError && err.message === CIMD_FAILED) return page(CIMD_FAILED, 400);
     if (err instanceof OAuthError) return page(`Connecting EarnKit failed. ${err.message}`, 400);
     throw err;
   }
