@@ -48,14 +48,27 @@ const sameName = (a: string | null | undefined, b: string | null | undefined) =>
  * none (v6.1.8 C41): another project's answers are never used for this one. Pure.
  */
 export function pickProject(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null, name?: string | null): Project | null {
+  const byId = projectId ? record.projects.find((p) => p.id === projectId) : undefined;
+  // L28-7 (v6.1.16 Task 14): two record projects on one repo (a monorepo) and no project_id: neither, never one for the other.
+  if (!byId && sharedRepoProjects(record, projectId, repoUrl).length >= 2) return null;
   return (
-    (projectId ? record.projects.find((p) => p.id === projectId) : undefined) ??
+    byId ??
     record.projects.find((p) => sameRepo(p.repo_url, repoUrl)) ??
     record.projects.find((p) => sameName(p.name, name)) ??
     null
   );
 }
 
+
+/**
+ * L28-7 (v6.1.16 Task 14): with no project_id the record knows, the names of the record projects on this repo when two
+ * or more share it (each its name, else its id); else none. Pure.
+ */
+export function sharedRepoProjects(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null): string[] {
+  if (projectId && record.projects.some((p) => p.id === projectId)) return [];
+  const on = record.projects.filter((p) => sameRepo(p.repo_url, repoUrl));
+  return on.length >= 2 ? on.map((p) => p.name ?? p.id) : [];
+}
 
 /** The record, the picked project and its stored usage line, for one program's pre-fill (no evidence read). */
 export async function storedRecordContext(builderId: number, projectId: string | undefined, repoUrl: string | null, name?: string | null): Promise<RecordContext> {

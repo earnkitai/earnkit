@@ -4,11 +4,11 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
-import { cleanText } from './controls';
-import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
+import { cleanText, quoteName } from './controls';
+import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { appliedOvernight, CLAIM_HOURS, releaseStale, type Released } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
-import { blockersOf, gateFor, notNever, missingFor, recordSide, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
+import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
@@ -16,7 +16,7 @@ import { closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, outcomeAsksDue, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -24,7 +24,7 @@ import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
-import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { cachedRepoFacts, cachedRepoId, ownsRepo, repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
@@ -434,7 +434,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
   const rules = ruleNotes(p);
   // L16-7 (v6.1.16): a program with a result shows the result, never a yes, a step or a sign-in.
-  const result = project ? await resultOf(ownerOf(ctx), id) : null;
+  // L28-4 (v6.1.16 Task 14): this project's result only.
+  const result = project ? await resultOf(ownerOf(ctx), id, key) : null;
   if (result) {
     const words = resultWords(result.status, result.amounts);
     return {
@@ -454,10 +455,10 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
   const signIn = signStep ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), true) : null;
   // L23-18 (v6.1.16): a closed program the builder sent says when, and when results come.
-  const sent = closed ? await sentOf(ownerOf(ctx), id) : null;
+  const sent = closed ? await sentOf(ownerOf(ctx), id, key) : null;
   const due = sent ? resultsDateOf(row) : null;
   // L23-8 (v6.1.16): another agent of the builder's holds a live claim on it: that is said in place of the yes.
-  const hold = open ? (await claimed(ownerOf(ctx))).get(id) : undefined;
+  const hold = open ? (await claimed(ownerOf(ctx), (x) => x === key || (x !== null && x === projectId))).get(id) : undefined;
   const heldSince = hold && !hold.held && hold.by !== ctx.installationId && Date.parse(hold.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000 ? hold.since : null;
   // L24-13 (v6.1.16 Task 11): a ready program the standing approval sends alone (the list's tonightOf over this one).
   const policy = side?.record.policy ?? (ctx.builderId !== null ? rec?.record.policy : undefined);
@@ -656,9 +657,58 @@ function shortLinkIn(project: unknown): boolean {
   return ['repo_url', 'live_url', 'demo_url'].some((k) => isShortener(o[k]));
 }
 
+/** L28-5 (v6.1.16 Task 14): a name-only project with sends or steps meets a repo by that name: asked, never merged. */
+export const JOIN_QUESTION = (name: string, repo: string): string => `Is ${quoteName(name)} the same as ${repo}? Say yes and I join them.`;
+/** L28-5: the agent note beside JOIN_QUESTION. */
+export const JOIN_NOTE = (name: string) =>
+  `Until the builder says yes the two stay apart. On yes, call track with program_id join, status gap_done, item join:${name} and this project, then call find again.`;
+/** L28-7 (v6.1.16 Task 14): two record projects share the repo and no project_id was passed. */
+export const WHICH_PROJECT = (a: string, b: string): string => `Which project: ${quoteName(a)} or ${quoteName(b)}?`;
+export const WHICH_PROJECT_NOTE = 'Two record projects share this repo, so nothing was filled from either. Ask which, then call find with its project_id.';
+/** L28-3 (v6.1.16 Task 14): the agent note when the signed-in login has no public tie to the repo. */
+export const NOT_YOUR_REPO_NOTE = 'The signed-in GitHub account is not the repo owner, in its org, or among its committers: do not apply with this repo.';
+
+/** What find asks or says before any send (L28-3, L28-5, L28-7, v6.1.16 Task 14), filled while the reply is built. */
+type BeforeSend = { join: string | null };
+
+/**
+ * L28-6 (v6.1.16 Task 14): a repo read under a new link whose GitHub id the owner's applications hold under an old one
+ * (a rename or a transfer): those rows, steps and rules move to the new key, and a record project on the old link takes
+ * the new link and the id. Reads only the cache (no fetch).
+ */
+async function followRename(ctx: FindContext, project: Project | null): Promise<void> {
+  const to = project ? projectKeyOf(project) : '';
+  if (!repoKeyOf(to)) return;
+  const id = await cachedRepoId(to);
+  if (id === null) return;
+  const moved = await rekeyByRepoId(ownerOf(ctx), id, to);
+  if (ctx.builderId === null) return;
+  await withRecord(ctx.builderId, ctx.now, (cur) => {
+    let changed = false;
+    for (const p of cur.projects) {
+      const k = p.repo_url ? projectKeyOf({ repo_url: p.repo_url }) : '';
+      if (k && moved.includes(k)) {
+        p.repo_url = `https://github.com/${to.slice('https://github.com/'.length)}`;
+        changed = true;
+      }
+      if (k && (k === to || moved.includes(k)) && p.repo_id !== id) {
+        p.repo_id = id;
+        changed = true;
+      }
+    }
+    return { record: changed ? cur : null, result: null };
+  });
+}
+
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
   const { i, unread } = findInputOf(input);
-  const r = await findWith(ctx, i, unread);
+  const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
+  const given = parsed?.ok ? parsed.project : null;
+  await followRename(ctx, given);
+  const pre: BeforeSend = { join: null };
+  const r0 = await findWith(ctx, i, unread, pre);
+  await followRename(ctx, given);
+  const r = await beforeSend(ctx, i.project_id, given, pre, r0);
   // The one-program and open-list replies take the line here; the match's agent note has it in place.
   const withUnread = unread.length > 0 && !r.agent_note.includes(unreadNote(unread)) ? { ...r, agent_note: [r.agent_note, unreadNote(unread)].join('\n') } : r;
   // L16-8 (v6.1.16): a shortened link was dropped: the agent hears to send the real one, on every reply kind.
@@ -771,12 +821,44 @@ function programCap(reply: ProgramReply, cap: number): ProgramReply {
   return { ...out, agent_note: [out.agent_note, note].filter(Boolean).join('\n') };
 }
 
-async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[]): Promise<FindReply | ProgramReply> {
+/**
+ * L28-7, L28-5, L28-3 (v6.1.16 Task 14), in that order: two record projects on the repo with no project_id ask which
+ * (nothing was filled from either); a name-only project with sends or steps meeting a repo by its name asks to join
+ * (only when signed in and the repo is the builder's); a linked builder whose login has no public tie to the repo hears so
+ * first. A question replaces the builder text and offers no apply yes.
+ */
+async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, projectId: string | undefined, project: Project | null, pre: BeforeSend, r: T): Promise<T> {
+  const key = project ? projectKeyOf(project) : '';
+  if (!repoKeyOf(key)) return r;
+  const ask = async (line: string, note: string): Promise<T> => {
+    await markOffer(ctx.installationId, null, ctx.now);
+    return { ...r, show_to_builder: line, agent_note: [note, r.agent_note].filter(Boolean).join('\n') };
+  };
+  if (ctx.builderId !== null) {
+    const shared = sharedRepoProjects(await getRecord(ctx.builderId), projectId, project!.repo_url ?? null);
+    if (shared.length >= 2) return ask(WHICH_PROJECT(shared[0], shared[1]), WHICH_PROJECT_NOTE);
+  }
+  const login = ctx.builderId === null ? null : (await getBuilder(ctx.builderId))?.login ?? null;
+  const facts = login ? await cachedRepoFacts(project!) : null;
+  const mine = login ? await ownsRepo(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) }) : null;
+  // Unlinked, a join could never be done (the repo is not shown to be theirs), so it is not asked.
+  if (pre.join && mine === true) return ask(pre.join, JOIN_NOTE(project!.name));
+  if (mine === false) return { ...r, show_to_builder: [NOT_YOUR_REPO, r.show_to_builder].filter(Boolean).join('\n'), agent_note: [NOT_YOUR_REPO_NOTE, r.agent_note].filter(Boolean).join('\n') };
+  return r;
+}
+
+async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const project = parsed?.ok ? parsed.project : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
   // B4 (v6.1.13): the first find that adds the repo to a project found by name moves its steps and claims to the repo key.
-  if (project?.repo_url) await rekeyProject(ownerOf(ctx), nameKeyOf(project), projectKeyOf(project));
+  // L28-5 (v6.1.16 Task 14): only when the name holds no send or step; else the builder is asked, and both stay.
+  const fromName = project ? nameKeyOf(project) : '';
+  const toRepo = project ? projectKeyOf(project) : '';
+  if (project?.repo_url && fromName && toRepo !== fromName) {
+    if (await heldUnder(ownerOf(ctx), fromName)) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
+    else await rekeyProject(ownerOf(ctx), fromName, toRepo);
+  }
   // W2 (final round): a project by name alone whose report names a repo is read under that repo's key (steps, claims, report).
   const key = project ? await resolvedKey(ownerOf(ctx), projectKeyOf(project)) : '';
   // The report as parsed, so a send on this project is judged on no less (v6.1.13, Task 1 review I1).
@@ -784,7 +866,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // known by its repo keeps that repo link in the report, so the name keeps resolving.
   if (project) {
     const report = key !== projectKeyOf(project) && !project.repo_url ? { ...project, repo_url: (await reportOf(ownerOf(ctx), nameKeyOf(project)))?.repo_url } : project;
-    for (const k of new Set([key, projectKeyOf(project), nameKeyOf(project)])) await saveReport(ownerOf(ctx), k, report as Project, ctx.now);
+    // L28-5: a name awaiting the join question keeps its own report, so it never resolves to the repo meanwhile.
+    for (const k of new Set([key, projectKeyOf(project), ...(pre.join ? [] : [nameKeyOf(project)])])) await saveReport(ownerOf(ctx), k, report as Project, ctx.now);
   }
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key, problems);
   // L24-2 (v6.1.16 Task 11): the open list offers no yes.
@@ -802,7 +885,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
   // L23-7, L23-19 (v6.1.16): stale claims are released on every project find, linked or not, and said by title.
   const released = await releaseStale(owner, ctx.now);
-  const skip = await excluded(owner);
+  // L28-4 (v6.1.16 Task 14): a send leaves only its own project's list (`here`, below).
+  const skip = await excluded(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
   const all = i.filter?.all === true;
   // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
   const listed = side ? notNever(side.record) : () => true;
@@ -830,7 +914,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // default list until it is applied or skipped (both leave the list).
   // L1d-1 (v6.1.11): only a claim on this project counts, by its stored project (the record id or the project key).
   const here = (p: string | null) => p !== null && (p === key || p === i.project_id || p === side?.projectId);
-  const allClaims = await claimed(owner);
+  const allClaims = await claimed(owner, here);
   const claims = new Map([...allClaims].filter(([, h]) => here(h.project)));
   const live = [...claims].filter(([, h]) => Date.parse(h.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000).map(([id]) => id);
   const acted = new Set([...done.own.keys(), ...live]);
@@ -913,7 +997,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L23-1 (v6.1.16): a standing-approval line over 24 hours old whose programs have no application since: said once.
   const promise = side ? await promisedOf(ctx.installationId) : null;
   const promiseDue = promise !== null && ctx.now.getTime() - promise.at.getTime() > 86_400_000;
-  const sentSince = promiseDue ? await excluded(owner) : new Set<string>();
+  const sentSince = promiseDue ? await excluded(owner, here) : new Set<string>();
   const notSent = promiseDue ? promise.programs.filter((p) => !sentSince.has(p.program_id)) : [];
   if (promiseDue) await clearPromised(ctx.installationId);
   // L23-16 (v6.1.16): the shown list's hash against the last project find's.
