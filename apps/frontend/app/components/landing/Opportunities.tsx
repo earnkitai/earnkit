@@ -89,7 +89,12 @@ export default function Opportunities({ programs, total, full = false }: { progr
                 </span>
                 <span className="mt-auto text-[16px] font-semibold [overflow-wrap:anywhere]">{t.title}</span>
                 {t.big && t.money.startsWith(UP_TO) ? <span className={`-mb-1 text-[15px] ${look.sub}`}>Up to</span> : null}
-                <span className={`ek-serif leading-[0.9] ${t.big ? 'text-[52px] md:text-[64px]' : 'text-[28px] leading-none'}`}>
+                {/* Full figures (lane 22, v6.1.15): a long one ("$1,000,000") steps down a size and may wrap, never overflow at 375px. */}
+                <span
+                  className={`ek-serif min-w-0 leading-[0.9] [overflow-wrap:anywhere] ${
+                    !t.big ? 'text-[28px] leading-none' : t.money.replace(UP_TO, '').length > 8 ? 'text-[44px] md:text-[56px]' : 'text-[52px] md:text-[64px]'
+                  }`}
+                >
                   <Money text={t.big ? t.money.replace(UP_TO, '') : t.money} />
                 </span>
                 <span className={`text-[13px] ${look.sub}`}>{t.kind}</span>

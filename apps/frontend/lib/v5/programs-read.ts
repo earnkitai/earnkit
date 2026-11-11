@@ -20,7 +20,7 @@ export type ListedProgram = {
   category: Category;
   chains: string[];
   any_chain: boolean;
-  /** The card's money: "$5K" per winner, else "$840K in prizes", else the summary's amount. */
+  /** The card's money: "$840,000 in prizes", else "$5,000" per winner (a range "$10,000 to $900,000"), else the summary's amount. */
   money: string;
   status: 'active' | 'upcoming';
   /** ISO, or null for a rolling program. */
@@ -40,28 +40,43 @@ export type ListedProgram = {
   max_award_usd: number;
 };
 
-/** "$750", "$5K", "$105K", "$1M", "$1.3M". Pure. */
-export function compactUsd(usd: number): string {
-  const one = (n: number) => String(Math.round(n * 10) / 10);
-  if (usd < 1000) return `$${Math.round(usd)}`;
-  if (usd < 999_950) return `$${one(usd / 1000)}K`;
-  return `$${one(usd / 1_000_000)}M`;
+/** "$10,000": whole dollars with en-US grouping, never K or M (lane 22, v6.1.15). Pure. */
+export const usdFull = (usd: number): string => `$${Math.round(usd).toLocaleString('en-US')}`;
+
+/**
+ * A money phrase at its place (#12, L1g-4, v6.1.15): `tile` starts it with a capital ("Funds work from EUR 50,000");
+ * `mid` lower-cases a plain capitalised first word for mid-sentence ("funds work from EUR 50,000"), so "EUR", "USDC", "NYC"
+ * and "$" stay as written. Pure.
+ */
+export function moneyAt(text: string, at: 'tile' | 'mid'): string {
+  return at === 'tile' ? text.charAt(0).toUpperCase() + text.slice(1) : lowerFirst(text);
 }
+
+/** A plain capitalised first word ("Up", "Pre-seed", "Milestone"), never an acronym or a mixed-case name ("EUR", "NYC",
+ *  "DeFi", "PayPal"). */
+const PLAIN_CAPITAL = /^[A-Z][a-z]*(?:[-'][a-z]+)*(?=$|[\s,:;.])/;
+
+/** The text with a plain capitalised first word lower-cased, for mid-sentence; else as written. Pure. */
+export const lowerFirst = (text: string): string => (PLAIN_CAPITAL.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
 /** A money threshold the builder must reach (" at $10M USDG TVL"), never money paid (v6.1.14). */
 const THRESHOLD = /\s+at\s+[$€£]\s?[\d.,]+\s?[KMB]?\b.*$/i;
 
 /**
- * The money a program card shows: the pool first, then the per-winner award, then the summary (v6.1.6). A range (a
- * low end in the file, or a summary that says "up to") reads "Up to $900K" (v6.1.14): its top is not the award. The
- * summary's money never carries a threshold the builder must reach. Pure.
+ * The money a program card shows: the pool first, then the per-winner award, then the summary (v6.1.6), in full
+ * figures (lane 22, v6.1.15). A range keeps its low ("$10,000 to $900,000"); a summary that says "up to" with no low
+ * reads "Up to $5,000" (v6.1.14). The summary's money never carries a threshold the builder must reach, and starts
+ * with a capital (#12). The tile, the list API and the guide header all show this one string. Pure.
  */
 export function moneyOf(p: Pick<Program, 'title' | 'summary' | 'investment' | 'max_award_usd' | 'pool_usd' | 'min_award_usd'>): string {
   const prize = p.summary.split(' · ')[0];
-  if (p.pool_usd) return `${compactUsd(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
-  if (p.max_award_usd) return p.min_award_usd || /^up to\b/i.test(prize) ? `Up to ${compactUsd(p.max_award_usd)}` : compactUsd(p.max_award_usd);
+  if (p.pool_usd) return `${usdFull(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
+  if (p.max_award_usd) {
+    if (p.min_award_usd) return `${usdFull(p.min_award_usd)} to ${usdFull(p.max_award_usd)}`;
+    return /^up to\b/i.test(prize) ? `Up to ${usdFull(p.max_award_usd)}` : usdFull(p.max_award_usd);
+  }
   const award = prize.replace(THRESHOLD, '');
-  return p.investment && !/\binvestment\b/i.test(award) ? `${award} investment` : award;
+  return moneyAt(p.investment && !/\binvestment\b/i.test(award) ? `${award} investment` : award, 'tile');
 }
 
 const closesIn = (status: ListedProgram['status'], closesAt: string | null, now: Date) =>

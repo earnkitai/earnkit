@@ -190,10 +190,10 @@ test('/programs is a page with every listed program, the title and the descripti
 test('/programs/<id> renders the guide; a missing logo file renders no image', async () => {
   const m = html(await ProgramGuidePage(params('zz-page-open')));
   const t = textOf(m);
-  assert.ok(t.includes('Page Open Grants') && /\$\s?5K/.test(t));
-  assert.ok(t.includes('Project name') && t.includes('a project name'));
+  assert.ok(t.includes('Page Open Grants') && /\$\s?5,000/.test(t));
+  assert.ok(t.includes('Project name') && t.includes('A project name.'));
   assert.ok(t.includes('Apply from a public repo.'));
-  assert.ok(t.includes('https://example.com/grants') || t.includes('program page'));
+  assert.ok(t.includes('https://example.com/grants') || t.includes('Program page.'));
   assert.ok(!m.includes('/programs/zz-page-open.svg'), 'no image for a logo file that does not exist');
   assert.ok(!/<img[^>]+programs\/zz/.test(m));
   // One text node, so no gap before the colon (lane 5, 4).

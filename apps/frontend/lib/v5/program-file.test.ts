@@ -210,17 +210,48 @@ test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a thr
   assert.deepEqual(ruleNotes(thiel), ['applicant aged 22 or younger with no university degree, who will drop out of college if selected']);
   const reply = replyMoney;
 
+  // v6.1.15 (#12, L1g-4): a capital on the tile, lowercase mid-sentence, full figures (lane 22).
   const arb = ProgramFile.parse(read('arbitrum-stablecoin-growth-program.json'));
-  assert.equal(reply(arb), 'incentives + 200K ARB for the first 10 teams');
-  assert.equal(moneyOf(arb), 'incentives + 200K ARB for the first 10 teams');
+  assert.equal(reply(arb), 'incentives, plus 200K ARB for the first 10 teams');
+  assert.equal(moneyOf(arb), 'Incentives, plus 200K ARB for the first 10 teams');
   assert.ok(arb.rules.some((r) => r.includes('$10M of USDG TVL')));
 
   const lido = ProgramFile.parse(read('lido-lego-grants.json'));
-  assert.equal(moneyOf(lido), 'Up to $100K');
-  assert.equal(reply(lido), 'Up to $100,000 by tier, more by DAO vote');
+  assert.equal(moneyOf(lido), 'Up to $100,000');
+  assert.equal(reply(lido), 'up to $100,000 by tier, more by DAO vote');
 
+  // Lane 20: the EUR 50,000 is a minimum project cost, not an award floor.
   const stf = ProgramFile.parse(read('sovereign-tech-fund.json'));
   assert.equal(stf.max_award_usd, undefined);
-  assert.equal(moneyOf(stf), 'From EUR 50,000 of work, no maximum stated');
-  assert.equal(reply(stf), 'From EUR 50,000 of work, no maximum stated');
+  assert.equal(moneyOf(stf), 'Funds work from EUR 50,000');
+  assert.equal(reply(stf), 'funds work from EUR 50,000');
+});
+
+test('v6.1.15 money lines (#12, L1g-8c): each ruled summary money, on the tile and mid-sentence', () => {
+  const tiles: Record<string, string> = {
+    'arbitrum-mentorship-cohort-2': 'Up to $100,000',
+    'sovereign-tech-fund': 'Funds work from EUR 50,000',
+    'arbitrum-security-program': 'Audit subsidy, amount not stated',
+    'arbitrum-stablecoin-growth-program': 'Incentives, plus 200K ARB for the first 10 teams',
+    'arc-builders-fund': 'Investment from Circle Ventures, amount not stated',
+    'base-ecosystem-fund': 'Pre-seed and seed investment, amount not stated',
+    'neon-open-source-program': 'Monthly cash sponsorship for six months, amount not stated',
+    'solana-foundation-grants': 'Milestone grants, amount not stated',
+    'solana-mobile-builder-grants': 'Milestone grants, requests of $10,000 to $50,000',
+    'solana-incubator-cohort-6': 'NYC incubator with relocation stipend, amount not stated',
+    'uniswap-foundation-open-grants': 'Amount not stated, set by milestone budget',
+    'uniswap-foundation-security-fund': 'Up to 100% of the audit cost',
+    'spc-founder-fellowship-spring-2027': "$1M investment on the last round's terms",
+  };
+  for (const [id, tile] of Object.entries(tiles)) {
+    const p = ProgramFile.parse(read(`${id}.json`));
+    assert.equal(moneyOf(p), tile, id);
+    assert.equal(replyMoney(p), /^(NYC|\$)/.test(tile) ? tile : tile.charAt(0).toLowerCase() + tile.slice(1), id);
+  }
+  // L1g-8c: the mentorship's $100K goes to the top teams: an award cap, not a pool; kind stays grant.
+  const mentor = ProgramFile.parse(read('arbitrum-mentorship-cohort-2.json'));
+  assert.equal(mentor.pool_usd, undefined);
+  assert.equal(mentor.max_award_usd, 100_000);
+  assert.equal(programKind(mentor), 'grant');
+  assert.equal(replyMoney(ProgramFile.parse(read('sovereign-tech-fund.json'))), 'funds work from EUR 50,000');
 });

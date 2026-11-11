@@ -62,7 +62,7 @@ function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
     case 'live_product': return { ...base, what: 'put a live link up' };
     case 'demo_video': return { ...base, what: 'a demo video' };
     case 'integration': return { ...base, what: `add ${integrationLabel(v) ?? v}`, agent_can: true, details: { docs: integrationDocs(v) } };
-    case 'feature': return { ...base, what: v || i.note || 'a feature the program asks for' };
+    case 'feature': return { ...base, what: i.note || v || 'a feature the program asks for' };
     case 'rule': return { ...base, what: i.note ?? '' };
     default: return { ...base, what: 'real users first' };
   }

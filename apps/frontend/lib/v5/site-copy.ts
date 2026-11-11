@@ -3,18 +3,20 @@
  * Plain words: no emoji, no em dash. The terms page alone may say "launch a token".
  */
 import { categoryOf } from './program-file';
-import { compactUsd } from './programs-read';
-
-export { compactUsd };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "Nov 4" (UTC). */
 export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 
-/** The landing chip, "$105K in grants and prizes open now"; null at 0. */
+/** The landing hero's figure, the one money that may round (lane 22, v6.1.15): down to one decimal in millions
+ *  ("$3.1M" for 3,159,600), in full under a million ("$950,000"). Pure. */
+export const heroUsdText = (usd: number): string =>
+  usd >= 1_000_000 ? `$${Math.floor(usd / 100_000) / 10}M` : `$${Math.floor(usd).toLocaleString('en-US')}`;
+
+/** The landing chip, "$3.1M in grants and prizes open now"; null at 0. */
 export const heroChipText = (usd: number): string | null =>
-  usd > 0 ? `${compactUsd(usd)} in grants and prizes open now` : null;
+  usd > 0 ? `${heroUsdText(usd)} in grants and prizes open now` : null;
 
 /** The program's kind: `categoryOf` (one rule for the landing, /programs and replies, v6.1.14), a grant paid in
  *  USDC as "grant, in USDC". Pure. */

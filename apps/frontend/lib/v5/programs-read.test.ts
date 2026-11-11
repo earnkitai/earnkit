@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { moneyOf, programsListGet, readListedPrograms, type ListedProgram } from './programs-read';
+import { moneyAt, moneyOf, programsListGet, usdFull, readListedPrograms, type ListedProgram } from './programs-read';
 
 after(() => sql().end());
 
@@ -118,7 +118,7 @@ test('readListedPrograms: listed programs from the table, with money and links',
     category: 'grant',
     chains: ['solana'],
     any_chain: false,
-    money: 'Up to $5K',
+    money: 'Up to $5,000',
     status: 'active',
     closes_at: '2026-11-20T12:00:00.000Z',
     closes_in: 'in 16 days',
@@ -134,7 +134,7 @@ test('readListedPrograms: listed programs from the table, with money and links',
     max_award_usd: 5000,
   });
   const pool = all.find((p) => p.id === 't-read-pool');
-  assert.equal(pool?.money, '$50K in prizes');
+  assert.equal(pool?.money, '$50,000 in prizes');
   assert.equal(pool?.category, 'hackathon');
   assert.equal(pool?.closes_in, 'rolling');
   assert.ok(!all.some((p) => p.id === 't-read-closed'));
@@ -156,21 +156,51 @@ test('readListedPrograms carries the catalog fields and never reviewers_contact'
   assert.ok(!(await res.text()).includes('reviewers_contact'));
 });
 
-test('moneyOf: the pool first, then the per-winner award, then the summary (v6.1.6, one amount per program)', () => {
+test('moneyOf: the pool first, then the per-winner award, then the summary (v6.1.6, one amount per program; full figures, lane 22)', () => {
   const base = { title: 'Meta Horizon VR Competition', summary: '$100K top prize · $1M in prizes', investment: false };
-  assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: 1_000_000 }), '$1M in prizes');
-  assert.equal(moneyOf({ ...base, title: 'Arc Builder Grants', max_award_usd: 25_000, pool_usd: 250_000 }), '$250K in grants');
-  assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: undefined }), '$100K');
+  assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: 1_000_000 }), '$1,000,000 in prizes');
+  assert.equal(moneyOf({ ...base, title: 'Arc Builder Grants', max_award_usd: 25_000, pool_usd: 250_000 }), '$250,000 in grants');
+  assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: undefined }), '$100,000');
   assert.equal(moneyOf({ title: 'Fund', summary: '$500K · rolling', investment: true, max_award_usd: 0, pool_usd: undefined }), '$500K investment');
+  assert.equal(moneyOf({ title: 'PayPal AI Hackathon', summary: '$67,500 in prizes · Dec 1', investment: false, pool_usd: 67_500 }), '$67,500 in prizes');
 });
 
-test('moneyOf (v6.1.14): a range reads Up to its top; a threshold is never money', () => {
-  // A low end in the file, or a summary that says "up to": the top is not the award.
-  assert.equal(moneyOf({ title: 'OTF Internet Freedom Fund', summary: '$10,000 to $900,000 · rolling', investment: false, max_award_usd: 900_000, min_award_usd: 10_000 }), 'Up to $900K');
-  assert.equal(moneyOf({ title: 'Antler US Residency', summary: '$500K to $1M investment · rolling', investment: true, max_award_usd: 1_000_000, min_award_usd: 500_000 }), 'Up to $1M');
-  assert.equal(moneyOf({ title: 'Base Builder Grants', summary: 'up to $5,000 · rolling', investment: false, max_award_usd: 5000 }), 'Up to $5K');
+test('moneyOf (v6.1.14, lane 22 v6.1.15): a range keeps its low; "up to" with no low reads Up to; a threshold is never money', () => {
+  assert.equal(moneyOf({ title: 'OTF Internet Freedom Fund', summary: '$10,000 to $900,000 · rolling', investment: false, max_award_usd: 900_000, min_award_usd: 10_000 }), '$10,000 to $900,000');
+  assert.equal(moneyOf({ title: 'Antler US Residency', summary: '$500K to $1M investment · rolling', investment: true, max_award_usd: 1_000_000, min_award_usd: 500_000 }), '$500,000 to $1,000,000');
+  assert.equal(moneyOf({ title: 'Base Builder Grants', summary: 'up to $5,000 · rolling', investment: false, max_award_usd: 5000 }), 'Up to $5,000');
   // One amount is the award.
-  assert.equal(moneyOf({ title: 'Thiel Fellowship', summary: '$250,000 over two years · rolling', investment: false, max_award_usd: 250_000 }), '$250K');
-  // The Arbitrum Stablecoin tile: the award, never the TVL the builder must reach.
-  assert.equal(moneyOf({ title: 'Arbitrum Stablecoin Growth Program', summary: 'incentives + 200K ARB at $10M USDG TVL · no deadline stated', investment: false }), 'incentives + 200K ARB');
+  assert.equal(moneyOf({ title: 'Thiel Fellowship', summary: '$250,000 over two years · rolling', investment: false, max_award_usd: 250_000 }), '$250,000');
+  assert.equal(moneyOf({ title: 'Goose Grant Program', summary: '$100,000 per grant · rolling', investment: false, max_award_usd: 100_000 }), '$100,000');
+  // The Arbitrum Stablecoin tile: the award, never the TVL the builder must reach, with a capital (#12).
+  assert.equal(moneyOf({ title: 'Arbitrum Stablecoin Growth Program', summary: 'incentives + 200K ARB at $10M USDG TVL · no deadline stated', investment: false }), 'Incentives + 200K ARB');
+  assert.equal(moneyOf({ title: 'Sovereign Tech Fund', summary: 'funds work from EUR 50,000 · rolling', investment: false }), 'Funds work from EUR 50,000');
+});
+
+test('moneyAt (v6.1.15, #12, L1g-4): a capital on a tile, lowercase mid-sentence; EUR, USDC, $, NYC and DeFi stay', () => {
+  assert.equal(moneyAt('funds work from EUR 50,000', 'tile'), 'Funds work from EUR 50,000');
+  assert.equal(moneyAt('Funds work from EUR 50,000', 'mid'), 'funds work from EUR 50,000');
+  for (const [tile, mid] of [
+    ['Up to $100,000 by tier, more by DAO vote', 'up to $100,000 by tier, more by DAO vote'],
+    ['Amount not stated, set by milestone budget', 'amount not stated, set by milestone budget'],
+    ['Incentives, plus 200K ARB for the first 10 teams', 'incentives, plus 200K ARB for the first 10 teams'],
+    ['Milestone grants, amount not stated', 'milestone grants, amount not stated'],
+    ['Pre-seed and seed investment, amount not stated', 'pre-seed and seed investment, amount not stated'],
+    ['From EUR 5,000', 'from EUR 5,000'],
+    ['EUR 5,000 to 50,000', 'EUR 5,000 to 50,000'],
+    ['USDC 500 × 8 grants', 'USDC 500 × 8 grants'],
+    ['$1M investment', '$1M investment'],
+    ['NYC incubator with relocation stipend, amount not stated', 'NYC incubator with relocation stipend, amount not stated'],
+    ['DeFi grants, amount not stated', 'DeFi grants, amount not stated'],
+  ]) {
+    assert.equal(moneyAt(mid, 'tile'), tile);
+    assert.equal(moneyAt(tile, 'mid'), mid);
+  }
+});
+
+test('usdFull (v6.1.15, lane 22): whole dollars with en-US grouping, never K or M', () => {
+  assert.equal(usdFull(10_000), '$10,000');
+  assert.equal(usdFull(67_500), '$67,500');
+  assert.equal(usdFull(750), '$750');
+  assert.equal(usdFull(1_000_000), '$1,000,000');
 });
