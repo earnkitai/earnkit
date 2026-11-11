@@ -58,11 +58,15 @@ test('first find has no since', async () => {
   const first = (reply.ready as { fields: { from: string }[]; filled: number }[])[0];
   assert.ok(first.fields.length > 0);
   assert.doesNotMatch(show, /—|\b(coin|points|score|rank|streak|token)s?\b/i);
+  // #10 (v6.1.15): the reply is shown as given, never retold.
+  const note = reply.agent_note as string;
+  assert.ok(note.startsWith("Show find's reply as given; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts."), note);
+  assert.ok(!JSON.stringify(reply).includes('in your own words'));
   assert.equal(
     show,
     [
       'Ready to apply (1):',
-      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
+      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 19 of 22 answers. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       // L1c-3 (v6.1.10): the project's own chain (Base) first, rule-free then rule-bearing; then the chain-agnostic
       // FLOSS/fund; the Arc deploy (another chain) after them, past the cap.
@@ -326,7 +330,7 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   assert.equal((r.reply!.verdict as { status: string }).status, 'ready', JSON.stringify(r.reply!.verdict));
   const lines = (r.reply!.show_to_builder as string).split('\n');
   assert.equal(lines.length, 2, r.reply!.show_to_builder as string);
-  assert.match(lines[0], /^FLOSS\/fund, \$10,000 to \$100,000\. \d+ from your record, \d+ from the repo[^\n]*\.$/);
+  assert.equal(lines[0], 'FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.');
   assert.equal(lines[1], 'Say yes and I apply.');
 });
 
@@ -537,7 +541,7 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.deepEqual(blockers.find((b) => b.program_id === 'z-fellows')?.needs, ['founder_video']);
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
-  assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
+  assert.equal(show.split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 16 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 3 more.');
   // v6.1.6 (R21): Y Combinator is in person, so its line names what attending takes and the Before block does not.
   assert.match(show, /\n\nBefore applying: [^\n]*Still missing for these programs: [^\n]+\./);
   assert.doesNotMatch(show.split('\n\n').find((b) => b.startsWith('Before applying: '))!, /Y Combinator/);
@@ -1041,7 +1045,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
     r.reply!.show_to_builder,
     [
       'Ready to apply (1):',
-      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
+      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 19 of 22 answers. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       // L1c-3 (v6.1.10): the project's own chain (Base) first, rule-free then rule-bearing; then the chain-agnostic
       // FLOSS/fund; the Arc deploy (another chain) after them, past the cap.
@@ -2053,7 +2057,7 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   // the yes stands, and no second yes is asked.
   const lines = (after.reply!.show_to_builder as string).split('\n');
   // Review Focus 1 (v6.1.14): the closing names the needs, so line 1 does not.
-  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants. Your agent drafts 9 answers.');
+  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants. Drafted: 9 of 10 answers.');
   assert.equal(lines.at(-1), 'Solana Foundation Grants needs your requested amount; then I apply.');
   const list = await mcpCall(c, 'find', { project });
   const ready = (list.reply!.ready as { program_id: string; rule_yes?: true }[]).find((p) => p.program_id === 'solana-foundation-grants');
@@ -2180,7 +2184,7 @@ test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds t
   const bare = await mcpCall(c, 'find', { project: { name: 'Night App', description: 'Night shifts for nurses.', live_url: 'https://night.example' } });
   const show = bare.reply!.show_to_builder as string;
   const line = show.split('\n').find((l) => l.includes('Night Grant'))!;
-  assert.match(line, /^\d+\. Night Grant, Up to \$5,000\. 1 from your record, 0 from the repo, 2 by your agent, 1 needs you: the problem\.$/);
+  assert.equal(line, '1. Night Grant, Up to $5,000. Drafted: 3 of 4 answers. Needs your problem.');
   const night = (bare.reply!.ready as { program_id: string; need_you: string[]; needs: string[] }[]).find((p) => p.program_id === 'f1-night')!;
   assert.deepEqual([night.need_you, night.needs], [['the problem'], ['the problem']]);
   // Off the tonight list, named as waiting (F1).
@@ -2217,17 +2221,17 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   // L1e-4 (v6.1.13): the users yes said to FLOSS/fund is a fact about the project, so this program's users question is
   // answered too; the yes to send was said to FLOSS/fund alone, so the closing asks it here.
   const used0 = await mcpCall(c, 'find', { program_id: 'f3-used', project: CLI });
-  assert.equal(used0.reply!.show_to_builder, ['Used Grant, Up to $5,000. Your agent drafts the one answer.', 'Say yes and I apply.'].join('\n'));
+  assert.equal(used0.reply!.show_to_builder, ['Used Grant, Up to $5,000. Drafted: 1 of 1 answer.', 'Say yes and I apply.'].join('\n'));
   assert.doesNotMatch(used0.reply!.show_to_builder as string, /real people use it/);
   // Final round (I2): users: true the agent passed settles the users item (ready), but the builder said nothing, so
   // the closing asks for the yes; only gap_done users (the builder's yes relayed) makes it stand.
   const passed = await mcpCall(c, 'find', { program_id: 'f3-used', project: { ...CLI, users: true } });
   assert.equal((passed.reply!.verdict as { status: string }).status, 'ready');
-  assert.equal(passed.reply!.show_to_builder, ['Used Grant, Up to $5,000. Your agent drafts the one answer.', 'Say yes and I apply.'].join('\n'));
+  assert.equal(passed.reply!.show_to_builder, ['Used Grant, Up to $5,000. Drafted: 1 of 1 answer.', 'Say yes and I apply.'].join('\n'));
   assert.doesNotMatch(JSON.stringify(passed.reply), /yes stands/);
   await mcpCall(c, 'track', { program_id: 'f3-used', status: 'gap_done', item: 'users', project: CLI });
   const used = await mcpCall(c, 'find', { program_id: 'f3-used', project: CLI });
-  assert.equal(used.reply!.show_to_builder, ['Used Grant, Up to $5,000. Your agent drafts the one answer.', 'Your yes stands for Used Grant: I apply now.'].join('\n'));
+  assert.equal(used.reply!.show_to_builder, ['Used Grant, Up to $5,000. Drafted: 1 of 1 answer.', 'Your yes stands for Used Grant: I apply now.'].join('\n'));
   await mcpCall(c, 'track', { program_id: 'f3-rule', status: 'gap_done', item: ruleItem('a solo builder'), project: CLI });
   const rule = await mcpCall(c, 'find', { program_id: 'f3-rule', project: CLI });
   assert.equal((rule.reply!.show_to_builder as string).split('\n').at(-1), 'Your yes stands for Rule Grant: I apply now.');

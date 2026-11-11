@@ -14,7 +14,7 @@ type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 /** C42 (v6.1.8): a record value over its field's cap is never sent as given. */
 export const CUT_NOTE = "except a field marked fit 'cut', which you cut to its max_chars as its fit_note says";
 export const AGENT_FIELDS =
-  "'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.";
+  "'agent' fields you draft using the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.";
 const NEEDS_SHOWN = 3;
 
 /** The agent note line for rule gaps (v6.1.6, R18a): EarnKit shows them, the builder confirms each once. */
@@ -66,21 +66,6 @@ const capped = (needs: string[]): string[] => (needs.length > NEEDS_SHOWN ? [...
 /** A to-do as it reads after "Needs your": "your email" and "a Loom product demo" lose their first word. */
 const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 
-/**
- * Linked: "n from your record, m from the repo, a by your agent, k need you: a, b and c.", all over required fields;
- * the agent's part only when it drafts some (F2, v6.1.10: a told fact is its draft, never "need you"); null when the
- * record, the repo and the builder give none. Pure.
- */
-function recordDrafted(p: ReadyProgram, named: Named): string | null {
-  const k = p.need_you.length;
-  if (p.from_record + p.repo_required + k === 0) return null;
-  const a = Math.max(p.total - p.from_record - p.repo_required - k, 0);
-  const head = `${p.from_record} from your record, ${p.repo_required} from the repo${a > 0 ? `, ${a} by your agent` : ''}`;
-  // F5 (v6.1.12): an answer another block of the reply already names is not named again here.
-  const own = p.need_you.filter((x) => !named(x));
-  return own.length > 0 ? `${head}, ${own.length} ${own.length === 1 ? 'needs' : 'need'} you: ${listWords(own)}.` : `${head}.`;
-}
-
 /** Whether another block of the reply already names a need (F5, v6.1.12: the missing email in the Before block). */
 type Named = (need: string) => boolean;
 /** The builder's own email as a need ("your email"), as the record names it missing (lib/v6/record.ts). */
@@ -100,40 +85,31 @@ export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = f
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   // The long odds are their own sentence after the head, never a label on the money.
   if (p.long_shot) head += `. Long odds: ${p.long_shot}`;
-  const fromRecord = linked ? recordDrafted(p, waits ? () => true : named) : null;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
-  // Linked, the k that need the builder are already named.
-  const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
-  const shown = capped(needs);
+  // #3 (v6.1.15): one Drafted shape, linked and unlinked. Linked, the builder's answers are need_you (F5: one another
+  // block names is not named again); `waits`: the closing names them, so only the counts stay.
+  const own = linked ? p.need_you.filter((x) => !named(x)) : p.needs.filter((x) => !p.setup.includes(x));
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
   // C1 (v6.1.13): a claim for another project names it.
   const held = p.held_for ? ` Being handled by your other agent for ${p.held_for}.` : p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
-  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, waits ? [] : shown)}${first}${held}`;
+  return `${head}.${draftedSentence(p, linked, waits ? [] : own)}${first}${held}`;
 }
 
 /**
- * R2c: n answers from the repo (or record), k the agent drafts, b only the builder gives, over the required total.
- * The agent drafts its fields itself and asks only for the b. Each sentence comes with its leading space, or ''. Pure.
+ * #3 (v6.1.15): "Drafted: {n} of {m} answers. Needs your {needs}.", linked and unlinked alike. `m` is the required
+ * total; `n` is every answer but the ones only the builder gives (need_you linked, the non-setup needs unlinked);
+ * `needs` are the ones to name, [] when the closing names them (v6.1.14) or another block does (F5). With n at 0 only
+ * the needs sentence shows; with m at 0, nothing. Each sentence comes with its leading space, or ''. Pure.
  */
-function drafted(p: ReadyProgram, linked: boolean, b: number, shown: string[]): string {
-  const total = p.total;
-  const n = Math.min(p.repo_required + (linked ? p.from_record : 0), total);
-  const k = Math.max(total - n - b, 0);
-  // `shown` is empty when the closing names the needs (v6.1.14): the counts stay, the names go.
-  const needsYour = b > 0 && shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
-  if (total > 0 && n === total) return total === 1 ? ' Drafted: the one answer from the repo.' : ` Drafted: all ${total} answers from the repo.`;
-  if (n > 0) {
-    const head = ` Drafted: ${n} of ${total} answers from the repo`;
-    if (k > 0) return b > 0 ? `${head}, ${k} more by your agent.${needsYour}` : `${head}, the rest by your agent.`;
-    return `${head}.${needsYour}`;
-  }
-  if (k > 0) {
-    if (b > 0) return ` Your agent drafts ${k} ${k === 1 ? 'answer' : 'answers'}.${needsYour}`;
-    return total === 1 ? ' Your agent drafts the one answer.' : ` Your agent drafts all ${total} answers.`;
-  }
-  return needsYour;
+function draftedSentence(p: ReadyProgram, linked: boolean, needs: string[]): string {
+  const m = p.total;
+  if (m <= 0) return '';
+  const b = linked ? p.need_you.length : p.needs.filter((x) => !p.setup.includes(x)).length;
+  const n = Math.max(m - b, 0);
+  const head = n > 0 ? ` Drafted: ${n} of ${m} ${m === 1 ? 'answer' : 'answers'}.` : '';
+  return `${head}${needs.length > 0 ? ` Needs your ${joinAnd(capped(needs.map(bare)))}.` : ''}`;
 }
 
 /**
