@@ -799,6 +799,59 @@ programs), `/terms` (the record, what programs see), `/llms.txt` (the four tools
 cannot remove one); skipping is undone only with `track unskip`, no page for it; explorer readers for Avalanche,
 Tempo, Monad, Robinhood Chain and Solana; any public builder page.
 
+## v6.1.16 Task 9: time truth (lane 23)
+
+Nothing on the server runs between daily cron runs, so nothing in builder or agent text promises a time the server does
+not keep, and every open or closed decision is read from the clock at request time.
+
+- **One open test.** `isOpenAt(program, now)` (programs.ts) is the only open test: active and `dateStatus` (now in
+  programs.ts, re-exported by health.ts for the run and the sync) says nothing; `closedAt` is its closed side. Find,
+  track, eligibility, the tiles, the guides, the lists, the ledger summary and the write API use it. The cron still
+  writes the status for the record.
+- **Pages re-derive at render.** The landing read and the guide row stay cached 10 minutes (`landing-v6.4`,
+  `guide-ids-v6`, `guide-row-v6.1.16`), but `getLanding` runs `landingAt` and `getGuidePage` runs `guidePageOf` with the
+  render's clock, so a tile reads `Closed` and a guide renders its closed page (`Closed on {date}.`, no Apply link,
+  never a 404) the moment `ends_at` passes. `listGuideIds` lists every program that reads closed.
+- **One date formatter, one closes wording.** `dayWords` (deadline.ts, re-exported by site-copy): `Nov 6`, or
+  `Nov 6, 2025` in another year; since, deadline moved, closed on, results due, eligibility dates, /me dates and
+  `clock`. `closesWords`: `closes in under an hour`, `closes today`, `closes tomorrow`, `closes in {n} days` (calendar
+  days in the program's zone, up to 14), else `closes {dayWords}`; `closesLead` capitalises it for tiles and guides;
+  `closes_in` (find, /api/programs) is it without `closes `. `timeLeftWords`, `monthDay`, ledger `dayOf` and
+  Task 7's `closesIn14` are gone.
+- **Standing approval.** The closing reads `Under your standing approval: {list}. I apply the next time your agent
+  checks; say stop to hold any.` (Task 11 re-pins); `The send(s) go ahead.`, `Before I send (...)`, LIMIT_USED `Your
+  daily limit is used; the next sends wait until 24 hours have passed.`, track's `Done for now.`. Find keeps the named
+  programs in `installations.promised` / `promised_at` (a still-open promise keeps its first time); more than 24 hours
+  later, those with no application row lead the reply once: `Nothing was sent for {titles} since you said yes on
+  {date}. Say yes again and I apply now.` (`not_sent`).
+- **Claims.** `releaseStale` runs on every project find, linked or not, and returns titles and start times; the reply
+  says `{title}: started {date}, nothing sent. Say yes to apply or say skip.` (three, then `And {n} more started,
+  nothing sent.`); /me reads `Started, not sent, {date}.` for a claim past `CLAIM_HOURS`. A one-program find of a
+  program another agent holds says `Another agent of yours started this one on {date}.` in place of the yes. A send
+  (`applied`) over another agent's live claim is recorded and clears the claim (`other_claim`, agent note
+  `OTHER_CLAIM_NOTE`); B3 refuses only claims and skips.
+- **Results.** `askOutcome` lists every applied row past its results date with no result on every find;
+  `outcomeAsksDue` (table `outcome_asks`, one row per installation and program) shows the builder line `Results for
+  {title} were due {date}. Did you hear back?` once a day per installation. `asked_outcome_at` is kept for the record
+  only. The summary's `closing_soon` is open programs this owner has no application for, by `ends_at`; sent ones with a
+  results date in 7 days are `results_soon` (`Results due soon: {titles}.`); the applications line no longer says
+  closing soon. A closed program the builder sent reads `Closed. You applied {date}; results {date | not announced}.`.
+- **Nothing new.** `installations.last_list_hash` / `last_list_at` (sha256 of the shown ids); the same list with no
+  since line starts `Nothing new since {date}.`.
+- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the record sign-in line, the
+  closing; only the first that carries a `Say` keeps it (`oneSay`, `withoutSay`). A gap line's own `Say "do n"` is
+  Task 11's to fold. Record get unlinked with no link: `Nothing saved yet. Say yes to sign in and I keep your record.`.
+- **Sweeps.** `sweepReports` deletes only cached evidence past `REPORT_DAYS` (repo_cache, evidence_cache), never
+  `project_reports` or `gaps_done`. `sweepScreens` deletes applicants and outcomes at `KEEP_DAYS` and keeps the job row
+  as a tombstone until `TOMBSTONE_DAYS` (365), so the screen answers `That screen has expired; queue the list again.`.
+- **A failed re-read.** In `recordSide`, a repo read that fails keeps the stored tier only within `READ_GRACE_DAYS`
+  (14) of its read and only for the repo it was read from (`last_tier.repo_url`): `I could not read your repo today;
+  using what I read on {date}.`; otherwise unverified with `I could not read your repo today.`. Either way the problem
+  `EVIDENCE_NOT_READ` is in the agent note and nothing is written, so the next find reads again.
+- **Expired sign-in.** `meGet` with an `ek_me` cookie whose session is gone redirects to `/docs?expired=1#record` and
+  clears the cookie; `ExpiredNote` (client) shows `Your sign-in expired. Ask your agent for a new link.` at the top of
+  the record card.
+
 ## What v5 deliberately does not do
 
 - Submit any form, hold or ask for a wallet, pay anyone, launch or offer a token.
