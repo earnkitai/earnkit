@@ -188,8 +188,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
 export function namedFirst(show: string, title: string): string {
   if (show.includes(title)) return show;
   const named = show
-    .replace(/^(Started|Tracked|Recorded|Noted)\./, `$1: ${title}.`)
-    .replace(/^Already (skipped|noted)\./, `Already $1: ${title}.`)
+    .replace(/^(Started|Tracked)\./, `$1: ${title}.`)
+    .replace(/^Already (skipped|tracked)\./, `Already $1: ${title}.`)
     .replace(/^You skipped that one\./, `You skipped ${title}.`)
     .replace(/^Sent, but /, `Sent ${title}, but `);
   return named === show ? `${title}: ${show}` : named;
@@ -383,28 +383,29 @@ async function act(
     // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
     const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key) : 0;
     const [show, note] = 'repeated' in res
-      ? ['Already noted.', 'Call find again for the updated ledger.']
+      ? ['Already tracked.', 'Call find again for the updated ledger.']
       : i.item!.startsWith('rule:')
-        ? ['Noted. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
+        ? ['Tracked. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
         : codeChecked(i.item!) && !repoLess(project.key)
-          ? ['Noted. I check the repo on the next look.', 'Call find again so the repo is re-read.']
+          ? ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']
           : codeChecked(i.item!)
             // F6 (v6.1.12): no repo to check; the builder says when it is up.
-            ? ['Noted. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']
-          : ['Noted.', 'Call find again; that step counts as done.'];
+            ? ['Tracked. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']
+          : ['Tracked.', 'Call find again; that step counts as done.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
   const title = await titleOf(owner, i.program_id);
   const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
-    applied: "Tracked. I'll ask how it went when results are due.",
+    // #8 (v6.1.15): one verb, Tracked, wherever a fact is saved for the builder.
+    applied: 'Tracked. Ask me how it went once results are out.',
     // L15-17, T8-F1 (v6.1.14): a further payment adds and the line reads the total; an unmarked other amount corrects.
     won: 'total_usd' in res && res.total_usd !== undefined
-      ? `Recorded: ${usd(i.amount_usd ?? 0)} more from ${title}, ${usd(res.total_usd)} in total.`
+      ? `Tracked: ${usd(i.amount_usd ?? 0)} more from ${title}, ${usd(res.total_usd)} in total.`
       : 'replaced_usd' in res && res.replaced_usd !== undefined
-        ? `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}. Replaced the earlier amount.`
-        : `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
-    rejected: 'Recorded. On to the next one.',
-    no_result: 'Recorded.',
+        ? `Tracked: ${usd(i.amount_usd ?? 0)} from ${title}. Replaced the earlier amount.`
+        : `Tracked: ${usd(i.amount_usd ?? 0)} from ${title}.`,
+    rejected: 'Tracked. On to the next one.',
+    no_result: 'Tracked.',
     skipped: `Skipped ${title}. I won't bring it up again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };

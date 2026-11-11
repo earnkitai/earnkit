@@ -236,7 +236,7 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   // track with a null project: the done step goes under the last find's project.
   const done = await mcpCall(c, 'track', { program_id: 'l134-users', status: 'gap_done', item: 'users', project: null });
   plain(done);
-  assert.equal(done.reply!.show_to_builder, 'Noted.');
+  assert.equal(done.reply!.show_to_builder, 'Tracked.');
   const [row] = await sql()`SELECT project_key FROM gaps_done WHERE installation_id = ${c.installationId} AND program_id = 'l134-users'`;
   assert.equal(row.project_key, 'name:lenient app');
   // A string project on track is dropped and named; the step still records; a numeric program id reads as text.

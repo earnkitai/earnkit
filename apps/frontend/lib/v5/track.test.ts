@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { track } from './track';
+import { namedFirst, track } from './track';
 import { lastGaps, markFind } from './installations';
 
 after(() => sql().end());
@@ -18,18 +18,18 @@ test('the six replies', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't6-a', title: 'Alpha Grant', max_award_usd: 9000 }), 'file', NOW);
   const say = async (input: unknown) => (await track(c, input)).show_to_builder;
-  assert.equal(await say({ program_id: 't6-a', status: 'applied' }), "Tracked. I'll ask how it went when results are due.");
-  assert.equal(await say({ program_id: 't6-a', status: 'won', amount_usd: 5000 }), 'Recorded: $5,000 from Alpha Grant.');
+  assert.equal(await say({ program_id: 't6-a', status: 'applied' }), "Tracked. Ask me how it went once results are out.");
+  assert.equal(await say({ program_id: 't6-a', status: 'won', amount_usd: 5000 }), 'Tracked: $5,000 from Alpha Grant.');
   // One result per program (v6.1.7): each result on its own program.
   await upsertProgram(programFixture({ id: 't6-a2', title: 'Alpha Two' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 't6-a3', title: 'Alpha Three' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 't6-a4', title: 'Alpha Four' }), 'file', NOW);
   for (const id of ['t6-a2', 't6-a3']) await say({ program_id: id, status: 'applied' });
-  assert.equal(await say({ program_id: 't6-a2', status: 'rejected' }), 'Recorded. On to the next one.');
-  assert.equal(await say({ program_id: 't6-a3', status: 'no_result' }), 'Recorded.');
+  assert.equal(await say({ program_id: 't6-a2', status: 'rejected' }), 'Tracked. On to the next one.');
+  assert.equal(await say({ program_id: 't6-a3', status: 'no_result' }), 'Tracked.');
   assert.equal(await say({ program_id: 't6-a4', status: 'skipped' }), "Skipped Alpha Four. I won't bring it up again.");
   await upsertProgram(programFixture({ id: 't6-a5', title: 'Alpha Users', eligibility: [{ kind: 'users' }] }), 'file', NOW);
-  assert.equal(await say({ program_id: 't6-a5', status: 'gap_done', item: 'users' }), 'Noted.');
+  assert.equal(await say({ program_id: 't6-a5', status: 'gap_done', item: 'users' }), 'Tracked.');
   await upsertProgram(programFixture({ id: 't6-b', title: 'Beta' }), 'file', NOW);
   const r = await track(c, { program_id: 't6-b', status: 'applied' });
   assert.equal(r.agent_note, 'Call find again for the updated ledger.');
@@ -60,17 +60,17 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   assert.equal(second.show_to_builder, 'Already sent here on Nov 4 by Claude Code; nothing recorded.');
   assert.equal(second.agent_note, 'Nothing was recorded.');
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0.4 })).show_to_builder, 'Tell me how much you won, as whole dollars.');
-  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Recorded: $3,000 from One Grant.');
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Tracked: $3,000 from One Grant.');
   const rej = await track(c, { program_id: 't7-one', status: 'rejected' });
   assert.equal(rej.show_to_builder, 'That one already has a result here: won $3,000.');
   assert.equal(rej.ledger.won_usd, 3000);
   // T8-F1 (v6.1.14): a resend is already recorded; another amount corrects; a marked further payment adds once.
   assert.equal((await track(c, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Already recorded.');
   const fixed = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 2000 });
-  assert.equal(fixed.show_to_builder, 'Recorded: $2,000 from One Grant. Replaced the earlier amount.');
+  assert.equal(fixed.show_to_builder, 'Tracked: $2,000 from One Grant. Replaced the earlier amount.');
   assert.equal(fixed.ledger.won_usd, 2000);
   const more = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 1250, payment: { key: 'second' } });
-  assert.equal(more.show_to_builder, 'Recorded: $1,250 more from One Grant, $3,250 in total.');
+  assert.equal(more.show_to_builder, 'Tracked: $1,250 more from One Grant, $3,250 in total.');
   assert.equal(more.ledger.won_usd, 3250);
   assert.equal(more.ledger.won, 1);
   // A retried call with the same key adds nothing.
@@ -89,7 +89,7 @@ test('Review Focus 1, tightened by v6.1.13 B3: A started, B applied records noth
   assert.equal(over.show_to_builder, 'Your other agent is handling that one; nothing recorded.');
   assert.equal(over.agent_note, 'Nothing was recorded.');
   const sent = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(sent.show_to_builder, "Tracked. Ask me how it went once results are out.");
   const again = await track({ ...c, now: new Date(NOW.getTime() + 3 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   assert.equal(again.show_to_builder, 'Already sent here on Nov 4 by Claude Code; nothing recorded.');
   assert.equal(again.agent_note, 'Nothing was recorded.');
@@ -104,7 +104,7 @@ test('a result for a program gone from the catalog uses the title stored when it
   await track(c, { program_id: 't7-gone', status: 'applied' });
   await sql()`DELETE FROM programs WHERE id = 't7-gone'`;
   const r = await track(c, { program_id: 't7-gone', status: 'won', amount_usd: 2500 });
-  assert.equal(r.show_to_builder, 'Recorded: $2,500 from Gone Grant.');
+  assert.equal(r.show_to_builder, 'Tracked: $2,500 from Gone Grant.');
   assert.equal(r.ledger.won_usd, 2500);
 });
 
@@ -133,7 +133,7 @@ test('started then applied: the claim, then what was sent and by whom; the recor
   assert.equal(s.ledger.applied, 0);
   assert.equal('already_started' in s, false);
   const a = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't6-s', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'], project_id: 'earnkit' });
-  assert.equal(a.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(a.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal(a.ledger.applied, 1);
   assert.doesNotMatch(a.agent_note, /not known/);
   const [row] = await sql()`SELECT status, submitted_by, fields_used, project_id, claimed_at FROM applications WHERE program_id = 't6-s' AND installation_id = ${c.installationId}`;
@@ -371,12 +371,12 @@ test('gap_done on a rule says it counts as confirmed; any repeat says already no
   await upsertProgram(programFixture({ id: 't7-gd', title: 'Confirm Grant', eligibility: [{ kind: 'rule', note: RULE }, { kind: 'users' }] }), 'file', NOW);
   const item = await ruleWhat();
   const first = await track(c, { program_id: 't7-gd', status: 'gap_done', item });
-  assert.deepEqual([first.show_to_builder, first.agent_note], ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
+  assert.deepEqual([first.show_to_builder, first.agent_note], ['Tracked. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
   const again = await track(c, { program_id: 't7-gd', status: 'gap_done', item });
-  assert.deepEqual([again.show_to_builder, again.agent_note], ['Already noted.', 'Call find again for the updated ledger.']);
+  assert.deepEqual([again.show_to_builder, again.agent_note], ['Already tracked.', 'Call find again for the updated ledger.']);
   const users = await track(c, { program_id: 't7-gd', status: 'gap_done', item: 'users' });
-  assert.deepEqual([users.show_to_builder, users.agent_note], ['Noted.', 'Call find again; that step counts as done.']);
-  assert.equal((await track(c, { program_id: 't7-gd', status: 'gap_done', item: 'users' })).show_to_builder, 'Already noted.');
+  assert.deepEqual([users.show_to_builder, users.agent_note], ['Tracked.', 'Call find again; that step counts as done.']);
+  assert.equal((await track(c, { program_id: 't7-gd', status: 'gap_done', item: 'users' })).show_to_builder, 'Already tracked.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE installation_id = ${c.installationId}`)[0].n, 2);
 });
 
@@ -389,9 +389,9 @@ test('N2 (v6.1.8): gap_done on one of several rules says how many are left; the 
     const r = await track(c, { program_id: 't8-rules', status: 'gap_done', item: ruleItem(note) });
     return [r.show_to_builder, r.agent_note];
   };
-  assert.deepEqual(await say(notes[0]), ['Noted. That rule counts as confirmed.', 'Call find again; 2 rules are left.']);
-  assert.deepEqual(await say(notes[1]), ['Noted. That rule counts as confirmed.', 'Call find again; one rule is left.']);
-  assert.deepEqual(await say(notes[2]), ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
+  assert.deepEqual(await say(notes[0]), ['Tracked. That rule counts as confirmed.', 'Call find again; 2 rules are left.']);
+  assert.deepEqual(await say(notes[1]), ['Tracked. That rule counts as confirmed.', 'Call find again; one rule is left.']);
+  assert.deepEqual(await say(notes[2]), ['Tracked. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
 });
 
 test('started on an application already sent whose program has since closed says it was sent (v6.1.7)', async () => {
@@ -427,7 +427,7 @@ test('B18: an agent send is under standing approval only within every limit; oth
   await policy({ max_ask_usd: 100_000 });
 
   const first = await send('b18-a');
-  assert.equal(first.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(first.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal(first.agent_note, "Done for tonight. The builder's next find reports it; do not call find again until they ask.");
   assert.equal(await auto('b18-a'), true);
   const second = await send('b18-b', new Date(NOW.getTime() + 60_000));
@@ -465,14 +465,14 @@ test('Review Focus 4 (v6.1.9 N2): recording an old win today does not use tonigh
   const owner = 'b:' + b.id;
   const threeDaysAgo = new Date(NOW.getTime() - 3 * 86_400_000);
   const sent = await track({ ...linked, now: threeDaysAgo }, { program_id: 'rf4-old', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(sent.show_to_builder, "Tracked. Ask me how it went once results are out.");
   // The result lands today: it moves `at`, never the send time.
-  assert.equal((await track(linked, { program_id: 'rf4-old', status: 'won', amount_usd: 1000 })).show_to_builder, 'Recorded: $1,000 from rf4-old.');
+  assert.equal((await track(linked, { program_id: 'rf4-old', status: 'won', amount_usd: 1000 })).show_to_builder, 'Tracked: $1,000 from rf4-old.');
   const [old] = await sql()`SELECT sent_at, at FROM applications WHERE owner = ${owner} AND program_id = 'rf4-old'`;
   assert.equal((old.sent_at as Date).toISOString(), threeDaysAgo.toISOString());
   assert.equal((old.at as Date).toISOString(), NOW.toISOString());
   const today = await track({ ...linked, now: new Date(NOW.getTime() + 60_000) }, { program_id: 'rf4-new', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.equal(today.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(today.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${owner} AND program_id = 'rf4-new'`)[0].auto_applied, true);
   // The second send today is past the limit.
   const next = await track({ ...linked, now: new Date(NOW.getTime() + 120_000) }, { program_id: 'rf4-next', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
@@ -528,7 +528,7 @@ test('C51 (v6.1.9): track as the first call after the account was deleted carrie
   const first = await track(c, { program_id: 'c51-t', status: 'started' });
   assert.equal(first.show_to_builder, 'Your record was deleted at earnkit.com/me; this agent is unlinked. Started.');
   const second = await track(c, { program_id: 'c51-t', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(second.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(second.show_to_builder, "Tracked. Ask me how it went once results are out.");
 });
 
 test('S6 (v6.1.9): a send under standing approval with a required answer left out is recorded as not approved', async () => {
@@ -562,7 +562,7 @@ test('S6 (v6.1.9): a send under standing approval with a required answer left ou
   await saveRecord(b.id, approvePath(answered, 'answers.problem', NOW), NOW);
   await upsertProgram(programFixture({ id: 's6-held', title: 's6-held', category: 'grant', submission_requirements: two as never }), 'file', NOW);
   const held = await track({ ...c, builderId: b.id }, { program_id: 's6-held', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name', 'problem'] });
-  assert.equal(held.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(held.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal(await auto('s6-held'), true);
 });
 
@@ -595,7 +595,7 @@ test('v6.1.9: applied as the first call after the account was deleted answers th
   assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n, 0);
   // The notice is said once; the next send is this installation's own.
   const again = await track(c, { program_id: 'del-a', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(again.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(again.show_to_builder, "Tracked. Ask me how it went once results are out.");
 });
 
 test('v6.1.9: applied after the program closed is recorded and says so', async () => {
@@ -673,13 +673,13 @@ test('gap_done marks the step on its project: the one passed, else the last find
   await markFind(c.installationId, NOW, { 't10-pk': { what: 'a demo video', kind: 'demo_video', item: 'demo_video' } }, 'https://github.com/acme/alpha');
   // A project passed wins (extra project fields are ignored), and Beta's step leaves Alpha's remembered gap alone.
   const b = await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video', project: { name: 'Beta App', description: 'x', users: true } });
-  assert.equal(b.show_to_builder, 'Noted.');
+  assert.equal(b.show_to_builder, 'Tracked.');
   assert.deepEqual(Object.keys(await lastGaps(c.installationId)), ['t10-pk']);
   // Started on Beta does not speak for Alpha's gap; on Alpha it does.
   assert.equal((await track(c, { program_id: 't10-pk', status: 'started', project: { name: 'Beta App' } })).show_to_builder, 'Started.');
   // The last find was Alpha's: a track without a project marks it there; the same item is new on Alpha.
-  assert.equal((await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video' })).show_to_builder, 'Noted.');
-  assert.equal((await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video', project: A })).show_to_builder, 'Already noted.');
+  assert.equal((await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video' })).show_to_builder, 'Tracked.');
+  assert.equal((await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video', project: A })).show_to_builder, 'Already tracked.');
   assert.deepEqual(await keys(), [{ project_key: 'https://github.com/acme/alpha', item: 'demo_video' }, { project_key: 'name:beta app', item: 'demo_video' }]);
 });
 
@@ -737,7 +737,7 @@ test('F1 fix round 2 (v6.1.10): an agent field with no sources holds a send; the
   const bare = await track({ ...c, builderId: b.id }, { program_id: 'fr2-bare', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   assert.equal(bare.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
   const named = await track({ ...c, builderId: b.id }, { program_id: 'fr2-named', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'], project: { name: 'App' } });
-  assert.equal(named.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(named.show_to_builder, "Tracked. Ask me how it went once results are out.");
 });
 
 test('F1 fix round 2 (v6.1.10): find and track judge one fixture by the same list', async () => {
@@ -805,7 +805,7 @@ test('I3 final (v6.1.10): a required contract find filled from the cached repo r
   const row = (await getProgram('fi3-contract'))!;
   const i = { program_id: 'fi3-contract', status: 'applied' as const, submitted_by: 'agent' as const, fields_used: ['project_name', 'contract_address'], project };
   assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, i, row), []);
-  assert.equal((await track({ ...c, builderId: b.id }, i)).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await track({ ...c, builderId: b.id }, i)).show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'fi3-contract'`)[0].auto_applied, true);
   // The last find's project key alone (no project passed) reaches the same cached row.
   assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, { ...i, project: undefined }, row), []);
@@ -825,10 +825,10 @@ test('final round (v6.1.10), B5 (v6.1.13): the track project is read as find rea
   const [claimRow] = await sql()`SELECT project_id FROM applications WHERE owner = ${'i:' + c.installationId} AND program_id = 'fcap-a'`;
   assert.equal(claimRow.project_id, `name:${'n'.repeat(80)}`);
   const longRepo = await track(c, { program_id: 'fcap-a', status: 'gap_done', item: 'users', project: { name: 'A', repo_url: 'https://github.com/a/' + 'b'.repeat(480) } });
-  assert.equal(longRepo.show_to_builder, 'Noted.');
+  assert.equal(longRepo.show_to_builder, 'Tracked.');
   assert.match(longRepo.agent_note, /Project: repo_url dropped: not a web link\.$/);
   // A name with two spaces lands on the key find gives the parsed name.
-  assert.equal((await track(c, { program_id: 'fcap-a', status: 'gap_done', item: 'users', project: { name: 'My  App' } })).show_to_builder, 'Noted.');
+  assert.equal((await track(c, { program_id: 'fcap-a', status: 'gap_done', item: 'users', project: { name: 'My  App' } })).show_to_builder, 'Tracked.');
   const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fcap-a' ORDER BY project_key`;
   assert.deepEqual(rows.map((r) => r.project_key), ['name:a', 'name:my app']);
   // L13-4 (v6.1.14): a project that is not an object is dropped and named for the agent; the step still records.
@@ -911,13 +911,13 @@ test('F6 (v6.1.12): a code step marked done on a project with no repo asks to be
   await upsertProgram(programFixture({ id: 'f6-live', title: 'F6 Live', eligibility: [{ kind: 'live_product' }] }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'f6-chain', title: 'F6 Chain', eligibility: [{ kind: 'chain', value: 'arc' }] as never }), 'file', NOW);
   const bare = await track(c, { program_id: 'f6-chain', status: 'gap_done', item: 'chain:arc', project: { name: 'No Repo' } });
-  assert.deepEqual([bare.show_to_builder, bare.agent_note], ['Noted. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']);
+  assert.deepEqual([bare.show_to_builder, bare.agent_note], ['Tracked. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']);
   assert.doesNotMatch(bare.show_to_builder, /repo/);
   const none = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product' });
-  assert.equal(none.show_to_builder, 'Noted. Tell me when it is live and I look again.');
+  assert.equal(none.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
   // With a repo the read is the check.
   const repo = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product', project: { name: 'Has Repo', repo_url: 'https://github.com/a/b' } });
-  assert.deepEqual([repo.show_to_builder, repo.agent_note], ['Noted. I check the repo on the next look.', 'Call find again so the repo is re-read.']);
+  assert.deepEqual([repo.show_to_builder, repo.agent_note], ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']);
 });
 
 test('final fix (v6.1.12, I2): loose names record nothing; a name that is one program says which it recorded', async () => {
@@ -929,16 +929,16 @@ test('final fix (v6.1.12, I2): loose names record nothing; a name that is one pr
   assert.equal(await count(), 0);
   // A unique start of four characters or more resolves, and the line names it.
   const sent = await track(c, { program_id: 'kiro', status: 'applied', submitted_by: 'builder' });
-  assert.equal(sent.show_to_builder, "Tracked: Kiroween 2026. I'll ask how it went when results are due.");
+  assert.equal(sent.show_to_builder, "Tracked: Kiroween 2026. Ask me how it went once results are out.");
   assert.match(sent.agent_note, /^Matched kiroween-2026\. /);
   assert.equal((await sql()`SELECT program_id FROM applications WHERE installation_id = ${c.installationId}`)[0].program_id, 'kiroween-2026');
-  assert.equal((await track(c, { program_id: 'kiro', status: 'no_result' })).show_to_builder, 'Recorded: Kiroween 2026.');
+  assert.equal((await track(c, { program_id: 'kiro', status: 'no_result' })).show_to_builder, 'Tracked: Kiroween 2026.');
   // L1e-1 (v6.1.13): an organizer's first word that leads to one program resolves ("thiel"), and the line names it.
   const thiel = await track(c, { program_id: 'thiel', status: 'skipped' });
   assert.equal(thiel.show_to_builder, "Skipped Thiel Fellowship. I won't bring it up again.");
   assert.equal((await track(c, { program_id: 'floss', status: 'started' })).show_to_builder, 'Started: FLOSS/fund.');
   // The id itself: the plain line, as before.
-  assert.equal((await track(c, { program_id: 'codegeist-2026', status: 'applied', submitted_by: 'builder' })).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await track(c, { program_id: 'codegeist-2026', status: 'applied', submitted_by: 'builder' })).show_to_builder, "Tracked. Ask me how it went once results are out.");
 });
 
 test('final fix (v6.1.12, Task 2 I1): a result on an id held as sent is that id, before any matching', async () => {
@@ -949,7 +949,7 @@ test('final fix (v6.1.12, Task 2 I1): a result on an id held as sent is that id,
   // The sent program leaves the catalog; its id still starts the other one's.
   await sql()`DELETE FROM programs WHERE id = 'ff-held'`;
   const won = await track(c, { program_id: 'ff-held', status: 'won', amount_usd: 1000 });
-  assert.equal(won.show_to_builder, 'Recorded: $1,000 from Held Grant.');
+  assert.equal(won.show_to_builder, 'Tracked: $1,000 from Held Grant.');
   const rows = await sql()`SELECT program_id, status FROM applications WHERE installation_id = ${c.installationId} ORDER BY program_id`;
   assert.deepEqual(rows.map((r) => [r.program_id, r.status]), [['ff-held', 'won']]);
 });
@@ -959,7 +959,7 @@ test('B6 (v6.1.13, Review Focus 5): a send with 300 field keys is recorded, keep
   await upsertProgram(programFixture({ id: 'b6-many', title: 'Many Grant' }), 'file', NOW);
   const keys = Array.from({ length: 300 }, (_, n) => (n === 0 ? 'project_name' : `k${n}`));
   const r = await track(c, { program_id: 'b6-many', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: [...keys.slice(0, 299), 'x'.repeat(90)] });
-  assert.equal(r.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(r.show_to_builder, "Tracked. Ask me how it went once results are out.");
   const [row] = await sql()`SELECT status, fields_used FROM applications WHERE program_id = 'b6-many' AND installation_id = ${c.installationId}`;
   assert.equal(row.status, 'applied');
   assert.deepEqual(row.fields_used, keys.slice(0, 200));
@@ -988,14 +988,14 @@ test('B3 (v6.1.13): applied over another agent\'s live claim records nothing; th
   assert.deepEqual([held.status, held.installation_id, held.claimed_by, held.project_id], ['started', a.installationId, a.installationId, 'name:xproj']);
   // The holder sends it as before.
   const mine = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Xproj' }, fields_used: ['project_name'] });
-  assert.equal(mine.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(mine.show_to_builder, "Tracked. Ask me how it went once results are out.");
   const [sent] = await sql()`SELECT status, installation_id, project_id FROM applications WHERE owner = ${owner} AND program_id = 'b3-claim'`;
   assert.deepEqual([sent.status, sent.installation_id, sent.project_id], ['applied', a.installationId, 'name:xproj']);
   // A claim past its 24 hours holds nothing: another agent's send is recorded.
   await upsertProgram(programFixture({ id: 'b3-stale', title: 'Stale Grant' }), 'file', NOW);
   await track(a, { program_id: 'b3-stale', status: 'started' });
   const late = await track({ ...c, now: new Date(NOW.getTime() + 25 * 3_600_000) }, { program_id: 'b3-stale', status: 'applied', submitted_by: 'agent', project: { name: 'Yproj' } });
-  assert.equal(late.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(late.show_to_builder, "Tracked. Ask me how it went once results are out.");
 });
 
 test('B2 (v6.1.13, Review Focus 2): a send whose verdict for the project is not ready is never under standing approval', async () => {
@@ -1026,20 +1026,20 @@ test('B2 (v6.1.13, Review Focus 2): a send whose verdict for the project is not 
   assert.deepEqual({ ...(await auto('b2-video')) }, { status: 'applied', auto_applied: false });
   // The same step marked done on this project first: ready, so approved.
   await track(linked, { program_id: 'b2-video-done', status: 'gap_done', item: itemKey({ kind: 'demo_video' } as never), project: { name: 'App' } });
-  assert.equal((await send('b2-video-done')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await send('b2-video-done')).show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal((await auto('b2-video-done')).auto_applied, true);
   // A rule not confirmed is a step away; confirmed on this project it is ready. Confirmed on another project it is not.
   await track(linked, { program_id: 'b2-rule', status: 'gap_done', item: ruleItem(RULE), project: { name: 'Other' } });
   assert.equal((await send('b2-rule')).show_to_builder, AWAY);
   assert.equal((await auto('b2-rule')).auto_applied, false);
   await track(linked, { program_id: 'b2-rule-ok', status: 'gap_done', item: ruleItem(RULE), project: { name: 'App' } });
-  assert.equal((await send('b2-rule-ok')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await send('b2-rule-ok')).show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal((await auto('b2-rule-ok')).auto_applied, true);
   // An onchain project below the program's bar (nothing read, no tier) does not fit: never under standing approval.
   assert.equal((await send('b2-bar', { name: 'App', chains: ['base'] })).show_to_builder, AWAY);
   assert.equal((await auto('b2-bar')).auto_applied, false);
   // A program with nothing left is approved as before.
-  assert.equal((await send('b2-ready')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await send('b2-ready')).show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal((await auto('b2-ready')).auto_applied, true);
 });
 
@@ -1056,7 +1056,7 @@ test('Task 1 review I1 and I2 (v6.1.13): the send is judged on the find\'s repor
   const send = (id: string, project: Record<string, unknown>) =>
     track(linked, { program_id: id, status: 'applied', submitted_by: 'agent', project, fields_used: ['project_name'] });
   const auto = async (id: string) => (await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].auto_applied;
-  const SENT = "Tracked. I'll ask how it went when results are due.";
+  const SENT = "Tracked. Ask me how it went once results are out.";
   await p('i2-contract', { eligibility: [{ kind: 'contract_on', value: 'base' }] });
   await p('i2-codes', { eligibility: [{ kind: 'builder_codes' }] });
   await p('i1-bar', { min_tier: 'live' });
@@ -1123,7 +1123,7 @@ test('W1 and W2 (v6.1.13 final round): a project known by its repo, named alone 
   assert.ok((await readyIds(P)).includes('w1-rule'));
   // W1: a name-only send of a program find listed as ready is under standing approval.
   const sent = await track(linked, { program_id: 'w1-rule', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'], project: { name: 'One Key App' } });
-  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(sent.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'w1-rule'`)[0].auto_applied, true);
   // W2: a name-only find does not ask the yes again.
   const byName = await readyIds({ name: 'One Key App', description: 'An app.' });
@@ -1136,7 +1136,7 @@ test('L13-3 (v6.1.14): a send with a note over 280 characters is tracked, its no
   const c = await ctx();
   await upsertProgram(programFixture({ id: 'l13-note', title: 'Note Grant' }), 'file', NOW);
   const r = await track(c, { program_id: 'l13-note', status: 'applied', note: 'n'.repeat(352) });
-  assert.equal(r.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(r.show_to_builder, "Tracked. Ask me how it went once results are out.");
   const [row] = await sql()`SELECT status, note FROM applications WHERE owner = ${'i:' + c.installationId} AND program_id = 'l13-note'`;
   assert.deepEqual([row.status, row.note], ['applied', 'n'.repeat(280)]);
 });
@@ -1163,7 +1163,7 @@ test('L13-2 (v6.1.14, Review Focus 8): an unlink on /me releases that agent\'s c
   // The builder's other agent sends at once, with no other agent line.
   const later = { ...c, now: new Date(NOW.getTime() + 3_600_000) };
   const sent = await track(later, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
-  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(sent.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.doesNotMatch(JSON.stringify(sent), /other agent/i);
   // The unlinked agent's own send lands in its own ledger, never the builder's.
   const own = await track({ ...a, builderId: null, now: later.now }, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
@@ -1208,10 +1208,10 @@ test('L13-7 (v6.1.14): an agent send after the builder turned standing approval 
   assert.equal(off.show_to_builder, 'Sent, but outside your standing approval: it was off.');
   assert.match(off.agent_note, /^Recorded as applied, not under standing approval\./);
   // The builder's own submit, or a find that saw it off: the plain line.
-  assert.equal((await send('l137-b', 'builder')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await send('l137-b', 'builder')).show_to_builder, "Tracked. Ask me how it went once results are out.");
   await sql()`DELETE FROM applications WHERE program_id = 'l137-b'`;
   await markFindAuto(c.installationId, false);
-  assert.equal((await send('l137-b')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await send('l137-b')).show_to_builder, "Tracked. Ask me how it went once results are out.");
 });
 
 test('T5-F1 (v6.1.14): started answers the application id with the note to put it in the form; applied keeps that id', async () => {
@@ -1249,7 +1249,7 @@ test('FR-2 (v6.1.14 final fix): track reads an SSH repo link as find does and ke
   await upsertProgram(programFixture({ id: 'fr2-a', title: 'SSH Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
   for (const repo_url of ['git@github.com:Acme/App.git', 'ssh://git@gitlab.com/o/r.git']) {
     const r = await track(c, { program_id: 'fr2-a', status: 'gap_done', item: 'users', project: { name: 'App', repo_url } });
-    assert.equal(r.show_to_builder, 'Noted.');
+    assert.equal(r.show_to_builder, 'Tracked.');
     assert.doesNotMatch(r.agent_note, /not a web link/);
   }
   const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fr2-a' ORDER BY project_key`;
@@ -1267,7 +1267,15 @@ test('FR-6 (v6.1.14 final fix): with standing approval turned off since the find
   await upsertProgram(programFixture({ id: 'fr6-a', title: 'Confirmed Grant', category: 'grant' }), 'file', NOW);
   await markFindAuto(c.installationId, true);
   const r = await track({ ...c, builderId: b.id }, { program_id: 'fr6-a', status: 'applied', submitted_by: 'builder', project: { name: 'App' }, fields_used: ['project_name'] });
-  assert.equal(r.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(r.show_to_builder, "Tracked. Ask me how it went once results are out.");
   assert.doesNotMatch(r.show_to_builder, /standing approval/);
   assert.doesNotMatch(r.agent_note, /not under standing approval/);
+});
+
+test('#8 (v6.1.15): namedFirst names the program after Tracked and Already tracked', () => {
+  assert.equal(namedFirst('Tracked.', 'Alpha Grant'), 'Tracked: Alpha Grant.');
+  assert.equal(namedFirst('Tracked. On to the next one.', 'Alpha Grant'), 'Tracked: Alpha Grant. On to the next one.');
+  assert.equal(namedFirst('Already tracked.', 'Alpha Grant'), 'Already tracked: Alpha Grant.');
+  assert.equal(namedFirst('Already skipped.', 'Alpha Grant'), 'Already skipped: Alpha Grant.');
+  assert.equal(namedFirst('Started.', 'Alpha Grant'), 'Started: Alpha Grant.');
 });

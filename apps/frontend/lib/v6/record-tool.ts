@@ -129,12 +129,13 @@ export function refusedWords(problem: string): string {
   return `${what} was not valid`;
 }
 
-/** "Saved 2.", "Saved 1; 1 not saved: email was not valid.", "Not saved: ..." (only when nothing was, v6.1.8 N1),
+/** "Tracked 2 facts.", "Tracked 1 fact; 1 not saved: email was not valid." (one save verb, v6.1.15 #8), "Not saved: ..." (only when nothing was, v6.1.8 N1),
  *  "Nothing new to save." (C29). Pure. */
 export function savedLine(saved: number, problems: string[], secrets: number): string {
   const reasons = [...problems.map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
   const refused = problems.length + secrets;
-  if (saved > 0) return refused > 0 ? `Saved ${saved}; ${refused} not saved: ${listWords(reasons)}.` : `Saved ${saved}.`;
+  const kept = `Tracked ${saved} ${saved === 1 ? 'fact' : 'facts'}`;
+  if (saved > 0) return refused > 0 ? `${kept}; ${refused} not saved: ${listWords(reasons)}.` : `${kept}.`;
   return refused > 0 ? `Not saved: ${listWords(reasons)}.` : 'Nothing new to save.';
 }
 

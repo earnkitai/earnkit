@@ -1352,7 +1352,7 @@ test('fix round 1 (v6.1.14, T7-F1, T7-F2): an owner-only link meets no bar; gap_
   // T7-F2: the code step shown is the step gap_done takes, for a program that does not require a repo too.
   const done = await mcpCall(c, 'track', { program_id: 'solana-foundation-grants', status: 'gap_done', item: 'repo', project: SOL });
   assert.equal(done.isError, false, done.text);
-  assert.equal(done.reply!.show_to_builder, 'Noted. Tell me when it is live and I look again.');
+  assert.equal(done.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
   // The read settles it: with no repo yet the step still shows.
   const again = await mcpCall(c, 'find', { project: SOL });
   assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: code in a repo\./);
@@ -1668,7 +1668,7 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
-  assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
+  assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Tracked. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
   const again = await mcpCall(ctx(id), 'find', { project: PROJECT_A, filter: { all: true } });
   const show2 = again.reply!.show_to_builder as string;
   const p = (again.reply!.ready as { program_id: string; n: number }[]).find((x) => x.program_id === 'base-ecosystem-fund');
@@ -1986,7 +1986,7 @@ test('N-5 (v6.1.9): a step marked done that the read still misses is said once p
   assert.doesNotMatch(await one('n5-live'), /looked again/);
   const noted = await mcpCall(c, 'track', { program_id: 'n5-live', status: 'gap_done', item: 'live_product' });
   // F6 (v6.1.12): the project has no repo, so there is none to check.
-  assert.equal(noted.reply!.show_to_builder, 'Noted. Tell me when it is live and I look again.');
+  assert.equal(noted.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
   assert.equal((await one('n5-live')).split('\n')[0], `Live Link Grant, Up to $5,000: put a live link up. ${LOOKED}`);
   // In the full list, after that program's line, once per find, every find while it is missing.
   for (let k = 0; k < 2; k++) {
@@ -1999,7 +1999,7 @@ test('N-5 (v6.1.9): a step marked done that the read still misses is said once p
   assert.doesNotMatch(await one('n5-live', { ...project, live_url: 'https://n5.example' }), /looked again/);
   // A demo video is the builder's word: noted, and it counts done.
   const demo = await mcpCall(c, 'track', { program_id: 'n5-demo', status: 'gap_done', item: 'demo_video' });
-  assert.deepEqual([demo.reply!.show_to_builder, demo.reply!.agent_note], ['Noted.', 'Call find again; that step counts as done.']);
+  assert.deepEqual([demo.reply!.show_to_builder, demo.reply!.agent_note], ['Tracked.', 'Call find again; that step counts as done.']);
   const after = await one('n5-demo');
   assert.doesNotMatch(after, /demo video|looked again/);
 });
@@ -2116,7 +2116,7 @@ test('Review Focus 1 (v6.1.10, L1c-1): two projects of one builder never share a
   };
   // A's yes to the rule (the track carries no project: the last find was A's).
   assert.ok((await listed(A)).gaps.includes('pk-users'));
-  assert.equal((await mcpCall(c, 'track', { program_id: 'pk-users', status: 'gap_done', item: ruleItem(RULE) })).reply!.show_to_builder, 'Noted. That rule counts as confirmed.');
+  assert.equal((await mcpCall(c, 'track', { program_id: 'pk-users', status: 'gap_done', item: ruleItem(RULE) })).reply!.show_to_builder, 'Tracked. That rule counts as confirmed.');
   assert.ok((await listed(A)).ready.includes('pk-users'));
   const b = await listed(B);
   assert.ok(b.gaps.includes('pk-users') && !b.ready.includes('pk-users'));
@@ -2149,7 +2149,7 @@ test('O3 (v6.1.10, Review Focus 4): a project with no first-commit date is asked
   assert.equal(one.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: tell me when you started this, a demo video and /.kiro directory at the repo root. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when that is done and I apply.');
   const item = ((one.reply!.verdict as { gaps: { kind: string; item: string }[] }).gaps.find((x) => x.kind === 'new_work_after'))!.item;
   const t = await mcpCall(c, 'track', { program_id: 'kiroween-2026', status: 'gap_done', item, project: IDEA });
-  assert.equal(t.reply!.show_to_builder, 'Noted.');
+  assert.equal(t.reply!.show_to_builder, 'Tracked.');
   const again = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
   assert.equal(again.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: a demo video and /.kiro directory at the repo root. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when that is done and I apply.');
   assert.ok(!(again.reply!.verdict as { gaps: { kind: string }[] }).gaps.some((x) => x.kind === 'new_work_after'));
