@@ -399,9 +399,13 @@ async function applicationProject(owner: string, projectId: string | null): Prom
   const side = { repo: repoSide(p.repo_url), name: nameSide(p.name) };
   return side.repo || side.name ? side : null;
 }
-/** Whether the screen row and the application are one project: the repo when both have one, else the name. Pure. */
+/**
+ * Whether the screen row and the application are one project. An application with a repo needs a row with that same
+ * repo (security follow-up: a name is public, so a row with none or another repo is another project); only an
+ * application with no repo falls back to the folded name. Pure.
+ */
 const sameProject = (row: ProjectSide, app: ProjectSide): boolean =>
-  row.repo && app.repo ? row.repo === app.repo : row.name !== null && app.name !== null && row.name === app.name;
+  app.repo ? row.repo === app.repo : row.name !== null && app.name !== null && row.name === app.name;
 
 /**
  * The program's decisions, on a job of a program this builder reviews (any of its reviewers, L15-12). Each is kept for

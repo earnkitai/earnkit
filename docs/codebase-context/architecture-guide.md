@@ -579,7 +579,8 @@ ambiguous and reaches no ledger (T5-F3). A row is not live only when a later row
 exactly; `badRequeues` refuses the whole list when the named row is not in a screen of the same program with the same
 id (or the requeued row has none), so a copied id always clashes (Task 8 security follow-up, v6.1.14); an earlier row a
 requeue names is answered as superseded. The row must also be the application's own project (FR-3, final fix): the
-canonical repo key when both have one (SSH links read as https), else the folded name; the application's project is
+same canonical repo key when the application has one (SSH links read as https; a row with no repo or another repo is
+another project), else the folded name; the application's project is
 its `project_id` (a repo key, a `name:` key, or a project of its builder's record; a send with no `project_id` keeps
 its project key, as a claim does). Otherwise the result stays on the screen row and the note says the id belongs to
 another project, or that the application names no project to match. Jobs and outcomes belong to the program (L15-12): `jobStatus`, `jobResults`

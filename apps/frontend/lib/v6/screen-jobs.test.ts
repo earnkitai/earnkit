@@ -554,3 +554,22 @@ test('FR-5 (v6.1.14 final fix): a 60-character ref repeated on different applica
   assert.ok(refs.every((x) => x.length <= 60));
   assert.deepEqual((await recordOutcomes(j.id, r.builderId, [{ ref: `${'r'.repeat(56)} (2)`, outcome: 'shortlisted' }], NOW)).notFound, []);
 });
+
+test('FR-3 security follow-up (v6.1.14): an application with a repo matches only a row with that repo; a copier row with the victim\'s name and no repo reaches no ledger', async () => {
+  const r = await reviewer('jobs-fr3s');
+  const victim = await upsertBuilder({ github_id: ++gh, login: 'fr3s' + gh, name: null, avatar_url: null }, NOW);
+  await saveRecord(victim.id, { ...EMPTY_RECORD, projects: [{ id: 'v', name: 'Vee', repo_url: 'https://github.com/vee/app', answers: {} }] }, NOW);
+  assert.deepEqual(await record(`b:${victim.id}`, 'jobs-fr3s', 'applied', { installationId: await instOf(victim.id), now: NOW, project_id: 'v' }), { ok: true });
+  const status = async (programId: string) =>
+    (await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${`b:${victim.id}`} AND program_id = ${programId}`).map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd)])[0];
+  const copy = await job(r, [{ ref: 'copy', name: 'Vee', application_id: await appId(`b:${victim.id}`, 'jobs-fr3s') }]);
+  assert.deepEqual(await recordOutcomes(copy.id, r.builderId, [{ ref: 'copy', outcome: 'rejected' }], NOW),
+    { recorded: 1, notFound: [], notes: ['Not passed on, the EarnKit id belongs to another project: copy.'] });
+  assert.deepEqual(await status('jobs-fr3s'), ['applied', null]);
+  // The real applicant's row with the same repo still gets the win.
+  const r2 = await reviewer('jobs-fr3s2');
+  assert.deepEqual(await record(`b:${victim.id}`, 'jobs-fr3s2', 'applied', { installationId: await instOf(victim.id), now: NOW, project_id: 'v' }), { ok: true });
+  const real = await job(r2, [{ ref: 'real', name: 'Vee', repo_url: 'https://github.com/Vee/App', application_id: await appId(`b:${victim.id}`, 'jobs-fr3s2') }]);
+  assert.deepEqual(await recordOutcomes(real.id, r2.builderId, [{ ref: 'real', outcome: 'won', amount_usd: 2500 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await status('jobs-fr3s2'), ['won', 2500]);
+});
