@@ -238,7 +238,15 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   // L21-8 (v6.1.16).
   assert.equal(copy.ME_DELETE_LINE, 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.');
   // L21-9, L21-19, L21-21, L21-26 (v6.1.16).
-  assert.equal(copy.ME_DELETED, 'Your account is deleted.');
+  // L27-11 (v6.1.16): the home page says the record is deleted.
+  assert.equal(copy.ME_DELETED_LINE, 'Your record is deleted.');
+  // L27-8, L27-16, L27-17, L27-31 (v6.1.16).
+  assert.equal(copy.SKIP_LINK, 'Skip to content.');
+  assert.equal(copy.NAV_RECORD, 'Your record');
+  assert.equal(copy.NAV_INSTALL_SHORT, 'Add');
+  assert.equal(copy.PROJECT_NAME_LIMIT, 'Project names are at most 80 characters.');
+  assert.equal(copy.ME_HINTS['project.name'], copy.PROJECT_NAME_LIMIT);
+  assert.equal(copy.ME_SAVED, 'Saved.');
   assert.equal(copy.ME_ERRORS.confirm, 'Type your GitHub login to delete.');
   assert.equal(copy.ME_LINK_NO, 'This is not me.');
   assert.equal(copy.ALL_PROGRAMS, 'See all programs.');
@@ -285,7 +293,7 @@ test('/llms.txt keeps the label before a second command: "Then approve it:" sits
  * that ends in a colon is a heading that introduces a list ("Ready to apply (3):", "Open now:", "Rules:") and is skipped.
  */
 const LABELS = new Set([
-  'CTA_INSTALL', 'NAV_INSTALL', 'EARN_TITLE', 'EARN_ALL', 'ROLLING', 'NOT_OPEN_YET', 'CLOSED', 'PROGRAMS_TITLE', 'ART_CREDIT',
+  'CTA_INSTALL', 'NAV_INSTALL', 'NAV_RECORD', 'NAV_INSTALL_SHORT', 'EARN_TITLE', 'EARN_ALL', 'ROLLING', 'NOT_OPEN_YET', 'CLOSED', 'PROGRAMS_TITLE', 'ART_CREDIT',
   'GUIDE_FIELDS_TITLE', 'GUIDE_RULES_TITLE', 'GUIDE_ELIGIBILITY_TITLE', 'GUIDE_FOCUS_TITLE', 'GUIDE_ROUNDS_TITLE', 'GUIDE_BEST_BET_TITLE',
   'GUIDE_SOURCES_TITLE', 'NOT_FOUND_BIG', 'NOT_FOUND_TITLE', 'NOT_FOUND_METADATA', 'DOCS_NAV', 'DOCS_INSTALL_TITLE',
   'DOCS_SESSION.title', 'DOCS_RECORD.title', 'DOCS_SCREEN.title', 'DOCS_PROGRAMS.title', 'DOCS_CHECKED.title', 'DOCS_TERMS.title', 'DOCS_TERMS.link',
@@ -362,4 +370,13 @@ test('S (v6.1.16): the page cache keys carry the build id, so a deploy never ser
   assert.notDeepEqual(cacheKey(['landing-v6.2'], 'abc123'), cacheKey(['landing-v6.2'], 'def456'));
   const config = readFileSync(join(ROOT, 'apps/frontend/next.config.ts'), 'utf8');
   assert.match(config, /env: \{ EK_BUILD_ID: process\.env\.RAILWAY_GIT_COMMIT_SHA \|\| String\(Date\.now\(\)\) \}/);
+});
+
+test('L27-18 (v6.1.16): mid-sentence lower-casing never touches a month or a currency code', async () => {
+  const { moneyAt, lowerFirst } = await import('./programs-read');
+  assert.equal(moneyAt('From EUR 50,000', 'mid'), 'from EUR 50,000');
+  assert.equal(moneyAt('EUR 50,000 of work', 'mid'), 'EUR 50,000 of work');
+  assert.equal(lowerFirst('Nov 12, then weekly'), 'Nov 12, then weekly');
+  assert.equal(lowerFirst('December 1'), 'December 1');
+  assert.equal(moneyAt('Up to $5,000', 'mid'), 'up to $5,000');
 });

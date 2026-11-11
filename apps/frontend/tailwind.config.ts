@@ -37,6 +37,7 @@ export default {
         's-step-bottom': 'var(--ek-s-step-bottom)',
         's-line': 'var(--ek-s-line)',
         's-line-hover': 'var(--ek-s-line-hover)',
+        's-field-line': 'var(--ek-s-field-line)',
         's-blue': 'var(--ek-s-blue)',
         's-blue-top': 'var(--ek-s-blue-top)',
         's-blue-bottom': 'var(--ek-s-blue-bottom)',

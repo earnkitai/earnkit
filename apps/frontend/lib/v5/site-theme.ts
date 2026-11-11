@@ -11,6 +11,8 @@ export const SITE = {
   stepBottom: '#0A0D1C',
   line: 'rgba(255,255,255,0.07)',
   lineHover: 'rgba(255,255,255,0.16)',
+  /** L27-12 (v6.1.16): a form field's edge, 4.71:1 on the page and 3.75:1 on the field's own panel (3:1 is the floor). */
+  fieldLine: '#747C97',
   blue: '#2D6BE0',
   blueTop: '#1E4FD8',
   blueBottom: '#0E2A8A',

@@ -1,25 +1,37 @@
 import Link from 'next/link';
-import InstallButton from './InstallButton';
+import { InstallLink } from './InstallButton';
 import { Wordmark } from '../ui/Logo';
 import NavLinks from '../site/NavLinks';
 import { PILL_BLUE } from '../site/ui';
-import { NAV_INSTALL } from '../../../lib/v5/site-copy';
+import { NAV_INSTALL, NAV_INSTALL_SHORT, NAV_RECORD } from '../../../lib/v5/site-copy';
 
 /**
  * The one site header on every page, transparent and not sticky: the wordmark (home), Programs and Docs
- * (NavLinks marks the current one), and the blue pill that opens the install sheet. The rows wrap: on a wide phone
- * the wordmark and the pill share the first row; on a narrow one (about 375px) the pill ("Add EarnKit to your agent",
- * no wrap) takes its own row, right-aligned. The links always take the last row on a phone. On /me with a linked
- * agent (the page carries `data-me-linked`, L21-22 v6.1.16) the pill is hidden.
+ * (NavLinks marks the current one), `Your record` to /me when signed in (L27-16, v6.1.16; the layout reads the
+ * session cookie), and the blue pill, a link to /docs#install that opens the install sheet (L27-1). The rows wrap:
+ * the wordmark and the pill share the first row, the links take the last row on a phone. Under 360px the pill says
+ * `Add`, so the header fits two rows at 320px (L27-17). On /me with a linked agent (the page carries
+ * `data-me-linked`, L21-22 v6.1.16) the pill is hidden.
  */
-export default function Header() {
+export default function Header({ signedIn = false }: { signedIn?: boolean } = {}) {
   return (
-    <header data-ek-header="" className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-8 gap-y-1 px-4 py-5 md:px-6">
+    <header data-ek-header="" className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-8 gap-y-1 px-4 py-5 max-[360px]:gap-x-4 md:px-6">
       <Link href="/" aria-label="EarnKit home" className="inline-flex min-h-11 items-center text-s-text">
         <Wordmark decorative width={104} height={20} />
       </Link>
-      <NavLinks className="order-last flex w-full flex-wrap gap-x-6 sm:order-none sm:w-auto sm:flex-1" />
-      <InstallButton label={NAV_INSTALL} className={`${PILL_BLUE} ml-auto sm:ml-0 [body:has([data-me-linked])_&]:hidden`} />
+      <NavLinks
+        record={signedIn ? { label: NAV_RECORD, href: '/me' } : null}
+        className="order-last flex w-full flex-wrap gap-x-6 max-[360px]:gap-x-4 sm:order-none sm:w-auto sm:flex-1"
+      />
+      <InstallLink
+        label={
+          <>
+            <span className="max-[360px]:hidden">{NAV_INSTALL}</span>
+            <span className="hidden max-[360px]:inline">{NAV_INSTALL_SHORT}</span>
+          </>
+        }
+        className={`${PILL_BLUE} ml-auto sm:ml-0 [body:has([data-me-linked])_&]:hidden`}
+      />
     </header>
   );
 }

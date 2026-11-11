@@ -16,12 +16,15 @@ function isActive(pathname: string | null, href: string): boolean {
   return pathname === href || (pathname ?? '').startsWith(`${href}/`);
 }
 
-/** Programs and Docs at 15px in s-muted; the current page in s-text, weight 600, aria-current="page". */
-export default function NavLinks({ className = '' }: { className?: string }) {
+/**
+ * Programs and Docs at 15px in s-muted, then `record` (Your record, to /me) when signed in; the current page in s-text,
+ * weight 600, aria-current="page".
+ */
+export default function NavLinks({ className = '', record = null }: { className?: string; record?: { label: string; href: string } | null }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Main" className={className}>
-      {LINKS.map((l) => {
+      {[...LINKS, ...(record ? [record] : [])].map((l) => {
         const on = isActive(pathname, l.href);
         return (
           <Link key={l.href} href={l.href} aria-current={on ? 'page' : undefined} className={`${LINK} ${on ? 'font-semibold text-s-text' : 'text-s-muted'}`}>

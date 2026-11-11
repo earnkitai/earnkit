@@ -25,7 +25,8 @@
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync",
     "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
-    "screen": "tsx apps/frontend/scripts/screen.mts"
+    "screen": "tsx apps/frontend/scripts/screen.mts",
+    "og:image": "tsx apps/frontend/scripts/og-image.mts"
   },
   "pnpm": {
     "overrides": {

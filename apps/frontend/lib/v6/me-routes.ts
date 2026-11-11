@@ -34,8 +34,13 @@ type For = { builder: { id: number }; now: Date };
  */
 const signed = (key: 'problem' | 'note', who: For, line: string, place = '') =>
   back(`/me?${key}=${encodeURIComponent(line)}&sig=${problemSig(key, line, who.builder.id, utcDay(who.now), authSecret())}${place}`);
-/** Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. */
-const problemAt = (who: For, line: string) => signed('problem', who, line);
+/**
+ * Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. `section` (L27-9,
+ * v6.1.16): the card the line is about, where it shows (`at`, unsigned: it only places the signed line) and the anchor.
+ */
+const problemAt = (who: For, line: string, section?: string) => signed('problem', who, line, section ? `&at=${section}#${section}` : '');
+/** After a section's Save (L27-10, v6.1.16): `Saved.` beside that section's button. */
+const savedSection = (section: string) => back(`/me?saved=${section}#${section}`);
 /** Back to /me with a plain line that is not a refusal (v6.1.7 C2). */
 const noteAt = (who: For, line: string) => signed('note', who, line);
 /**
@@ -205,10 +210,75 @@ async function merge(builder: Builder, now: Date, patch: unknown | ((current: Bu
   return savedAt({ builder, now }, path, anchor);
 }
 
-/** POST /me/edit: csrf, path (an editable field /me lists), value. */
+/** A form value and a shown value compared as the page shows them (line breaks and outer spaces aside). Pure. */
+const sameValue = (raw: string, shown: string) => raw.replace(/\r\n?/g, '\n').trim() === shown.trim();
+
+/**
+ * One section's form (L27-8, v6.1.16): every field of the card, named by its path. Only the fields whose value differs
+ * from the page's are written, so an untouched field keeps who set it. Each is checked as a single edit is. The valid
+ * ones save and a refused one is named beside the section's Save (fix round 1, M1): `Saved.`, then one
+ * `Not saved: {field}: {reason}.` line per refused field; with none valid, only those lines. A team member removed
+ * (an empty name) goes last, from the highest row down, so the other rows keep their numbers. With nothing refused
+ * the answer is `/me?saved={section}#{section}`.
+ */
+async function sectionPost(g: { builder: Builder; form: URLSearchParams; now: Date }, section: string): Promise<Response> {
+  const block = recordBlocks(await getRecord(g.builder.id)).find((b) => b.key === section);
+  // Standing approval saves through /me/policy.
+  if (!block || block.key === 'policy') return problemAt(g, ME_ERRORS.field);
+  const changes: { f: MeField; value: unknown }[] = [];
+  const refused: string[] = [];
+  /** "Not saved: LinkedIn: a link starting with https://." from "LinkedIn: a link starting with https://." */
+  const notSaved = (line: string) => `Not saved: ${line}`;
+  for (const f of block.fields) {
+    const raw = g.form.get(f.path);
+    if (raw === null || sameValue(raw, f.value)) continue;
+    const v = valueOf(f, raw);
+    if (!v.ok) {
+      refused.push(notSaved(v.problem.replace(/^Not a known chain/, `${f.label}: not a known chain`)));
+      continue;
+    }
+    const words = wordsOf(f.path, v.value);
+    if (words) refused.push(notSaved(`${f.label}: ${words}.`));
+    else changes.push({ f, value: v.value });
+  }
+  const at = (c: { f: MeField }) => (/^team\.\d+\./.test(c.f.path) ? Number(c.f.path.split('.')[1]) : -1);
+  changes.sort((a, b) => at(b) - at(a));
+  let saved = 0;
+  if (changes.length > 0) {
+    const out = await withRecord(g.builder.id, g.now, (current) => {
+      let record = current;
+      let changed = 0;
+      let kept = 0;
+      const lines: string[] = [];
+      for (const c of changes) {
+        const m = mergeRecord(record, patchOf(c.f.path, c.value, record), 'builder', g.now);
+        if (m.problems.length > 0) lines.push(...m.problems.map((l) => notSaved(problemWords(c.f.label, l))));
+        else {
+          record = m.record;
+          changed += m.changed.length;
+          kept++;
+        }
+      }
+      return { record: changed > 0 ? record : null, result: { lines, kept } };
+    });
+    if (out.broken) return problemAt(g, ME_ERRORS.broken, section);
+    refused.push(...out.result.lines);
+    saved = out.result.kept;
+  }
+  if (refused.length === 0) return savedSection(section);
+  const lines = [...new Set(refused)];
+  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section);
+}
+
+/**
+ * POST /me/edit: csrf and `section` with the section's fields (the page's forms, L27-8 v6.1.16); or csrf, path (an
+ * editable field /me lists) and value, one field (a page from before v6.1.16, and the skip list).
+ */
 export async function editPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
+  const section = g.form.get('section');
+  if (section !== null) return sectionPost(g, section);
   const path = g.form.get('path') ?? '';
   const blocks = recordBlocks(await getRecord(g.builder.id), g.now);
   const block = blocks.find((b) => b.fields.some((f) => f.path === path));
@@ -259,6 +329,8 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
     max_ask_usd: num('max_ask_usd'),
     categories: [...g.form.getAll('categories[]'), ...g.form.getAll('categories')],
     agent_may_submit: on(g.form.get('agent_may_submit')),
+    // The skip list is in the same form since L27-8 (v6.1.16); a form without it leaves the list as it is.
+    ...(g.form.has('never') ? { never: lines(g.form.get('never') ?? '') } : {}),
   };
   // All or nothing (v6.1.7 B1): one bad value saves none of the form; every bad field is named as the page shows it.
   const labels = ME_LABELS as Record<string, string>;
@@ -268,8 +340,12 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
   });
   // On with nothing ticked would be off in effect while the page shows it on (v6.1.8 C43).
   if (policy.auto_apply && policy.categories.length === 0) problems.push(ME_PICK_CATEGORY);
-  if (problems.length > 0) return problemAt(g, problems.join('\n'));
-  return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy', 'policy');
+  if (problems.length > 0) return problemAt(g, problems.join('\n'), 'policy');
+  const saved = await merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy', 'policy');
+  // L27-10 (v6.1.16): a saved policy is `/me?saved=policy#policy`; a refusal stays the signed line, beside the form.
+  const loc = saved.headers.get('location') ?? '';
+  if (loc.includes('problem=')) return back(`${loc.replace(/#.*$/, '')}&at=policy#policy`);
+  return savedSection('policy');
 }
 
 /** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder; its next find says it was unlinked (B10). */
@@ -316,7 +392,8 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
 export async function deletePost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
-  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm);
+  // L27-9 (v6.1.16): a refused delete comes back to the delete card with its line beside the form.
+  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm, 'delete');
   await deleteBuilder(g.builder.id, g.now);
   // L21-9 (v6.1.16): the home page says the account is deleted.
   return back('/?deleted=1', { 'Set-Cookie': clearCookie() });

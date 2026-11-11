@@ -294,7 +294,8 @@ test('L21-10, L21-12, L21-13, L21-22 (v6.1.16): unnamed agents by day, projects 
   assert.ok(!new RegExp(`>${first}<|>${second}<`).test(html), 'no installation id is visible');
   assert.ok(html.includes('data-me-linked'), 'the page marks a linked agent for the header');
   // Saved. sits beside the control that saved, not in a banner.
-  const saved = renderToStaticMarkup(MeView({ data: d, problem: null, note: 'Saved.', saved: 'person.name' }));
+  // L27-10 (v6.1.16): `saved` names the section (/me?saved=person#person).
+  const saved = renderToStaticMarkup(MeView({ data: d, problem: null, saved: 'person' }));
   assert.equal(saved.split('>Saved.</span>').length, 2, saved);
   assert.ok(!saved.includes('px-5 py-4 text-[15px] text-s-good-text">Saved.'), 'no banner');
   const fresh = await upsertBuilder({ github_id: 810_072, login: 'noagents', name: null, avatar_url: null }, NOW);

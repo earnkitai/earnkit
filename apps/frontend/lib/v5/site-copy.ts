@@ -34,6 +34,13 @@ export const HERO_SUB = ONE_LINE;
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 /** The nav pill says the CTA's words: one install action (v6.1.15, #13). */
 export const NAV_INSTALL = CTA_INSTALL;
+/** Pages for everyone (L27-8, L27-16, L27-17, v6.1.16): the skip link first on every page, the signed-in nav link to
+ *  /me, and the install pill's word under 360px (the header fits two rows at 320px). */
+export const SKIP_LINK = 'Skip to content.';
+export const NAV_RECORD = 'Your record';
+export const NAV_INSTALL_SHORT = 'Add';
+/** The one way the project-name limit is told on the pages (L27-31, v6.1.16): /me's hint and /docs' record card. */
+export const PROJECT_NAME_LIMIT = 'Project names are at most 80 characters.';
 /** One line each, no titles (v6.2.0). */
 export const STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?', 'Say yes. It fills the form and sends it, or hands you the draft to send.'];
 
@@ -224,8 +231,8 @@ export const ME_LINK_YES = 'Link this agent';
 export const ME_LINK_NO = 'This is not me.';
 export const ME_DELETE_TITLE = 'Delete your record';
 export const ME_DELETE_LINE = 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.';
-/** On the home page after a delete (L21-9, v6.1.16). */
-export const ME_DELETED = 'Your account is deleted.';
+/** On the home page after a delete (L21-9; L27-11, v6.1.16: "record", the page's own word). */
+export const ME_DELETED_LINE = 'Your record is deleted.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
 export const ME_DELETE = 'Delete everything';
 export const ME_NOT_SET = 'Not set';
@@ -266,7 +273,7 @@ export const ME_STATUS: Record<string, string> = {
   // L23-7 (v6.1.16): a claim past its 24 hours with no send.
   started_not_sent: 'Started, not sent',
 };
-export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.' } as const;
+export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.', 'project.name': PROJECT_NAME_LIMIT } as const;
 export const ME_ERRORS = {
   signin: 'Sign in again from the link your agent gives you.',
   expired: 'This page expired. Reload it and try again.',

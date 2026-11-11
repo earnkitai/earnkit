@@ -18,12 +18,13 @@ const CTA =
 
 /**
  * The landing hero: the painting with its arch light, the money chip ("$5K in grants and prizes open now", to #earn;
- * none when nothing is open), the title, the sub line, the install button and the agent marks.
+ * none when nothing is open), the title, the sub line, the install link (to /docs#install, upgraded to the sheet) and
+ * the agent marks.
  */
 export default function Hero({ chip }: { chip: string | null }) {
   return (
     <section
-      aria-label="EarnKit"
+      aria-labelledby="hero-title"
       className="relative isolate flex h-[560px] flex-col items-center justify-end overflow-hidden rounded-[32px] bg-s-hero-base px-6 pb-[88px] text-center md:h-[776px] md:rounded-[48px] md:pb-[104px]"
     >
       <HeroArt />
@@ -42,7 +43,8 @@ export default function Hero({ chip }: { chip: string | null }) {
             </span>
           </a>
         ) : null}
-        <h1 className="ek-serif whitespace-nowrap text-[clamp(28px,9.6vw,96px)] leading-none tracking-[-0.015em] text-s-text [text-shadow:0_6px_50px_var(--ek-s-hero-title-shadow)]">
+        {/* L27-6 (v6.1.16): a plain h1 in the DOM, named by the section, never hidden from reader mode. */}
+        <h1 id="hero-title" className="ek-serif whitespace-nowrap text-[clamp(28px,9.6vw,96px)] leading-none tracking-[-0.015em] text-s-text [text-shadow:0_6px_50px_var(--ek-s-hero-title-shadow)]">
           {HERO_TITLE}
         </h1>
         <p className="text-balance text-[17px] leading-normal text-s-hero-sub md:text-[19px]">{HERO_SUB}</p>

@@ -21,18 +21,19 @@ import DocsPage, { generateMetadata as docsMetadata } from '../../app/docs/page'
 import TermsPage, { generateMetadata as termsMetadata } from '../../app/terms/page';
 import { metadata as homeMetadata } from '../../app/page';
 import { metadata as programsMetadata } from '../../app/programs/page';
-import { metadata as notFoundMetadata } from '../../app/not-found';
+import NotFoundPage, { metadata as notFoundMetadata } from '../../app/not-found';
 import { firstLine, SITE_METADATA as layoutMetadata } from '../../app/lib/meta';
 import { GET as llmsGet } from '../../app/llms.txt/route';
 import { GET as statsGet } from '../../app/api/stats/route';
 import { GET as programsGet } from '../../app/api/programs/route';
 import sitemap from '../../app/sitemap';
-import { proxy } from '../../proxy';
+import { NOT_A_ROUTE, guideGate, proxy } from '../../proxy';
 import MeView from '../../app/me/MeView';
 import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
 import { meData } from '../v6/me-view';
 import { mergeRecord } from '../v6/record';
-import { linkGet } from '../v6/link-routes';
+import { linkDocTitle, linkState } from '../v6/link-routes';
+import LinkView from '../../app/link/[code]/LinkView';
 import nextConfig from '../../next.config';
 
 // tsx compiles the components without the automatic JSX runtime, so they need React in scope.
@@ -266,20 +267,35 @@ test('/programs/<id>: an upcoming and a closed program still render', async () =
   assert.ok(textOf(html(await ProgramGuidePage(params('zz-page-shut')))).includes('Closed'));
 });
 
-test('/programs/<id>: an unknown id and a record that no longer parses render the site\'s not-found text server-side (L21-4)', async () => {
-  // L21-4 (v6.1.16): notFound() here left the production body empty (the text only in the script payload), so the
-  // page renders the not-found content itself: one h1, the same text and link as /nope, noindex.
-  for (const id of ['nope', 'zz-page-broken', 'Not A Slug']) {
-    const m = html(await ProgramGuidePage(params(id)));
-    assert.equal((m.match(/<h1/g) ?? []).length, 1, id);
-    assert.ok(textOf(m).includes('Nothing shipped here.') && m.includes('href="/"') && textOf(m).includes('Go home.'), id);
-  }
+/** The page's notFound(): Next's 404 signal, thrown. */
+const throws404 = async (p: Promise<unknown>) => assert.rejects(p, (e: { digest?: string }) => e.digest === 'NEXT_HTTP_ERROR_FALLBACK;404');
+
+test('L27-3 (v6.1.16): an unknown guide id is a true 404: the proxy rewrites it to the site 404 page (lang, main, h1), the page itself calls notFound()', async () => {
+  // A notFound() thrown by the page reaches the browser as Next 16.4's empty error shell, so the proxy rewrites an id
+  // no list shows to a path no route serves; that renders app/not-found.tsx inside the layout with status 404.
+  const ids = async () => new Set(['zz-page-open']);
+  for (const id of ['nope', 'no-such-program', 'zz-page-broken']) assert.equal((await guideGate(new URL(`https://earnkit.com/programs/${id}`), ids))?.pathname, NOT_A_ROUTE, id);
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/zz-page-open'), ids), null);
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs'), ids), null);
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/zz-page-open.svg'), ids), null);
+  assert.equal(await guideGate(new URL('https://earnkit.com/docs'), ids), null);
+  // A failed read leaves the page to answer.
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/nope'), async () => { throw new Error('db down'); }), null);
+  // The page behind it: notFound() for an unknown id and a record that no longer parses (noindex through the metadata).
+  for (const id of ['nope', 'zz-page-broken', 'Not A Slug']) await throws404(ProgramGuidePage(params(id)));
   const meta = await guideMetadata(params('nope'));
   assert.match(String(meta.title), /Not found · EarnKit/);
   assert.equal((meta.robots as { index?: boolean }).index, false);
+  // The 404 page: one h1 with the 404 text and the link home; the layout gives it lang and main.
+  const m = html(React.createElement(NotFoundPage));
+  assert.equal((m.match(/<h1/g) ?? []).length, 1);
+  assert.match(m, /<h1[^>]*>Nothing shipped here\.<\/h1>/);
+  assert.ok(m.includes('href="/"') && textOf(m).includes('Go home.'));
+  const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
+  assert.ok(layout.includes('<html lang="en">') && layout.includes('<main id="content"'));
 });
 
-test('/docs: the seven sections, under 460 words, the copy rules', () => {
+test('/docs: the seven sections, under 470 words, the copy rules', () => {
   const m = html(DocsPage());
   const t = textOf(m);
   for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
@@ -288,7 +304,9 @@ test('/docs: the seven sections, under 460 words, the copy rules', () => {
   const words = t.split(' ').length;
   // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
   // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (455 now).
-  assert.ok(words < 460, `docs page is ${words} words`);
+  // L27-31 (v6.1.16): the record card's ruled name-limit line adds 7 words (464 now); the controller ruled the 470 cap
+  // (Task 13 fix round 1, N1): the ruled lines added the words.
+  assert.ok(words < 470, `docs page is ${words} words`);
   // L25-4, L25-8, L25-11 (v6.1.16): the other-agent line under the tabs, the approval line, the results promise.
   for (const line of ['Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.', 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.', 'Results come once a day, within 24 hours,'])
     assert.ok(t.includes(line), line);
@@ -343,7 +361,7 @@ test('a stale API program has no guide; a closed file program says Closed and ha
   const old = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
   await upsertProgram(programFixture({ id: 'zz-page-stale', title: 'Page Stale Grants', verified_at: old }), 'api', new Date());
   await sql()`UPDATE programs SET verified_at = ${old} WHERE id = 'zz-page-stale'`;
-  assert.ok(textOf(html(await ProgramGuidePage(params('zz-page-stale')))).includes('Nothing shipped here.'));
+  await throws404(ProgramGuidePage(params('zz-page-stale')));
   const m = html(await ProgramGuidePage(params('zz-page-shut')));
   assert.ok(textOf(m).includes('Closed'));
   assert.ok(!m.includes('https://example.com/apply') && !textOf(m).includes('Apply on the program site'));
@@ -385,21 +403,30 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
   }
 });
 
-test('/link/nope is 404 text when sign-in is set up and 503 when not', async () => {
+test('L27-4 (v6.1.16): /link/nope is a page: 404 in the data with its h1 when sign-in is set up, 503 when not; a POST to it is 405', async () => {
   const keys = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_AUTH_SECRET'] as const;
   const saved = keys.map((k) => process.env[k]);
+  const view = (s: Awaited<ReturnType<typeof linkState>>) => html(React.createElement(LinkView, { s, code: 'nope', host: 'earnkit.com' }));
   try {
     for (const k of keys) delete process.env[k];
-    const off = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.201' } }), 'nope');
+    const off = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.201' }));
     assert.equal(off.status, 503);
+    assert.match(view(off), /<h1[^>]*>Sign-in is not set up yet\.<\/h1>/);
     Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.x', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_AUTH_SECRET: 'pages-secret-0123456789abcdef0123456789' });
-    const on = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.202' } }), 'nope');
+    const on = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.202' }));
     assert.equal(on.status, 404);
-    assert.match(on.headers.get('content-type') ?? '', /^text\/plain/);
-    assert.equal(await on.text(), 'This link is not one of ours.');
+    assert.match(view(on), /<h1[^>]*>This link is not one of ours\.<\/h1>/);
+    assert.equal(linkDocTitle(on.title), 'This link is not one of ours · EarnKit');
   } finally {
     keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
   }
+  // The page's old POST moved to /link/<code>/confirm (Task 5's helper: 405 with Allow).
+  const post = await proxy(new Request('https://earnkit.com/link/nope', { method: 'POST' }) as never);
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get('allow'), 'GET');
+  // A sign-in code is case-sensitive: never lower-cased (Task 10's 308 skips /link).
+  const get = await proxy(new Request('https://earnkit.com/link/AbCdEfGhIjKlMnOpQrStUv') as never);
+  assert.notEqual(get.status, 308);
 });
 
 test('no response names the framework: X-Powered-By is off (v6.1.7 S5)', () => {

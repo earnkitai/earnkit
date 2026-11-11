@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
-import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, SIGN_IN_EXPIRED } from '../../lib/v5/site-copy';
+import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, PROJECT_NAME_LIMIT, SIGN_IN_EXPIRED } from '../../lib/v5/site-copy';
 import DocsNav from './DocsNav';
 import ExpiredNote from './ExpiredNote';
 import InstallCard from './InstallCard';
@@ -38,7 +38,8 @@ export default function DocsView() {
           <ol className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2.5">
             {DOCS_STEPS.map((s, i) => (
               <li key={s} data-ek-step="" className="flex flex-col gap-1.5 rounded-[22px] bg-s-light-inner p-[18px]">
-                <span className="ek-serif text-[32px] leading-none text-s-blue">{i + 1}</span>
+                {/* L27-28 (v6.1.16): the deeper blue, 6.13:1 on the step's tint (the brand blue was 4.52:1). */}
+                <span className="ek-serif text-[32px] leading-none text-s-blue-top">{i + 1}</span>
                 <span className="text-[15px] text-s-ink-body">{s}</span>
               </li>
             ))}
@@ -47,7 +48,10 @@ export default function DocsView() {
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
           <InfoCard id="session" card={CARD_NAVY} soft="text-s-on-navy-soft" title={DOCS_SESSION.title} text={DOCS_SESSION.text} />
-          <InfoCard id="record" card={CARD_BLUE} soft="text-s-on-blue-soft" title={DOCS_RECORD.title} text={DOCS_RECORD.text} lead={<ExpiredNote text={SIGN_IN_EXPIRED} />} />
+          {/* L27-28 (v6.1.16): white on the deeper blue, 6.63:1 (the soft white on the brand blue was 4.57:1). L27-31: the name limit. */}
+          <InfoCard id="record" card={CARD_BLUE.replace('bg-s-blue', 'bg-s-blue-top')} soft="text-s-on-blue" title={DOCS_RECORD.title} text={DOCS_RECORD.text} lead={<ExpiredNote text={SIGN_IN_EXPIRED} />}>
+            <p className="text-[15px] leading-[1.6] text-s-on-blue">{PROJECT_NAME_LIMIT}</p>
+          </InfoCard>
           <InfoCard id="screening" card={CARD_PANEL} soft="text-s-muted" title={DOCS_SCREEN.title} text={DOCS_SCREEN.text} />
           <section id="programs" aria-labelledby="programs-title" className={`${r32(CARD_PANEL)} col-span-full flex scroll-mt-24 flex-col gap-2.5 p-7`}>
             <h2 id="programs-title" className={CARD_TITLE}>
