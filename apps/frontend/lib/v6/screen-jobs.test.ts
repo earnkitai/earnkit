@@ -778,8 +778,10 @@ test('R24, R26 (L17-5, Review Focus 7): 30 parallel screens of one applicant, by
   const a = await applicantOf('jobs-r24', 'https://github.com/race/one');
   const A = { ref: 'one', name: 'One', repo_url: 'https://github.com/race/one', application_id: a.id };
   const one = await Promise.all(Array.from({ length: 30 }, () => job(r, [A])));
+  const first = one.find((j) => j.total === 1)!;
   assert.equal(one.filter((j) => j.total === 1).length, 1);
-  assert.deepEqual([...new Set(one.filter((j) => j.total === 0).map((j) => [j.id, j.already.join(), j.notes.join()].join('|')))], ['|one|Already queued: one.']);
+  assert.deepEqual([...new Set(one.filter((j) => j.total === 0).map((j) => [j.id, j.already.join(), j.notes.join()].join('|')))],
+    [`|one|Already queued: one (row one of screen ${first.id}).`]);
   const three = await Promise.all(Array.from({ length: 30 }, (_, k) => job(others[k % 3], [{ ...A, ref: `one-${k}` }])));
   assert.equal(three.filter((j) => j.total > 0).length, 0);
   const rows = await sql()`SELECT x.job_id, x.ref FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id WHERE j.program_id = 'jobs-r24'`;
@@ -790,7 +792,27 @@ test('R24, R26 (L17-5, Review Focus 7): 30 parallel screens of one applicant, by
   assert.deepEqual((await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${a.owner} AND program_id = 'jobs-r24'`).map((x) => [x.status, Number(x.amount_usd)]), [['won', 500]]);
   // A mixed list queues the new one and names the one already queued.
   const mixed = await job(r, [A, { ref: 'two', name: 'Two', repo_url: 'https://github.com/race/two' }]);
-  assert.deepEqual([mixed.total, mixed.already, mixed.notes], [1, ['one'], ['Already queued: one.']]);
+  assert.deepEqual([mixed.total, mixed.already, mixed.notes], [1, ['one'], [`Already queued: one (row one of screen ${first.id}).`]]);
+});
+
+test('controller ruling (v6.1.16): the queue hold matches identity only; a copied id with another repo and a ref word two reviewers share never block', async () => {
+  const r = await reviewer('jobs-hold');
+  const other = await reviewer('jobs-hold');
+  const a = await applicantOf('jobs-hold', 'https://github.com/real/hold');
+  // A hostile row carries the real applicant's id with another repo, then with no repo: neither holds the real one.
+  const hostile = await job(r, [{ ref: 'copy', name: 'Hold', repo_url: 'https://github.com/copier/hold', application_id: a.id }]);
+  const bare = await job(r, [{ ref: 'bare', name: 'Hold', application_id: a.id }]);
+  assert.deepEqual([hostile.total, bare.total], [1, 1]);
+  const real = await job(r, [{ ref: 'real', name: 'Hold', repo_url: 'https://github.com/real/hold', application_id: a.id }]);
+  assert.deepEqual([real.total, real.already], [1, []]);
+  // Two reviewers using the same ref word for different applicants do not block each other; the same reviewer's same
+  // ref with the same site is the same applicant.
+  const s1 = await job(r, [{ ref: 'applicant 1', name: 'Site A', live_url: 'https://a.example/' }]);
+  const s2 = await job(other, [{ ref: 'applicant 1', name: 'Site B', live_url: 'https://b.example/' }]);
+  const s3 = await job(other, [{ ref: 'applicant 1', name: 'Site A', live_url: 'https://a.example/' }]);
+  assert.deepEqual([s1.total, s2.total, s3.total], [1, 1, 1]);
+  const again = await createJob({ programId: 'jobs-hold', builderId: r.builderId, installationId: r.installationId, now: NOW, applicants: [{ ref: 'applicant 1', name: 'Site A', live_url: 'https://a.example/' }] });
+  assert.deepEqual([again.id, again.already, again.notes], [null, ['applicant 1'], [`Already queued: applicant 1 (row applicant 1 of screen ${s1.id}).`]]);
 });
 
 test('R23 (L17-8): key final, $100, from the screen 15 times and from the builder 15 times adds $100 once', async () => {

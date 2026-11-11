@@ -148,7 +148,7 @@ export const QUEUE_NOTES = {
   sameRepo: (groups: string[]) => `Same repo under more than one ref, kept apart as their EarnKit ids differ: ${groups.join('; ')}.`,
   siteApart: (groups: string[]) => `Same repo under more than one ref, kept apart as their sites differ: ${groups.join('; ')}.`,
   contracts: (groups: string[]) => `Contracts left out, not read: ${groups.join('; ')}.`,
-  /** L17-5 (v6.1.16): applicants a live screen of the program already holds; not queued again. */
+  /** L17-5 (v6.1.16): applicants a live screen of the program already holds, each with the row holding it; not queued again. */
   already: (refs: string[]) => `Already queued: ${listWords(refs, 10)}.`,
 } as const;
 
@@ -293,26 +293,33 @@ export async function createJob(o: {
   );
   const expires = new Date(o.now.getTime() + KEEP_DAYS * DAY);
   const already: string[] = [];
+  /** Each applicant held, with the row that holds it, for the reviewer's note. */
+  const heldBy: string[] = [];
   const fresh = (await sql().begin(async (tx) => {
     // L17-5 (v6.1.16): one queue decision at a time per program, so parallel calls for one applicant queue it once.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${'screen:' + o.programId}))`;
-    // An applicant a row of an unexpired screen of the program still waits to read (the same EarnKit id, repo or ref)
-    // is not queued again, unless its requeue names that row; a row a requeue names is replaced, so it holds nothing.
-    // A row already read does not hold it: the program may screen the applicant again later (L15-11's earlier screens).
-    // An id on a row of another repo never holds it (L16-3: a copied id never blocks the real applicant).
+    // An applicant a row of an unexpired screen of the program still waits to read is not queued again, unless its
+    // requeue names that row; a row a requeue names is replaced, so it holds nothing. A row already read does not hold
+    // it: the program may screen the applicant again later (L15-11's earlier screens). The hold matches identity only
+    // (controller ruling, v6.1.16): the same EarnKit id and the same repo key, each equal or absent on both sides, and
+    // at least one of them given, so a copied id with another repo (or none) never blocks the real applicant (L16-3);
+    // with neither given, the same ref by the same reviewer with the same site. A ref alone never holds across
+    // reviewers. The note names the row that holds it, so a false hold shows.
     const keep: typeof list = [];
     for (const a of list) {
-      const [hit] = await tx`SELECT 1 FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
+      const [hit] = await tx<{ job_id: string; ref: string }[]>`SELECT x.job_id, x.ref FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
         WHERE j.program_id = ${o.programId} AND j.expires_at > ${o.now} AND x.status = ANY(${UNREAD})
-          AND ((${a.application_id}::text IS NOT NULL AND x.application_id = ${a.application_id}
-              AND (${a.repo_key}::text IS NULL OR x.repo_key IS NULL OR x.repo_key = ${a.repo_key}))
-            OR (${a.repo_key}::text IS NOT NULL AND x.repo_key = ${a.repo_key}) OR x.ref = ${a.ref})
+          AND x.application_id IS NOT DISTINCT FROM ${a.application_id}::text AND x.repo_key IS NOT DISTINCT FROM ${a.repo_key}::text
+          AND ((${a.application_id}::text IS NOT NULL OR ${a.repo_key}::text IS NOT NULL)
+            OR (x.ref = ${a.ref} AND j.builder_id = ${o.builderId} AND x.live_url IS NOT DISTINCT FROM ${a.live_url}::text))
           AND NOT (x.job_id = ${a.requeue_job_id ?? ''} AND x.ref = ${a.requeue_ref ?? ''})
           AND NOT EXISTS (SELECT 1 FROM screen_applicants y JOIN screen_jobs k ON k.id = y.job_id
             WHERE k.program_id = ${o.programId} AND y.requeue_job_id = x.job_id AND y.requeue_ref = x.ref)
-        LIMIT 1`;
-      if (hit) already.push(a.ref);
-      else keep.push(a);
+        ORDER BY j.created_at, x.job_id LIMIT 1`;
+      if (hit) {
+        already.push(a.ref);
+        heldBy.push(`${a.ref} (row ${hit.ref} of screen ${hit.job_id})`);
+      } else keep.push(a);
     }
     if (keep.length === 0) return keep;
     await tx`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, thresholds, total, expires_at)
@@ -327,7 +334,7 @@ export async function createJob(o: {
   const queued = new Set(fresh.map((a) => a.ref));
   const dropped = [...droppedBy].map(([why, refs]) => `${why} (${listWords(refs, 10)})`);
   return {
-    id: fresh.length > 0 ? id : null, total: fresh.length, already, notes: [...notes, ...(already.length ? [QUEUE_NOTES.already(already)] : [])], dropped,
+    id: fresh.length > 0 ? id : null, total: fresh.length, already, notes: [...notes, ...(heldBy.length ? [QUEUE_NOTES.already(heldBy)] : [])], dropped,
     cached: list.filter((a) => queued.has(a.ref) && ((a.repo_key && hot.has(`repo:${a.repo_key}`)) || a.contracts.some((c) => hot.has(`contract:${c.chain}:${c.address}`)))).length,
   };
 }

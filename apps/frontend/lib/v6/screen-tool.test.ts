@@ -547,11 +547,11 @@ test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply c
   const more = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: [...APPLICANTS, { ref: 'r-3', name: 'Third', repo_url: 'https://github.com/acme/third' }] });
   // The promise after it depends on the shared queue ahead (other tests' rows), so only the head is pinned.
   assert.match(more.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-already; 2 already queued\. Results come in daily runs; /);
-  assert.match(more.reply!.agent_note as string, /Already queued: r-1 and r-2\.$/);
+  assert.match(more.reply!.agent_note as string, new RegExp(`Already queued: r-1 \\(row r-1 of screen ${first.reply!.job_id}\\) and r-2 \\(row r-2 of screen ${first.reply!.job_id}\\)\\.$`));
   assert.ok(more.reply!.job_id);
   const none = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: APPLICANTS });
   assert.equal(none.reply!.show_to_builder, 'Nothing new to queue for Grants scr-already; 2 already queued.');
-  assert.equal(none.reply!.agent_note, 'Already queued: r-1 and r-2. Nothing was queued; their results come with the screens that hold them.');
+  assert.equal(none.reply!.agent_note, `Already queued: r-1 (row r-1 of screen ${first.reply!.job_id}) and r-2 (row r-2 of screen ${first.reply!.job_id}). Nothing was queued; their results come with the screens that hold them.`);
   assert.equal('job_id' in none.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-already'`)[0].n, 2);
 });
