@@ -122,10 +122,11 @@ export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
 }
 
 /** The builder line for a name that is no one program: up to two titles to pick from, as a question alone (L1e-1,
- *  v6.1.13); "I don't know that program." only when nothing is offered. Pure. */
+ *  v6.1.13); "Which program do you mean?" when nothing is offered (L29-15, v6.1.16). Pure. */
 export function unknownProgramLine(suggest: readonly string[]): string {
   const [a, b] = suggest;
-  return a === undefined ? "I don't know that program." : `Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
+  // L29-15 (v6.1.16 Task 15): a question, never a dead end.
+  return a === undefined ? 'Which program do you mean?' : `Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
 }
 
 /**
@@ -146,8 +147,12 @@ function strictMatch(rows: ProgramRow[], words: string, now: Date): { row: Progr
   if (titled.length === 1) return { row: titled[0], suggest: [] };
   const asked = words.split(' ').filter((w) => w && !ARTICLES.has(w) && !YEAR.test(w));
   if (asked.length === 0 || asked.every((w) => COMMON_WORDS.has(w))) return { row: null, suggest: [] };
+  // v6.1.16 Task 15 (controller's ruling): the initials of the title, and of the id, count as a title word ("yc" names
+  // Y Combinator); a common word alone still names nothing (above).
   const fit = titled.length > 1 ? titled : rows.filter((r) => {
-    const own = new Set(plain(r.file.title).split(' '));
+    const words = plain(r.file.title).split(' ').filter(Boolean);
+    const initials = (ws: string[]) => (ws.length > 1 ? [ws.map((w) => w[0]).join('')] : []);
+    const own = new Set([...words, ...initials(words), ...initials(r.id.split('-').filter(Boolean))]);
     return asked.every((w) => own.has(w));
   });
   if (fit.length === 1) return { row: fit[0], suggest: [] };

@@ -174,6 +174,9 @@ export async function record(
     payment?: { key: string };
     /** A program's screen outcome (screen-jobs.recordOutcomes): not an agent's call, so the link check is skipped. */
     fromScreen?: true;
+    /** won only (L29-3, v6.1.16 Task 15): with no application here (none, a claim or a skip), the builder's own send is
+     *  written first (submitted_by builder), then the win; answers `outside`. */
+    outsideWin?: true;
   } = {},
 ): Promise<RecordResult> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -301,7 +304,17 @@ export async function record(
     const heldSend = status === 'applied' && row?.status === 'started' && row.held_at !== null;
     const otherClaim = status === 'applied' && row?.status === 'started' && !heldSend && row.claimed_by !== null && row.claimed_by !== installationId
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000;
-    if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
+    const outside = status === 'won' && o.outsideWin === true && !o.fromScreen && program !== null && (!row || row.status === 'skipped' || row.status === 'started');
+    if (outside) {
+      // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application.
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, ${now}, 'builder', ${o.projectKey || null}, ${program!.file.title}, ${newApplicationId()})
+        ON CONFLICT (owner, program_id) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
+          submitted_by = 'builder', title = EXCLUDED.title, held_at = NULL, claimed_at = NULL, claimed_by = NULL,
+          application_id = COALESCE(applications.application_id, EXCLUDED.application_id), project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, source)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', 'sent by the builder outside EarnKit', ${now}, ${source})`;
+    } else if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
       if (row?.status !== 'skipped') return { ok: false, note: "That one isn't skipped here." } as const;
@@ -364,6 +377,7 @@ export async function record(
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source})`;
     const other = otherClaim ? ({ other_claim: true } as const) : heldSend ? ({ held: true } as const) : {};
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other } as const) : closed ? ({ ok: true, closed: true, ...other } as const)
+      : outside ? ({ ok: true, outside: true } as const)
       : otherClaim ? ({ ok: true, other_claim: true } as const)
       : heldSend ? ({ ok: true, held: true } as const)
       : total !== null ? ({ ok: true, total } as const)
@@ -377,7 +391,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string };
 
 /**

@@ -11,10 +11,28 @@
 import { z } from 'zod';
 import { tooDeep } from './secrets';
 
-/** The builder line for arguments that could not be read at all (too deep, or not an object). */
-export const COULD_NOT_READ = 'I could not read that.';
 export const TOO_DEEP_NOTE = 'The arguments were nested too deep.';
 export const NOT_OBJECT_NOTE = 'Send the arguments as an object.';
+
+/**
+ * L29-9 (v6.1.16 Task 15): a refusal: its usual builder text and agent note, marked `refused`, which the MCP layer
+ * (`run`) answers with `isError: true` and the same content (HTTP stays 200). Every tool's refusals return through
+ * this mark. Pure.
+ */
+export type Refused = { refused: true };
+export function refuse<T extends { show_to_builder: string; agent_note: string }>(r: T): T & Refused {
+  return { ...r, refused: true };
+}
+/** Whether a tool's reply is a refusal (`refuse`). Pure. */
+export const isRefused = (v: unknown): boolean => !!v && typeof v === 'object' && (v as { refused?: unknown }).refused === true;
+/**
+ * L29-10 (v6.1.16 Task 15): an input error: no builder text, and the agent note says what to fix and to call again.
+ * `what` is the detail (`inputDetail`, or a plain sentence). Pure.
+ */
+export const inputErrorNote = (what: string): string => `${what.trim().replace(/[.;\s]+$/, '')}; fix it and call again.`;
+export function inputError(what: string): { show_to_builder: ''; agent_note: string } & Refused {
+  return { show_to_builder: '', agent_note: inputErrorNote(what), refused: true };
+}
 
 /**
  * A schema that accepts any value for every field and any extra key, but describes itself to agents exactly as
@@ -115,10 +133,11 @@ export const UNREADABLE_REQUEST = 'I could not read that request.';
 type Id = string | number;
 type Msg = { id?: unknown; method?: unknown; params?: { arguments?: unknown } };
 const idOf = (m: Msg): Id | null => (typeof m.id === 'string' || typeof m.id === 'number' ? m.id : null);
+// L29-9, L29-10 (v6.1.16 Task 15): an input error, isError true, with no builder text.
 const toolLine = (id: Id, agent_note: string) => ({
   jsonrpc: '2.0',
   id,
-  result: { content: [{ type: 'text', text: JSON.stringify({ show_to_builder: COULD_NOT_READ, agent_note }) }] },
+  result: { content: [{ type: 'text', text: JSON.stringify(inputError(agent_note)) }], isError: true },
 });
 
 /**

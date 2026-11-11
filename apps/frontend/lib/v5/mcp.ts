@@ -2,7 +2,7 @@
  * The MCP server: four tools, find, track, record and screen, and the server instructions. Built per request
  * (the route is stateless). Each tool call counts against the installation's and the IP's hourly
  * limits; over either it is the busy result, with the minutes the window has left. A tool's reply is its JSON;
- * arguments nested past MAX_ARG_DEPTH are the plain line; an unexpected error (a database blip) is one plain
+ * arguments nested past MAX_ARG_DEPTH are an input error; a refusal (L29-9, v6.1.16) is isError true with its usual JSON; an unexpected error (a database blip) is one plain
  * line, logged by name only.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -10,9 +10,10 @@ import { z } from 'zod';
 import { FindArgs, find, type FindContext } from './find';
 import { LIMITS, busyText, hit } from './rate-limit';
 import { MAX_ARG_DEPTH, tooDeep } from './secrets';
-import { COULD_NOT_READ, TOO_DEEP_NOTE, lenient } from './tool-input';
+import { TOO_DEEP_NOTE, inputError, isRefused, lenient } from './tool-input';
+import pkg from '../../package.json';
 import { TrackInput, track } from './track';
-import { RecordInput, recordTool } from '../v6/record-tool';
+import { RecordAdvertised, recordTool } from '../v6/record-tool';
 import { ScreenInput, screenTool } from '../v6/screen-tool';
 import { SERVER_INSTRUCTIONS, FIND_DESCRIPTION, TRACK_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION } from './tool-text';
 
@@ -45,12 +46,13 @@ async function refusedFor(ctx: McpContext, now: Date): Promise<number | null> {
   return own.allowed ? null : own.retryAfter;
 }
 
-const reply = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
+/** L29-9 (v6.1.16 Task 15): a refusal (`refuse`, `inputError`) is isError true with the same content. */
+const reply = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }], ...(isRefused(value) ? { isError: true } : {}) });
 
 async function run(ctx: McpContext, name: string, args: unknown, fn: () => Promise<unknown>) {
   try {
     // Before any walk of the arguments (v6.1.7, B4); the route refuses these before the transport too.
-    if (tooDeep(args, MAX_ARG_DEPTH)) return reply({ show_to_builder: COULD_NOT_READ, agent_note: TOO_DEEP_NOTE });
+    if (tooDeep(args, MAX_ARG_DEPTH)) return reply(inputError(TOO_DEEP_NOTE));
     const wait = await refusedFor(ctx, ctx.now ?? new Date());
     if (wait !== null) return { content: [{ type: 'text' as const, text: BUSY_HOUR(wait) }], isError: true };
     return reply(await fn());
@@ -64,7 +66,7 @@ async function run(ctx: McpContext, name: string, args: unknown, fn: () => Promi
 }
 
 export function createMcpServer(ctx: McpContext): McpServer {
-  const server = new McpServer({ name: 'earnkit', version: '6.1.0' }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'earnkit', version: pkg.version }, { instructions: SERVER_INSTRUCTIONS });
   const now = () => ctx.now ?? new Date();
   server.registerTool(
     'find',
@@ -85,7 +87,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
   );
   server.registerTool(
     'record',
-    { title: 'Your record', description: RECORD_DESCRIPTION, inputSchema: lenient(RecordInput) },
+    { title: 'Your record', description: RECORD_DESCRIPTION, inputSchema: lenient(RecordAdvertised) },
     (args) => run(ctx, 'record', args, () => recordTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   server.registerTool(

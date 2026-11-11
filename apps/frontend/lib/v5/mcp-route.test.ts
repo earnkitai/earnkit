@@ -56,8 +56,9 @@ test('B4 (Review Focus 3): a call nested 10,000 levels deep answers the plain li
     assert.equal(r.status, 200);
     const m = (await r.json()) as Msg;
     assert.equal(m.id, 9);
-    assert.notEqual(m.result.isError, true);
-    assert.deepEqual(plain(m), { show_to_builder: 'I could not read that.', agent_note: 'The arguments were nested too deep.' });
+    // L29-9, L29-10 (v6.1.16 Task 15): an input error: isError true, no builder text, the fix in the note.
+    assert.equal(m.result.isError, true);
+    assert.deepEqual(plain(m), { show_to_builder: '', agent_note: 'The arguments were nested too deep; fix it and call again.', refused: true });
   }
   // In a batch with a secret elsewhere: the deep call is answered, the other still runs (scrubbed).
   const key = 'sk_live_' + 'a1'.repeat(12);
@@ -67,7 +68,7 @@ test('B4 (Review Focus 3): a call nested 10,000 levels deep answers the plain li
   const text = await b.text();
   assert.ok(!text.includes(key));
   const byId = new Map((JSON.parse(text) as Msg[]).map((m) => [m.id, m]));
-  assert.equal(plain(byId.get(10)!).show_to_builder, 'I could not read that.');
+  assert.equal(plain(byId.get(10)!).show_to_builder, '');
   assert.match(byId.get(11)!.result.content[0].text, /That looked like a secret key/);
   // A deep message that is not a tool call: one plain JSON-RPC error.
   const p = await raw(`{"jsonrpc":"2.0","id":12,"method":"ping","params":${'['.repeat(100_000)}${']'.repeat(100_000)}}`);
@@ -79,9 +80,9 @@ test('C35: arguments that are not an object answer the plain line', async () => 
   await saveInstallation(token, null);
   for (const args of [[1, 2], 'text', 5]) {
     const m = (await (await post(call(13, 'track', args))).json()) as Msg;
-    assert.notEqual(m.result.isError, true);
-    assert.equal(plain(m).show_to_builder, 'I could not read that.');
-    assert.equal(plain(m).agent_note, 'Send the arguments as an object.');
+    assert.equal(m.result.isError, true);
+    assert.equal(plain(m).show_to_builder, '');
+    assert.equal(plain(m).agent_note, 'Send the arguments as an object; fix it and call again.');
   }
 });
 
@@ -100,7 +101,7 @@ test('C35: a request the MCP library rejects is one plain line in error.message;
     assert.doesNotMatch(text, /invalid_type|expected|Parse error|Internal error|"path"/);
     const m = JSON.parse(text) as { error?: { message: string }; result?: { content: { text: string }[] } };
     if (m.error) assert.equal(m.error.message, 'I could not read that request.');
-    else assert.equal(JSON.parse(m.result!.content[0].text).show_to_builder, 'I could not read that.');
+    else assert.equal(JSON.parse(m.result!.content[0].text).show_to_builder, '');
   }
 });
 

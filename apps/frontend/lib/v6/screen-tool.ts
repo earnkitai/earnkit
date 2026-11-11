@@ -4,7 +4,7 @@
  * the owner marked a reviewer of the program may call it; every refusal is one line and writes nothing.
  */
 import { z } from 'zod';
-import { inputDetail } from '../v5/tool-input';
+import { inputDetail, inputError, refuse } from '../v5/tool-input';
 import { cleanText } from '../v5/controls';
 import { FURTHER_PAYMENT_REFUSED, OVER_CAP_FOR, winCapOf } from '../v5/ledger';
 import { AMOUNT_DOT, AMOUNT_UNREAD, UNKNOWN_CURRENCY_NOTE, comparable, overCap, readAmount } from '../v5/amount';
@@ -41,7 +41,7 @@ export const ScreenInput = z
   .strict();
 /** The most applicants or outcomes one call reads (C2, v6.1.13); 200 is read, 201 refused. */
 export const SCREEN_MAX = 200;
-export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?: string; results?: ScreenResults; next_page?: number | null; recorded?: number };
+export type ScreenReply = { show_to_builder: string; agent_note: string; refused?: true; job_id?: string; results?: ScreenResults; next_page?: number | null; recorded?: number };
 
 /** How a reviewer asks for access, from the tool (L25-10, v6.1.16): the /docs line, with the page named, not "below". */
 const ASK_ACCESS = 'Ask for reviewer access through the X link on earnkit.com/docs.';
@@ -57,7 +57,6 @@ export const SCREEN_TEXT = {
   noJob: "I don't have that screen.",
   expired: 'That screen has expired; queue the list again.',
   nothing: 'Give me an applicant list, or the screen you queued.',
-  unread: "I could not read that. Send the applicant list, or a screen's id for its results.",
   /** C2 (v6.1.13): over SCREEN_MAX applicants or outcomes in one call. */
   overMax: 'At most 200 at a time; send the rest in another call.',
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
@@ -89,6 +88,8 @@ export const SCREEN_TEXT = {
 } as const;
 
 const line = (show: string, agent_note: string = SCREEN_TEXT.stopNote): ScreenReply => ({ show_to_builder: show, agent_note });
+/** L29-9 (v6.1.16 Task 15): a refusal, answered isError true with the same text. */
+const no = (show: string, agent_note?: string): ScreenReply => refuse(line(show, agent_note));
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** "412 applicants: 31 used, 88 live, 190 building, 74 unverified, 29 flagged; 0 pending." Pure. */
@@ -155,29 +156,30 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   const r = raw as { applicants?: unknown } | null;
   const list: unknown[] = Array.isArray(r?.applicants) ? r.applicants : [];
   const badRepo = list.findIndex((a) => a && typeof a === 'object' && 'repo' in a && a.repo != null && typeof a.repo !== 'string' && !('repo_url' in a));
-  if (badRepo >= 0) return line(SCREEN_TEXT.unread, `Nothing was queued. applicants.${badRepo}.repo: not text; send the repo link as text in repo_url.`);
+  // L29-10 (v6.1.16 Task 15): an input error has no builder text.
+  if (badRepo >= 0) return inputError(`Nothing was queued. applicants.${badRepo}.repo: not text; send the repo link as text in repo_url`);
   const aliased = list.length ? { ...r, applicants: list.map((a) => (a && typeof a === 'object' && 'repo' in a && typeof a.repo === 'string' && !('repo_url' in a) ? { ...a, repo_url: a.repo } : a)) } : raw;
   const parsed = ScreenInput.safeParse(aliased);
   // L13-5 (v6.1.14): the note says what was not written: outcomes are recorded, a list is queued.
   const nothing = r && typeof r === 'object' && 'outcomes' in r ? 'Nothing was recorded.' : 'Nothing was queued.';
-  if (!parsed.success) return line(SCREEN_TEXT.unread, `${nothing} ${inputDetail(parsed.error)}`);
+  if (!parsed.success) return inputError(`${nothing} ${inputDetail(parsed.error)}`);
   const input = parsed.data;
   // L24-7 (v6.1.16 Task 11): an outcome's ref is cleaned before it is matched or echoed.
   for (const o of input.outcomes ?? []) o.ref = cleanText(o.ref, REF_MAX);
   // C2 (v6.1.13): a list over SCREEN_MAX was read, it is only too long: one line, nothing written.
-  if ((input.applicants?.length ?? 0) > SCREEN_MAX) return line(SCREEN_TEXT.overMax, 'Nothing was queued. Split the list and call screen once per part.');
-  if ((input.outcomes?.length ?? 0) > SCREEN_MAX) return line(SCREEN_TEXT.overMax, 'Nothing was recorded. Split the outcomes and call screen once per part.');
+  if ((input.applicants?.length ?? 0) > SCREEN_MAX) return no(SCREEN_TEXT.overMax, 'Nothing was queued. Split the list and call screen once per part.');
+  if ((input.outcomes?.length ?? 0) > SCREEN_MAX) return no(SCREEN_TEXT.overMax, 'Nothing was recorded. Split the outcomes and call screen once per part.');
   if (ctx.builderId === null) {
     // R7: the installation's sign-in link, as find and record give it; no link (not configured, or refused) keeps one plain line.
     const link = await signInLink(ctx.installationId, ctx.now);
-    return line(link ? SCREEN_TEXT.unlinked(link) : SCREEN_TEXT.unlinkedNoLink);
+    return no(link ? SCREEN_TEXT.unlinked(link) : SCREEN_TEXT.unlinkedNoLink);
   }
   const programs = await reviewerPrograms(ctx.builderId);
 
   if (input.job_id) {
     const s = await jobStatus(input.job_id, ctx.builderId, ctx.now);
-    if (!s || !programs.includes(s.program_id)) return line(SCREEN_TEXT.noJob);
-    if (s.expired) return line(SCREEN_TEXT.expired);
+    if (!s || !programs.includes(s.program_id)) return no(SCREEN_TEXT.noJob);
+    if (s.expired) return no(SCREEN_TEXT.expired);
     if (input.outcomes) {
       // L15-15, L15-16 (v6.1.14): a win's amount is read per applicant; one that cannot be read, or a win over what the
       // program pays, refuses only that applicant and names it, the rest are recorded. L22-4 to L22-6 (v6.1.16): the
@@ -215,7 +217,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const { recorded, notFound, notes, own, overCapAt, passed, reasons, notPassed, repeats, paymentRefused, stands } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
       // L16-16 (v6.1.16): a call whose every outcome is a repeat says so alone.
       if (repeats.length > 0 && repeats.length === new Set(input.outcomes.map((o) => o.ref)).size)
-        return { ...line(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
+        return { ...no(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
       // The refs not in this screen are named (C19); L22-11 (v6.1.16): a recorded outcome that reached no builder's
       // ledger is named with why; L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
       const counted = `Recorded ${plural(recorded, 'outcome')}${notPassed.length > 0 ? `; not passed to a builder: ${listWords(notPassed, 10)}` : ''}${notFound.length > 0 ? `; not found: ${listWords(notFound, 10)}` : ''}.`;
@@ -247,10 +249,12 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         ...(overCapRefs.length ? [`Not recorded, over what this program pays: ${listWords(overCapRefs, 10)}.`] : []),
         ...(unknownCode.length ? [`${listWords(unknownCode, 10)}: ${UNKNOWN_CURRENCY_NOTE}`] : []),
       ];
-      return { ...line(show, [...(note ? [note] : []), ...notes, ...amountNotes].join(' ')), recorded };
+      // L29-9 (v6.1.16 Task 15): a call that recorded nothing is a refusal.
+      const out = { ...line(show, [...(note ? [note] : []), ...notes, ...amountNotes].join(' ')), recorded };
+      return recorded === 0 ? refuse(out) : out;
     }
     const results = await jobResults(input.job_id, ctx.builderId, ctx.now, input.page ?? 1);
-    if (!results) return line(SCREEN_TEXT.expired);
+    if (!results) return no(SCREEN_TEXT.expired);
     // L15-3 (v6.1.14): one page of 25; the last line asks for the next when there is one. L16-12 (v6.1.16): a page past
     // the last says so.
     const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}`
@@ -270,22 +274,22 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   }
 
   // A builder who reviews no program and names none hears that in one line (v6.1.7 C18).
-  if (!programs.length && !input.program_id) return line(SCREEN_TEXT.noProgram);
-  if (!input.applicants) return line(programs.length ? SCREEN_TEXT.nothing : SCREEN_TEXT.notReviewer);
+  if (!programs.length && !input.program_id) return no(SCREEN_TEXT.noProgram);
+  if (!input.applicants) return no(programs.length ? SCREEN_TEXT.nothing : SCREEN_TEXT.notReviewer);
   const programId = input.program_id ?? (programs.length === 1 ? programs[0] : null);
-  if (!programId) return line(programs.length ? SCREEN_TEXT.whichProgram : SCREEN_TEXT.notReviewer);
-  if (!programs.includes(programId)) return line(SCREEN_TEXT.notReviewer);
-  if (!input.applicants.length) return line(SCREEN_TEXT.empty);
+  if (!programId) return no(programs.length ? SCREEN_TEXT.whichProgram : SCREEN_TEXT.notReviewer);
+  if (!programs.includes(programId)) return no(SCREEN_TEXT.notReviewer);
+  if (!input.applicants.length) return no(SCREEN_TEXT.empty);
   const thresholds = thresholdsOf(input.thresholds);
-  if ('show' in thresholds && typeof thresholds.show === 'string') return line(thresholds.show, thresholds.note as string);
+  if ('show' in thresholds && typeof thresholds.show === 'string') return no(thresholds.show, thresholds.note as string);
   const program = await getProgram(programId);
-  if (!program) return line(SCREEN_TEXT.notReviewer);
+  if (!program) return no(SCREEN_TEXT.notReviewer);
   // Task 8 security follow-up (v6.1.14): a requeue must name an earlier row of this program carrying the same id.
   const bad = await badRequeues(programId, input.applicants);
-  if (bad.length > 0) return line(SCREEN_TEXT.badRequeue(listWords(bad, 10)), 'Nothing was queued. Each requeue names { job_id, ref } of an earlier row of this program with the same application_id; fix or drop it and call screen again.');
+  if (bad.length > 0) return no(SCREEN_TEXT.badRequeue(listWords(bad, 10)), 'Nothing was queued. Each requeue names { job_id, ref } of an earlier row of this program with the same application_id; fix or drop it and call screen again.');
   // Counted atomically, per reviewer (not per installation), only once every refusal above has passed.
   const { limit, windowSeconds } = LIMITS.screenJobs;
-  if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return line(SCREEN_TEXT.limit);
+  if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return no(SCREEN_TEXT.limit);
 
   const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds: thresholds as Partial<Thresholds>, now: ctx.now });
   // L17-5 (v6.1.16): applicants a live screen of the program already holds are not queued again; with none left, no job.

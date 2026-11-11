@@ -22,7 +22,7 @@ import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category
 import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
-import { readLoosely, type LooseRules } from './tool-input';
+import { readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, STANDING_NOTE, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
@@ -56,7 +56,15 @@ const FIND_LOOSE: LooseRules = {
 
 /** The arguments as find reads them: FIND_LOOSE, then any field FindInput still refuses dropped and named. Pure. */
 export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unread: string[] } {
-  const { args, problems } = readLoosely(input, FIND_LOOSE);
+  const raw = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+  const read = readLoosely(input, FIND_LOOSE);
+  const { args } = read;
+  // L29-13 (v6.1.16 Task 15): an unknown category is named with the four it can be.
+  const category = (raw.filter as { category?: unknown } | undefined)?.category;
+  const problems = read.problems.map((p) =>
+    p.startsWith('filter.category dropped') ? `category ${JSON.stringify(cleanText(String(category), 40))} was not read: use ${PROGRAM_CATEGORIES.slice(0, -1).join(', ')} or ${PROGRAM_CATEGORIES.at(-1)}` : p);
+  // L29-14 (v6.1.16 Task 15): a project fact passed beside project, never read there, is named.
+  for (const k of Object.keys(raw)) if (k !== 'project' && Object.hasOwn(ProjectArg.shape, k)) problems.push(`${k} belongs inside project`);
   let r = FindInput.safeParse(args);
   if (!r.success) {
     for (const k of new Set(r.error.issues.map((x) => String(x.path[0] ?? '')))) {
@@ -189,6 +197,7 @@ export type FindReply = {
   linked_notice: string | null;
 };
 export type ProgramReply = {
+  refused?: true;
   show_to_builder: string; agent_note: string; program: Omit<Program, 'reviewers_contact'> | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
   /** The program's rules EarnKit cannot check, each its own "Their rule" line (v6.1.6). */
   rules: string[];
@@ -359,11 +368,12 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // L24-2 (v6.1.16 Task 11): the last offer this installation showed, read before this reply replaces it.
   const lastOffer = await lastOfferOf(ctx.installationId);
   await markOffer(ctx.installationId, null, ctx.now);
+  // L29-9, L29-15 (v6.1.16 Task 15): a refusal (isError), a question for the builder and the way on for the agent.
   if (!row)
-    return {
+    return refuse({
       show_to_builder: unknownProgramLine(suggest),
-      agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [], linked: ctx.builderId !== null,
-    };
+      agent_note: 'program_id takes the id or the name; a list number maps to the id in the JSON. Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [], linked: ctx.builderId !== null,
+    });
   // Final fix (v6.1.12, I2): matched by another name, the first line names the program (every line here leads with it).
   const renamed = row.id !== id;
   id = row.id;

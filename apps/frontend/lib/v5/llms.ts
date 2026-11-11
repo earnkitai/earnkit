@@ -53,7 +53,7 @@ Then ask your agent: "What can I earn?"
 ## The record
 
 The first find gives a one-time sign-in link, earnkit.com/link/<code>. The builder signs in once
-with GitHub, and from then on every agent of theirs shares one record and one ledger.
+with GitHub, and from then on every agent of theirs shares one record and one list of applications.
 ${APPROVAL_LINE} The record page is https://earnkit.com/me, where the builder can also edit or delete
 everything. Unlinked agents keep working with no sign-in.
 

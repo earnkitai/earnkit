@@ -9,7 +9,7 @@ import { UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
-import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
+import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { closedAt, statusAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
@@ -18,7 +18,7 @@ import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
-import { inputDetail, readLoosely, type LooseRules } from './tool-input';
+import { inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
 import { AMOUNT_DOT, AMOUNT_UNREAD, readAmount } from './amount';
 import { amountsText, moneyText } from './programs-read';
 import { cleanText, quoteName } from './controls';
@@ -34,7 +34,8 @@ export const TrackInput = z
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done', 'held']),
     /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. L22-6
      *  (v6.1.16): US dollars, cents kept; an alias of `amount` with currency USD. */
-    amount_usd: z.number().finite().min(0).optional(),
+    // L29-3 (v6.1.16 Task 15): the schema words.
+    amount_usd: z.number().finite().min(0).optional().describe('dollars as a number (5000 or 1234.56)'),
     /** L22-2, L22-6 (v6.1.16): won only: the amount as a number or text ("5k", "$2,500.50", "2000 EUR", "€2000"). */
     amount: z.union([z.number().finite(), z.string().trim().max(40)]).optional(),
     /** L22-2 (v6.1.16): won only: the amount's three-letter currency code, default USD (or the win's own currency). */
@@ -47,7 +48,8 @@ export const TrackInput = z
     note: z.string().transform((x) => cleanText(x, NOTE_KEPT)).optional().describe('What you want remembered about this send.'),
     item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
-    submitted_by: z.enum(['agent', 'builder']).optional(),
+    /** L29-23 (v6.1.16 Task 15): agent when left out. */
+    submitted_by: z.enum(['agent', 'builder']).optional().describe('Who pressed submit: agent (the default) or builder'),
     /** B6 (v6.1.13): the form already went out, so a long list is never refused: the first FIELDS_KEPT keys, each cut to 60. */
     fields_used: z.array(z.string()).transform((xs) => xs.slice(0, FIELDS_KEPT).map((x) => x.slice(0, 60))).optional(),
     /** The project find was called with (v6.1.10 L1c-1), find's own schema (v6.1.14 T5), read by find's parser and limits (v6.1.13 B5): cut and dropped, never refused. */
@@ -56,7 +58,7 @@ export const TrackInput = z
   .strict();
 
 /** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
-type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string };
+type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true };
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
 
@@ -72,7 +74,7 @@ async function sentHere(owner: string, programId: string): Promise<boolean> {
 }
 
 /** T5-F1 (v6.1.14): the agent note a claim adds, so the id goes in the form. */
-export const APPLICATION_ID_NOTE = "If the form has a reference field, put application_id in it, so the program's result reaches this ledger.";
+export const APPLICATION_ID_NOTE = "If the form has a reference field, put application_id in it, so the program's result reaches these applications.";
 
 /** The sent application's own id (L13-1, v6.1.14), as the reply field; none for a row without one. */
 async function applicationIdOf(owner: string, programId: string): Promise<{ application_id?: string }> {
@@ -80,12 +82,22 @@ async function applicationIdOf(owner: string, programId: string): Promise<{ appl
   return r?.application_id ? { application_id: r.application_id } : {};
 }
 
+/** The program's rules the owner has not confirmed yet on this project, by item key with its note. */
+async function openRules(owner: string, programId: string, projectKey: string): Promise<{ item: string; note: string }[]> {
+  const program = await getProgram(programId);
+  if (!program) return [];
+  const done = await doneItems(owner, programId, projectKey);
+  const out: { item: string; note: string }[] = [];
+  for (const x of eligibilityOf(program.file).filter((y) => y.kind === 'rule')) {
+    const item = itemKey(x);
+    if (!done.has(item) && !out.some((o) => o.item === item)) out.push({ item, note: x.note ?? item });
+  }
+  return out;
+}
+
 /** The program's rules the owner has not confirmed yet. */
 async function rulesLeft(owner: string, programId: string, projectKey: string): Promise<number> {
-  const program = await getProgram(programId);
-  if (!program) return 0;
-  const done = await doneItems(owner, programId, projectKey);
-  return [...new Set(eligibilityOf(program.file).filter((x) => x.kind === 'rule').map(itemKey))].filter((k) => !done.has(k)).length;
+  return (await openRules(owner, programId, projectKey)).length;
 }
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
@@ -95,10 +107,28 @@ const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
 
 /** L12-4, L13-4 (v6.1.14): how track reads wrong-typed arguments before TrackInput (`readLoosely`). */
 const TRACK_LOOSE: LooseRules = { text: ['program_id', 'project_id', 'item'], objects: ['project'] };
+/** L29-21 (v6.1.16 Task 15): status and submitted_by read in any case ("Applied", "APPLIED", "Agent"); any other
+ *  value stays as given, so the strict check refuses it. */
+function caseFolded(args: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...args };
+  for (const k of ['status', 'submitted_by']) if (typeof out[k] === 'string') out[k] = (out[k] as string).trim().toLowerCase();
+  return out;
+}
 
-export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
-/** L24-3 (v6.1.16 Task 11): a name that is no one program by the strict lookup; nothing is written. */
-export const WHICH_PROGRAM = 'Which program? Say its name.';
+/** L24-3 (v6.1.16 Task 11), L29-15 (Task 15): a name that is no one program by the strict lookup; nothing is written. */
+export const WHICH_PROGRAM = 'Which program do you mean?';
+/** L29-15 (v6.1.16 Task 15): the agent note beside WHICH_PROGRAM. */
+export const WHICH_PROGRAM_NOTE = 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.';
+/** L29-23 (v6.1.16 Task 15): an applied with no fields_used is accepted, and the agent hears it. */
+export const NO_FIELDS_NOTE = 'Pass fields_used next time; nothing was checked against your record.';
+/** L29-7 (v6.1.16 Task 15): an agent's applied on an in-person program. */
+export const IN_PERSON_SEND = (title: string) => `${title} is applied for in person; nothing to send.`;
+/** L29-8 (v6.1.16 Task 15): a started or an agent's applied on a program whose rule is not confirmed for this project. */
+export const CONFIRM_RULE = (rule: string) => `Confirm the rule first: ${rule}. Say yes if that is you.`;
+/** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. */
+export const OUTSIDE_WIN = (title: string, money: string) => `Recorded: ${title} won, ${money}. Noted as sent by you outside EarnKit.`;
+/** L29-27 (v6.1.16 Task 15): the agent note wherever the builder hears "Say bring it back". */
+export const BRING_BACK_NOTE = 'On "bring it back", call track with unskip.';
 /** L24-17 (v6.1.16 Task 11): gap_done with no item on a program whose open items are all rules. */
 export const WHICH_RULE = 'Which rule fits you? Say the program.';
 /** L24-4 (v6.1.16 Task 11): the agent note after track held. */
@@ -185,13 +215,14 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   // C51 (v6.1.9): the first call after the account was deleted carries the notice, track as well as find and record;
   // taken once the reply is built, so a throw keeps it for the next call.
   if (ctx.builderId !== null || (await unlinkedReason(ctx.installationId)) !== 'deleted' || !(await takeUnlinkedNotice(ctx.installationId))) return r;
-  return { ...r, show_to_builder: `${DELETED_NOTICE} ${r.show_to_builder}` };
+  return { ...r, show_to_builder: r.show_to_builder ? `${DELETED_NOTICE} ${r.show_to_builder}` : DELETED_NOTICE };
 }
 
 async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const owner = ownerKey(ctx.installationId, ctx.builderId);
   const programs = await listOpenPrograms(ctx.now);
-  const refuse = async (note: string, agentNote = 'Nothing was recorded.'): Promise<Result> => ({
+  // L29-9 (v6.1.16 Task 15): every refusal is marked, so the MCP layer answers isError true.
+  const refuse = async (note: string, agentNote = 'Nothing was recorded.'): Promise<Result> => refused({
     show_to_builder: note,
     agent_note: agentNote,
     ledger: await summary(owner, programs, ctx.now),
@@ -200,11 +231,14 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // L12-4, L13-4 (v6.1.14): read leniently first, as find reads its arguments: a null project is no project (the
   // last find's), a string one is dropped and named, a numeric id is its text.
   const loose = readLoosely(input, TRACK_LOOSE);
-  const parsed = TrackInput.safeParse(loose.args);
+  const parsed = TrackInput.safeParse(caseFolded(loose.args));
   if (!parsed.success) {
     // L31-5 (v6.1.16 Task 17): a win whose only unread arguments are its amount gets the one bad-amount line.
-    const amountOnly = (loose.args as { status?: unknown }).status === 'won' && parsed.error.issues.every((x) => ['amount_usd', 'amount', 'currency'].includes(String(x.path[0])));
-    return refuse(amountOnly ? AMOUNT_UNREAD : TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
+    const amountOnly = caseFolded(loose.args).status === 'won' && parsed.error.issues.every((x) => ['amount_usd', 'amount', 'currency'].includes(String(x.path[0])));
+    if (amountOnly) return refuse(AMOUNT_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)} Convert words like 5k to 5000.`);
+    // L29-10 (v6.1.16 Task 15): an input error has no builder text; the note says what to fix.
+    const dropped = loose.problems.length > 0 ? ` ${loose.problems.join('; ')}.` : '';
+    return { ...inputError(`Nothing was recorded. ${inputDetail(parsed.error)}${dropped}`), ledger: await summary(owner, programs, ctx.now) };
   }
   // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
   // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
@@ -213,6 +247,9 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const read = parsed.data.project === undefined ? null : parseProject(parsed.data.project, ctx.now, { partial: true });
   const projectProblems = read?.ok ? read.problems : [];
   const given: TrackIn = { ...parsed.data, project: read?.ok ? read.project : undefined };
+  // L29-15 (v6.1.16 Task 15): a number from this installation's last find list is that program's id.
+  const listed = /^\d{1,3}$/.test(given.program_id.trim()) ? (await lastListIds(ctx.installationId))[Number(given.program_id.trim()) - 1] : undefined;
+  if (listed) given.program_id = listed;
   const raw = given.program_id;
   const sentRow = RESULT_STATUSES.includes(given.status) && (await sentHere(owner, raw));
   // L24-3 (v6.1.16 Task 11): the strict lookup: an exact id or title, or title words with one that is not a common word.
@@ -222,12 +259,12 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
   const acted = !row && !sentRow
-    ? await refuse(suggest.length > 0 ? unknownProgramLine(suggest) : WHICH_PROGRAM)
+    ? await refuse(suggest.length > 0 ? unknownProgramLine(suggest) : WHICH_PROGRAM, WHICH_PROGRAM_NOTE)
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
-    : acted;
+    : listed ? { ...acted, agent_note: `Matched list number ${parsed.data.program_id.trim()} to ${listed}. ${acted.agent_note}` } : acted;
   const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
   // L31-4 (v6.1.16 Task 17): an id with any non-ASCII character was matched after NFKC folding; the problems line names it.
   const problems = row && /[^\x00-\x7f]/.test(raw) ? [...loose.problems, `program id read as ${row.id}`] : loose.problems;
@@ -240,7 +277,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
  * "Started: {title}.", "Tracked." "Tracked: {title}." Pure.
  */
 export function namedFirst(show: string, title: string): string {
-  if (show.includes(title)) return show;
+  // L29-32 (v6.1.16 Task 15): started has no builder text, and stays so.
+  if (show === '' || show.includes(title)) return show;
   const named = show
     .replace(/^(Started|Tracked)\./, `$1: ${title}.`)
     .replace(/^Already (skipped|tracked)\./, `Already $1: ${title}.`)
@@ -337,12 +375,23 @@ async function act(
   const project = await projectOf(ctx, i);
   // The last find's gaps are its project's: another project passed here is not that one.
   const sameAsLast = !project.given || project.key === (await lastProjectKey(ctx.installationId));
+  // L29-23 (v6.1.16 Task 15): an applied with no submitted_by is the agent's.
+  const sender = i.submitted_by ?? 'agent';
+  /** L29-8 (v6.1.16 Task 15): a rule not confirmed on this project (the last find's when none is passed) stops a claim
+   *  and an agent's send; nothing is written. */
+  const ruleFirst = async (): Promise<Result | null> => {
+    const rules = await openRules(owner, i.program_id, project.key);
+    return rules.length === 0 ? null : refuse(CONFIRM_RULE(rules.map((r) => r.note).join('; ')),
+      `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules.map((r) => r.item).join(', ')}, then track ${i.status} again.`);
+  };
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
-    if (!program) return refuse("I don't know that program.");
+    if (!program) return refuse(WHICH_PROGRAM, WHICH_PROGRAM_NOTE);
+    // L29-9 (v6.1.16 Task 15): already sent is a refusal (isError), its text unchanged.
     const sentAlready = {
       show_to_builder: `${program.file.title} was already sent.`,
       agent_note: 'Do not submit this one; it was already sent.',
+      refused: true as const,
     };
     // The same open list find reads (active, not past its close, not stale): a program not in it is never claimed.
     // An application already sent says so first, even when its program has since closed (v6.1.7).
@@ -350,17 +399,22 @@ async function act(
       return { ...sentAlready, ledger: await summary(owner, programs, ctx.now), already_started: true };
     if (!programs.some((p) => p.id === program.id))
       return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
+    if (!(await sentHere(owner, program.id))) {
+      const rule = await ruleFirst();
+      if (rule) return rule;
+    }
     // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
     const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now, i.note ?? null);
     if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
+    // L29-27 (v6.1.16 Task 15): the builder's words, not the status name.
     if (!c.ok && 'skipped' in c)
-      return {
-        show_to_builder: 'You skipped that one. Say unskip to bring it back.',
-        agent_note: 'Do not submit this one.',
+      return refused({
+        show_to_builder: 'You skipped that one. Say bring it back and I list it again.',
+        agent_note: `Do not submit this one. ${BRING_BACK_NOTE}`,
         ledger: await summary(owner, programs, ctx.now),
-      };
+      });
     if (!c.ok)
-      return {
+      return refused({
         ...(c.already.sent
           ? sentAlready
           : {
@@ -369,8 +423,8 @@ async function act(
               agent_note: 'Do not submit this one; call find again later.',
             }),
         ledger: await summary(owner, programs, ctx.now),
-        already_started: true,
-      };
+        already_started: true as const,
+      });
     // T5-F1 (v6.1.14): the claim carries the application's own id, for the form's reference field.
     const id = await applicationIdOf(owner, program.id);
     // L24-27 (v6.1.16 Task 11): the 24-hour rule is the agent's to know, linked only.
@@ -379,36 +433,37 @@ async function act(
       const s = { ...r, agent_note: `${r.agent_note}${hours}` };
       return id.application_id ? { ...s, ...id, agent_note: `${s.agent_note} ${APPLICATION_ID_NOTE}` } : s;
     };
-    const head = `Started ${program.file.title}.`;
-    // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
-    // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
+    // L29-32 (v6.1.16 Task 15): started has no builder text; the agent note carries what to do.
+    // The last find called this one a gap: the agent hears what was still missing, so it is fixed before the form goes
+    // in. Not when the builder (through any of their agents) has since closed that item (v6.1.7, C23). A rule gap never
+    // reaches here (`ruleFirst`).
     const builderSubmits = program.file.in_person || program.file.submit === 'builder';
     const gap = sameAsLast ? (await lastGaps(ctx.installationId))[program.id] : undefined;
-    if (gap && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
-      return started(gap.kind === 'rule'
-        ? {
-            show_to_builder: `${head} When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
-            agent_note: "If the builder says the rule fits, call track gap_done with that gap's item, then find again. Otherwise skip the program.",
-            ledger: await summary(owner, programs, ctx.now),
-          }
-        : {
-            show_to_builder: `${head} When I last looked it was still one change away: ${gap.what}.`,
-            agent_note: `Make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
-            ledger: await summary(owner, programs, ctx.now),
-          });
+    if (gap && gap.kind !== 'rule' && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
+      return started({
+        show_to_builder: '',
+        agent_note: `Started ${program.file.title}. When EarnKit last looked it was still one change away: ${gap.what}. Tell the builder; make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
+        ledger: await summary(owner, programs, ctx.now),
+      });
     return started({
-      // L24-27 (v6.1.16 Task 11): the title, linked or not; the 24 hours are in the agent note.
-      show_to_builder: head,
-      agent_note: sendNote(builderSubmits),
+      show_to_builder: '',
+      agent_note: `Started ${program.file.title}. ${sendNote(builderSubmits)}`,
       ledger: await summary(owner, programs, ctx.now),
     });
   }
   // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation), and only
   // an agent's own submission; a form the builder sent is never one. With the policy on, the send counts as approved
   // only within every limit (v6.1.8 B18): `outside` says why not; the nightly count is the ledger's, under its lock.
-  const policy = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null ? await getRecord(ctx.builderId) : null;
-  const standing = policy?.policy.auto_apply === true;
   const row = i.status === 'applied' ? await getProgram(i.program_id) : null;
+  if (i.status === 'applied' && sender === 'agent' && row && !(await sentHere(owner, row.id))) {
+    // L29-7 (v6.1.16 Task 15): an in-person program is the builder's to apply to; an agent has nothing to send.
+    if (row.file.in_person)
+      return refuse(IN_PERSON_SEND(row.file.title), 'Nothing was recorded. When the builder has applied in person, call track applied with submitted_by builder.');
+    const rule = await ruleFirst();
+    if (rule) return rule;
+  }
+  const policy = i.status === 'applied' && sender === 'agent' && ctx.builderId !== null ? await getRecord(ctx.builderId) : null;
+  const standing = policy?.policy.auto_apply === true;
   // S6 (v6.1.9): within the limits, a send under standing approval also needs every required answer.
   // F1 (v6.1.10, fix round 2): and every required field must be one EarnKit vouches for (`unvouchedRequired`, the rule
   // find holds the tonight list on), over the program prefilled with the stored record and the send's project, whatever
@@ -421,19 +476,21 @@ async function act(
     : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
   // FR-3 (final fix): a send with no project_id keeps the project key, as a claim does, so a screen can match it.
   const applied = i.status === 'applied'
-    ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id ?? (project.key || undefined), autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
+    ? { submitted_by: sender, fields_used: i.fields_used, project_id: i.project_id ?? (project.key || undefined), autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};
   // L17-1 (v6.1.16): a skip's checks (already sent, already skipped, another agent's live claim) run in record, under
   // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
   // L22-6 (v6.1.16): a win's amount through the shared reader; any other status ignores it, as before.
   const amount = i.status === 'won' ? trackAmount(i) : null;
-  if (amount === 'bad') return refuse(AMOUNT_UNREAD, 'Nothing was recorded. Send amount as a number or text ("5000", "$2,500.50", "2000 EUR"), with currency for another currency.');
+  if (amount === 'bad') return refuse(AMOUNT_UNREAD, 'Nothing was recorded. Send amount_usd as a number (5000 or 1234.56; convert 5k to 5000), or amount with currency for another currency.');
   if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
+  // L29-3 (v6.1.16 Task 15): a win with no application here is recorded as the builder's own send, then the win.
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
+    ...(i.status === 'won' ? { outsideWin: true as const } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (res.ok && i.status === 'skipped' && 'repeated' in res)
-    return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
+    return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated applications.', ledger: await summary(owner, programs, ctx.now) };
   // L17-9 (v6.1.16): a send refused as unlinked already went out; the agent tells the builder to keep a note.
   if (!res.ok && i.status === 'applied' && res.note === UNLINKED_MEANWHILE) return refuse(UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE);
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
@@ -450,7 +507,7 @@ async function act(
     // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
     const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key) : 0;
     const [show, note] = 'repeated' in res
-      ? ['Already tracked.', 'Call find again for the updated ledger.']
+      ? ['Already tracked.', 'Call find again for the updated applications.']
       : i.item!.startsWith('rule:')
         ? ['Tracked. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
         : codeChecked(i.item!) && !repoLess(project.key)
@@ -471,10 +528,13 @@ async function act(
     // L24-4 (v6.1.16 Task 11): the builder's hold; started again lifts it.
     held: `Held ${title}. Say go when you want it sent.`,
     // #8 (v6.1.15): one verb, Tracked, wherever a fact is saved for the builder.
-    applied: 'Tracked. Ask me how it went once results are out.',
+    // L29-32 (v6.1.16 Task 15): the send, by name.
+    applied: `Sent ${title}.`,
     // L15-17, T8-F1 (v6.1.14): a further payment adds and the line reads the total; an unmarked other amount corrects.
     // L22-7 (v6.1.16): the money in the one format, in the win's own currency (L22-2: assumed when none was named).
-    won: 'total' in res && res.total !== undefined
+    won: 'outside' in res
+      ? OUTSIDE_WIN(title, wonText)
+      : 'total' in res && res.total !== undefined
       ? `Tracked: ${moneyText(amount ? amount.value : 0, wonCurrency(res.total))} more from ${title}, ${amountsText(res.total)} in total.`
       : 'replaced' in res && res.replaced !== undefined
         ? `Tracked: ${wonText} from ${title}. Replaced the earlier amount.`
@@ -482,7 +542,8 @@ async function act(
     rejected: 'Tracked. On to the next one.',
     no_result: 'Tracked.',
     // L24-4 (v6.1.16 Task 11): a skip is for good, and says so.
-    skipped: `Skipped ${title} for good. Say unskip to bring it back.`,
+    // L29-27 (v6.1.16 Task 15): the builder's words, never the status name.
+    skipped: `Skipped ${title} for good. Say bring it back and I list it again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };
   // v6.1.9: a send after the program closed is still recorded, and says so. L23-2 (v6.1.16): closed from the clock.
@@ -495,16 +556,17 @@ async function act(
   const otherClaim = res.ok && 'other_claim' in res;
   // L24-4 (v6.1.16 Task 11): a send on a held program is recorded; the agent tells the builder.
   const heldSent = res.ok && 'held' in res;
+  // L29-9 (v6.1.16 Task 15): a send outside the standing approval is recorded, and answered as a refusal (isError).
   if (i.status === 'applied' && outside)
-    return {
+    return refused({
       ...(await applicationIdOf(owner, i.program_id)),
       // L23-20 (v6.1.16): one closed sentence, never two.
       show_to_builder: outside === HAD_CLOSED && closedDay
         ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
         : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: [...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.'].join(' '),
+      agent_note: [...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.'].join(' '),
       ledger: await summary(owner, programs, ctx.now),
-    };
+    });
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
   return {
     ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id) : {}),
@@ -518,7 +580,9 @@ async function act(
       : i.status === 'applied' && standing && outside === null
         // L23-1 (v6.1.16): no night is promised.
         ? "Done for now. The builder's next find reports it; do not call find again until they ask."
-        : 'Call find again for the updated ledger.',
+        : i.status === 'skipped' ? `Call find again for the updated applications. ${BRING_BACK_NOTE}`
+        : i.status === 'applied' && !i.fields_used ? `Call find again for the updated applications. ${NO_FIELDS_NOTE}`
+        : 'Call find again for the updated applications.',
     ledger: await summary(owner, programs, ctx.now),
   };
 }

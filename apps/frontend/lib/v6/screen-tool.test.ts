@@ -49,7 +49,7 @@ test('screen needs a reviewer: unlinked and linked non-reviewer each answer one 
   const inst = await connectInstallation(token);
   await upsertProgram(programFixture({ id: 'scr-none' }), 'file', NOW);
   const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
-  assert.equal(u.isError, false, u.text);
+  assert.equal(u.isError, true, u.text);
   assert.equal(u.reply!.show_to_builder, 'Screening is for program reviewers.');
   const c = await linked();
   const n = await mcpCall(c, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
@@ -153,7 +153,7 @@ test('R7 screen unlinked with sign-in configured: the installation link, one lin
     await saveInstallation(token, 'Agent');
     const inst = await connectInstallation(token);
     const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
-    assert.equal(u.isError, false, u.text);
+    assert.equal(u.isError, true, u.text);
     const show = u.reply!.show_to_builder as string;
     assert.match(show, /^Sign in once at https:\/\/earnkit\.test\/link\/[A-Za-z0-9_-]{16,}, then ask for reviewer access through the X link on earnkit\.com\/docs\.$/);
     assert.ok(!/owner/i.test(show), show);
@@ -168,20 +168,20 @@ test('C35: input screen cannot read is its one line, the detail in the agent not
   const c = await linked();
   for (const args of [{ applicants: 'everyone' }, { job_id: 7 }, { outcomes: [{ ref: 'r', outcome: 'maybe' }] }, { extra: true }]) {
     const r = await mcpCall(c, 'screen', args);
-    assert.equal(r.isError, false, r.text);
-    assert.equal(r.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+    assert.equal(r.isError, true, r.text);
+    assert.equal(r.reply!.show_to_builder, '');
     // L13-5 (v6.1.14): outcomes are recorded, not queued, so their note says so.
     assert.match(r.reply!.agent_note as string, 'outcomes' in args ? /^Nothing was recorded\. / : /^Nothing was queued\. /);
   }
   const u = await mcpCall({ ...c, builderId: null }, 'screen', { extra: true });
-  assert.equal(u.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+  assert.equal(u.reply!.show_to_builder, '');
 });
 
 test('C18: a signed-in builder who reviews no program, with no program named, is told so in one line', async () => {
   const c = await linked();
   for (const args of [{}, { applicants: APPLICANTS }]) {
     const r = await mcpCall(c, 'screen', args);
-    assert.equal(r.isError, false, r.text);
+    assert.equal(r.isError, true, r.text);
     assert.equal(r.reply!.show_to_builder, 'You review no program yet. Ask for reviewer access through the X link on earnkit.com/docs.');
   }
 });
@@ -192,7 +192,7 @@ test('C39, L15-10: a share threshold is from 0 to 1, a count a whole number from
   const COUNT = 'That threshold is a whole number, 0 or more.';
   for (const [k, v, show] of [['used_funded_senders', -5, COUNT], ['push_within_days', 2.5, COUNT], ['flag_own_share', 20, RATIO], ['flag_unfunded_ratio', -0.1, RATIO]] as const) {
     const r = await mcpCall(c, 'screen', { program_id: 'scr-thresh', applicants: APPLICANTS, thresholds: { [k]: v } });
-    assert.equal(r.isError, false, r.text);
+    assert.equal(r.isError, true, r.text);
     assert.equal(r.reply!.show_to_builder, show, k);
     assert.match(r.reply!.agent_note as string, new RegExp(`^Nothing was queued\\. ${k} is a `));
     assert.equal('job_id' in r.reply!, false);
@@ -297,9 +297,9 @@ test('T6 (v6.1.14): an applicant sent with the old repo key is read as repo_url;
 test('F5 (v6.1.14 fix round 1): a repo that is not text is refused by the key the agent sent, and nothing is queued', async () => {
   const c = await reviewerOf('scr-badrepo');
   const r = await mcpCall(c, 'screen', { program_id: 'scr-badrepo', applicants: [{ ref: 'b-1', repo: { url: 'https://github.com/acme/x' } }] });
-  assert.equal(r.isError, false, r.text);
-  assert.equal(r.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
-  assert.equal(r.reply!.agent_note, 'Nothing was queued. applicants.0.repo: not text; send the repo link as text in repo_url.');
+  assert.equal(r.isError, true, r.text);
+  assert.equal(r.reply!.show_to_builder, '');
+  assert.equal(r.reply!.agent_note, 'Nothing was queued. applicants.0.repo: not text; send the repo link as text in repo_url; fix it and call again.');
   assert.doesNotMatch(r.reply!.agent_note as string, /repo_url:/);
   assert.equal('job_id' in r.reply!, false);
 });
@@ -324,7 +324,7 @@ test('L15-3 (v6.1.14): results come 25 a page; the last line asks for the next p
   assert.equal(past.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. No more results.');
   assert.equal(past.reply!.next_page, null);
   const bad = await mcpCall(c, 'screen', { job_id: jobId, page: 0 });
-  assert.equal(bad.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+  assert.equal(bad.reply!.show_to_builder, '');
 });
 
 test('L15-1 and L15-12 (v6.1.14): a colleague reads and continues the job; the reviewer\'s own application is refused in one line, the rest recorded', async () => {
@@ -360,7 +360,7 @@ test('Task 8 security follow-up (v6.1.14): a requeue naming no earlier row of th
   assert.match(bad.reply!.agent_note as string, /^Nothing was queued\./);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, before);
   const blind = await mcpCall(c, 'screen', { program_id: 'scr-requeue', applicants: [{ ref: 'd', name: 'D', application_id: 'ek-aaaaaaaaaaaa', requeue: true }] });
-  assert.equal(blind.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+  assert.equal(blind.reply!.show_to_builder, '');
   const good = await mcpCall(c, 'screen', { program_id: 'scr-requeue', applicants: [{ ref: 'a2', name: 'A', application_id: 'ek-aaaaaaaaaaaa', requeue: { job_id: jobId, ref: 'a' } }] });
   assert.ok(good.reply!.job_id, good.text);
 });

@@ -205,9 +205,19 @@ export async function lastList(id: number): Promise<{ hash: string; at: Date } |
   return row?.h && row.at ? { hash: row.h, at: row.at } : null;
 }
 
-/** Stores this project find's list hash and time (after each project find). */
-export async function markList(id: number, hash: string, now: Date): Promise<void> {
-  await sql()`UPDATE installations SET last_list_hash = ${hash}, last_list_at = ${now} WHERE id = ${id}`;
+/**
+ * Stores this project find's list hash and time (after each project find), and (L29-15, v6.1.16 Task 15) with `ids` the
+ * shown program ids by the number the builder sees: `ids[n - 1]` is the program numbered n.
+ */
+export async function markList(id: number, hash: string, now: Date, ids?: string[]): Promise<void> {
+  if (ids === undefined) await sql()`UPDATE installations SET last_list_hash = ${hash}, last_list_at = ${now} WHERE id = ${id}`;
+  else await sql()`UPDATE installations SET last_list_hash = ${hash}, last_list_at = ${now}, last_list = ${sql().json(ids)} WHERE id = ${id}`;
+}
+
+/** L29-15 (v6.1.16 Task 15): the last project find's program ids by number (`ids[n - 1]`), [] before any. */
+export async function lastListIds(id: number): Promise<string[]> {
+  const [row] = await sql()<{ l: unknown }[]>`SELECT last_list AS l FROM installations WHERE id = ${id}`;
+  return Array.isArray(row?.l) ? (row.l as unknown[]).map((x) => (typeof x === 'string' ? x : '')) : [];
 }
 
 /** L24-2 (v6.1.16 Task 11): the kind of the last `Say` this installation's find offered, or null. */
@@ -219,4 +229,18 @@ export async function lastOfferOf(id: number): Promise<OfferKind | null> {
 /** L24-2: stores the kind of the `Say` this find's reply offered (null when it offered none). */
 export async function markOffer(id: number, offer: OfferKind | null, now: Date): Promise<void> {
   await sql()`UPDATE installations SET last_offer = ${offer}, last_offer_at = ${now} WHERE id = ${id}`;
+}
+
+/**
+ * L29-11 (v6.1.16 Task 15): what the next send needs from the builder (the first ready program's `need_you`, at most
+ * two), kept by each linked project find; null before any.
+ */
+export async function markNextNeeds(id: number, needs: string[]): Promise<void> {
+  await sql()`UPDATE installations SET next_needs = ${sql().json(needs.slice(0, 2))} WHERE id = ${id}`;
+}
+
+/** L29-11: the last linked project find's next needs (at most two), or null before any such find. */
+export async function nextNeedsOf(id: number): Promise<string[] | null> {
+  const [row] = await sql()<{ n: unknown }[]>`SELECT next_needs AS n FROM installations WHERE id = ${id}`;
+  return Array.isArray(row?.n) ? (row.n as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 2) : null;
 }

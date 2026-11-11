@@ -400,3 +400,7 @@ ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amounts jsonb;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_offer text, ADD COLUMN IF NOT EXISTS last_offer_at timestamptz;
 -- v6.1.16 Task 11 (L24-4): a builder's hold on a started claim; the agent must not send while it is set.
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_at timestamptz;
+-- v6.1.16 Task 15 (L29-15): the last project find's program ids by the number the builder sees, so track takes "3".
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_list jsonb;
+-- v6.1.16 Task 15 (L29-11): what the next send needs from the builder (at most two), from the last linked project find.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS next_needs jsonb;

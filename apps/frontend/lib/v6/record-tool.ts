@@ -5,14 +5,15 @@
  */
 import { z } from 'zod';
 import { looksSecret, MAX_ARG_DEPTH } from '../v5/secrets';
-import { inputDetail } from '../v5/tool-input';
+import { inputDetail, inputError, refuse } from '../v5/tool-input';
+import { nextNeedsOf } from '../v5/installations';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
 import { listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
 import { LinkRefused, readStoredRecord, takeUnlinkedNotice, unlinkedReason, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
-import { DELETED_NOTICE, listWords, signInLine } from './reply-words';
+import { DELETED_NOTICE, listWords, signInLine, signInSentence } from './reply-words';
 
 export { listWords, signInLine };
 import { APPROVABLE, type BuilderRecord, KIND_WORDS, allowedKey, mergeRecord, recordItems } from './record';
@@ -27,8 +28,40 @@ export const RecordInput = z
   })
   .strict();
 
+const text = (what?: string) => (what ? z.string().describe(what) : z.string());
+const AnswerText = z.object({ text: z.string() });
+const AnswersSet = z.object(Object.fromEntries(ANSWER_KINDS.map((k) => [k, AnswerText.optional()]))).describe('Answers keyed by kind, each { text }');
+/**
+ * L29-24 (v6.1.16 Task 15): `set` as agents see it, typed (person, team, company, traction, docs, answers, projects);
+ * `policy` is not in it: standing approval is set on earnkit.com/me only. The record's own merge still reads the value
+ * (RecordInput keeps it open), naming any part it refuses.
+ */
+const RecordSet = z.object({
+  person: z.object({
+    name: text(), email: text(), x: text('X handle'), linkedin: text(), location: text(), timezone: text('An IANA time zone'), phone: text(), bio: text(),
+    technical: z.boolean(), based_country: text('Two capital letters, like US'),
+  }).partial(),
+  team: z.array(z.object({ name: z.string(), role: z.string().optional(), github: z.string().optional(), x: z.string().optional(), email: z.string().optional() })),
+  company: z.object({
+    name: text(), incorporated: z.boolean(), jurisdiction: text(), raised_usd: z.number().describe('dollars as a number (5000 or 1234.56)'), raised_from: text(),
+    stage: z.enum(['idea', 'building', 'pre_launch', 'launched']), launch_date: text('YYYY-MM-DD'),
+  }).partial(),
+  traction: z.object({ line_pre_launch: text(), waitlist: z.number().int(), revenue_usd_claim: z.number(), notes: text() }).partial(),
+  docs: z.object({ resume_url: text(), deck_url: text(), founder_video_url: text(), demo_video_url: text() }).partial(),
+  answers: AnswersSet,
+  projects: z.array(z.object({
+    id: text('A lowercase slug; projects merge by id'), name: text(), one_liner: text(), description: text(), repo_url: text(), live_url: text(), demo_url: text(),
+    chains_claimed: z.array(z.string()), answers: AnswersSet,
+  }).partial().required({ id: true })),
+}).partial();
+/** The record tool's schema as agents see it (registered leniently from this; RecordInput reads the call). */
+export const RecordAdvertised = RecordInput.extend({
+  set: RecordSet.optional().describe('A partial record to merge. Standing approval (policy) is set on earnkit.com/me only, never here.'),
+});
+
 export type RecordReply = {
   show_to_builder: string;
+  refused?: true;
   agent_note: string;
   linked: boolean;
   sign_in?: string;
@@ -38,10 +71,16 @@ export type RecordReply = {
   brief?: ReturnType<typeof answerBrief>;
 };
 
-const SIGN_IN_NOTE = 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.';
+const SIGN_IN_NOTE = 'Show the link once. Ask for a personal fact only when the next form needs it; nothing is saved until the builder has signed in. Call record with get afterwards.';
+/** L29-20 (v6.1.16 Task 15): an unlinked record get. */
+export const REMEMBER_YOU = 'Sign in once and I remember you.';
+/** L29-20: an unlinked policy set. */
+export const NO_STANDING_HERE = 'There is no standing approval on this agent.';
+/** L29-4 (v6.1.16 Task 15): a linked policy set, with no missing list. */
+export const STANDING_YOURS = 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.';
+/** L29-5: what stop is. */
+export const STOP_HELD_NOTE = 'On stop, call track with status held for each program named.';
 const NOT_READY = "I can't save that yet, so I keep it for this chat.";
-/** L23-21 (v6.1.16): a record get with no sign-in and no link to give; its one `Say` (ONE_SAY_ORDER's third). */
-export const NOTHING_SAVED = 'Nothing saved yet. Say yes to sign in and I keep your record.';
 const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.';
 const BROKEN = 'Your record could not be read; nothing was saved.';
 const BROKEN_NOTE = 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.';
@@ -67,15 +106,24 @@ export async function signInLink(installationId: number, now: Date): Promise<str
 }
 
 /** Unlinked: the sign-in link; a set says plainly that nothing was saved and to tell it again after signing in (R8). */
-async function unlinked(installationId: number, now: Date, setting: boolean): Promise<RecordReply> {
+async function unlinked(installationId: number, now: Date, setting: boolean, policy: boolean): Promise<RecordReply> {
   // The account this agent was linked to was deleted (v6.1.8 C51): said first, once, by whichever call comes next.
   const deleted = (await unlinkedReason(installationId)) === 'deleted' && (await takeUnlinkedNotice(installationId));
   const lead = (show: string) => (deleted ? `${DELETED_NOTICE} ${show}` : show);
+  // L29-20 (v6.1.16 Task 15): a policy set has nothing to turn off here, said plainly; a refusal (L29-9).
+  if (policy) return refuse({ show_to_builder: lead(NO_STANDING_HERE), agent_note: `Nothing was saved. ${STOP_HELD_NOTE}`, linked: false });
   const link = await signInLink(installationId, now);
-  // L23-21 (v6.1.16): a get is no save: it says nothing is saved yet and offers the sign-in.
-  if (!link) return { show_to_builder: lead(setting ? NOT_READY : NOTHING_SAVED), agent_note: SIGN_IN_NOTE, linked: false };
-  const show = setting ? `Not saved. Sign in once at ${link}, then tell me again.` : signInLine(link);
-  return { show_to_builder: lead(show), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
+  // L29-20: a get says what signing in does, with the link when there is one; a set saved nothing (a refusal).
+  if (!setting) return { show_to_builder: lead(link ? signInSentence(link, false, true) : REMEMBER_YOU), agent_note: SIGN_IN_NOTE, linked: false, ...(link ? { sign_in: link } : {}) };
+  if (!link) return refuse({ show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false });
+  return refuse({ show_to_builder: lead(`Not saved. Sign in once at ${link}, then tell me again.`), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link });
+}
+
+/** Whether a set carries a policy-shaped key anywhere at its top or one level down (L24-16, L29-4). Pure. */
+function setsPolicy(set: unknown): boolean {
+  if (!set || typeof set !== 'object' || Array.isArray(set)) return false;
+  return Object.keys(set).some((k) => /policy|auto_apply|max_per_night/i.test(k)
+    || ((set as Record<string, unknown>)[k] && typeof (set as Record<string, unknown>)[k] === 'object' && Object.keys((set as Record<string, object>)[k]).some((j) => /policy|auto_apply/i.test(j))));
 }
 
 /** What the open programs ask: their needs, and the answer kinds their forms ask. */
@@ -97,8 +145,6 @@ function briefFor(kind: AnswerKind, record: BuilderRecord) {
   const p = record.projects[0];
   return answerBrief(kind, record, { repo_url: p?.repo_url ?? null, live_url: p?.live_url ?? null, chains: p?.chains_claimed ?? [], first_commit_at: null });
 }
-
-export const RECORD_UNREAD = 'I could not read that. Send the facts to save, or ask for the record.';
 
 /** The one "missing" line of record get and record set (v6.1.7 C30); null when nothing is missing. Pure. */
 export function missingLine(missing: string[]): string | null {
@@ -197,10 +243,10 @@ export function withoutSecrets(value: unknown, depth = 0): { value: unknown; ski
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
   const parsed = RecordInput.safeParse(input);
-  if (!parsed.success)
-    return { show_to_builder: RECORD_UNREAD, agent_note: `Nothing was saved. ${inputDetail(parsed.error)}`, linked: ctx.builderId !== null };
+  // L29-10 (v6.1.16 Task 15): an input error has no builder text.
+  if (!parsed.success) return { ...inputError(`Nothing was saved. ${inputDetail(parsed.error)}`), linked: ctx.builderId !== null };
   const i = parsed.data;
-  if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now, i.set !== undefined);
+  if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now, i.set !== undefined, i.set !== undefined && setsPolicy(i.set));
   const asks = await programAsks(ctx.now);
   let record: BuilderRecord;
   let m: ReturnType<typeof mergeRecord> | null = null;
@@ -226,17 +272,36 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   const brief = i.brief ? briefFor(i.brief, record) : undefined;
 
   const items = recordItems(record, asks);
-  const missing = items.missing;
+  // L29-11 (v6.1.16 Task 15): what the next send needs (the last find's first ready program, at most two), never the
+  // whole list; before any linked project find, nothing is asked yet.
+  const needs = await nextNeedsOf(ctx.installationId);
+  const missing = needs ?? [];
   const briefNote = i.brief ? [BRIEF_NOTE, shortNote(i.brief, record)].filter(Boolean).join(' ') : '';
   // v6.1.9: every get and set says what to do next.
-  const next = missing.length > 0
-    ? 'Ask the builder once, all together, for what missing lists, and save each with record set; then call find with the project.'
-    : 'Call find with the project for what it can apply to now.';
+  const next = needs === null
+    ? 'Call find with the project; it names what the next application needs.'
+    : missing.length > 0
+      ? `The next application needs ${listWords(missing, 2)}: ask the builder for ${missing.length === 1 ? 'it' : 'them'} and save with record set. Ask for nothing else now.`
+      : 'Nothing more is needed for the next application; call find with the project for what it can apply to now.';
   if (m) {
     // Facts saved: a new project counts by its facts, not once more for itself.
     const facts = m.changed.filter((p) => !m!.changed.some((q) => q.startsWith(`${p}.`)));
+    // L29-4 (v6.1.16 Task 15): a policy set is the one line, with no missing list; a refusal when nothing else was saved.
+    const policy = m.problems.some((p) => /policy/i.test(p.slice(0, Math.max(0, p.indexOf(': ')) || p.length)));
+    const others = m.problems.filter((p) => !/policy/i.test(p.slice(0, Math.max(0, p.indexOf(': ')) || p.length)));
+    if (policy) {
+      const head = facts.length > 0 || others.length > 0 || secrets > 0 ? `${savedLine(facts.length, others, secrets)} ` : '';
+      const r: RecordReply = {
+        show_to_builder: `${head}${STANDING_YOURS}`,
+        agent_note: `${facts.length > 0 ? '' : 'Nothing was saved. '}${STOP_HELD_NOTE}`,
+        linked: true,
+        problems: m.problems,
+        ...(i.get || brief ? { record } : {}),
+      };
+      return facts.length > 0 ? r : refuse(r);
+    }
     const head = savedLine(facts.length, m.problems, secrets);
-    return {
+    const r: RecordReply = {
       show_to_builder: [head, missingLine(missing)].filter(Boolean).join(' '),
       agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : briefNote, answerShapeNote(m.problems), next].filter(Boolean).join(' '),
       linked: true,
@@ -245,14 +310,15 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
       ...(i.get || brief ? { record } : {}),
       ...(brief ? { brief } : {}),
     };
+    // L29-9: a set that saved nothing and refused a part is a refusal.
+    return facts.length === 0 && (m.problems.length > 0 || secrets > 0) ? refuse(r) : r;
   }
 
-  // One sentence (v6.1.8): what is missing, named, or that nothing is. A brief alone counts the items (C50).
-  const have = items.total - missing.length;
+  // One sentence (v6.1.8): how much the record holds (C50), then (L29-11) what the next application needs, at most two.
+  const have = items.total - items.missing.length;
+  const holds = `Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`;
   return {
-    show_to_builder: brief && !i.get
-      ? `Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`
-      : missing.length > 0 ? `Your record is missing: ${listWords(missing)}.` : 'Your record has nothing missing.',
+    show_to_builder: !brief && missing.length > 0 ? `${holds} The next application needs ${listWords(missing, 2)}.` : holds,
     agent_note: briefNote || next,
     linked: true,
     record,

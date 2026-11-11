@@ -21,11 +21,11 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.deepEqual(tools.map((t) => t.name), ['find', 'track', 'record', 'screen']);
   assert.equal(
     FIND_DESCRIPTION,
-    'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it first in every session with the project you are in, and again when the builder asks about money or programs. Pass every project fact you can read before the first call: chains with contract addresses, live_url, users (true only if you know), first_commit_at. Programs match on them, and a missing fact shows as a gap. With program_id: whether the project fits that program, and its details and form.',
+    "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and your applications by name. Call it first in every session with the project you are in, and again when the builder asks about money or programs. Pass every project fact you can read before the first call: chains with contract addresses, live_url, users (true only if you know), first_commit_at. Programs match on them, and a missing fact shows as a gap. With program_id: whether the project fits that program, and its details and form. A project needs a description when it has no repo_url. filter.all: every program, names and money for the builder.",
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd, or amount with currency for another currency: amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
+    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), won (with amount_usd, dollars as a number (5000 or 1234.56): convert 5k to 5000; a win with no application here is recorded as the builder's own send, or amount with currency for another currency: amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or \u20ac2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
@@ -36,7 +36,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
     RECORD_DESCRIPTION,
-    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives (a partial record: facts, and answers keyed by kind, each { text }); with brief for the question and facts behind one answer kind.",
+    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives (a partial record: person, company, traction, answers keyed by kind, each { text }, and projects); with brief for the question and facts behind one answer kind. Standing approval (policy) is set on earnkit.com/me only, never here.",
   );
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(
@@ -73,17 +73,19 @@ test('find strips unknown keys; track refuses them with its one line, the detail
   const f = await mcpCall(c, 'find', { project: { name: 'X', description: 'An app.' }, wallet: '0xabc', github_user: 'someone' });
   assert.equal(f.isError, false, f.text);
   assert.ok(typeof f.reply!.show_to_builder === 'string');
+  // L29-9, L29-10 (v6.1.16 Task 15): an input error is isError true, with no builder text and the fix in the note.
   const t = await mcpCall(c, 'track', { program_id: 'alliance-all19', status: 'skipped', extra: 1 });
-  assert.equal(t.isError, false, t.text);
-  assert.equal(t.reply!.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
-  assert.match(t.reply!.agent_note as string, /^Nothing was recorded\. .*extra/);
+  assert.equal(t.isError, true, t.text);
+  assert.equal(t.reply!.show_to_builder, '');
+  assert.match(t.reply!.agent_note as string, /^Nothing was recorded\. .*extra.*; fix it and call again\.$/);
   const e = await mcpCall(c, 'track', {});
-  assert.equal(e.isError, false, e.text);
-  assert.equal(e.reply!.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.equal(e.isError, true, e.text);
+  assert.equal(e.reply!.show_to_builder, '');
   assert.match(e.reply!.agent_note as string, /program_id/);
   assert.doesNotMatch(e.text, /MCP error|Input validation/);
   const w = await mcpCall(c, 'track', { program_id: 5, status: 'maybe', amount_usd: 'lots' });
-  assert.equal(w.reply!.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.equal(w.reply!.show_to_builder, '');
+  assert.equal(w.isError, true);
   const [n] = await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`;
   assert.equal(n.n, 0);
 });
@@ -112,7 +114,10 @@ test('T5, T6 (v6.1.14): find and track take one project schema; screen names ref
   assert.match(SCREEN_DESCRIPTION, /ref \(your id for them, required\)/);
   assert.deepEqual(props(3).applicants.items?.required, ['ref']);
   assert.ok(!/projects \(by id\)|standing approval/.test(RECORD_DESCRIPTION + JSON.stringify(props(2))));
-  assert.match(JSON.stringify(props(2).set), /projects as a list/);
+  // L29-24 (v6.1.16 Task 15): set is typed; policy is not in it.
+  const set = props(2).set as unknown as { properties: Record<string, unknown> };
+  assert.deepEqual(Object.keys(set.properties), ['person', 'team', 'company', 'traction', 'docs', 'answers', 'projects']);
+  assert.doesNotMatch(JSON.stringify(set.properties), /policy|auto_apply/);
 });
 
 test('T1, Review Focus 3 (v6.1.14): find and track keep a chain object passed without mainnet, with no problem line', async () => {
@@ -123,7 +128,7 @@ test('T1, Review Focus 3 (v6.1.14): find and track keep a chain object passed wi
   assert.ok(!JSON.stringify(f.reply!.problems ?? []).includes('mainnet'), JSON.stringify(f.reply!.problems));
   assert.doesNotMatch(f.reply!.show_to_builder as string, /needs a contract on Base/);
   const t = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped', project });
-  assert.equal(t.isError, false, t.text);
+  assert.equal(t.isError, true, t.text);
   assert.doesNotMatch(t.reply!.agent_note as string, /mainnet/);
 });
 
@@ -142,9 +147,10 @@ test('B4: arguments nested past 64 levels are the plain line, never a stack over
   for (let i = 0; i < 200; i += 1) deep = { a: deep };
   for (const [name, args] of [['record', { set: deep }], ['track', { program_id: 'x', status: 'started', note: deep }], ['screen', { thresholds: deep }], ['find', { project: { name: deep, description: 'd' } }]] as const) {
     const r = await mcpCall(c, name, args as Record<string, unknown>);
-    assert.equal(r.isError, false, r.text);
-    assert.equal(r.reply!.show_to_builder, 'I could not read that.');
-    assert.equal(r.reply!.agent_note, 'The arguments were nested too deep.');
+    // L29-10 (v6.1.16 Task 15): an input error.
+    assert.equal(r.isError, true, r.text);
+    assert.equal(r.reply!.show_to_builder, '');
+    assert.equal(r.reply!.agent_note, 'The arguments were nested too deep; fix it and call again.');
   }
 });
 
@@ -169,7 +175,7 @@ test('C17: an unknown project_id is a problem line on find, and named in the age
   assert.match(f.reply!.agent_note as string, /Some project facts were dropped: [^\n]*project_id not known; matched without it[^\n]*\. Send them corrected next time\./);
   assert.doesNotMatch(f.reply!.agent_note as string, /\.\./);
   const t = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped', project_id: 'nope' });
-  assert.equal(t.isError, false, t.text);
+  assert.equal(t.isError, true, t.text);
   assert.match(t.reply!.agent_note as string, /project_id nope is not known; ignored\./);
   assert.doesNotMatch(t.reply!.show_to_builder as string, /project_id/);
 });
@@ -189,7 +195,7 @@ test('the 121st tool call in an hour is the busy reply, as a tool result', async
   const c = await ctx();
   await seed(`mcp:${c.installationId}`, 119);
   const ok = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(ok.isError, false, ok.text);
+  assert.equal(ok.reply!.show_to_builder, 'Which program do you mean?', ok.text);
   const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
   assert.equal(busy.text, BUSY_HOUR);
@@ -198,7 +204,7 @@ test('the 121st tool call in an hour is the busy reply, as a tool result', async
   const later = await mcpCall({ ...c, now: new Date(NOW.getTime() + 48 * 60_000) }, 'find', {});
   assert.equal(later.text, 'You have asked a lot this hour. Try again in about 12 minutes.');
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(next.isError, false, next.text);
+  assert.equal(next.reply!.show_to_builder, 'Which program do you mean?', next.text);
 });
 
 test('the per-IP floor: the 601st call from one address in an hour is busy, whatever the installation', async () => {
@@ -207,7 +213,7 @@ test('the per-IP floor: the 601st call from one address in an hour is busy, what
   const busy = await mcpCall({ ...c, ip: '203.0.113.9' }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.text, BUSY_HOUR);
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(other.isError, false, other.text);
+  assert.equal(other.reply!.show_to_builder, 'Which program do you mean?', other.text);
 });
 
 test('clientIp: the rightmost x-forwarded-for entry wins; x-real-ip only without one; then the socket (security M3)', () => {
@@ -224,8 +230,9 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'l134-users', title: 'Lenient Users Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
   const c = await ctx();
-  const plain = (r: { isError: boolean; text: string }) => {
-    assert.equal(r.isError, false, r.text);
+  // L29-9 (v6.1.16 Task 15): a refusal (an unknown program) is isError true, still in plain words.
+  const plain = (r: { isError: boolean; text: string }, refused = false) => {
+    assert.equal(r.isError, refused, r.text);
     assert.doesNotMatch(r.text, /MCP error|Input validation|Invalid input|-32602/);
   };
   // A null or string project is no project: the open list.
@@ -236,9 +243,9 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   }
   // A numeric program id is its text; one over 100 characters is no one program (the plain unknown line).
   const num = await mcpCall(c, 'find', { program_id: 12345 });
-  plain(num);
+  plain(num, true);
   const long = await mcpCall(c, 'find', { program_id: 'x'.repeat(200) });
-  plain(long);
+  plain(long, true);
   assert.equal(long.reply!.show_to_builder, num.reply!.show_to_builder);
   // A string filter.all reads as the boolean; a category that is not one is dropped and named for the agent.
   const P = { name: 'Lenient App', description: 'An app for lenient tests.' };
@@ -247,7 +254,8 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   assert.ok(Array.isArray(all.reply!.not_fit), 'filter.all "true" is the full list');
   const cat = await mcpCall(c, 'find', { project: P, filter: { category: 'money' } });
   plain(cat);
-  assert.match(cat.reply!.agent_note as string, /Some arguments were not read: filter\.category dropped: not one of [a-z, ]+\./);
+  // L29-13 (v6.1.16 Task 15): the ruled problems line.
+  assert.match(cat.reply!.agent_note as string, /Some arguments were not read: category "money" was not read: use grant, hackathon, investment or bounty\./);
   // track with a null project: the done step goes under the last find's project.
   const done = await mcpCall(c, 'track', { program_id: 'l134-users', status: 'gap_done', item: 'users', project: null });
   plain(done);
@@ -256,7 +264,7 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   assert.equal(row.project_key, 'name:lenient app');
   // A string project on track is dropped and named; the step still records; a numeric program id reads as text.
   const str = await mcpCall(c, 'track', { program_id: 12345, status: 'skipped', project: 'x' });
-  plain(str);
+  plain(str, true);
   assert.match(str.reply!.agent_note as string, /project dropped: not an object/);
 });
 
