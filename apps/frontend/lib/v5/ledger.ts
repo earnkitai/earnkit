@@ -46,7 +46,9 @@ export const OVER_CAP = "That's more than this program pays; check the amount.";
  * L16-1, L16-2 (v6.1.16): a further payment over a result that is not a win (`rejected`, `no result`; on a screen also
  * `shortlisted`, or `none` when nothing is kept) writes nothing.
  */
-export const FURTHER_PAYMENT_REFUSED = (status: string) => `Further payment refused: the current result is ${status}; post a win first.`;
+export const FURTHER_PAYMENT_REFUSED = (status: string) =>
+  // Fix round 1b: no result yet is said in words, never as the status `none`.
+  status === 'none' ? 'Further payment refused: no result yet; post a win first.' : `Further payment refused: the current result is ${status}; post a win first.`;
 /** A win that is not whole dollars of at least 1 (the screen's outcomes say the same, v6.1.13 Low 19). */
 export const WHOLE_DOLLARS = 'Tell me how much you won, as whole dollars.';
 const DAY = 86_400_000;

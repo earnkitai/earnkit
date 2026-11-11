@@ -215,7 +215,7 @@ nothing recorded." v6.1.16 (L16-1, L16-2): the ledger holds the latest result. A
 different result (won and rejected either way, a win with another amount or currency note, or over "no result"),
 from the program's screen or the builder's own track, is a correction: it replaces status, amount and note, its
 history row has `corrected` true, and `record` returns `corrected: true`. A further payment over a result that is not
-a win, or over a send with no result yet (`none`, fix round 1 M1), writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
+a win, or over a send with no result yet (fix round 1 M1; it reads "Further payment refused: no result yet; post a win first."), writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
 result is still refused ("That one already has a result here: ..."), the same result is "Already tracked.". A second
 win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
