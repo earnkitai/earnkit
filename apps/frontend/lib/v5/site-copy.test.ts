@@ -261,10 +261,10 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   assert.equal(copy.ME_REVIEWS('Base Builder Grants'), 'You review Base Builder Grants. Results come through your agent.');
   assert.equal(copy.UNKNOWN_CODE, 'This link is not one of ours.');
   assert.equal(copy.ME_ERRORS.linkExpired, 'This link has expired. Ask your agent for a new one.');
-  assert.equal(copy.ME_LABELS['policy.auto_apply'], 'Apply overnight without asking, within these limits');
+  assert.equal(copy.ME_LABELS['policy.auto_apply'], 'Apply without asking, within these limits');
   // L21-18 (v6.1.16, controller ruling): the label says when; the stored default stays on.
   assert.equal(copy.ME_LABELS['policy.agent_may_submit'], 'Press submit for me when I say yes.');
-  assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Skip awards above (USD)');
+  assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Ask me first above (USD)');
   assert.equal(copy.ME_LABELS['traction.line_pre_launch'], 'Your one line on traction');
   assert.equal(copy.ME_HINTS['policy.never'], 'One program per line, by its title (for example Base Builder Grants).');
   assert.equal(copy.ME_LINK_LINE(null, 'Nov 6'), 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.');
@@ -379,4 +379,14 @@ test('L27-18 (v6.1.16): mid-sentence lower-casing never touches a month or a cur
   assert.equal(lowerFirst('Nov 12, then weekly'), 'Nov 12, then weekly');
   assert.equal(lowerFirst('December 1'), 'December 1');
   assert.equal(moneyAt('Up to $5,000', 'mid'), 'up to $5,000');
+});
+
+test('L24-12, L24-14 (v6.1.16 Task 11): the cap label asks first; the status line says on or off in words, by the day', async () => {
+  const copy = await import('./site-copy');
+  assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Ask me first above (USD)');
+  assert.equal(copy.ME_LABELS['policy.max_per_night'], 'Most a day');
+  assert.deepEqual(copy.mePolicyStatus({ on: true, perDay: 1, kinds: ['grants'], cap: '$4,500' }, 2), ['On: up to 1 a day, grants, up to $4,500.', 'Sent under it: 2.']);
+  assert.deepEqual(copy.mePolicyStatus({ on: true, perDay: 3, kinds: ['grants', 'hackathons', 'bounties'], cap: null }, 0), ['On: up to 3 a day, grants, hackathons and bounties.', 'Sent under it: 0.']);
+  assert.deepEqual(copy.mePolicyStatus({ on: false, perDay: 3, kinds: [], cap: null }, 0), ['Off.', 'Sent under it: 0.']);
+  for (const v of Object.values(copy.ME_LABELS)) assert.doesNotMatch(v, /night/i, v);
 });

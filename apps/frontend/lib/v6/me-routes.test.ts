@@ -220,14 +220,14 @@ test('a /me/policy post with one bad value changes nothing and names the field (
   const { b, cookie, csrf } = await signedIn();
   const before = await getRecord(b.id);
   const r = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps);
-  refused(b.id, r, 'Most per night: a whole number from 1 to 20.');
+  refused(b.id, r, 'Most a day: a whole number from 1 to 20.');
   assert.deepEqual(await getRecord(b.id), before, 'auto apply, categories and the rest stay as they were');
   for (const bad of ['2.5', 'abc', '0']) {
-    refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: bad, 'categories[]': ['grant'] }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.');
+    refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: bad, 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps), 'Most a day: a whole number from 1 to 20.');
   }
   // Every bad field gets its own line, in the page's labels.
-  const two = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', max_ask_usd: '-5', 'categories[]': ['grant', '<script>'] }, { cookie }), deps);
-  refused(b.id, two, 'Most per night: a whole number from 1 to 20.\nSkip awards above (USD): a number of 0 or more.\nCategories: pick one of the options.');
+  const two = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', max_ask_usd: '-5', 'categories[]': ['grant', '<script>'], agent_may_submit: 'on' }, { cookie }), deps);
+  refused(b.id, two, 'Most a day: a whole number from 1 to 20.\nAsk me first above (USD): a number of 0 or more.\nCategories: pick one of the options.');
   assert.deepEqual(await getRecord(b.id), before);
 });
 
@@ -476,11 +476,18 @@ test('B19: the team list is editable on /me: a role, a new member, a removal', a
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'team.0.name', value: 'x'.repeat(81) }, { cookie }), deps), 'Member 1: at most 80 characters.');
 });
 
+test('L24-15 (v6.1.16 Task 11): standing approval on with Press submit off is refused and nothing is saved', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const before = await getRecord(b.id);
+  refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '5', categories: 'grant' }, { cookie }), deps), 'Turn on Press submit for me first.');
+  assert.deepEqual(await getRecord(b.id), before);
+});
+
 test('C43 and C53: standing approval on with no category is refused; an unknown chain is named', async () => {
   const { b, cookie, csrf } = await signedIn();
   const before = await getRecord(b.id);
   refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '5', agent_may_submit: 'on' }, { cookie }), deps), 'Pick at least one category.');
-  refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50' }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.\nPick at least one category.');
+  refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50' }, { cookie }), deps), 'Most a day: a whole number from 1 to 20.\nPick at least one category.\nTurn on Press submit for me first.');
   assert.deepEqual(await getRecord(b.id), before);
   // Off with none ticked is fine: nothing is sent alone.
   assert.equal(savedTo(await policyPost(post('/me/policy', { csrf, max_per_night: '5' }, { cookie }), deps)), 'policy#policy');
@@ -560,7 +567,7 @@ test('L27-8, L27-9 (v6.1.16, fix round 1 M1): a section save keeps every valid f
   assert.equal((await getRecord(b.id)).projects.find((p) => p.id === 'kit')?.name, 'Kit 2');
   // The policy form stays all or nothing (v6.1.7 B1).
   const pol = await getRecord(b.id);
-  refused(b.id, await policyPost(post('/me/policy', { csrf, max_per_night: '50', max_ask_usd: '1000' }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.');
+  refused(b.id, await policyPost(post('/me/policy', { csrf, max_per_night: '50', max_ask_usd: '1000' }, { cookie }), deps), 'Most a day: a whole number from 1 to 20.');
   assert.deepEqual((await getRecord(b.id)).policy, pol.policy);
   // Standing approval has its own form; an unknown section changes nothing.
   refused(b.id, await editPost(post('/me/edit', { csrf, section: 'policy', 'policy.auto_apply': 'true' }, { cookie }), deps), FIELD);

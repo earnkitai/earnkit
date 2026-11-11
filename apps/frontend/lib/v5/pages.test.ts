@@ -450,7 +450,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
   assert.ok(t.lastIndexOf('Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.') > t.indexOf('Your agents'));
-  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me when I say yes.', 'Skip awards above (USD)', 'Your one line on traction'])
+  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply without asking, within these limits', 'Press submit for me when I say yes.', 'Ask me first above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
   assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);

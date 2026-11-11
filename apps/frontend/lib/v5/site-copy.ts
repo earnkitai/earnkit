@@ -195,6 +195,18 @@ export const ME_TEAM = {
 } as const;
 /** Standing approval on with no category ticked (v6.1.8 C43). */
 export const ME_PICK_CATEGORY = 'Pick at least one category.';
+/** L24-15 (v6.1.16 Task 11): standing approval on with Press submit off would only ever draft; refused, nothing saved. */
+export const ME_PRESS_SUBMIT_FIRST = 'Turn on Press submit for me first.';
+/**
+ * L24-14 (v6.1.16 Task 11): the standing approval's state in words, above its form: "On: up to 1 a day, grants and
+ * hackathons, up to $4,500." or "Off.", then "Sent under it: {n}." Day-based (Task 9 review N1): the agent applies when
+ * it next checks, never at night. `cap` is the money text, null with no cap. Pure.
+ */
+export function mePolicyStatus(p: { on: boolean; perDay: number; kinds: string[]; cap: string | null } = { on: false, perDay: 1, kinds: [], cap: null }, sent = 0): string[] {
+  const kinds = p.kinds.length <= 1 ? (p.kinds[0] ?? '') : `${p.kinds.slice(0, -1).join(', ')} and ${p.kinds.at(-1)}`;
+  const on = `On: up to ${p.perDay} a day${kinds ? `, ${kinds}` : ''}${p.cap ? `, up to ${p.cap}` : ''}.`;
+  return [p.on ? on : 'Off.', `Sent under it: ${sent}.`];
+}
 export const ME_LEDGER_TITLE = 'Your applications';
 export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
 export const ME_AGENTS_TITLE = 'Your agents';
@@ -259,8 +271,10 @@ export const ME_LABELS = {
   'docs.other': 'Other links',
   'traction.line_pre_launch': 'Your one line on traction', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
   'traction.notes': 'Notes',
-  'policy.auto_apply': 'Apply overnight without asking, within these limits', 'policy.max_per_night': 'Most per night', 'policy.categories': 'Categories',
-  'policy.max_ask_usd': 'Skip awards above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me when I say yes.',
+  // v6.1.16 Task 11 (L24-12, Task 9 review N1): the agent applies when it next checks, so the limit is a day's, never a
+  // night's; an award above the cap is asked about, never skipped.
+  'policy.auto_apply': 'Apply without asking, within these limits', 'policy.max_per_night': 'Most a day', 'policy.categories': 'Categories',
+  'policy.max_ask_usd': 'Ask me first above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me when I say yes.',
   'company.raised': 'Money raised',
 } as const;
 /** The words for a stored choice: company stages and program categories. */
@@ -269,7 +283,9 @@ export const ME_CHOICES: Record<string, string> = {
   grant: 'Grants', hackathon: 'Hackathons', investment: 'Investment', bounty: 'Bounties',
 };
 export const ME_STATUS: Record<string, string> = {
-  started: 'Started', applied: 'Applied', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
+  started: 'Started', applied: 'Applied',
+  // L24-4 (v6.1.16 Task 11): a claim the builder held; nothing goes until they say go.
+  held: 'Held', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
   // L23-7 (v6.1.16): a claim past its 24 hours with no send.
   started_not_sent: 'Started, not sent',
 };

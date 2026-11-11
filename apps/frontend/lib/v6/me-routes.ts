@@ -11,7 +11,7 @@ import { readBody } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
 import {
-  ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_SAVED, ME_UNLINKED, ME_UNLINK_NOT_YOURS, ME_VALUE_WORDS, UNKNOWN_CODE,
+  ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_PRESS_SUBMIT_FIRST, ME_SAVED, ME_UNLINKED, ME_UNLINK_NOT_YOURS, ME_VALUE_WORDS, UNKNOWN_CODE,
 } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
@@ -362,6 +362,8 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
   });
   // On with nothing ticked would be off in effect while the page shows it on (v6.1.8 C43).
   if (policy.auto_apply && policy.categories.length === 0) problems.push(ME_PICK_CATEGORY);
+  // L24-15 (v6.1.16 Task 11): on with Press submit off would only draft: refused, nothing saved.
+  if (policy.auto_apply && !policy.agent_may_submit) problems.push(ME_PRESS_SUBMIT_FIRST);
   if (problems.length > 0) return problemAt(g, problems.join('\n'), 'policy');
   const saved = await merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy', 'policy');
   // L27-10 (v6.1.16): a saved policy is `/me?saved=policy#policy`; a refusal stays the signed line, beside the form.

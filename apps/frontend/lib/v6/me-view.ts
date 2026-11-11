@@ -8,11 +8,11 @@ import { sql } from '../v5/db';
 import { amountsOf, ledgerCounts, summary } from '../v5/ledger';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { nameKeyOf, projectKeyOf } from '../v5/project-input';
-import { amountsText, usdFull, type Amounts } from '../v5/programs-read';
+import { amountsText, moneyText, usdFull, type Amounts } from '../v5/programs-read';
 import { cleanClientName, displayName } from '../v5/installations';
 import {
   ME_AN_AGENT, ME_BLOCKS, ME_LABELS, ME_LINK_EXPIRED_TITLE, ME_LINK_NOT, ME_LINK_PARTS, ME_LINK_TITLE, ME_LINK_USED, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
-  ME_TEAM, UNKNOWN_CODE, dayWords,
+  ME_CHOICES, ME_TEAM, UNKNOWN_CODE, dayWords, mePolicyStatus,
 } from '../v5/site-copy';
 import { CLAIM_HOURS } from './claims';
 import { type Builder, getRecord } from './builders';
@@ -55,6 +55,8 @@ export type MeData = {
    * the agent's own name, which the page shows isolated (v6.1.7 C1); null without one.
    */
   link: { title: string; code: string | null; text: string; parts: [string, string, string] | null } | null;
+  /** L24-14 (v6.1.16 Task 11): the standing approval's state in words, then what was sent under it. */
+  policy_status: string[];
 };
 
 const DAY = 86_400_000;
@@ -346,5 +348,13 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     reviews: reviews.map((id) => ME_REVIEWS(titleOf.get(id) ?? id)),
     projects_seen: projectsSeen(record, seen),
     link: await linkBanner(link, builder.id, now),
+    policy_status: mePolicyStatus(
+      {
+        on: record.policy.auto_apply, perDay: record.policy.max_per_night,
+        kinds: (record.policy.categories.length > 0 ? record.policy.categories : [...PROGRAM_CATEGORIES]).map((c) => (ME_CHOICES[c] ?? c).toLowerCase()),
+        cap: record.policy.max_ask_usd !== undefined && record.policy.max_ask_usd !== null ? moneyText(record.policy.max_ask_usd) : null,
+      },
+      (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND auto_applied`)[0].n,
+    ),
   };
 }

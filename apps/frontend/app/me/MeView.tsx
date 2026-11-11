@@ -183,13 +183,15 @@ function Projects({ fields, seen, csrf }: { fields: MeField[]; seen: MeData['pro
 }
 
 /** The standing approval: one form for the switch and the limits, then the skip list as its own row. */
-function Policy({ fields, csrf, saved, problem }: { fields: MeField[]; csrf: string; saved: boolean; problem: string | null }) {
+function Policy({ fields, csrf, saved, problem, status }: { fields: MeField[]; csrf: string; saved: boolean; problem: string | null; status: string[] }) {
   const v = (key: string) => fields.find((f) => f.path === `policy.${key}`)?.value ?? '';
   const cats = v('categories').split(', ');
   const L = ME_LABELS;
   const box = 'flex min-h-11 items-center gap-3 text-[15px]';
   return (
     <>
+      {/* L24-14 (v6.1.16 Task 11): whether it is on, in words, and what went under it. */}
+      <p className="text-[15px]">{status.join(' ')}</p>
       <p className="text-[15px] text-s-muted">{ME_POLICY_LINE}</p>
       <form method="post" action="/me/policy" className="flex flex-col gap-3">
         <Csrf token={csrf} />
@@ -334,7 +336,7 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
           {b.key === 'projects' ? (
             <Projects fields={b.fields} seen={data.projects_seen} csrf={csrf} />
           ) : b.key === 'policy' ? (
-            <Policy fields={b.fields} csrf={csrf} saved={saved === 'policy'} problem={problemIn('policy')} />
+            <Policy fields={b.fields} csrf={csrf} saved={saved === 'policy'} problem={problemIn('policy')} status={data.policy_status ?? []} />
           ) : (
             <div>
               {b.fields.map((f) => (

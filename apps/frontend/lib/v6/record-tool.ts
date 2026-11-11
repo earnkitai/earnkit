@@ -114,7 +114,7 @@ const LEAF_WORDS: Record<string, string> = {
   repo_url: 'repo link', live_url: 'live link', demo_url: 'demo link', resume_url: 'resume link', deck_url: 'deck link',
   founder_video_url: 'founder video link', demo_video_url: 'demo video link', line_pre_launch: 'pre-launch line', id: 'short name',
   one_liner: 'one line', chains_claimed: 'chains', based_country: 'country', raised_usd: 'money raised', raised_from: 'raised from',
-  revenue_usd_claim: 'revenue claim', launch_date: 'launch date', max_per_night: 'most per night', max_ask_usd: 'top amount',
+  revenue_usd_claim: 'revenue claim', launch_date: 'launch date', max_per_night: 'most a day', max_ask_usd: 'top amount',
   auto_apply: 'apply without asking', agent_may_submit: 'agent may submit', x: 'X handle',
 };
 export function refusedWords(problem: string): string {

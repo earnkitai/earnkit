@@ -169,8 +169,8 @@ test('a note is shown plainly, apart from a refusal, and several refusal lines k
   const ok = renderToStaticMarkup(MeView({ data: d, problem: null, note: 'Linked: Codex.' }));
   assert.ok(/<p role="status"[^>]*>Linked: Codex\.<\/p>/.test(ok), ok);
   assert.ok(!ok.includes('role="alert"'));
-  const bad = renderToStaticMarkup(MeView({ data: d, problem: 'Most per night: a whole number from 1 to 20.\nCategories: pick one of the options.' }));
-  assert.ok(/<p role="alert" class="[^"]*whitespace-pre-line[^"]*">Most per night: a whole number from 1 to 20\.\nCategories: pick one of the options\.<\/p>/.test(bad), bad);
+  const bad = renderToStaticMarkup(MeView({ data: d, problem: 'Most a day: a whole number from 1 to 20.\nCategories: pick one of the options.' }));
+  assert.ok(/<p role="alert" class="[^"]*whitespace-pre-line[^"]*">Most a day: a whole number from 1 to 20\.\nCategories: pick one of the options\.<\/p>/.test(bad), bad);
 });
 
 test('B16 and B19: each answer shows its short form, pending and approved; the team list shows under About you', async () => {
@@ -336,4 +336,18 @@ test('L23-7, L23-11 (v6.1.16): a claim past 24 hours with no send reads Started,
   assert.equal(words.get('mv-live Grant'), 'Started, Nov 6.');
   assert.equal(words.get('mv-old Grant'), 'Applied, Nov 6, 2025.');
   await sql()`DELETE FROM applications WHERE owner = ${owner}`;
+});
+
+test('L24-14 (v6.1.16 Task 11): /me says in words whether standing approval is on, and what was sent under it', async () => {
+  const b = await upsertBuilder({ github_id: 931_411, login: 'l24-me', name: null, avatar_url: null }, NOW);
+  const off = await meData(b, NOW, 'sess');
+  assert.deepEqual(off.policy_status, ['Off.', 'Sent under it: 0.']);
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { policy: { auto_apply: true, max_per_night: 1, categories: ['grant'], max_ask_usd: 4500 } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'l24-me-p', title: 'L24 Me Grant' }), 'file', NOW);
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, auto_applied) VALUES (${'b:' + b.id}, 0, 'l24-me-p', 'applied', ${NOW}, true)`;
+  const on = await meData(b, NOW, 'sess');
+  assert.deepEqual(on.policy_status, ['On: up to 1 a day, grants, up to $4,500.', 'Sent under it: 1.']);
+  const html = renderToStaticMarkup(MeView({ data: on }));
+  assert.ok(html.includes('On: up to 1 a day, grants, up to $4,500. Sent under it: 1.'), html);
+  assert.doesNotMatch(html.replace(/<[^>]*>/g, " "), /\b(a|per) night|overnight/i);
 });
