@@ -529,13 +529,28 @@ test('L27-8, L27-10 (v6.1.16): one Save per section: the changed fields save tog
   assert.equal((await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Ada Lovelace' }, { cookie }), deps)).headers.get('location'), '/me?saved=person#person');
 });
 
-test('L27-8, L27-9 (v6.1.16): a bad field saves none of the section and its line comes back beside that section; a failed delete beside the delete form', async () => {
+test('L27-8, L27-9 (v6.1.16, fix round 1 M1): a section save keeps every valid field and names only the bad ones beside the form; a failed delete beside the delete form', async () => {
   const { b, cookie, csrf } = await signedIn();
   const before = await getRecord(b.id);
-  const r = await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Grace', 'person.linkedin': 'not a link' }, { cookie }), deps);
-  refused(b.id, r, 'LinkedIn: a link starting with https://.');
+  const r = await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Grace', 'person.location': 'Paris', 'person.linkedin': 'not a link', 'person.technical': 'maybe' }, { cookie }), deps);
+  refused(b.id, r, 'Saved.\nNot saved: LinkedIn: a link starting with https://.\nNot saved: Technical founder: choose yes or no.');
   assert.deepEqual(placeOf(r), { at: 'person', saved: null, hash: '#person' });
-  assert.deepEqual(await getRecord(b.id), before);
+  const kept = await getRecord(b.id);
+  assert.equal(kept.person.name, 'Grace');
+  assert.equal(kept.person.location, 'Paris');
+  assert.equal(kept.person.linkedin ?? null, before.person.linkedin ?? null);
+  // Only bad fields: nothing saved, only the Not saved lines.
+  const only = await editPost(post('/me/edit', { csrf, section: 'person', 'person.linkedin': 'nope' }, { cookie }), deps);
+  refused(b.id, only, 'Not saved: LinkedIn: a link starting with https://.');
+  for (const l of lineOf(r, b.id).text!.split('\n')) assert.match(l, /^[A-Z][^—]*\.$/, l);
+  // A bad chain is named by its field.
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
+  refused(b.id, await editPost(post('/me/edit', { csrf, section: 'projects', 'projects.kit.name': 'Kit 2', 'projects.kit.chains_claimed': 'base, notachain' }, { cookie }), deps), 'Saved.\nNot saved: Chains: not a known chain: notachain.');
+  assert.equal((await getRecord(b.id)).projects.find((p) => p.id === 'kit')?.name, 'Kit 2');
+  // The policy form stays all or nothing (v6.1.7 B1).
+  const pol = await getRecord(b.id);
+  refused(b.id, await policyPost(post('/me/policy', { csrf, max_per_night: '50', max_ask_usd: '1000' }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.');
+  assert.deepEqual((await getRecord(b.id)).policy, pol.policy);
   // Standing approval has its own form; an unknown section changes nothing.
   refused(b.id, await editPost(post('/me/edit', { csrf, section: 'policy', 'policy.auto_apply': 'true' }, { cookie }), deps), FIELD);
   refused(b.id, await editPost(post('/me/edit', { csrf, section: 'nope' }, { cookie }), deps), FIELD);

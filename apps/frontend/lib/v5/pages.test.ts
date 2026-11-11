@@ -304,7 +304,8 @@ test('/docs: the seven sections, under 470 words, the copy rules', () => {
   const words = t.split(' ').length;
   // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
   // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (455 now).
-  // L27-31 (v6.1.16): the record card's ruled name-limit line adds 7 words (464 now).
+  // L27-31 (v6.1.16): the record card's ruled name-limit line adds 7 words (464 now); the controller ruled the 470 cap
+  // (Task 13 fix round 1, N1): the ruled lines added the words.
   assert.ok(words < 470, `docs page is ${words} words`);
   // L25-4, L25-8, L25-11 (v6.1.16): the other-agent line under the tabs, the approval line, the results promise.
   for (const line of ['Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.', 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.', 'Results come once a day, within 24 hours,'])

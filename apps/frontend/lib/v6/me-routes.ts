@@ -209,50 +209,59 @@ const sameValue = (raw: string, shown: string) => raw.replace(/\r\n?/g, '\n').tr
 
 /**
  * One section's form (L27-8, v6.1.16): every field of the card, named by its path. Only the fields whose value differs
- * from the page's are written, so an untouched field keeps who set it. Each is checked as a single edit is; any problem
- * saves nothing and comes back beside the section's Save. A team member removed (an empty name) goes last, from the
- * highest row down, so the other rows keep their numbers. Success is `/me?saved={section}#{section}`.
+ * from the page's are written, so an untouched field keeps who set it. Each is checked as a single edit is. The valid
+ * ones save and a refused one is named beside the section's Save (fix round 1, M1): `Saved.`, then one
+ * `Not saved: {field}: {reason}.` line per refused field; with none valid, only those lines. A team member removed
+ * (an empty name) goes last, from the highest row down, so the other rows keep their numbers. With nothing refused
+ * the answer is `/me?saved={section}#{section}`.
  */
 async function sectionPost(g: { builder: Builder; form: URLSearchParams; now: Date }, section: string): Promise<Response> {
   const block = recordBlocks(await getRecord(g.builder.id)).find((b) => b.key === section);
   // Standing approval saves through /me/policy.
   if (!block || block.key === 'policy') return problemAt(g, ME_ERRORS.field);
   const changes: { f: MeField; value: unknown }[] = [];
-  const problems: string[] = [];
+  const refused: string[] = [];
+  /** "Not saved: LinkedIn: a link starting with https://." from "LinkedIn: a link starting with https://." */
+  const notSaved = (line: string) => `Not saved: ${line}`;
   for (const f of block.fields) {
     const raw = g.form.get(f.path);
     if (raw === null || sameValue(raw, f.value)) continue;
     const v = valueOf(f, raw);
     if (!v.ok) {
-      problems.push(v.problem);
+      refused.push(notSaved(v.problem.replace(/^Not a known chain/, `${f.label}: not a known chain`)));
       continue;
     }
     const words = wordsOf(f.path, v.value);
-    if (words?.startsWith('not a known chain')) problems.push(`N${words.slice(1)}.`);
-    else if (words) problems.push(`${f.label}: ${words}.`);
+    if (words) refused.push(notSaved(`${f.label}: ${words}.`));
     else changes.push({ f, value: v.value });
   }
-  if (problems.length > 0) return problemAt(g, problems.join('\n'), section);
-  if (changes.length === 0) return savedSection(section);
   const at = (c: { f: MeField }) => (/^team\.\d+\./.test(c.f.path) ? Number(c.f.path.split('.')[1]) : -1);
   changes.sort((a, b) => at(b) - at(a));
-  const out = await withRecord(g.builder.id, g.now, (current) => {
-    let record = current;
-    let changed = 0;
-    const lines: string[] = [];
-    for (const c of changes) {
-      const m = mergeRecord(record, patchOf(c.f.path, c.value, record), 'builder', g.now);
-      if (m.problems.length > 0) lines.push(...m.problems.map((l) => problemWords(c.f.label, l)));
-      else {
-        record = m.record;
-        changed += m.changed.length;
+  let saved = 0;
+  if (changes.length > 0) {
+    const out = await withRecord(g.builder.id, g.now, (current) => {
+      let record = current;
+      let changed = 0;
+      let kept = 0;
+      const lines: string[] = [];
+      for (const c of changes) {
+        const m = mergeRecord(record, patchOf(c.f.path, c.value, record), 'builder', g.now);
+        if (m.problems.length > 0) lines.push(...m.problems.map((l) => notSaved(problemWords(c.f.label, l))));
+        else {
+          record = m.record;
+          changed += m.changed.length;
+          kept++;
+        }
       }
-    }
-    return { record: lines.length === 0 && changed > 0 ? record : null, result: lines };
-  });
-  if (out.broken) return problemAt(g, ME_ERRORS.broken, section);
-  if (out.result.length > 0) return problemAt(g, [...new Set(out.result)].join('\n'), section);
-  return savedSection(section);
+      return { record: changed > 0 ? record : null, result: { lines, kept } };
+    });
+    if (out.broken) return problemAt(g, ME_ERRORS.broken, section);
+    refused.push(...out.result.lines);
+    saved = out.result.kept;
+  }
+  if (refused.length === 0) return savedSection(section);
+  const lines = [...new Set(refused)];
+  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section);
 }
 
 /**
