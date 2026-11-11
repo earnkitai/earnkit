@@ -480,6 +480,8 @@ test('L16-1, L16-9, L16-16, L22-11 (v6.1.16): a refused further payment, a call 
   const again = await mcpCall({ ...c, now: new Date(NOW.getTime() + 60_000) }, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'won', amount_usd: 100 }] });
   assert.equal(again.reply!.show_to_builder, 'Already recorded; nothing new.');
   assert.equal(again.reply!.agent_note, 'Already recorded, nothing new: v.');
+  // v6.1.16 Task 15 fix round 1 (N3): a retry is no error.
+  assert.equal(again.isError, false);
   assert.equal(again.reply!.recorded, 0);
   // Some repeats: the count is of the new ones; L22-11: a recorded one that reached no builder is named.
   const some = await mcpCall({ ...c, now: new Date(NOW.getTime() + 120_000) }, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'won', amount_usd: 100 }, { ref: 'x', outcome: 'rejected' }] });

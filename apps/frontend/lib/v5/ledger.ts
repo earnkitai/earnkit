@@ -306,10 +306,11 @@ export async function record(
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000;
     const outside = status === 'won' && o.outsideWin === true && !o.fromScreen && program !== null && (!row || row.status === 'skipped' || row.status === 'started');
     if (outside) {
-      // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application.
+      // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
+      // fix round 1 (N4): its send date is not known, so none is kept (the line says when it was recorded).
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, ${now}, 'builder', ${o.projectKey || null}, ${program!.file.title}, ${newApplicationId()})
-        ON CONFLICT (owner, program_id) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${o.projectKey || null}, ${program!.file.title}, ${newApplicationId()})
+        ON CONFLICT (owner, program_id) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL,
           submitted_by = 'builder', title = EXCLUDED.title, held_at = NULL, claimed_at = NULL, claimed_by = NULL,
           application_id = COALESCE(applications.application_id, EXCLUDED.application_id), project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, source)
@@ -478,14 +479,16 @@ export type ApplicationItem = {
  * left unsent is released and said by Task 9's started-not-sent line).
  */
 export async function applicationsOf(owner: string): Promise<ApplicationItem[]> {
-  const rows = await sql()<{ program_id: string; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown }[]>`
-    SELECT program_id, status, title, sent_at, at, held_at, amount_usd, amounts FROM applications
+  const rows = await sql()<{ program_id: string; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown; submitted_by: string | null }[]>`
+    SELECT program_id, status, title, sent_at, at, held_at, amount_usd, amounts, submitted_by FROM applications
     WHERE owner = ${owner} AND status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL) ORDER BY COALESCE(sent_at, held_at, at) DESC, program_id`;
   const titles = new Map((await programsById(rows.filter((r) => !r.title).map((r) => r.program_id))).map((p) => [p.id, p.file.title]));
   return rows.map((r) => {
     const status: ApplicationItem['status'] = r.status === 'applied' ? 'waiting' : r.status === 'started' ? 'held' : (r.status as ApplicationItem['status']);
     const a = r.status === 'won' ? amountsOf(r) : null;
-    const sent = r.status === 'started' ? null : (r.sent_at ?? r.at);
+    // Fix round 1 (N4): a send the builder made outside EarnKit (builder, no send time) has no send date to give; a row
+    // from before sent_at existed reads its own time.
+    const sent = r.status === 'started' ? null : (r.sent_at ?? (r.submitted_by === 'builder' ? null : r.at));
     return {
       program_id: r.program_id, title: r.title ?? titles.get(r.program_id) ?? r.program_id, status,
       sent_at: sent ? sent.toISOString() : null,
@@ -500,7 +503,8 @@ export const APPLICATIONS_SHOWN = 5;
 
 /**
  * L29-1 (v6.1.16 Task 15): "Your applications: PayPal AI Hackathon (sent Nov 3, waiting), Thiel Fellowship (sent Oct 30,
- * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)". Null when there are none. Pure.
+ * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)"; a win recorded from outside
+ * EarnKit "(recorded Nov 11, won $5,000)" (fix round 1, N4). Null when there are none. Pure.
  */
 export function applicationsLine(apps: ApplicationItem[], now: Date): string | null {
   if (apps.length === 0) return null;
@@ -508,6 +512,8 @@ export function applicationsLine(apps: ApplicationItem[], now: Date): string | n
     const day = a.sent_at ? dayWords(new Date(a.sent_at), now) : null;
     if (a.status === 'held') return 'held';
     const result = a.status === 'won' ? (a.amount ? `won ${a.amount}` : `won, ${AMOUNT_NOT_GIVEN}`) : a.status === 'no_result' ? 'no result' : a.status;
+    // Fix round 1 (N4): with no send date, the day it was recorded.
+    if (!day && a.result_at) return `recorded ${dayWords(new Date(a.result_at), now)}, ${result}`;
     return day ? `sent ${day}, ${result}` : result;
   };
   const shown = apps.slice(0, APPLICATIONS_SHOWN).map((a) => `${a.title} (${words(a)})`);

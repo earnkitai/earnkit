@@ -971,7 +971,7 @@ test('Review Focus 4 (v6.1.12, F8): a send under standing approval to a program 
 test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program by its id, title or title words only; several or none says so and records nothing', async () => {
   const c = await ctx();
   // An organizer's name is find's lookup, never track's (strict). Initials name the program (v6.1.16 Task 15 ruling).
-  const yc = await track(c, { program_id: 'yc', status: 'started' });
+  const yc = await track(c, { program_id: 'YC', status: 'started' });
   assert.match(yc.agent_note, /^Matched y-combinator\. /);
   await sql()`DELETE FROM applications WHERE program_id = 'y-combinator'`;
   assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean?');
@@ -1593,7 +1593,10 @@ test('L29-3: a win on a program with no application records the builder\'s own s
   assert.equal(r.refused, undefined);
   const [row] = await sql()`SELECT status, amount_usd, submitted_by, sent_at FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l293-pp'`;
   assert.deepEqual([row.status, Number(row.amount_usd), row.submitted_by], ['won', 5000, 'builder']);
-  assert.ok(row.sent_at);
+  // Fix round 1 (N4): no send date was given, so none is kept; the line says when it was recorded.
+  assert.equal(row.sent_at, null);
+  const { applicationsOf, applicationsLine } = await import('./ledger');
+  assert.equal(applicationsLine(await applicationsOf(`i:${c.installationId}`), NOW), 'Your applications: PayPal Like Hackathon (recorded Nov 4, won $5,000).');
   const hist = await sql()`SELECT status FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 'l293-pp' ORDER BY id`;
   assert.deepEqual(hist.map((h) => h.status), ['applied', 'won']);
   assert.equal(r.ledger.won, 1);

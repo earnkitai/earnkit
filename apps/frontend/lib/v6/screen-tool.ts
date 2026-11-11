@@ -219,7 +219,8 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const { recorded, notFound, notes, own, overCapAt, passed, reasons, notPassed, repeats, paymentRefused, stands } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
       // L16-16 (v6.1.16): a call whose every outcome is a repeat says so alone.
       if (repeats.length > 0 && repeats.length === new Set(input.outcomes.map((o) => o.ref)).size)
-        return { ...no(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
+        // Fix round 1 (N3): a retried call is no error, as track's repeats are not.
+        return { ...line(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
       // The refs not in this screen are named (C19); L22-11 (v6.1.16): a recorded outcome that reached no builder's
       // ledger is named with why; L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
       const counted = `Recorded ${plural(recorded, 'outcome')}${notPassed.length > 0 ? `; not passed to a builder: ${listWords(notPassed, 10)}` : ''}${notFound.length > 0 ? `; not found: ${listWords(notFound, 10)}` : ''}.`;

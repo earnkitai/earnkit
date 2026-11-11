@@ -25,7 +25,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), won (with amount_usd, dollars as a number (5000 or 1234.56): convert 5k to 5000; a win with no application here is recorded as the builder's own send, or amount with currency for another currency: amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or \u20ac2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
+    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), won (with amount_usd, dollars as a number (5000 or 1234.56; convert 5k to 5000), or amount with currency for another currency: amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount; a win with no application here is recorded as the builder's own send), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
@@ -299,7 +299,8 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   const cat = await mcpCall(c, 'find', { project: P, filter: { category: 'money' } });
   plain(cat);
   // L29-13 (v6.1.16 Task 15): the ruled problems line.
-  assert.match(cat.reply!.agent_note as string, /Some arguments were not read: category "money" was not read: use grant, hackathon, investment or bounty\./);
+  assert.match(cat.reply!.agent_note as string, /(^|\n| )category "money" was not read: use grant, hackathon, investment or bounty\./);
+  assert.doesNotMatch(cat.reply!.agent_note as string, /not read: category/);
   // track with a null project: the done step goes under the last find's project.
   const done = await mcpCall(c, 'track', { program_id: 'l134-users', status: 'gap_done', item: 'users', project: null });
   plain(done);

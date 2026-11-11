@@ -98,10 +98,12 @@ const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 type Named = (need: string) => boolean;
 /** The builder's own email as a need ("your email"), as the record names it missing (lib/v6/record.ts). */
 const EMAIL_NEED = /^(your |the )?email( address)?$/i;
-/** F5 (v6.1.12): the Before block names the missing email ("Still missing for these programs: your email"), so the
+/** F5 (v6.1.12): the Before block names the missing email ("Before applying: your email"), so the
  *  reply's other blocks do not. Pure. */
 export const namedBefore = (r: Pick<R, 'record_missing'>): Named =>
   r.record_missing.some((m) => EMAIL_NEED.test(m)) ? (need) => EMAIL_NEED.test(need) : () => false;
+/** Whether two need words name one need (the same words, or both the builder's email). Pure. */
+const sameNeed = (a: string, b: string): boolean => a === b || (EMAIL_NEED.test(a) && EMAIL_NEED.test(b));
 
 /** "3. " before a list line; nothing on the one-program reply (`alone`, v6.1.8 1b), which shows the line alone. Pure. */
 const num = (n: number, alone: boolean) => (alone ? '' : `${n}. `);
@@ -236,8 +238,14 @@ export function stepClause(x: Gap): string | null {
   if (x.kind === 'feature') return `${/^(use|add) /.test(x.what) && x.item.startsWith('feature:') ? x.item.slice(8) : x.what} is in`;
   if (x.kind === 'users' && x.effort === 'weeks') {
     const n = weeksOf(x);
-    return n !== null ? `it has been live for ${n} weeks` : 'real people use it';
+    // Fix round 1 (M3, Task 1's nit): one week is singular.
+    return n !== null ? `it has been live for ${n} week${n === 1 ? '' : 's'}` : 'real people use it';
   }
+  // Fix round 1 (M3, Task 1's nits): the rare kinds that closed on "that is done" name their step.
+  if (x.kind === 'users') return 'real people use it';
+  if (x.kind === 'builder_codes') return 'the app sends Base Builder Codes';
+  if (x.kind === 'integration') return `${x.what.replace(/^add /, '')} is in`;
+  if (x.kind === 'new_work_after' && !startedQuestion(x)) return 'the new work has started';
   return null;
 }
 /** The weeks a users gap asks the product to have been live, when its words say ("4 weeks"), else null. Pure. */
@@ -380,7 +388,7 @@ const titlesOf = (r: R, bs: R['blockers']) =>
  * null when there is nothing. L24-26, L24-28 (v6.1.16 Task 11): the standing approval is said once, by the closing (the
  * standing line, or "{title} is over your limit"), never here. Pure.
  */
-function beforeLine(r: R, waiting: string | null = null): string | null {
+function beforeLine(r: R, waiting: string | null = null, said: string[] = []): string | null {
   // R21: an in-person program's line already says what attending takes, so its sign-in and submit are not repeated.
   const inPerson = new Set(r.ready.filter((p) => p.in_person).map((p) => p.program_id));
   const remote = r.blockers.filter((b) => !inPerson.has(b.program_id));
@@ -391,14 +399,13 @@ function beforeLine(r: R, waiting: string | null = null): string | null {
     groups.set(words, [...(groups.get(words) ?? []), ...titlesOf(r, [b])]);
   }
   const clauses = [...groups].filter(([, t]) => t.length > 0).map(([words, t]) => `${words} ${listWords(t, t.length)}`);
-  // What these programs' forms need (v6.1.9); record get names everything the record lacks.
-  const missing = r.record_missing.length > 0 ? `Still missing for these programs: ${listWords(r.record_missing)}.` : null;
-  // L29-18 (v6.1.16 Task 15): one label; what waits under standing approval is a clause of it (`waitingClauses`).
-  const all = [...clauses, ...(waiting ? [waiting] : [])];
-  const parts = all.length > 0 ? [`${all.join('; ')}.`] : [];
-  if (missing) parts.push(missing);
-  if (parts.length === 0) return null;
-  return `Before applying: ${parts.join(' ')}`;
+  // What these programs' forms need (v6.1.9); record get names everything the record lacks. Fix round 1 (M1, L29-17
+  // over F5): a need the Say names (`said`) is said there only.
+  const lacks = r.record_missing.filter((m) => !said.some((n) => sameNeed(n, m)));
+  // L29-18 (v6.1.16 Task 15, fix round 1 M2): one label; what waits under standing approval and what the record lacks
+  // are clauses of it.
+  const all = [...clauses, ...(waiting ? [waiting] : []), ...(lacks.length > 0 ? [listWords(lacks)] : [])];
+  return all.length > 0 ? `Before applying: ${all.join('; ')}.` : null;
 }
 
 /** N3 (v6.1.12): a program the builder said yes to (a rule or the users question) that still needs these answers;
@@ -584,9 +591,10 @@ const agentCanApply = (r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] => send
 
 /** With standing approval: "your problem for A; ..." (L23-1; L29-18, v6.1.16 Task 15: a clause of "Before applying:")
  *  for the sendable programs that wait on a required answer, grouped by the same answers; null when none waits. Pure. */
-function waitingClauses(r: R): string | null {
+function waitingClauses(r: R, said: string[] = []): string | null {
   if (!r.auto_apply) return null;
-  const named = namedBefore(r);
+  // Fix round 1 (M1): what the Say asks for is said there only.
+  const named = (x: string) => namedBefore(r)(x) || said.some((n) => sameNeed(n, x));
   const groups = new Map<string, string[]>();
   for (const p of sendableOf(r)) {
     // F5 (v6.1.12): the email the Before block names is not named again.
@@ -760,9 +768,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const clicked = unsaid.filter((p) => click.has(p.program_id));
   const mixed = clicked.length > 0 && clicked.length < unsaid.length;
   const applyOnes = unsaid.filter((p) => !click.has(p.program_id));
-  // L29-17 (v6.1.16 Task 15): a yes that needs more from the builder names it in the Say (the email once, F5), so the
-  // ready lines leave it out.
-  const yesNeeds = tonight > 0 || mixed ? [] : [...new Set(unsaid.flatMap((p) => p.need_you).filter((x) => !named(x)))];
+  // L29-17 (v6.1.16 Task 15, fix round 1 M1: over F5): a yes that needs more from the builder names it in the Say,
+  // so the ready lines and the Before line leave it out (the email still said once).
+  const yesNeeds = tonight > 0 || mixed ? [] : [...new Set(unsaid.flatMap((p) => p.need_you))];
   // Review Focus 1 (v6.1.14): a program whose needs the closing names reads them there only (not on tonight's send).
   const namedInClosing = new Set(tonight > 0 ? [] : [...waits.map((p) => p.program_id), ...(yesNeeds.length > 0 ? unsaid.map((p) => p.program_id) : [])]);
   // L24-28: the one ready program, over the builder's limit.
@@ -849,7 +857,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const since = first ? null : sinceLine(r, now);
   // L23-16 (v6.1.16): the same list as the last find, and nothing else moved.
   const nothingNew = !first && !since && r.nothing_new_since ? `Nothing new since ${dayWords(new Date(r.nothing_new_since), now)}.` : null;
-  const before = beforeLine(r, waitingClauses(r));
+  const before = beforeLine(r, waitingClauses(r, yesNeeds), yesNeeds);
   type Slot = { lines: string[]; rank: number };
   const slots: Slot[] = [
     { lines: readyBlock.slice(0, READY_SHOWN + 1), rank: 1 },

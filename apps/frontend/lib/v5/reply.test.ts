@@ -330,7 +330,7 @@ test('the "Before applying" line groups the sign-ins, names the clicks and the f
   const before = text.split('\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
     before,
-    "Before applying: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Before applying: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant; your founder video link, an approved answer on the problem, your deck link and 1 more.",
   );
   const lines = text.split('\n');
   assert.ok(lines.length <= 10, text);
@@ -824,7 +824,8 @@ test('v6.1.9: the standing note asks for every required answer; record_missing i
   assert.ok(covered.includes('send only when every required answer is filled.'), covered);
   assert.equal(note.split('\n').length, 1);
   assert.ok(covered.includes('record_missing names only what these programs need; record get names everything the record lacks.'));
-  assert.match(replyText(base({ linked: true, record_missing: ['your email'], ready: [ready({ title: 'A' })] }), true), /Before applying: Still missing for these programs: your email\./);
+  // Fix round 1 (M2): one label.
+  assert.match(replyText(base({ linked: true, record_missing: ['your email'], ready: [ready({ title: 'A' })] }), true), /\nBefore applying: your email\.\n/);
 });
 
 test('v6.1.9: Builder Codes reported but not in the code read is said once', () => {
@@ -919,18 +920,25 @@ test('N3 (v6.1.12, Review Focus 2): after a rule yes or a users yes on a program
   assert.equal(end(base({ ready: [{ ...sol, rule_yes: undefined }] })), "Ready to apply (1):\n1. Solana Foundation Grants, $1K.\nSay yes and tell me your website link and the requested amount, and I apply to Solana Foundation Grants.");
 });
 
-test('F5 (v6.1.12): the missing email is named once per reply: the Before block keeps it, the drafted line drops it', () => {
+test('F5 (v6.1.12), fix round 1 M1: the missing email is named once per reply: the Say names it, the Before line and the ready line drop it', () => {
   const p = ready({ title: 'Prose Grant', total: 4, from_record: 1, repo_required: 0, need_you: ['the problem', 'your email'], needs: ['the problem', 'your email'] });
   const show = replyText(base({ linked: true, record_missing: ['your email'], ready: [p] }), true);
   assert.equal(show.match(/email/g)!.length, 1, show);
   // L29-17 (v6.1.16 Task 15): the Say names what the yes needs; the line leaves it.
   assert.match(show, /^1\. Prose Grant, \$1K\.$/m);
-  assert.match(show, /\nSay yes and tell me the problem, and I apply to Prose Grant\.$/);
-  assert.match(show, /Before applying: Still missing for these programs: your email\./);
+  // Fix round 1 (M1, L29-17 over F5): the Say names every need of the yes, the email too; the Before line drops it.
+  assert.match(show, /\nSay yes and tell me the problem and your email, and I apply to Prose Grant\.$/);
+  assert.doesNotMatch(show, /Before applying/);
   // With standing approval, the wait names the problem only.
   const auto = replyText(base({ linked: true, auto_apply: true, max_per_night: 5, auto_sent_today: 0, record_missing: ['your email'], ready: [p] }), true);
   assert.equal(auto.match(/email/g)!.length, 1, auto);
-  assert.match(auto, /Before applying: your problem for Prose Grant\. Still missing for these programs: your email\./);
+  // Fix round 1 (M1): nothing can go alone, so the Say asks for both; the Before line names neither.
+  assert.doesNotMatch(auto, /Before applying/);
+  assert.match(auto, /\nSay yes and tell me the problem and your email, and I apply to Prose Grant\.$/);
+  // Fix round 1 (M2): one label, each clause its own.
+  const two = replyText(base({ linked: true, auto_apply: true, max_per_night: 5, auto_sent_today: 0, record_missing: ['your email', 'your deck link'],
+    ready: [p, ready({ title: 'Free Grant' })] }), true);
+  assert.match(two, /\nBefore applying: your problem for Prose Grant; your email and your deck link\.\n/);
   // Only the email missing: the drafted line ends at the counts.
   const only = ready({ title: 'Mail Grant', total: 2, from_record: 1, need_you: ['your email'], needs: ['your email'] });
   const one = replyText(base({ linked: true, record_missing: ['your email'], ready: [only] }), true);
@@ -1330,4 +1338,20 @@ test('Task 11 fix round 1 (M1): every ready program held: the reply closes on th
   assert.equal(parts.offer, 'apply');
   assert.equal(parts.text.match(/\bSay\b/g)?.length, 1, parts.text);
   assert.doesNotMatch(parts.text, /Nothing is ready yet|Nothing fits yet/);
+});
+
+// v6.1.16 Task 15 fix round 1 (M3, Task 1's nits): one week is singular; the rare kinds name their step.
+test('M3: one week reads "1 week"; the rare step kinds close on their own clause, never "that is done"', () => {
+  const g = (over: Partial<GapProgram['gap']>) => ({ kind: 'users', item: 'users', what: 'live for 1 week', effort: 'weeks', agent_can: false, ...over }) as GapProgram['gap'];
+  assert.equal(stepClause(g({})), 'it has been live for 1 week');
+  assert.equal(stepClause(g({ what: 'live for 4 weeks' })), 'it has been live for 4 weeks');
+  assert.equal(stepClause(g({ effort: 'days', what: 'real users first' })), 'real people use it');
+  assert.equal(stepClause(g({ kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'hours' })), 'the app sends Base Builder Codes');
+  assert.equal(stepClause(g({ kind: 'integration', item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days' })), 'Smart Wallet is in');
+  assert.equal(stepClause(g({ kind: 'new_work_after', item: 'new_work_after:2026-01-01', what: 'real users first', effort: 'weeks' })), 'the new work has started');
+  // Mixed with a change EarnKit cannot make, a do-able kind closes on its step.
+  const CODES = g({ kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'hours', agent_can: true });
+  const mixed = gap({ title: 'Mixed', gap: CODES, also: [{ kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false }] });
+  assert.doesNotMatch(replyText(base({ gaps: [mixed] }), true), /that is done/);
+  for (const x of [CODES, g({ kind: 'integration', item: 'integration:x', what: 'add X', effort: 'days' })]) assert.doesNotMatch(singleStepClosing(x), /that is done/);
 });

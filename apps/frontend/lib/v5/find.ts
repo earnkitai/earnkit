@@ -233,7 +233,8 @@ const MAX_IN_PERSON = 2;
 const MAX_GAPS = 3;
 // The gaps markFind keeps for track started, at most this many, in rank order.
 const MAX_REMEMBERED_GAPS = 60;
-const MAX_LISTED = 10;
+/** Fix round 1 (M4, v6.1.16 Task 15): the open list (no project) names this many programs, then the count. */
+const OPEN_SHOWN = 5;
 
 /** O1 (v6.1.10): a program closing within this many days is always in the default reply, ahead of the caps. */
 const SOON_DAYS = 7;
@@ -532,13 +533,10 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
  *  be read still gave, so the closing asks for what it does by that name. */
 async function openList(ctx: FindContext, problem: string | null, name: string | null = null): Promise<FindReply> {
   const programs = await listOpenPrograms(ctx.now);
-  const lines = programs.slice(0, MAX_LISTED).map((r) => {
-    const left = closesIn(r.file, ctx.now);
-    // O4 (v6.1.10): an in-person program says so on its line.
-    return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}${r.file.in_person ? ', in person' : ''}.`;
-  });
-  // Template row 12 (v6.1.15): its own sentence, so it starts with a capital.
-  if (programs.length > MAX_LISTED) lines.push(`And ${programs.length - MAX_LISTED} more.`);
+  // Fix round 1 (M4, L29-26 v6.1.16 Task 15): within the 10-line budget: names and money, the first OPEN_SHOWN, then
+  // the count (template row 12, v6.1.15: its own sentence).
+  const lines = programs.slice(0, OPEN_SHOWN).map((r) => `${r.file.title}, ${moneyOf(r.file)}.`);
+  if (programs.length > OPEN_SHOWN) lines.push(`And ${programs.length - OPEN_SHOWN} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   // L29-1, L29-2 (v6.1.16 Task 15): the applications by name whenever there are any, project or not; then the ask for
   // the project is one line, in place of the open list.
@@ -546,7 +544,7 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const appsLine = applicationsLine(applications, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : "Tell me which project and I'll match it.";
+  const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : 'Tell me which project and I match it.';
   const list = appsLine ? `${appsLine}\n${ask}` : programs.length > 0 ? `Open now:\n${lines.join('\n')}\n${ask}` : 'Nothing is open right now. Ask again any time and I show what is new.';
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
@@ -555,11 +553,12 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const report = ctx.builderId === null ? null : await linkedReport(ctx, programs);
   const closing = report ? [sinceLine(report, ctx.now), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
   const reply = {
+    // One line each, no blank lines (fix round 1, M4).
     show_to_builder: unlinkedNow
-      ? `${list}\n\n${notice}`
+      ? `${list}\n${notice}`
       : report
-        ? (closing ? `${list}\n\n${closing}` : list)
-        : [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
+        ? (closing ? `${list}\n${closing}` : list)
+        : [list, link ? signInLine(link) : null, notice].filter(Boolean).join('\n'),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
@@ -642,7 +641,13 @@ function rawName(project: unknown): string | null {
 }
 
 /** The agent's line for arguments find could not read (L13-4, v6.1.14), or ''. Pure. */
-const unreadNote = (unread: string[]) => (unread.length > 0 ? `Some arguments were not read: ${unread.join('; ')}.` : '');
+/** Fix round 1 (N6, v6.1.16 Task 15): an item that says itself what was not read (L29-13, L29-14) is its own sentence. */
+const OWN_SENTENCE = / was not read: | belongs inside project$/;
+const unreadNote = (unread: string[]) => {
+  const own = unread.filter((u) => OWN_SENTENCE.test(u));
+  const rest = unread.filter((u) => !OWN_SENTENCE.test(u));
+  return [...(rest.length > 0 ? [`Some arguments were not read: ${rest.join('; ')}.`] : []), ...own.map((u) => `${u}.`)].join(' ');
+};
 
 /** Whether the project report gives a shortened link in any link field (L16-8, v6.1.16). Pure. */
 function shortLinkIn(project: unknown): boolean {

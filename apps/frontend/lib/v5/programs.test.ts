@@ -200,7 +200,10 @@ test('L24-3 (v6.1.16 Task 11): the strict lookup takes an id, an exact title or 
   assert.equal((await programByName('Second Grant', now, { strict: true })).row?.id, 'l24p-second');
   assert.equal((await programByName('paypal', now, { strict: true })).row?.id, 'paypal-ai-hackathon');
   // v6.1.16 Task 15 (controller's ruling): initials count as a title word in the strict lookup; common words still do not.
-  assert.equal((await programByName('yc', now, { strict: true })).row?.id, 'y-combinator');
+  // Fix round 1 (N2): initials in capitals, or three letters or more; a short lower-case word never.
+  assert.equal((await programByName('YC', now, { strict: true })).row?.id, 'y-combinator');
+  assert.equal((await programByName('yc', now, { strict: true })).row, null);
+  for (const w of ['as', 'am', 'mm']) assert.equal((await programByName(w, now, { strict: true })).row, null, w);
   assert.equal((await programByName('ai', now, { strict: true })).row, null);
   // find's lookup is unchanged.
   assert.equal((await programByName('yc', now)).row?.id, 'y-combinator');

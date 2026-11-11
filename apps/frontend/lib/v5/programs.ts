@@ -142,18 +142,22 @@ const ARTICLES = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'to']);
  * words hold every lookup word (articles and years dropped) with at least one of them outside COMMON_WORDS. Several
  * fitting are `suggest`; none is no program. Pure over `rows`.
  */
-function strictMatch(rows: ProgramRow[], words: string, now: Date): { row: ProgramRow | null; suggest: string[] } {
+function strictMatch(rows: ProgramRow[], words: string, now: Date, raw = ''): { row: ProgramRow | null; suggest: string[] } {
   const titled = rows.filter((r) => plain(r.file.title) === words);
   if (titled.length === 1) return { row: titled[0], suggest: [] };
   const asked = words.split(' ').filter((w) => w && !ARTICLES.has(w) && !YEAR.test(w));
   if (asked.length === 0 || asked.every((w) => COMMON_WORDS.has(w))) return { row: null, suggest: [] };
-  // v6.1.16 Task 15 (controller's ruling): the initials of the title, and of the id, count as a title word ("yc" names
-  // Y Combinator); a common word alone still names nothing (above).
+  // v6.1.16 Task 15 (controller's ruling; fix round 1 N2): the initials of the title, and of the id, count as a title
+  // word when the word was typed in capitals ("YC" names Y Combinator) or is three letters or more; "as", "am" and "mm"
+  // never do. A common word alone still names nothing (above).
+  const capitals = new Set(raw.split(/[^A-Za-z0-9]+/).filter((w) => w.length >= 2 && w === w.toUpperCase() && /[A-Z]/.test(w)).map((w) => w.toLowerCase()));
+  const initialsWord = (w: string) => w.length >= 3 || capitals.has(w);
   const fit = titled.length > 1 ? titled : rows.filter((r) => {
     const words = plain(r.file.title).split(' ').filter(Boolean);
     const initials = (ws: string[]) => (ws.length > 1 ? [ws.map((w) => w[0]).join('')] : []);
-    const own = new Set([...words, ...initials(words), ...initials(r.id.split('-').filter(Boolean))]);
-    return asked.every((w) => own.has(w));
+    const own = new Set(words);
+    const short = new Set([...initials(words), ...initials(r.id.split('-').filter(Boolean))]);
+    return asked.every((w) => own.has(w) || (initialsWord(w) && short.has(w)));
   });
   if (fit.length === 1) return { row: fit[0], suggest: [] };
   return { row: null, suggest: byLookupRank(fit, now).slice(0, 2).map((r) => r.file.title) };
@@ -176,7 +180,7 @@ export async function programByName(name: string, now: Date = new Date(), o: { s
   const q = words.replace(/ /g, '');
   if (!q) return { row: null, suggest: [] };
   const rows = parseRows(await sql()<RawRow[]>`SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs ORDER BY id`);
-  if (o.strict) return strictMatch(rows, words, now);
+  if (o.strict) return strictMatch(rows, words, now, name);
   const prefix = q.length >= MIN_PREFIX;
   // Final fix (v6.1.12, I2): the first word of an organizer that is not its whole name ("ethereum" for the Ethereum
   // Foundation) names the organizer: a start of a title on it is weighed beside that organizer's other programs
