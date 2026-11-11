@@ -80,7 +80,9 @@ export async function claim(owner: string, programId: string, projectId: string 
       if (other) return { repo: { at: other.at, login: other.login } };
     }
     // Fix round 3 (M4): the keyless row taken over carries this project's key and repo.
-    if (row && rk === '' && repoKeyOf(key) && o.tied && !(await sentForRepo(tx, programId, key, owner, o.repoId ?? null))) {
+    // Fix round 3b: under the repo's lock (as record takes it), so two takeovers never both hold the repo.
+    if (row && rk === '' && repoKeyOf(key) && o.tied
+      && !(await repoLock(tx, repoKeyOf(key)!, programId, o.repoId ?? null).then(() => sentForRepo(tx, programId, key, owner, o.repoId ?? null)))) {
       await tx`UPDATE applications SET project_id = ${key}, repo_key = ${repoKeyOf(key)}, repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id)
         WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
       rk = key;
