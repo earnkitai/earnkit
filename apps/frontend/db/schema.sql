@@ -423,10 +423,13 @@ CREATE INDEX IF NOT EXISTS applications_program_repo ON applications (program_id
 -- (record repo links are github.com links, so lower case without a trailing slash or .git is canonicalRepoLink's form).
 UPDATE applications a SET project_id = k.key
 FROM (
-  SELECT a2.ctid AS row_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')) AS key
+  -- Fix round 1 (N2): one row per owner, program and key (the newest), so two record ids on one repo never collide.
+  SELECT DISTINCT ON (a2.owner, a2.program_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')))
+    a2.ctid AS row_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')) AS key
   FROM applications a2 JOIN builders b ON a2.owner = 'b:' || b.id, jsonb_array_elements(COALESCE(b.record->'projects', '[]'::jsonb)) p
   WHERE a2.project_id IS NOT NULL AND a2.project_id NOT LIKE 'https://%' AND a2.project_id NOT LIKE 'name:%'
     AND p->>'id' = a2.project_id AND COALESCE(p->>'repo_url', '') LIKE 'https://github.com/%'
+  ORDER BY a2.owner, a2.program_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')), a2.at DESC
 ) k
 WHERE a.ctid = k.row_id AND NOT EXISTS (
   SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = k.key);
@@ -438,3 +441,11 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS off_repo text;
 -- v6.1.16 Task 14 (L28-10): the builder an installation was unlinked from, so its later calls still see what that
 -- builder sent (read only) and never send it twice. Cleared when it links again.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS former_builder_id int;
+-- v6.1.16 Task 14 fix round 1 (FR-5): a history row names its application's project key, so two projects of one builder
+-- on one program never share a further payment's key or the /me paid-more flag. Backfilled where the owner holds one
+-- application for the program (the only one it can be); a rerun changes nothing.
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS project_id text;
+UPDATE application_history h SET project_id = a.project_id
+FROM applications a
+WHERE h.project_id IS NULL AND a.project_id IS NOT NULL AND a.owner = h.owner AND a.program_id = h.program_id
+  AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = a.owner AND b.program_id = a.program_id AND b.ctid <> a.ctid);

@@ -1736,7 +1736,8 @@ test('L28-3 (v6.1.16 Task 14): a login that is not owner, org member or committe
   assert.equal((await send(org, 'l28-mine', T)).show_to_builder, 'Already sent for this repo on Nov 4 by "c1".');
   const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l28-u-' + Math.random()}) RETURNING id`;
   const unlinked = await send({ installationId: u.id as number, builderId: null, now: NOW }, 'l28-mine', T);
-  assert.match(unlinked.show_to_builder, /^This repo is not yours; I apply only with repos you commit to\. Sign in once/);
+  // FR-1 (v6.1.16 Task 14 fix round 1): signed out, sign-in comes first, never "not yours".
+  assert.equal(unlinked.show_to_builder, 'Sign in first so I can check the repo is yours.');
   assert.equal(unlinked.refused, true);
 });
 
@@ -1782,4 +1783,127 @@ test('L28-10 (v6.1.16 Task 14): unlinking moves nothing; the unlinked agent neve
   assert.equal(fresh.show_to_builder, 'Already sent on Nov 4.');
   assert.equal(fresh.refused, true);
   assert.equal((await rowsOf(e.owner, 'l28-relink')).length, 1);
+});
+
+// ---- v6.1.16 Task 14 fix round 1 ----
+
+test('C1 (Task 14 fix round 1): a stranger\'s builder-submitted send of someone else\'s repo never opens the door: his agent\'s started, applied and held stay refused, and the real committer\'s send goes through', async () => {
+  await seedRead('org/c1door', ['realc1']);
+  await upsertProgram(programFixture({ id: 'l28-c1', title: 'Door Grant' }), 'file', NOW);
+  const dave = await signedIn('dave-c1');
+  const T = { name: 'Door', description: 'Not dave\'s.', repo_url: 'https://github.com/org/c1door' };
+  assert.equal((await send(dave, 'l28-c1', T, 'builder')).show_to_builder, 'Sent Door Grant.');
+  for (const status of ['started', 'held'] as const) {
+    const r = await track(dave, { program_id: 'l28-c1', status, project: T });
+    assert.equal(r.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.', status);
+    assert.equal(r.refused, true, status);
+  }
+  const agent = await send(dave, 'l28-c1', T);
+  assert.equal(agent.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.');
+  assert.deepEqual((await rowsOf(dave.owner, 'l28-c1')).map((r) => [r.status, r.project_id, r.repo_key]), [['applied', 'name:door', null]]);
+  const real = await signedIn('realc1');
+  assert.equal((await send(real, 'l28-c1', T)).show_to_builder, 'Sent Door Grant.');
+});
+
+test('M1, FR-1 (Task 14 fix round 1): with no evidence the refusal and find say it could not be confirmed; signed out, sign-in comes first; never "not yours"', async () => {
+  const { find } = await import('./find');
+  await upsertProgram(programFixture({ id: 'l28-m1', title: 'Confirm Grant' }), 'file', NOW);
+  const g = await signedIn('gl-m1');
+  const lab = { name: 'Lab', description: 'On GitLab.', repo_url: 'https://gitlab.com/gl-m1/lab' };
+  const started = await track(g, { program_id: 'l28-m1', status: 'started', project: lab });
+  assert.equal(started.show_to_builder, 'I could not confirm this repo is yours; tell me your GitHub login on it or send it yourself.');
+  assert.equal(started.refused, true);
+  const f = await find({ ...g, linkUrl: async () => null }, { program_id: 'l28-m1', project: lab });
+  assert.equal(f.show_to_builder.split('\n').at(-1), 'I could not confirm this repo is yours; tell me your GitHub login on it or send it yourself.');
+  assert.doesNotMatch(f.show_to_builder, /not yours|I apply to/);
+  // Signed out: the find's one Say is the sign-in, and the yes is answered by sign-in first.
+  const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l28-m1-' + Math.random()}) RETURNING id`;
+  const out = { installationId: u.id as number, builderId: null, now: NOW };
+  await seedRead('org/m1', ['someone']);
+  const R = { name: 'M1', description: 'A repo.', repo_url: 'https://github.com/org/m1' };
+  const fo = await find({ ...out, linkUrl: async () => null }, { program_id: 'l28-m1', project: R });
+  assert.equal(fo.show_to_builder.split('\n').at(-1), 'Sign in once and I check the repo is yours; then say yes.');
+  assert.doesNotMatch(fo.show_to_builder, /not yours|I apply to/);
+  for (const status of ['started', 'applied'] as const) {
+    const r = await track(out, { program_id: 'l28-m1', status, project: R, submitted_by: 'agent' });
+    assert.equal(r.show_to_builder, 'Sign in first so I can check the repo is yours.', status);
+    assert.equal(r.refused, true);
+  }
+  // Evidence against a signed-in builder: said, with the one action to name their repo.
+  const n = await signedIn('nobody-m1');
+  const fn = await find({ ...n, linkUrl: async () => null }, { program_id: 'l28-m1', project: R });
+  assert.equal(fn.show_to_builder.split('\n')[0], 'This repo is not yours; I apply only with repos you commit to.');
+  assert.equal(fn.show_to_builder.split('\n').at(-1), 'Say which repo is yours.');
+});
+
+test('FR-4 (Task 14 fix round 1): a send over this agent\'s own live claim is recorded even when the repo can no longer be read', async () => {
+  await seedRead('org/fr4', ['e1fr4']);
+  await upsertProgram(programFixture({ id: 'l28-fr4', title: 'Budget Grant' }), 'file', NOW);
+  const e = await signedIn('e1fr4');
+  const R = { name: 'Fr4', description: 'A repo.', repo_url: 'https://github.com/org/fr4' };
+  assert.equal((await track(e, { program_id: 'l28-fr4', status: 'started', project: R })).show_to_builder, '');
+  await seedRead('org/fr4'); // the contributor list is gone and a new read is refused (no network here)
+  const sent = await send({ ...e, now: new Date(NOW.getTime() + 60_000) }, 'l28-fr4', R);
+  assert.equal(sent.show_to_builder, 'Sent Budget Grant.');
+  assert.deepEqual((await rowsOf(e.owner, 'l28-fr4')).map((r) => [r.status, r.repo_key]), [['applied', 'https://github.com/org/fr4']]);
+});
+
+test('M2 (Task 14 fix round 1): one application per repo id: a co-founder sending under the renamed link is refused', async () => {
+  await seedRead('org/oldr', ['al-m2', 'bo-m2'], 778899);
+  await upsertProgram(programFixture({ id: 'l28-m2', title: 'Rename Grant' }), 'file', NOW);
+  const al = await signedIn('al-m2');
+  assert.equal((await send(al, 'l28-m2', { name: 'R', description: 'R.', repo_url: 'https://github.com/org/oldr' })).show_to_builder, 'Sent Rename Grant.');
+  assert.equal(Number((await rowsOf(al.owner, 'l28-m2'))[0].repo_key === 'https://github.com/org/oldr'), 1);
+  await seedRead('org/newr', ['al-m2', 'bo-m2'], 778899);
+  const bo = await signedIn('bo-m2');
+  const r = await send(bo, 'l28-m2', { name: 'R', description: 'R.', repo_url: 'https://github.com/org/newr' });
+  assert.equal(r.show_to_builder, 'Already sent for this repo on Nov 4 by "al-m2".');
+  assert.equal((await rowsOf(bo.owner, 'l28-m2')).length, 0);
+});
+
+test('M3, step 5 (Task 14 fix round 1): a rename and a transfer keep the results and the confirmed rules, with or without an application', async () => {
+  await upsertProgram(programFixture({ id: 'l28-m3a', title: 'Won Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l28-m3b', title: 'Rule Grant M3', eligibility: [{ kind: 'rule', note: 'a solo maker' }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l28-m3c', title: 'Other Grant' }), 'file', NOW);
+  const { ruleItem } = await import('./eligibility');
+  const c = await signedIn('carol-m3');
+  await seedRead('carol-m3/old', [], 515151);
+  const OLD = { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/carol-m3/old' };
+  await send(c, 'l28-m3a', OLD);
+  assert.match((await track(c, { program_id: 'l28-m3a', status: 'won', amount_usd: 100, project: OLD })).show_to_builder, /^Tracked: \$100 from Won Grant\./);
+  assert.equal((await track(c, { program_id: 'l28-m3b', status: 'gap_done', item: ruleItem('a solo maker'), project: OLD })).show_to_builder, 'Tracked. That rule counts as confirmed.');
+  // Renamed: GitHub's id is the same; the old link now answers with the new one.
+  const renamed = async (key: string, contributors?: string[]) => {
+    await seedRead(key, contributors, 515151);
+    await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{html_url}', to_jsonb(${`https://github.com/${key}`}::text)) WHERE repo = 'carol-m3/old'`;
+  };
+  await renamed('carol-m3/new');
+  const NEW = { ...OLD, repo_url: 'https://github.com/carol-m3/new' };
+  assert.equal((await track(c, { program_id: 'l28-m3b', status: 'started', project: NEW })).show_to_builder, '');
+  const keys = async () => ({
+    apps: (await sql()`SELECT program_id, status, project_id FROM applications WHERE owner = ${c.owner} AND program_id LIKE 'l28-m3%' ORDER BY program_id`).map((r) => [r.program_id, r.status, r.project_id]),
+    steps: (await sql()`SELECT DISTINCT project_key FROM gaps_done WHERE owner = ${c.owner}`).map((r) => r.project_key),
+  });
+  assert.deepEqual(await keys(), { apps: [['l28-m3a', 'won', 'https://github.com/carol-m3/new'], ['l28-m3b', 'started', 'https://github.com/carol-m3/new']], steps: ['https://github.com/carol-m3/new'] });
+  // Transferred to an org: carol is a committer there; everything follows again.
+  await renamed('org-m3/clock', ['carol-m3']);
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{html_url}', '"https://github.com/org-m3/clock"'::jsonb) WHERE repo = 'carol-m3/new'`;
+  const MOVED = { ...OLD, repo_url: 'https://github.com/org-m3/clock' };
+  assert.equal((await track(c, { program_id: 'l28-m3c', status: 'started', project: MOVED })).show_to_builder, '');
+  const after = await keys();
+  assert.deepEqual(after.apps.map((a) => a[2]), ['https://github.com/org-m3/clock', 'https://github.com/org-m3/clock', 'https://github.com/org-m3/clock']);
+  assert.deepEqual(after.steps, ['https://github.com/org-m3/clock']);
+});
+
+test('N1 (Task 14 fix round 1): a join onto a repo another builder already sent keeps the send off that repo', async () => {
+  await seedRead('jn-n1/app', ['x2-n1']);
+  await upsertProgram(programFixture({ id: 'l28-n1', title: 'Join Grant' }), 'file', NOW);
+  const x2 = await signedIn('x2-n1');
+  const APP = { name: 'App', description: 'An app.', repo_url: 'https://github.com/jn-n1/app' };
+  assert.equal((await send(x2, 'l28-n1', APP)).show_to_builder, 'Sent Join Grant.');
+  const jn = await signedIn('jn-n1');
+  assert.equal((await send(jn, 'l28-n1', { name: 'App', description: 'An app.' }, 'builder')).show_to_builder, 'Sent Join Grant.');
+  const joined = await track(jn, { program_id: 'join', status: 'gap_done', item: 'join:App', project: APP });
+  assert.equal(joined.show_to_builder, 'Joined "App" with github.com/jn-n1/app.');
+  assert.deepEqual((await rowsOf(jn.owner, 'l28-n1')).map((r) => [r.project_id, r.repo_key, r.off_repo]), [['name:app', null, 'https://github.com/jn-n1/app']]);
 });

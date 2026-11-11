@@ -37,7 +37,7 @@ const SENT = ['applied', 'won', 'rejected', 'no_result'];
 /** L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program. */
 const wonOnce = (db: ReturnType<typeof sql>) => db`
   SELECT status, at, amounts, amount_usd,
-         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, repo_key, (status = 'won') ORDER BY at, owner) = 1) AS counted
+         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won') ORDER BY at, owner) = 1) AS counted
   FROM applications`;
 
 export async function readStats(now: Date = new Date()): Promise<Stats> {
@@ -50,7 +50,7 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
              count(*) FILTER (WHERE last_seen_at >= ${week}) AS active,
              count(*) FILTER (WHERE last_find_at >= ${week}) AS finds
       FROM installations`,
-    // L28-2 (v6.1.16 Task 14): a win counts once per repo key and program (its earliest win row), plus once per row
+    // L28-2 (v6.1.16 Task 14): a win counts once per repo (its GitHub id when known, fix round 1 M2, else its key) and program (its earliest win row), plus once per row
     // with no repo key; `counted` marks those rows.
     db<{ sent: string; sent_week: string; won: string; won_usd: string | null; won_none: string }[]>`
       WITH a AS (${wonOnce(db)})

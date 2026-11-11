@@ -524,7 +524,7 @@ async function applicationOf(applicationId: string, programId: string, builderId
   // program, so co-founders' ids (rows from before one application per repo) share one result.
   const [first] = byId.repo_key && byId.status !== 'started' && byId.status !== 'skipped'
     ? await sql()<App[]>`SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id, a.off_repo FROM applications a
-        WHERE a.program_id = ${programId} AND a.repo_key = ${byId.repo_key} AND a.status = ANY(${['applied', 'won', 'rejected', 'no_result']})
+        WHERE a.program_id = ${programId} AND (a.repo_key = ${byId.repo_key} OR (${byId.repo_id}::bigint IS NOT NULL AND a.repo_id = ${byId.repo_id}::bigint)) AND a.status = ANY(${['applied', 'won', 'rejected', 'no_result']})
         ORDER BY COALESCE(a.sent_at, a.at), a.owner LIMIT 1`
     : [];
   // Controller ruling: redirected only when both owners are shown to share the repo (owner, org member or committer,

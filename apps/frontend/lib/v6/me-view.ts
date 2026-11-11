@@ -314,8 +314,8 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   // payment came after the last correction, so the row reads "in all".
   const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date; claimed_at: Date | null; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
     SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at, a.claimed_at, a.amount_usd, a.amounts,
-      EXISTS (SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.payment_key IS NOT NULL
-        AND h.at >= COALESCE((SELECT max(c.at) FROM application_history c WHERE c.owner = a.owner AND c.program_id = a.program_id AND c.corrected), '-infinity'::timestamptz)) AS paid_more
+      EXISTS (SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.payment_key IS NOT NULL
+        AND h.at >= COALESCE((SELECT max(c.at) FROM application_history c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = COALESCE(a.project_id, '') AND c.corrected), '-infinity'::timestamptz)) AS paid_more
     FROM applications a LEFT JOIN programs p ON p.id = a.program_id
     WHERE a.owner = ${owner} ORDER BY a.at DESC LIMIT 100`;
   const seen = await sql()<{ project_id: string; n: number }[]>`

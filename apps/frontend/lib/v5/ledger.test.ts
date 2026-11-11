@@ -600,3 +600,35 @@ test('L28-4 (v6.1.16 Task 14): the schema run twice turns the old (owner, progra
   assert.deepEqual([row.project_id, row.repo_key], ['https://github.com/a/idx', 'https://github.com/a/idx']);
   assert.deepEqual(await record(o(i), 'l28-idx', 'applied', { now: NOW, project_id: 'name:other' }), { ok: true });
 });
+
+test('FR-5 (Task 14 fix round 1): two projects of one owner win one program; the same payment key adds once on each', async () => {
+  const i = await install();
+  await prog('l28-fr5', { max_award_usd: 100000 });
+  for (const p of ['name:one', 'name:two']) {
+    assert.deepEqual(await record(o(i), 'l28-fr5', 'applied', { now: NOW, project_id: p }), { ok: true });
+    assert.deepEqual(await record(o(i), 'l28-fr5', 'won', { now: NOW, project_id: p, amount_usd: 1000 }), { ok: true });
+    const paid = await record(o(i), 'l28-fr5', 'won', { now: NOW, project_id: p, amount_usd: 500, payment: { key: 'p1' } });
+    assert.equal(paid.ok, true, `${p} ${JSON.stringify(paid)}`);
+    assert.deepEqual(await record(o(i), 'l28-fr5', 'won', { now: NOW, project_id: p, amount_usd: 500, payment: { key: 'p1' } }), { ok: false, note: 'Already tracked.' });
+  }
+  const rows = await sql()`SELECT project_id, amount_usd FROM applications WHERE owner = ${o(i)} AND program_id = 'l28-fr5' ORDER BY project_id`;
+  assert.deepEqual(rows.map((r) => [r.project_id, Number(r.amount_usd)]), [['name:one', 1500], ['name:two', 1500]]);
+  assert.deepEqual((await sql()`SELECT DISTINCT project_id FROM application_history WHERE owner = ${o(i)} AND program_id = 'l28-fr5' ORDER BY project_id`).map((r) => r.project_id), ['name:one', 'name:two']);
+});
+
+test('N2 (Task 14 fix round 1): the record-id backfill keeps the newest of two record ids on one repo, and reruns', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const schema = readFileSync(join(import.meta.dirname, '../../db/schema.sql'), 'utf8');
+  await prog('l28-n2');
+  const [b] = await sql()`INSERT INTO builders (github_id, login, record) VALUES (${980_000 + n}, 'n2', ${sql().json({ projects: [
+    { id: 'mono-web', repo_url: 'https://github.com/Org/Mono.git/' }, { id: 'mono-api', repo_url: 'https://github.com/org/mono' }] })}) RETURNING id`;
+  const i = await install();
+  const owner = `b:${b.id}`;
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, project_id, at) VALUES
+    (${owner}, ${i}, 'l28-n2', 'applied', 'mono-web', ${NOW}), (${owner}, ${i}, 'l28-n2', 'applied', 'mono-api', ${new Date(NOW.getTime() + DAY)})`;
+  await sql().unsafe(schema);
+  await sql().unsafe(schema);
+  const rows = await sql()`SELECT project_id FROM applications WHERE owner = ${owner} AND program_id = 'l28-n2' ORDER BY project_id`;
+  assert.deepEqual(rows.map((r) => r.project_id), ['https://github.com/org/mono', 'mono-web']);
+});

@@ -230,6 +230,21 @@ a `team` field's label; `programs:check` refuses a one-fact `team` field), choic
 `from: builder` with `todo: 'Needs your answer.'`; names fill only a field that asks who is on the team; a username is
 never a name and a second founder's email comes from the team. Team members gain `full_time` and `link`.
 
+Task 14 fix round 1: a send gate matches the project key exactly (`pickRow`'s `off_repo` match is for display reads only:
+`sentOf`, `resultOf`, `excluded`), and the ownership check runs on every write keyed by a repo (`started`, an agent's
+`applied`, `held`), except a send over this agent's own live claim on the project (checked at its start, FR-4). With no
+evidence either way (another host, a private or unreadable repo) track and find say `I could not confirm this repo is
+yours; tell me your GitHub login on it or send it yourself.` (`CANT_CONFIRM_REPO`); `NOT_YOUR_REPO` only on evidence
+against (`repoEvidence`), and then find's one action is `Say which repo is yours.`; a signed-out builder with a repo gets
+no apply offer (`Sign in once and I check the repo is yours; then say yes.`) and track answers `Sign in first so I can
+check the repo is yours.` (FR-1; `APPLY_OFFER` in find.ts names the lines that give way). One application per repo is
+keyed by GitHub's repo id when known (`sentForRepo`, `repoLock`, the screen's earliest lookup, stats' `wonOnce`), the link
+as the fallback; a rename re-key (`rekeyByRepoId`, from find's `followRename` and track's `followRepoId`, only from the
+cached read's own link) also finds old keys by steps, reports and record projects with that id, so confirmed rules
+follow. `rekeyProject` runs the cross-builder check under the repo lock and keeps a send another builder holds off the
+repo. `application_history.project_id` keys a history row to its application (the further-payment repeat check and
+/me's paid-more flag, FR-5). The join yes is `track` with `program_id: join` (named in the tool description).
+
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only

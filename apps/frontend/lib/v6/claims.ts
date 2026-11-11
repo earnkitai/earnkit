@@ -71,8 +71,8 @@ export async function claim(owner: string, programId: string, projectId: string 
     const repoKey = repoKeyOf(rk || key);
     // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, under the repo's lock.
     if (repoKey && (!row || row.status === 'started')) {
-      await repoLock(tx, repoKey, programId);
-      const other = await sentForRepo(tx, programId, repoKey, owner);
+      await repoLock(tx, repoKey, programId, o.repoId ?? null);
+      const other = await sentForRepo(tx, programId, repoKey, owner, o.repoId ?? null);
       if (other) return { repo: { at: other.at, login: other.login } };
     }
     // L28-10: an unlinked agent never claims what the builder it was linked to sent.
@@ -86,8 +86,8 @@ export async function claim(owner: string, programId: string, projectId: string 
       await tx`UPDATE applications SET held_at = NULL, claimed_at = ${now}, claimed_by = ${installationId}, installation_id = ${installationId},
           note = COALESCE(${note}, note), application_id = COALESCE(application_id, ${newApplicationId()})
         WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
-      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
-        VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder')`;
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source, project_id)
+        VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder', ${rk || null})`;
       return { ok: true as const };
     }
     if (row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId) {
@@ -112,8 +112,8 @@ export async function claim(owner: string, programId: string, projectId: string 
       return now2 ? { held: holder(now2), sent: now2.status !== 'started' } : { skipped: true as const };
     }
     // L17-2 (v6.1.16): every history row names its source; a claim is always an agent's.
-    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder')`;
+    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source, project_id)
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder', ${rk || null})`;
     return { ok: true as const };
   });
   if ('ok' in out) return { ok: true };

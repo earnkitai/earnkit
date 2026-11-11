@@ -16,7 +16,7 @@ import { closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, CANT_CONFIRM_REPO, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -24,7 +24,7 @@ import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
-import { cachedRepoFacts, cachedRepoId, ownsRepo, repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { cachedRepoFacts, cachedRepoId, cachedRepoLink, repoEvidence, repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
@@ -667,6 +667,25 @@ export const WHICH_PROJECT = (a: string, b: string): string => `Which project: $
 export const WHICH_PROJECT_NOTE = 'Two record projects share this repo, so nothing was filled from either. Ask which, then call find with its project_id.';
 /** L28-3 (v6.1.16 Task 14): the agent note when the signed-in login has no public tie to the repo. */
 export const NOT_YOUR_REPO_NOTE = 'The signed-in GitHub account is not the repo owner, in its org, or among its committers: do not apply with this repo.';
+/**
+ * FR-1, M1 (fix round 1): a builder line that offers an apply (a yes that EarnKit sends on, or a standing-approval send):
+ * the line that gives way when the repo is not shown to be the builder's. A draft for the builder to send, a rule or a
+ * users question stays.
+ */
+export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold)/;
+/** An apply offer closing a line that says something first ("X needs your amount; then I apply. Say yes and I apply."). */
+const TAIL_OFFER = / Say yes\b.*\bI (also )?apply\b.*$/;
+/** Whether the builder text offers an apply anywhere. Pure. */
+const offersApply = (text: string): boolean => text.split('\n').some((l) => APPLY_OFFER.test(l) || TAIL_OFFER.test(l));
+/** The builder lines with every apply offer taken out (a whole line, or a line's closing sentence). Pure. */
+const withoutApply = (text: string): string[] =>
+  text.split('\n').filter((l) => l && !APPLY_OFFER.test(l)).map((l) => l.replace(TAIL_OFFER, ''));
+/** FR-1 (fix round 1): the agent note when sign-in must come before any claim or send with the repo. */
+export const SIGN_IN_FIRST_NOTE = 'Sign-in comes before any claim or send with this repo: show the sign-in link, then call find again once the builder has signed in.';
+/** Fix round 1 (M1): the one action when the repo is not the builder's. */
+export const SAY_WHICH_REPO = 'Say which repo is yours.';
+/** Fix round 1 (M1): the agent note when the builder's tie to the repo could not be confirmed (no evidence either way). */
+export const CANT_CONFIRM_NOTE = "EarnKit could not confirm the builder's GitHub login on this repo: do not apply with it; ask for the login, or let the builder send it.";
 
 /** What find asks or says before any send (L28-3, L28-5, L28-7, v6.1.16 Task 14), filled while the reply is built. */
 type BeforeSend = { join: string | null };
@@ -679,9 +698,12 @@ type BeforeSend = { join: string | null };
 async function followRename(ctx: FindContext, project: Project | null): Promise<void> {
   const to = project ? projectKeyOf(project) : '';
   if (!repoKeyOf(to)) return;
+  // Fix round 1 (M3): only from the cached read's own (current) link, with the record projects that keep the id.
+  if ((await cachedRepoLink(to)) !== to) return;
   const id = await cachedRepoId(to);
   if (id === null) return;
-  const moved = await rekeyByRepoId(ownerOf(ctx), id, to);
+  const kept = ctx.builderId === null ? [] : (await getRecord(ctx.builderId)).projects.filter((p) => p.repo_id === id && p.repo_url).map((p) => projectKeyOf({ repo_url: p.repo_url }));
+  const moved = await rekeyByRepoId(ownerOf(ctx), id, to, kept.filter(Boolean));
   if (ctx.builderId === null) return;
   await withRecord(ctx.builderId, ctx.now, (cur) => {
     let changed = false;
@@ -838,17 +860,32 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     const shared = sharedRepoProjects(await getRecord(ctx.builderId), projectId, project!.repo_url ?? null);
     if (shared.length >= 2) return ask(WHICH_PROJECT(shared[0], shared[1]), WHICH_PROJECT_NOTE);
   }
-  const login = ctx.builderId === null ? null : (await getBuilder(ctx.builderId))?.login ?? null;
-  const facts = login ? await cachedRepoFacts(project!) : null;
-  const tied = login ? await ownsRepo(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) }) : null;
-  // The builder hears "not yours" only on evidence against them: a read's contributor list without their login. With
-  // none (not read, private, another host) nothing is said here; a claim or a send still fails closed (track).
-  const read = tied === false ? (await cachedRepoFacts(project!))?.contributors : undefined;
-  const mine = tied === false && read === undefined ? null : tied;
-  // Unlinked, a join could never be done (the repo is not shown to be theirs), so it is not asked.
-  if (pre.join && mine === true) return ask(pre.join, JOIN_NOTE(project!.name));
-  if (mine === false) return { ...r, show_to_builder: [NOT_YOUR_REPO, r.show_to_builder].filter(Boolean).join('\n'), agent_note: [NOT_YOUR_REPO_NOTE, r.agent_note].filter(Boolean).join('\n') };
-  return r;
+  if (ctx.builderId === null) {
+    // FR-1 (fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked.
+    if (!offersApply(r.show_to_builder)) return r;
+    await markOffer(ctx.installationId, null, ctx.now);
+    return {
+      ...r,
+      show_to_builder: [...withoutApply(r.show_to_builder), SIGN_IN_FIRST_SAY].join('\n'),
+      agent_note: [r.agent_note, SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
+    };
+  }
+  const login = (await getBuilder(ctx.builderId))?.login ?? null;
+  const facts = await cachedRepoFacts(project!);
+  // Fix round 1 (M1): a GitHub repo with no contributor list cached is read first (`repoTie` reads it), so find and
+  // track judge the same evidence.
+  const { tie, against } = await repoEvidence(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) });
+  if (pre.join && tie !== null) return ask(pre.join, JOIN_NOTE(project!.name));
+  if (tie !== null) return r;
+  // Not shown to be theirs: no apply yes. Evidence against them says so; none says it could not confirm, never "not yours".
+  if (!against && !offersApply(r.show_to_builder)) return r;
+  await markOffer(ctx.installationId, null, ctx.now);
+  const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l)));
+  return {
+    ...r,
+    show_to_builder: (against ? [NOT_YOUR_REPO, ...kept, SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO]).join('\n'),
+    agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE].filter(Boolean).join('\n'),
+  };
 }
 
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {

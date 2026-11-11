@@ -546,6 +546,19 @@ export async function repoTie(login: string | null | undefined, facts: Pick<Repo
   return member ? 'member' : null;
 }
 
+/**
+ * L28-3 (fix round 1, M1): the tie and whether the evidence is against the builder: a GitHub repo whose contributor list
+ * was read (cached or now) without their login, and no other tie. No tie with no evidence (another host, a private or
+ * unread repo, no login) is "could not confirm", never "not yours".
+ */
+export async function repoEvidence(login: string | null | undefined, facts: Pick<RepoFacts, 'repo_url' | 'contributors' | 'owner_type'>, deps: { gh?: Fetch; repoUrl?: string | null; noFetch?: boolean } = {}): Promise<{ tie: RepoTie; against: boolean }> {
+  const tie = await repoTie(login, facts, deps);
+  if (tie !== null || !login) return { tie, against: false };
+  const key = repoKey(deps.repoUrl ?? facts.repo_url ?? undefined);
+  const row = await cachedRow(key);
+  return { tie, against: key !== null && (Array.isArray(facts.contributors) || Array.isArray(row?.contributors)) };
+}
+
 /** L28-3 (v6.1.16 Task 14): whether the repo counts as this login's (`repoTie`, fails closed). */
 export async function ownsRepo(login: string | null | undefined, facts: Pick<RepoFacts, 'repo_url' | 'contributors' | 'owner_type'>, deps: { gh?: Fetch; repoUrl?: string | null; noFetch?: boolean } = {}): Promise<boolean> {
   return (await repoTie(login, facts, deps)) !== null;
