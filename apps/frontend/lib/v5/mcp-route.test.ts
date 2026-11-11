@@ -139,7 +139,7 @@ test('B6: DELETE /mcp is unchanged: the same handler as POST; no token is the 40
 // v6.1.16 Task 5 (lane 19): MCP edges.
 const ALLOW = 'POST, DELETE, OPTIONS';
 
-test('L19-1: PATCH and PUT on /mcp, and TRACE before the route (proxy), are 405 with Allow: POST, DELETE, OPTIONS', async () => {
+test('L19-1: PATCH and PUT on /mcp are 405 with Allow: POST, DELETE, OPTIONS; the proxy never matches /mcp (fix round 1, I1)', async () => {
   const route = await import('../../app/mcp/route');
   for (const r of [route.PATCH(), route.PUT()]) {
     assert.equal(r.status, 405);
@@ -147,16 +147,10 @@ test('L19-1: PATCH and PUT on /mcp, and TRACE before the route (proxy), are 405 
     assert.equal(r.headers.get('access-control-allow-origin'), '*');
     assert.deepEqual(await r.json(), { error: 'method_not_allowed' });
   }
-  // fetch's Request refuses TRACE and CONNECT, so the proxy gets the shape Next hands it.
-  const { proxy } = await import('../../proxy');
-  for (const method of ['TRACE', 'CONNECT', 'PROPFIND']) {
-    const r = await proxy({ url: 'https://earnkit.test/mcp', method, headers: new Headers() } as never);
-    assert.equal(r.status, 405, method);
-    assert.equal(r.headers.get('allow'), ALLOW);
-  }
-  // A served method goes on to the route.
-  const next = await proxy(new Request('https://earnkit.test/mcp', { method: 'POST' }) as never);
-  assert.equal(next.headers.get('x-middleware-next'), '1');
+  // A matched path has its whole body buffered by Next before the route runs (no 5 s timeout, no early 413), so the
+  // body-carrying endpoints stay out of the proxy; their unusual methods are an edge rule.
+  const { config } = await import('../../proxy');
+  assert.deepEqual(config.matcher, ['/me', '/oauth/authorize', '/.well-known/:path*']);
 });
 
 const accepting = (accept: string | null) => {

@@ -12,7 +12,7 @@ import type postgres from 'postgres';
 import { z } from 'zod';
 import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
 import { sql, type Db } from './db';
-import { bearerMatches, json, readCapped } from './http';
+import { bearerMatches, json, readBody } from './http';
 import { ownerMailEnabled, type Mailer } from './mail';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
@@ -404,7 +404,9 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
     console.error(`[programs-api] rate limit check failed: ${errTag(err)}`);
     return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
   }
-  const text = await readCapped(request, PROGRAMS_BODY_MAX).catch(() => null);
+  // Only a slow body is a 408 (v6.1.16 Task 5 fix round 1, I2); a body over the cap stays a 413.
+  const text = await readBody(request, PROGRAMS_BODY_MAX, () => json({ ok: false, error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
   if (text === null) return json({ ok: false, error: `body over ${PROGRAMS_BODY_MAX / 1024} KB` }, 413);
   let body: unknown;
   try {

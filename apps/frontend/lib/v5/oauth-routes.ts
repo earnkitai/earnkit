@@ -4,7 +4,7 @@
  * Refusals are logged by limit and redirect host only, never a client id or token.
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
-import { codeSpent, installOnce, revokeSpentCode } from './installations';
+import { codeSpent, installOnce, revokeInstallation } from './installations';
 import { CIMD_FAILED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
@@ -44,8 +44,8 @@ const page = (text: string, status: number, headers: Record<string, string> = {}
   new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 
 /** L19-4 (OAuth 2.1 4.1.3): a code exchanged twice revokes the token its first exchange gave. */
-async function codeReused(nonce: string) {
-  await revokeSpentCode(nonce);
+async function codeReused(token: string) {
+  await revokeInstallation(token);
   return json({ error: 'invalid_grant', error_description: 'Code already used; the token it gave is revoked.' }, 400);
 }
 
@@ -61,7 +61,7 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
     // refuses too). Checked before the limits, so a refusal spends none.
     if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     // L19-4: a code is spent once. A reuse is refused before the limits (it spends none) and revokes the first token.
-    if (await codeSpent(nonce)) return await codeReused(nonce);
+    if (await codeSpent(nonce)) return await codeReused(token);
     // Every address counts on the one floor first; a hosted client only gets a higher per-client ceiling (v6.1.7, B5).
     let limit = 'installHour';
     try {
@@ -80,7 +80,7 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
       throw err;
     }
     // The nonce is spent and the installation saved in one transaction; a parallel exchange that spent it first wins.
-    if ((await installOnce(token, nonce, clientName, audience)) === null) return await codeReused(nonce);
+    if ((await installOnce(token, nonce, clientName, audience)) === null) return await codeReused(token);
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof BodyTimeoutError) return bodyTimedOut();

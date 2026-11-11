@@ -13,12 +13,6 @@ export type Caller = { id: number; builderId: number | null; audience: string | 
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 
-/** True when this token already has an installation. */
-export async function installationExists(token: string): Promise<boolean> {
-  const [row] = await sql()`SELECT 1 FROM installations WHERE token_hash = ${hash(token)}`;
-  return Boolean(row);
-}
-
 /**
  * An agent's own name as EarnKit keeps and shows it (v6.1.7 C1): control and format characters (bidi overrides,
  * zero-width marks) dropped, spaces collapsed, at most 60 characters; null when nothing is left. Pure.
@@ -63,13 +57,11 @@ export async function codeSpent(nonce: string): Promise<boolean> {
   return Boolean(row);
 }
 
-/** A reused code (L19-4, OAuth 2.1 4.1.3): revokes the token its first exchange gave. */
-export async function revokeSpentCode(nonce: string): Promise<void> {
-  await sql()`UPDATE installations SET revoked_at = COALESCE(revoked_at, now())
-    WHERE token_hash = (SELECT token_hash FROM oauth_codes_spent WHERE nonce = ${nonce})`;
-}
-
-/** Revokes this token's installation: /mcp refuses it from now on (connectInstallation answers null). */
+/**
+ * Revokes this token's installation: /mcp refuses it from now on (connectInstallation answers null). A reused code
+ * (L19-4, OAuth 2.1 4.1.3) revokes the token its first exchange gave: the token is derived from the code, so the
+ * reuse's token is that one (its hash is the one kept in oauth_codes_spent).
+ */
 export async function revokeInstallation(token: string): Promise<void> {
   await sql()`UPDATE installations SET revoked_at = COALESCE(revoked_at, now()) WHERE token_hash = ${hash(token)}`;
 }

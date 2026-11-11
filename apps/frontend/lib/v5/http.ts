@@ -47,10 +47,31 @@ export class BodyTimeoutError extends Error {
   }
 }
 
-/** The 408 answer to a BodyTimeoutError, with its one log line (L19-10). */
+/** The OAuth-style 408 answer to a BodyTimeoutError, with its one log line (L19-10). */
 export function bodyTimedOut(): Response {
   console.warn('[http] body read timed out');
-  return json({ error: 'request_timeout', error_description: 'The request body came too slowly.' }, 408);
+  return requestTimeout();
+}
+const requestTimeout = () => json({ error: 'request_timeout', error_description: 'The request body came too slowly.' }, 408);
+
+/**
+ * readCapped for a route (v6.1.16 Task 5 fix round 1, I2): the text, null over `max`, or, for a body not finished
+ * within `timeoutMs`, the caller's 408 (`slow`, default bodyTimedOut's JSON) after the one log line. Any other error
+ * is thrown, so a real 413 stays a 413 and nothing else is swallowed.
+ */
+export async function readBody(
+  request: Pick<Request, 'headers' | 'body'>,
+  max: number,
+  slow: () => Response = requestTimeout,
+  timeoutMs = 5_000,
+): Promise<string | null | Response> {
+  try {
+    return await readCapped(request, max, timeoutMs);
+  } catch (err) {
+    if (!(err instanceof BodyTimeoutError)) throw err;
+    console.warn('[http] body read timed out');
+    return slow();
+  }
 }
 
 /**

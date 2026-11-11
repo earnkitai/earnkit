@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { sql } from '../v5/db';
-import { json, readCapped } from '../v5/http';
+import { json, readBody } from '../v5/http';
 import { getProgram } from '../v5/programs';
 import { authFailure } from '../v5/programs-api';
 
@@ -72,7 +72,8 @@ const Body = z
 export async function reviewersPost(request: Request): Promise<Response> {
   const denied = authFailure(request);
   if (denied) return denied;
-  const text = await readCapped(request, MAX_BODY);
+  const text = await readBody(request, MAX_BODY, () => json({ ok: false, error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
   if (text === null) return json({ ok: false, error: 'body too large' }, 413);
   let raw: unknown;
   try {

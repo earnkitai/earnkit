@@ -29,7 +29,7 @@ test('L19-9: protected-resource metadata is served at the exact path and the /mc
 
 test('L19-1: every unserved method on the OAuth and discovery routes is 405 with its Allow and CORS', async () => {
   const cases: [string, Record<string, unknown>, string[], string][] = [
-    ['/oauth/authorize', authorize, ['POST', 'PUT', 'PATCH', 'DELETE'], 'GET'],
+    ['/oauth/authorize', authorize, ['POST', 'PUT', 'PATCH', 'DELETE'], 'GET, HEAD, OPTIONS'],
     ['/oauth/register', register, ['GET', 'PUT', 'PATCH', 'DELETE'], 'POST, OPTIONS'],
     ['/oauth/token', token, ['GET', 'PUT', 'PATCH', 'DELETE'], 'POST, OPTIONS'],
     ['/.well-known/oauth-authorization-server', asMeta, ['POST', 'PUT', 'PATCH', 'DELETE'], 'GET, HEAD, OPTIONS'],
@@ -45,8 +45,10 @@ test('L19-1: every unserved method on the OAuth and discovery routes is 405 with
       assert.equal(r.headers.get('access-control-allow-origin'), '*');
       assert.deepEqual(await r.json(), { error: 'method_not_allowed' });
     }
-    // TRACE and other methods no route can export are refused by the proxy before the route runs.
-    for (const method of ['TRACE', 'CONNECT']) {
+    // Methods no route can export are refused by the proxy before the route runs, on the paths it matches (fix round 1,
+    // I1: authorize and discovery only; never /mcp, token or register, whose bodies Next would buffer).
+    if (path === '/oauth/register' || path === '/oauth/token') continue;
+    for (const method of ['TRACE', 'CONNECT', 'PROPFIND']) {
       const r = await proxy({ url: `https://earnkit.test${path}`, method, headers: new Headers() } as never);
       assert.equal(r.status, 405, `${method} ${path}`);
       assert.equal(r.headers.get('allow'), allow, `${method} ${path}`);
@@ -55,4 +57,8 @@ test('L19-1: every unserved method on the OAuth and discovery routes is 405 with
   // The served methods are unchanged.
   assert.equal((await asMeta.GET(req('/.well-known/oauth-authorization-server'))).status, 200);
   assert.equal(register.OPTIONS().status, 204);
+  // N1 (fix round 1): authorize's own OPTIONS names what it serves, never the 405 methods.
+  const o = authorize.OPTIONS();
+  assert.equal(o.status, 204);
+  assert.equal(o.headers.get('allow'), 'GET, HEAD, OPTIONS');
 });

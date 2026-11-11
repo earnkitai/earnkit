@@ -272,11 +272,15 @@ v6.1.16, is accepted). /mcp serves JSON for an absent Accept, `*/*`, `applicatio
 stream (406 `not_acceptable` otherwise); a JSON-RPC id that is an object, an array, a non-integer or beyond the safe
 integers answers -32600 with id null (400 alone, that member's answer in a batch). Every unserved method on /mcp,
 /oauth/* and /.well-known/* is 405 `method_not_allowed` with `Allow` (`notAllowed` in http.ts; /mcp `POST, DELETE,
-OPTIONS`, register and token `POST, OPTIONS`, authorize `GET`, discovery `GET, HEAD, OPTIONS`); `proxy.ts` answers
-methods no route can export (PROPFIND and the like) the same way, but TRACE and CONNECT are refused by Next's own
-Request before the proxy and answer a bare 500 (needs the edge in front). `readCapped` gives up on a body not finished
-within 5 s (`BodyTimeoutError`); /mcp, token and register answer 408 `request_timeout` and log `[http] body read timed
-out` once. Protected-resource metadata is served only at the exact path and its `/mcp` suffix; any other subpath is 404. A
+OPTIONS`, register and token `POST, OPTIONS`, authorize and discovery `GET, HEAD, OPTIONS`, authorize with its own
+OPTIONS); `proxy.ts` answers methods no route can export (PROPFIND and the like) the same way on /oauth/authorize and
+/.well-known only: a path the proxy matches has its whole body buffered by Next before the route runs, so /mcp,
+/oauth/token and /oauth/register stay out of its matcher (fix round 1). PROPFIND-class methods there, and TRACE and
+CONNECT everywhere (refused by Next's own Request first: a bare 500), are parked as an edge rule. `readCapped` gives up
+on a body not finished within 5 s (`BodyTimeoutError`); every caller answers 408 with one log line `[http] body read
+timed out`: /mcp, token and register `request_timeout` (JSON), /me posts `The request took too long. Try again.`,
+reviewers and the programs write `{ ok: false, error: 'the body came too slowly' }`, the cron `{ error }`
+(`readBody` in http.ts; a body over the cap stays a 413). Protected-resource metadata is served only at the exact path and its `/mcp` suffix; any other subpath is 404. A
 client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14; claude.ai's default; an
 http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires

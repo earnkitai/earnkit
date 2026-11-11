@@ -7,7 +7,7 @@
 import { sweepScreens } from '../v6/screen-jobs';
 import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
 import { sql } from './db';
-import { bearerMatches, json, readCapped } from './http';
+import { bearerMatches, json, readBody } from './http';
 import { runHealth } from './health';
 import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
@@ -27,9 +27,13 @@ export type CronDeps = {
   workQueue?: typeof workQueue;
 };
 
-/** The job id of an owner-triggered run; null for an empty body (the daily run); 'bad' for any other body. */
-async function triggeredJob(request: Request): Promise<{ jobId: string } | null | 'bad'> {
-  const text = await readCapped(request, 1_024).catch(() => null);
+/**
+ * The job id of an owner-triggered run; null for an empty body (the daily run); 'bad' for any other body; a 408
+ * Response for a body slower than 5 s (v6.1.16 Task 5 fix round 1, I2).
+ */
+async function triggeredJob(request: Request): Promise<{ jobId: string } | null | 'bad' | Response> {
+  const text = await readBody(request, 1_024, () => json({ error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
   if (text === null) return 'bad';
   if (!text.trim()) return null;
   try {
@@ -74,6 +78,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   const work = deps.workQueue ?? workQueue;
   const trigger = await triggeredJob(request);
   if (trigger === 'bad') return json({ error: 'bad body' }, 400);
+  if (trigger instanceof Response) return trigger;
   if (trigger) {
     const { jobId } = trigger;
     try {
