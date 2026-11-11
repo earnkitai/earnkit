@@ -212,3 +212,58 @@ test('#9 (v6.1.15): every guide string is a sentence with no path and no ISO dat
     }
   }
 });
+
+test('Review Focus 10 (v6.1.16, L21-2): every closed program reads "Closed on {date}." and no open-window sentence', async () => {
+  const { OPEN_WINDOW } = await import('./program-checks');
+  const { closedOn } = await import('./guide');
+  const NOW = new Date('2026-11-11T12:00:00Z');
+  let closed = 0;
+  for (const row of catalog()) {
+    const p = row.file;
+    const g = guideText(row, NOW);
+    const isClosed = p.status === 'closed' || (p.ends_at !== null && Date.parse(p.ends_at) <= NOW.getTime());
+    if (!isClosed) {
+      assert.equal(g.closed_on, null, row.id);
+      continue;
+    }
+    closed++;
+    assert.match(g.closed_on ?? '', /^Closed on \d{1,2} [A-Z][a-z]{2} \d{4}\.$/, row.id);
+    assert.equal(g.closes, 'Closed', row.id);
+    for (const t of [g.description, ...g.rules]) assert.doesNotMatch(t, OPEN_WINDOW, `${row.id}: ${t}`);
+  }
+  assert.ok(closed >= 3, `${closed}`);
+  assert.equal(guideText(real('a16z-speedrun'), NOW).closed_on, 'Closed on 1 Nov 2026.');
+  const a16z = guideText(real('a16z-speedrun'), NOW);
+  for (const t of [a16z.description, ...a16z.rules]) assert.doesNotMatch(t, /are open/i);
+  assert.equal(guideText(real('goose-grant-program'), NOW).closed_on, 'Closed on 11 Nov 2026.');
+  assert.equal(guideText(real('monad-blitz-oregon'), NOW).closed_on, 'Closed on 10 Nov 2026.');
+  // A date-closed program whose file still reads active and open: the guide drops the open-window sentences.
+  const dated = rowOf(programFixture({
+    id: 'a-open-window', ends_at: '2026-11-01T23:59:00-07:00', tz: 'America/Los_Angeles',
+    description: 'A startup program. Applications are open until Nov 1. Founders meet weekly.',
+    rules: ['Apply now on the portal.', 'Applications are open through November 1. Results come in December.', 'One entry per team.'],
+  }));
+  const g = guideText(dated, NOW);
+  assert.equal(g.closed_on, 'Closed on 1 Nov 2026.');
+  assert.equal(g.description, 'A startup program. Founders meet weekly.');
+  assert.deepEqual(g.rules, ['Results come in December.', 'One entry per team.']);
+  assert.equal(closedOn(dated.file, new Date('2026-10-01T00:00:00Z')), null);
+  const open = guideText(dated, new Date('2026-10-01T00:00:00Z'));
+  assert.equal(open.description, dated.file.description);
+  assert.deepEqual(open.rules, dated.file.rules);
+  assert.equal(closedOn(programFixture({ id: 'a-up', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] }), NOW), null);
+});
+
+test('lane 20 audit (v6.1.16): circle money in full figures; Sovereign Tech funds work from EUR 50,000', () => {
+  const NOW = new Date('2026-11-11T12:00:00Z');
+  const circle = real('circle-developer-grants');
+  assert.match(guideText(circle, NOW).money, /^\$10,000 to \$100,000\b/);
+  assert.equal(replyMoney(circle.file), '$10,000 to $100,000 USDC grants');
+  assert.equal(circle.file.min_award_usd, 10000);
+  assert.equal(circle.file.min_tier, 'building');
+  assert.equal(circle.file.tag, undefined);
+  assert.ok(!circle.file.rules.some((r) => /audit funding/i.test(r)));
+  const sovereign = real('sovereign-tech-fund');
+  assert.equal(landingTiles([sovereign], NOW)[0].money, 'Funds work from EUR 50,000');
+  assert.equal(replyMoney(sovereign.file), 'funds work from EUR 50,000');
+});

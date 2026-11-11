@@ -51,7 +51,7 @@ export default function GuideView({ id, page }: { id: string; page: GuidePage })
             <span className="ek-serif text-[32px] leading-none text-s-text">
               <Money text={g.money} />
             </span>
-            <span>{g.closes}</span>
+            <span>{g.closed_on ?? g.closes}</span>
           </p>
           {pills.length > 0 ? (
             <ul aria-label="How to apply" className="flex flex-wrap gap-2">
@@ -63,7 +63,7 @@ export default function GuideView({ id, page }: { id: string; page: GuidePage })
             </ul>
           ) : null}
           {page.opens_note ? <p className="max-w-[36rem] text-[16px] text-s-muted">{page.opens_note}</p> : null}
-          <p className="max-w-[44rem] text-[16px] leading-normal text-s-muted">{page.description}</p>
+          <p className="max-w-[44rem] text-[16px] leading-normal text-s-muted">{g.description}</p>
           {open ? (
             <div className="flex flex-wrap items-center gap-3">
               <AskAgent prompt={GUIDE_ASK(g.title)} />
