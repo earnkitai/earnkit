@@ -367,3 +367,44 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(forms.length > 10 && forms.every((f) => /method="post"/.test(f) && /action="\/me\//.test(f)));
   assert.equal((m.match(/name="csrf"/g) ?? []).length, forms.length);
 });
+
+test('L21-22 (v6.1.16, fix round 1 M2): on /me with a linked agent the footer and header drop the install pill; the Ask line stays', async () => {
+  const { default: Footer } = await import('../../app/components/common/Footer');
+  const { default: Header } = await import('../../app/components/common/Header');
+  const { FOOT_CTA } = await import('./site-copy');
+  const linked = html(Footer({ linked: true }));
+  const plain = html(Footer());
+  assert.ok(textOf(linked).includes(FOOT_CTA) && textOf(plain).includes(FOOT_CTA), 'Ask your agent: What can I earn? stays');
+  assert.ok(!linked.includes(CTA_INSTALL), 'no install pill with a linked agent');
+  assert.ok(plain.includes(CTA_INSTALL), 'the pill everywhere else');
+  // The header's pill hides on a page that carries data-me-linked (MeView, with a linked agent).
+  const header = html(Header());
+  assert.ok(header.includes('[body:has([data-me-linked])_&amp;]:hidden') || header.includes('[body:has([data-me-linked])_&]:hidden'), header);
+});
+
+test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city pill first and the close in days', async () => {
+  const ends = new Date(Date.now() + 5 * 86_400_000 - 3_600_000).toISOString();
+  await upsertProgram(programFixture({ id: 'zz-page-city', title: 'Page City Hack', in_person: true, city: 'Eugene', ends_at: ends, summary: '$4,600 in prizes · 11:59 PM PT', pool_usd: 4600, reward: '$4,600 in prizes' }), 'file', new Date());
+  const m = html(await ProgramGuidePage(params('zz-page-city')));
+  const pills = m.match(/<ul aria-label="How to apply"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  const first = pills.match(/<li[^>]*>([^<]*)<\/li>/)?.[1];
+  assert.equal(first, 'In person: Eugene.', pills);
+  assert.ok(textOf(m).includes('Closes in 5 days.'), textOf(m));
+});
+
+test('L21-5 (v6.1.16): the landing, programs-list and guide caches are keyed through cacheKey, which holds the build id', async () => {
+  const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
+  // The landing and /programs share the landing read; the guide ids and each guide have their own.
+  for (const key of ['landing-v6.3', 'guide-ids-v5', 'guide-v6.1.15']) assert.match(src, new RegExp(`cachedRead\\([^\\n]*\\['${key.replaceAll('.', '\\.')}'\\]\\)`), key);
+  assert.ok(!/unstable_cache/.test(src), 'no cache made around cacheKey');
+  const cached = readFileSync(join(import.meta.dirname, '../../app/lib/cached.ts'), 'utf8');
+  assert.match(cached, /unstable_cache\(read, cacheKey\(key\),/);
+  const { BUILD_ID, cacheKey } = await import('../../app/lib/cached');
+  assert.equal(cacheKey(['guide-v6.1.15']).at(-1), BUILD_ID);
+  // No other page cache bypasses it.
+  for (const dir of ['app', 'app/lib', 'app/programs', 'app/programs/[id]']) {
+    const d = join(import.meta.dirname, '../..', dir);
+    for (const f of readdirSync(d).filter((x) => /\.tsx?$/.test(x) && x !== 'cached.ts'))
+      assert.ok(!/unstable_cache\(/.test(readFileSync(join(d, f), 'utf8')), `${dir}/${f}`);
+  }
+});

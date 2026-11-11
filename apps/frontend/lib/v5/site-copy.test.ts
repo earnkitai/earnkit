@@ -209,7 +209,8 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   assert.equal(copy.NOT_FOUND_TITLE, 'Not found · EarnKit');
   // L21-10, L21-7, L21-15, L21-11, L21-13, L21-17 (v6.1.16).
   assert.equal(copy.ME_AN_AGENT('Nov 6'), 'An agent linked Nov 6');
-  assert.equal(copy.ME_UNLINKED('An agent linked Nov 6'), 'Unlinked An agent linked Nov 6.');
+  assert.equal(copy.ME_UNLINKED('an agent linked Nov 6'), 'Unlinked an agent linked Nov 6.');
+  assert.equal(copy.ME_UNLINKED('Claude Code'), 'Unlinked Claude Code.');
   assert.equal(copy.ME_UNLINK_NOT_YOURS, 'That agent is not on your account.');
   assert.equal(copy.ME_SAVED, 'Saved.');
   assert.equal(copy.ME_REVIEWS('Base Builder Grants'), 'You review Base Builder Grants. Results come through your agent.');

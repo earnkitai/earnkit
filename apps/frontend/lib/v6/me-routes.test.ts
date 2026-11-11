@@ -274,7 +274,7 @@ test('signoutPost ends the session; unlinkPost unlinks only the builder\'s own i
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${theirs}`)[0].builder_id, other.b.id);
   // L21-7, L21-10 (v6.1.16): the note names the agent as /me shows it; an unnamed one by its link day.
   const gone = await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps);
-  assert.deepEqual(lineOf(gone, b.id), { status: 303, path: '/me', key: 'note', text: 'Unlinked An agent linked Nov 6.', shown: true });
+  assert.deepEqual(lineOf(gone, b.id), { status: 303, path: '/me', key: 'note', text: 'Unlinked an agent linked Nov 6.', shown: true });
   refused(b.id, await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps), 'That agent is not on your account.');
   assert.deepEqual({ ...(await sql()`SELECT builder_id, linked_at FROM installations WHERE id = ${mine}`)[0] }, { builder_id: null, linked_at: null });
   // The refused id and the other builder's agent carry no unlink mark (B10).

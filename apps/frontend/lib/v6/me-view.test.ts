@@ -280,10 +280,12 @@ test('L21-10, L21-12, L21-13, L21-22 (v6.1.16): unnamed agents by day, projects 
   const owner = `b:${b.id}`;
   await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, project_id) VALUES
     (${first}, ${owner}, 'ad-1', 'applied', ${NOW}, 'https://github.com/ada/kit'), (${first}, ${owner}, 'ad-2', 'started', ${NOW}, 'https://github.com/ada/kit'),
+    (${first}, ${owner}, 'ad-4', 'won', ${NOW}, 'https://github.com/ada/kit'), (${first}, ${owner}, 'ad-5', 'started', ${NOW}, 'name:claim only'),
     (${first}, ${owner}, 'ad-3', 'applied', ${NOW}, 'name:side project')`;
   const d = await meData(b, NOW, 'sess');
   assert.deepEqual(d.installations.map((a) => a.label).sort(), ['An agent linked Nov 6', 'An agent linked Nov 6 (2)']);
   assert.equal(d.installations.find((a) => a.id === second)!.label, 'An agent linked Nov 6 (2)', 'the later one carries the (2)');
+  // N1 ruling (fix round 1): sent applications only; a claim neither counts nor lists a project.
   assert.deepEqual(d.projects_seen.map((p) => p.line), ['https://github.com/ada/kit: 2 applications.', 'side project: 1 application.']);
   assert.deepEqual(d.reviews, ['You review Review Grants. Results come through your agent.']);
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));

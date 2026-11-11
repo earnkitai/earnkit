@@ -738,7 +738,7 @@ ended), and /link/<code> uses the same two dead-code lines. Signed out, `/me?lin
 and the standing approval come back with a signed `Saved.` shown beside the control (`at` names it); an unlink says
 `Unlinked {agent}.` (an unnamed agent is "An agent linked Nov 6"), another builder's agent `That agent is not on your
 account.`; a delete lands on `/?deleted=1` ("Your account is deleted.", client side, the home page stays static).
-Projects the applications name that the record does not hold are listed read-only; a reviewer sees one line per
+Projects the sent applications name (claims not counted) that the record does not hold are listed read-only; a reviewer sees one line per
 program. With a linked agent the page carries `data-me-linked` and the header and footer drop the install pill.
 
 **Environment (ten).** `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (also signs link codes, the sign-in state and the /me

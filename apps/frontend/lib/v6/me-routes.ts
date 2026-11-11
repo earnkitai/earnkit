@@ -276,7 +276,8 @@ export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Res
   // L21-7, L21-15 (v6.1.16): the agent named as /me shows it; one that is not the builder's says so.
   const agent = (await agentList(g.builder.id)).find((a) => a.id === id);
   if (!agent || !(await unlinkInstallation(id, g.builder.id, g.now))) return problemAt(g, ME_UNLINK_NOT_YOURS);
-  return noteAt(g, ME_UNLINKED(agent.label));
+  // M1 (fix round 1): mid-sentence an unnamed agent's label starts lower case; a name stays as written.
+  return noteAt(g, ME_UNLINKED(agent.client_name ? agent.label : agent.label.charAt(0).toLowerCase() + agent.label.slice(1)));
 }
 
 /**

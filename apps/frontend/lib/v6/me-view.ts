@@ -282,8 +282,8 @@ export async function agentList(builderId: number): Promise<MeData['installation
 }
 
 /**
- * Projects the owner's applications and claims name (`project_id`) that the record does not hold (L21-12, v6.1.16):
- * by repo link or name, with the count, read-only. A record project matches by its id or its project key. Pure.
+ * Projects the owner's sent applications name (`project_id`) that the record does not hold (L21-12, v6.1.16; N1 ruling:
+ * a claim is not counted, the count is what was sent): by repo link or name, with the count, read-only. A record project matches by its id or its project key. Pure.
  */
 export function projectsSeen(record: BuilderRecord, rows: { project_id: string; n: number }[]): MeData['projects_seen'] {
   const held = new Set(record.projects.flatMap((p) => [p.id, projectKeyOf(p), nameKeyOf(p)].filter(Boolean)));
@@ -308,7 +308,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     FROM applications a LEFT JOIN programs p ON p.id = a.program_id
     WHERE a.owner = ${owner} ORDER BY a.at DESC LIMIT 100`;
   const seen = await sql()<{ project_id: string; n: number }[]>`
-    SELECT project_id, count(*)::int AS n FROM applications WHERE owner = ${owner} AND project_id IS NOT NULL AND status <> 'skipped'
+    SELECT project_id, count(*)::int AS n FROM applications WHERE owner = ${owner} AND project_id IS NOT NULL AND status <> ALL(${['skipped', 'started']})
     GROUP BY project_id ORDER BY project_id`;
   const counts = await summary(owner, [], now);
   const reviews = await reviewerPrograms(builder.id);
