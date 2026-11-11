@@ -40,7 +40,11 @@ const SAME_WORDS = 0.8;
 const MAX_TEXT = 65_536;
 
 /** The run's error codes (controller ruling, v6.1.16 Task 16): the JSON and the Actions log carry only these. */
-export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'error';
+/**
+ * `catalog`: a program that cannot open or close because its file lacks what the schema needs; `parse`: a stored row
+ * whose file no longer parses.
+ */
+export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'catalog' | 'parse' | 'error';
 
 /** The full error for the server log only: its name and a short message, a URL's query cut, no stack. Pure. */
 export function errorWords(err: unknown): string {
@@ -165,14 +169,14 @@ export async function runHealth(
     LIMIT ${limit}`;
   const out: HealthRun = { checked: 0, stale: [], changed: [], closed: [], opened: [], failed: [] };
   // The full reason goes to the server log only; the run's answer carries the code.
-  const fail = (id: string, err: unknown) => {
+  const fail = (id: string, err: unknown, code?: ErrorCode) => {
     console.error(`[health] ${id} failed: ${typeof err === 'string' ? err : errorWords(err)}`);
-    out.failed.push({ id, step: 'health', error: typeof err === 'string' ? 'error' : errorCode(err) });
+    out.failed.push({ id, step: 'health', error: code ?? errorCode(err) });
   };
 
   const walk = async (r: Walked): Promise<void> => {
     const parsed = ProgramFile.safeParse(r.file);
-    if (!parsed.success) return fail(r.id, 'the program file does not parse');
+    if (!parsed.success) return fail(r.id, 'the program file does not parse', 'parse');
     const file = parsed.data;
     // A probe starts only when it can finish before the deadline.
     if (deadline === undefined || clock() + (probeDeps.probeMs ?? PROBE_MS) <= deadline) {
@@ -206,12 +210,13 @@ export async function runHealth(
     const to = dateStatus(file, now);
     if (!to) return;
     // L30-1: an upcoming program opens only with its requirements in the file; until then it stays and the owner hears.
-    if (to === 'active' && file.submission_requirements.length === 0) return fail(r.id, 'opens today but has no submission requirements');
+    if (to === 'active' && file.submission_requirements.length === 0) return fail(r.id, 'opens today but has no submission requirements', 'catalog');
     try {
       await flip(file, r.source, to, now);
       (to === 'closed' ? out.closed : out.opened).push(r.id);
     } catch (err) {
-      fail(r.id, err);
+      // The schema refusing the moved file is the catalog's to fix.
+      fail(r.id, err, err instanceof Error && err.name === 'ZodError' ? 'catalog' : undefined);
     }
   };
 

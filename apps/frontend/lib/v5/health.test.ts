@@ -273,7 +273,7 @@ test('L30-1: nlnet-open-call closes at its deadline (Jan 3, 12:00 CET); arbitrum
   // At its start it has no requirements yet: it stays upcoming and the owner hears, every run, until the file has them.
   const start = await run('2027-02-08T03:01:00Z');
   assert.deepEqual(start.opened, []);
-  assert.deepEqual(start.failed, [{ id: arb.id, step: 'health', error: 'error' }]);
+  assert.deepEqual(start.failed, [{ id: arb.id, step: 'health', error: 'catalog' }]);
   assert.equal(await statusOf(arb.id), 'upcoming');
   const end = await run('2027-03-01T02:59:00Z');
   assert.deepEqual([end.closed, end.failed], [[arb.id], []]);
@@ -346,4 +346,28 @@ test('budget: no probe starts that could not finish before the deadline; the dat
   t = 0;
   const r2 = await runHealth(D1, { link: async () => (probes++, { ok: true }), clock: () => t, deadline: 8_000, parallel: 1 });
   assert.equal(r2.checked, 0); // all three closed already: nothing listed
+});
+
+test('failure codes: a stored row whose file no longer parses is parse; an upcoming program that cannot open for its file is catalog', async () => {
+  await upsertProgram(programFixture({ id: 'h-parse' }), 'file', D1);
+  await upsertProgram(programFixture({ id: 'h-cat', status: 'upcoming', opens_note: 'Opens Nov 1.', starts_at: '2026-11-01T00:00:00Z', submission_requirements: [] }), 'file', D1);
+  await only('h-parse', 'h-cat');
+  await sql()`UPDATE programs SET file = jsonb_set(file, '{title}', '7'::jsonb) WHERE id = 'h-parse'`;
+  const logged: string[] = [];
+  const was = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
+  let r;
+  try {
+    r = await runHealth(D1, { link: ok });
+  } finally {
+    console.error = was;
+  }
+  assert.deepEqual(r.failed.sort((x, y) => x.id!.localeCompare(y.id!)), [
+    { id: 'h-cat', step: 'health', error: 'catalog' },
+    { id: 'h-parse', step: 'health', error: 'parse' },
+  ]);
+  assert.equal(await statusOf('h-cat'), 'upcoming');
+  // The reasons are in the server log only.
+  assert.ok(logged.includes('[health] h-parse failed: the program file does not parse'));
+  assert.ok(logged.includes('[health] h-cat failed: opens today but has no submission requirements'));
 });
