@@ -28,8 +28,32 @@ export const PROJECT_FIELDS = ['name', 'description', 'repo_url', 'live_url', 'd
 export const FIELD_KINDS = [
   'name', 'one_liner', 'problem', 'solution', 'how_it_works', 'traction', 'team', 'why_you', 'milestones', 'use_of_funds',
   'competitors', 'risks', 'ecosystem_fit', 'what_next', 'past_work', 'help_needed', 'demo_video', 'links', 'contact', 'raised', 'other',
+  // L28-8, L28-9 (v6.1.16 Task 14): team questions that each read their own record fact.
+  'team_size', 'team_roles', 'team_full_time', 'team_links', 'team_usernames', 'cofounder_email',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
+
+/** L28-8 (v6.1.16 Task 14): the team kinds that each read one record fact (prefill), by the question they ask. */
+export const TEAM_KINDS = ['team_size', 'team_roles', 'team_full_time', 'team_links', 'team_usernames', 'cofounder_email'] as const;
+export type TeamKind = (typeof TEAM_KINDS)[number];
+
+/**
+ * L28-8 (v6.1.16 Task 14): the team kind a `team` field's label asks for, or null when it asks who is on the team (or
+ * something else): a count (`Team size`), a role (`Roles`), full time (`Full time?`), profile links (`Team links`),
+ * usernames or handles (`GitHub usernames`), a second founder's email (`Co-founder email`). A label that also asks
+ * names, emails or backgrounds is a whole-team question and stays `team`. Pure.
+ */
+export function teamKindOf(label: string): TeamKind | null {
+  const l = label.toLowerCase();
+  const whole = /\bnames?\b|\bemails?\b|background|\bbio\b|experience|skills/.test(l);
+  if (/how many|number of|team size|how large|headcount|\bsize\b/.test(l) && !/equity/.test(l)) return 'team_size';
+  if (/full[- ]?time|commitment|committed/.test(l)) return 'team_full_time';
+  if (whole) return /e-?mail/.test(l) && /2nd|second|co-?founder|other founder/.test(l) && !/\bnames?\b|\broles?\b/.test(l) ? 'cofounder_email' : null;
+  if (/\broles?\b/.test(l)) return 'team_roles';
+  if (/linkedin|profiles?\b|\blinks?\b/.test(l)) return 'team_links';
+  if (/user ?names?\b|handles?\b/.test(l)) return 'team_usernames';
+  return null;
+}
 
 /** The kinds of the builder's answer bank. */
 export const ANSWER_KINDS = [

@@ -105,7 +105,8 @@ test('first find has no since', async () => {
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
       "One step away (3):",
       "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      "Say yes and tell me your top 3 successes, the funding raised before and your current TVL range, and I apply to Arbitrum Mentorship Program: Cohort 2.",
+      // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
+      'Say yes and tell me the number of founders, your top 3 successes, your time commitment and 2 more, and I apply to Arbitrum Mentorship Program: Cohort 2.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
@@ -1259,7 +1260,8 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
       "One step away (3):",
       "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      "Say yes and tell me your top 3 successes, the funding raised before and your current TVL range, and I apply to Arbitrum Mentorship Program: Cohort 2.",
+      // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
+      'Say yes and tell me the number of founders, your top 3 successes, your time commitment and 2 more, and I apply to Arbitrum Mentorship Program: Cohort 2.',
     ].join('\n'),
   );
   // Without the repo's Arbitrum, the Base rule-only program takes the slot ahead of the $900K chain-agnostic one and
@@ -1593,7 +1595,12 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
 });
 
 test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or leads another project of the builder', async () => {
-  const c = await dashCtx();
+  // L28-3 (v6.1.16 Task 14): a claim with a repo needs the repo's own builder: signed in as its owner.
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const u = await dashCtx();
+  const owner = await upsertBuilder({ github_id: 951_595, login: dash.repo.split('/')[0], name: 'Owner', avatar_url: null }, NOW);
+  await linkInstallation(u.installationId, owner.id, NOW);
+  const c = { ...u, builderId: owner.id as number | null };
   await mcpCall(c, 'find', { project: VR });
   // L29-8 (v6.1.16 Task 15): the rule first; once confirmed, the claim lands on this project.
   const refused = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started', project: VR });
@@ -1612,7 +1619,8 @@ test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or lead
   const show = other.reply!.show_to_builder as string;
   assert.doesNotMatch(show, /Meta VR/);
   // L29-26 (v6.1.16 Task 15): Task 9's since line sits after the money lines.
-  assert.equal(show.split('\n').filter((l) => !l.startsWith('Since ')).join('\n'), IDEA_REPLY(), show);
+  // L28-3 (v6.1.16 Task 14): signed in now, so the record's before-applying line shows too.
+  assert.equal(show.split('\n').filter((l) => !l.startsWith('Since ') && !l.startsWith('Before applying:')).join('\n'), IDEA_REPLY(), show);
   // The claimed project itself still has it pinned.
   const own = await mcpCall(c, 'find', { project: VR });
   assert.equal(ids(own.reply!.gaps)[0], 'meta-vr-start-competition-2026');
@@ -2490,14 +2498,26 @@ test('Review Focus 3 (v6.1.13, B4): a done step survives any spelling of the sam
     // And the other way: the find spelled so reads the step marked on the plain link.
     assert.equal(await status(c, 'rf3-demo', { ...PROJECT, repo_url: spelled }), 'ready', spelled);
   }
-  // Found by name first: the step done and the claim move to the repo key on the first find with the repo.
-  const c = ctx(await installation());
+  // Found by name first: the step done and the claim move to the repo key once the builder says yes to the join
+  // question (L28-5, v6.1.16 Task 14, re-pinned: never on a find alone; signed in as the repo's owner, L28-3).
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const u = ctx(await installation());
+  const ob = await upsertBuilder({ github_id: 952_474, login: owner, name: 'Owner', avatar_url: null }, NOW);
+  await linkInstallation(u.installationId, ob.id, NOW);
+  const c = { ...u, builderId: ob.id as number | null } as unknown as ReturnType<typeof ctx>;
   const NAMED = { name: 'Keyed App', description: 'Grants for builders.' };
   assert.equal(await status(c, 'rf3-demo', NAMED), 'gap');
   await mcpCall(c, 'track', { program_id: 'rf3-demo', status: 'gap_done', item: 'demo_video' });
   await mcpCall(c, 'track', { program_id: 'rf3-two', status: 'started', project: NAMED });
+  const asked = await mcpCall(c, 'find', { program_id: 'rf3-demo', project: { ...NAMED, repo_url: `${repo}/tree/main` } });
+  assert.equal(asked.reply!.show_to_builder, `Is "Keyed App" the same as ${repo.toLowerCase().replace('https://', '')}? Say yes and I join them.`);
+  assert.equal((asked.reply!.verdict as { status: string }).status, 'gap');
+  const join = async () => mcpCall(c, 'track', { program_id: 'join', status: 'gap_done', item: 'join:Keyed App', project: { ...NAMED, repo_url: repo } });
+  const joined = await join();
+  assert.equal(joined.isError, false, joined.text);
+  assert.equal(joined.reply!.show_to_builder, `Joined "Keyed App" with ${repo.toLowerCase().replace('https://', '')}.`);
   assert.equal(await status(c, 'rf3-demo', { ...NAMED, repo_url: `${repo}/tree/main` }), 'ready');
-  const owned = 'i:' + c.installationId;
+  const owned = 'b:' + ob.id;
   assert.deepEqual((await sql()`SELECT DISTINCT project_key FROM gaps_done WHERE owner = ${owned}`).map((r) => r.project_key), [repo.toLowerCase()]);
   const [claimRow] = await sql()`SELECT project_id FROM applications WHERE owner = ${owned} AND program_id = 'rf3-two'`;
   assert.equal(claimRow.project_id, repo.toLowerCase());
@@ -2506,6 +2526,7 @@ test('Review Focus 3 (v6.1.13, B4): a done step survives any spelling of the sam
   await sql()`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at) VALUES (${owned}, ${c.installationId}, 'name:keyed app', 'rf3-demo', 'demo_video', ${new Date(NOW.getTime() + H)})`;
   await sql()`UPDATE gaps_done SET at = ${older} WHERE owner = ${owned} AND project_key = ${repo.toLowerCase()}`;
   await mcpCall(c, 'find', { program_id: 'rf3-demo', project: { ...NAMED, repo_url: repo } });
+  await join();
   const rows = await sql()`SELECT project_key, at FROM gaps_done WHERE owner = ${owned}`;
   assert.deepEqual(rows.map((r) => [r.project_key, (r.at as Date).toISOString()]), [[repo.toLowerCase(), new Date(NOW.getTime() + H).toISOString()]]);
 });

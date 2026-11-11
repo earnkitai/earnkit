@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { movedByDate } from './health';
 import { programProblems } from './program-checks';
-import type { Program } from './program-file';
+import { teamKindOf, type Program } from './program-file';
 import { upsertProgram } from './programs';
 import { revalidateCatalog } from './programs-read';
 
@@ -30,6 +30,12 @@ export function readProgramFiles(dir: string, now: Date): ProgramFiles {
     if (problems.length === 0 && f !== `${id}.json`) problems.push(`the file is named <id>.json (${id}.json)`);
     // L21-16 (v6.1.16): a catalog file held in person names where, from its own text, for the guide's `In person: {city}.` pill.
     if (problems.length === 0 && (raw as Program).in_person && !(raw as Program).city) problems.push('city: an in-person program names its city (from its description or rules)');
+    // L28-8 (v6.1.16 Task 14): a team field whose label asks one fact uses that fact's kind, so it is filled from it.
+    if (problems.length === 0)
+      for (const r of (raw as Program).submission_requirements ?? []) {
+        const k = r.kind === 'team' ? teamKindOf(r.label) : null;
+        if (k) problems.push(`submission_requirements ${r.key}: "${r.label.slice(0, 60)}" asks one team fact; use kind ${k}`);
+      }
     if (problems.length > 0) {
       out.invalid.push([`${f} is not valid:`, ...problems.map((p) => `  - ${p}`)].join('\n'));
       continue;

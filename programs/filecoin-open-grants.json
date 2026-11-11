@@ -59,7 +59,7 @@
     { "key": "budget", "label": "Total Budget Requested", "type": "text", "required": true, "from": "builder", "kind": "use_of_funds", "todo": "a budget table by milestone", "description": "A table of milestone, description, deliverables, completion date and funding." },
     { "key": "maintenance", "label": "Maintenance and Upgrade Plans", "type": "text", "required": true, "from": "project", "kind": "what_next", "todo": "your long-term maintenance plan" },
     { "key": "team_members", "label": "Team Members", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "your team members" },
-    { "key": "linkedin", "label": "Team Member LinkedIn Profiles", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "team LinkedIn profiles" },
+    { "key": "linkedin", "label": "Team Member LinkedIn Profiles", "type": "text", "required": true, "from": "builder", "kind": "team_links", "todo": "team LinkedIn profiles" },
     { "key": "team_website", "label": "Team Website", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "a team website link", "project_field": "live_url" },
     { "key": "experience", "label": "Relevant Experience", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "the team fit for this work" },
     { "key": "team_repos", "label": "Team code repositories", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "links to prior related repos" },
