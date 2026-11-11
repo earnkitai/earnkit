@@ -511,8 +511,50 @@ test('L26-8 (v6.1.16): one 20 s budget for the whole read: GitHub that never ans
     assert.ok(y.ms < 21_000, `${y.ms}`);
     assert.ok(y.f.public || y.f.notes?.includes('slow'), JSON.stringify(y.f.notes));
     if (!y.f.public) assert.equal(await reads(b), 0);
-    // A slow read is not kept: the next find reads it again.
-    assert.equal(await cached(), 0);
+    // A slow read is kept 10 minutes as a marker, never as facts.
+    assert.ok((await kept()).every((f) => (f as { miss?: string }).miss === 'slow'));
+  } finally {
+    clearTimeout(keep);
+  }
+});
+
+test('controller ruling (L26-9 review): misses count on their own 20 a day: 20 distinct missing repos, then the paused line; the next real read still works; a repeat miss costs nothing', async () => {
+  const id = 7_600 + Math.floor(Math.random() * 1_000);
+  await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`})`;
+  const calls: string[] = [];
+  const rec = replayFetch('nextjs-dashboard');
+  const gh = ((u: RequestInfo | URL, i?: RequestInit) => (String(u).includes('/nobody/') ? (calls.push(String(u)), Promise.resolve(new Response('{}', { status: 404 }))) : rec.fetch(u, i))) as typeof fetch;
+  const deps = { gh, now: NOW, installationId: id };
+  for (let n = 1; n <= 20; n++) {
+    const f = await repoFacts(project({ repo_url: `https://github.com/nobody/missing-${n}` }), deps);
+    assert.deepEqual(f.notes, ['unread'], `miss ${n}`);
+  }
+  // A repeat miss within 30 minutes: no call, no count.
+  const before = calls.length;
+  assert.deepEqual((await repoFacts(project({ repo_url: 'https://github.com/nobody/missing-1' }), deps)).notes, ['unread']);
+  assert.equal(calls.length, before);
+  const over = await repoFacts(project({ repo_url: 'https://github.com/nobody/missing-21' }), deps);
+  assert.deepEqual(over.notes, ['paused']);
+  assert.equal(REPO_NOTE.paused, 'Repo reads are paused until tomorrow; matched on what you told me.');
+  // The day's real reads are untouched by the 20 misses: a real repo still reads.
+  const real = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), deps);
+  assert.equal(real.public, true);
+});
+
+test('controller ruling (L26-8 review): a slow repo is kept 10 minutes: the next find is slow again with no call and no count', async () => {
+  const keep = setTimeout(() => {}, 30_000);
+  try {
+    const id = 7_700 + Math.floor(Math.random() * 100);
+    await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`})`;
+    let n = 0;
+    const never = (async () => (n++, new Promise<Response>(() => {}))) as typeof fetch;
+    const p = project({ repo_url: 'https://github.com/nobody/slow-l268' });
+    assert.deepEqual((await repoFacts(p, { gh: never, now: NOW, installationId: id })).notes, ['slow']);
+    const calls = n;
+    assert.deepEqual((await repoFacts(p, { gh: never, now: new Date(NOW.getTime() + 9 * 60_000), installationId: id })).notes, ['slow']);
+    assert.equal(n, calls);
+    const counts = await sql()`SELECT key, count FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`}) ORDER BY key`;
+    assert.deepEqual(counts.map((r) => [r.key, r.count]), [[`repoMiss:${id}`, 1], [`repoRead:${id}`, 0]]);
   } finally {
     clearTimeout(keep);
   }

@@ -239,15 +239,25 @@ async function countRead(installationId: number | undefined, now: Date) {
   if (!(await hit(`repoRead:${installationId}`, limit, windowSeconds, now)).allowed) throw new ReadsPaused();
 }
 
-/** L26-8, L26-9 (v6.1.16 Task 12): a read that timed out or found no public repo gives the day's read back. */
-async function uncountRead(installationId: number | undefined, now: Date) {
-  if (installationId !== undefined) await uncountHit(`repoRead:${installationId}`, LIMITS.repoRead.windowSeconds, now);
+/**
+ * L26-8, L26-9 (v6.1.16 Task 12, controller ruling on review): a read that timed out or found no public repo gives the
+ * day's real read back, and counts instead on the installation's own miss budget (LIMITS.repoMiss, 20 a day), so
+ * distinct missing repos never spend the shared GitHub token freely. Over that budget the real read stays counted and
+ * the reply is the paused line (throws ReadsPaused).
+ */
+async function missRead(installationId: number | undefined, now: Date) {
+  if (installationId === undefined) return;
+  const { limit, windowSeconds } = LIMITS.repoMiss;
+  if (!(await hit(`repoMiss:${installationId}`, limit, windowSeconds, now)).allowed) throw new ReadsPaused();
+  await uncountHit(`repoRead:${installationId}`, LIMITS.repoRead.windowSeconds, now);
 }
 
 /** L26-9 (v6.1.16 Task 12): how long a 404 or a private answer is kept, so a missing repo is read once per window. */
 export const MISS_KEEP_MS = 30 * 60_000;
+/** Controller ruling (review of L26-8): how long a slow read is kept, so the same slow repo is not re-read freely. */
+export const SLOW_KEEP_MS = 10 * 60_000;
 /** A kept miss in repo_cache: the facts are only `{ miss }`, never complete, so no other reader takes them as a read. */
-type Miss = { miss: 'gone' | 'private' };
+type Miss = { miss: 'gone' | 'private' | 'slow' };
 const isMiss = (f: unknown): f is Miss => typeof f === 'object' && f !== null && 'miss' in f;
 
 /** Deletes repo_cache rows read over 30 days ago; the count deleted. */
@@ -278,8 +288,10 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
   // builder marked done since sends it back to GitHub.
   if (row && isMiss(row.facts)) {
     const age = now.getTime() - row.fetched_at.getTime();
-    if (age >= 0 && age < MISS_KEEP_MS && !(staleAfter != null && row.fetched_at.getTime() < staleAfter.getTime())) {
+    const keep = row.facts.miss === 'slow' ? SLOW_KEEP_MS : MISS_KEEP_MS;
+    if (age >= 0 && age < keep && !(staleAfter != null && row.fetched_at.getTime() < staleAfter.getTime())) {
       if (row.facts.miss === 'private') throw new RepoPrivateError();
+      if (row.facts.miss === 'slow') throw new GitHubSlow();
       throw new GitHubError(`GitHub: /repos/${key} not found (or private)`, 404);
     }
   }
@@ -316,9 +328,12 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
     read = await readRepo(key, { fetch: f });
   } catch (err) {
     // L26-8, L26-9: a timed-out read and a missing or private repo never count against the day's reads; the miss is kept.
-    if (err instanceof GitHubSlow || err instanceof RepoPrivateError || (err instanceof GitHubError && err.status === 404)) await uncountRead(installationId, now);
-    if (err instanceof RepoPrivateError) await keepMiss('private');
-    else if (err instanceof GitHubError && err.status === 404) await keepMiss('gone');
+    const miss: Miss['miss'] | null = err instanceof GitHubSlow ? 'slow' : err instanceof RepoPrivateError ? 'private' : err instanceof GitHubError && err.status === 404 ? 'gone' : null;
+    if (miss) {
+      // A slow read keeps a cached copy of the facts (when there is one) rather than replace it with the marker.
+      if (miss !== 'slow' || !row || isMiss(row.facts)) await keepMiss(miss);
+      await missRead(installationId, now);
+    }
     throw err;
   }
   const facts = codeFactsOf(read);
