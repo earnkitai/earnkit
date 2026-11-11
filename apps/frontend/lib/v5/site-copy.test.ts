@@ -66,7 +66,8 @@ test('formatters', () => {
   assert.equal(copy.heroChipText(3_159_600), '$3.1M in grants and prizes open now');
   assert.equal(copy.heroChipText(105_000), '$105,000 in grants and prizes open now');
   assert.equal(copy.heroChipText(35_000), '$35,000 in grants and prizes open now');
-  assert.equal(copy.monthDay(new Date('2026-11-04T12:00:00Z')), 'Nov 4');
+  assert.equal(copy.dayWords(new Date('2026-11-04T12:00:00Z'), new Date('2026-11-04T12:00:00Z')), 'Nov 4');
+  assert.equal(copy.dayWords(new Date('2025-11-06T12:00:00Z'), new Date('2026-11-04T12:00:00Z')), 'Nov 6, 2025');
   assert.equal(copy.ROLLING, 'Rolling');
   assert.equal(copy.programKind({ in_person: true }), 'hackathon');
   assert.equal(copy.programKind({ investment: true }), 'investment');
@@ -291,13 +292,13 @@ const LABELS = new Set([
   'TERMS_TITLE', 'TERMS_SECTIONS.title', 'TERMS_LINKS', 'ME_TITLE', 'ME_SIGN_OUT', 'ME_SAVE', 'ME_APPROVE', 'ME_UNAPPROVE', 'ME_BY_AGENT',
   'ME_PENDING_TITLE', 'ME_TEAM.name', 'ME_TEAM.role', 'ME_TEAM.add', 'ME_LEDGER_TITLE', 'ME_AGENTS_TITLE', 'ME_AN_AGENT', 'ME_UNLINK',
   'ME_LINK_PARTS', 'ME_LINK_YES', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
-  'ME_CHOICES', 'ME_STATUS', 'ME_VALUE_WORDS', 'heroChipText', 'monthDay', 'heroUsdText', 'programKind',
+  'ME_CHOICES', 'ME_STATUS', 'ME_VALUE_WORDS', 'heroChipText', 'dayWords', 'heroUsdText', 'programKind',
 ]);
 /** Sample arguments for the exported templates; a template not listed is called with none. */
 const SAMPLES: Record<string, unknown[]> = {
   EARN_ALL: [45], GUIDE_ASK: ['Base Builder Grants'], ME_SIGNED_IN: ['ada'], ME_APPROVED: ['Nov 6'], ME_LINKED: ['Nov 6'],
   ME_LINK_PARTS: [null, 'Nov 6'], ME_AN_AGENT: ['Nov 6'], ME_REVIEWS: ['Base Builder Grants'], ME_UNLINKED: ['Claude Code'], ME_PROJECT_SEEN: ['github.com/ada/kit', 2], ME_LINK_LINE: [null, 'Nov 6'], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
-  heroChipText: [105_000], monthDay: [new Date('2026-11-04T12:00:00Z')], heroUsdText: [3_159_600], programKind: [{}],
+  heroChipText: [105_000], dayWords: [new Date('2026-11-04T12:00:00Z'), new Date('2026-11-04T12:00:00Z')], heroUsdText: [3_159_600], programKind: [{}],
   'ME_VALUE_WORDS.under': [300], 'ME_VALUE_WORDS.atMost': [5], 'ME_VALUE_WORDS.range': [1, 10, true],
 };
 /** Every string under an export, by its path ("DOCS_SESSION.text"), templates called with their samples. */

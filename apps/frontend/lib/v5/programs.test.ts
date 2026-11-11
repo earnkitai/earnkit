@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { getProgram, isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
+import { closedAt, dateStatus, getProgram, isOpenAt, isOpenAt as isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 
 after(() => sql().end());
@@ -90,12 +90,20 @@ test('the synced program files are in the table', async () => {
   assert.equal(row?.file.form?.platform, 'google');
 });
 
-test('isOpen: active and not past ends_at', () => {
+test('L23-2 (v6.1.16): isOpenAt is the one open test: active and not past ends_at, whatever status the run last wrote; it agrees with dateStatus', () => {
   const p = programFixture({ id: 't-isopen', ends_at: '2026-11-05T00:00:00Z' });
-  assert.equal(isOpen(p, NOW), true);
-  assert.equal(isOpen(p, new Date('2026-11-06T00:00:00Z')), false);
-  assert.equal(isOpen({ ...p, status: 'closed' }, NOW), false);
-  assert.equal(isOpen({ ...p, ends_at: null }, NOW), true);
+  assert.equal(isOpenAt(p, NOW), true);
+  assert.equal(isOpenAt(p, new Date('2026-11-06T00:00:00Z')), false);
+  assert.equal(isOpenAt({ ...p, status: 'closed' }, NOW), false);
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-01T00:00:00Z' }, NOW), false);
+  assert.equal(isOpenAt({ ...p, ends_at: null }, NOW), true);
+  // An active program one minute past its close, before any run: closed, as the run would write it.
+  const past = { ...p, ends_at: new Date(NOW.getTime() - 60_000).toISOString() };
+  assert.equal(isOpenAt(past, NOW), false);
+  assert.equal(closedAt(past, NOW), true);
+  assert.equal(dateStatus(past, NOW), 'closed');
+  for (const at of ['2026-11-04T00:00:00Z', '2026-11-05T00:00:00Z', '2026-11-06T00:00:00Z'])
+    assert.equal(isOpenAt(p, new Date(at)), dateStatus(p, new Date(at)) === null, at);
 });
 
 test('lane 20 audit (v6.1.16): paypal-ai-hackathon closes at 2026-11-12 12:00 PT, on time', async () => {

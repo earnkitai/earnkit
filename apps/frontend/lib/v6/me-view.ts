@@ -12,8 +12,9 @@ import { amountsText, usdFull, type Amounts } from '../v5/programs-read';
 import { cleanClientName, displayName } from '../v5/installations';
 import {
   ME_AN_AGENT, ME_BLOCKS, ME_LABELS, ME_LINK_EXPIRED_TITLE, ME_LINK_NOT, ME_LINK_PARTS, ME_LINK_TITLE, ME_LINK_USED, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
-  ME_TEAM, UNKNOWN_CODE, monthDay,
+  ME_TEAM, UNKNOWN_CODE, dayWords,
 } from '../v5/site-copy';
+import { CLAIM_HOURS } from './claims';
 import { type Builder, getRecord } from './builders';
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, deniedCode, linkedBy, liveCode } from './link-routes';
 import { reviewerPrograms } from './reviewers';
@@ -154,7 +155,8 @@ function field(record: BuilderRecord, path: string, labelText: string, spec: { k
   return {
     path, label: labelText, value: shown(labelKey, v), kind: spec.kind, ...(spec.options ? { options: [...spec.options] } : {}),
     set_by: meta?.set_by ?? null, approvable, approved,
-    approved_on: approved && meta?.approved_at ? monthDay(new Date(meta.approved_at)) : null,
+    // Its ISO time here; `recordBlocks` writes it as dayWords at its `now` (L23-11, v6.1.16).
+    approved_on: approved && meta?.approved_at ? meta.approved_at : null,
     seen: seenOf(record, approvalPathOf(path)),
     ...(short ? { short } : {}),
   };
@@ -184,7 +186,11 @@ function valueAt(record: BuilderRecord, block: string, key: string): unknown {
 const answerLabel = (kind: string) => cap(KIND_WORDS[kind as keyof typeof KIND_WORDS]);
 
 /** Every editable leaf of the record, by block, in display order, with its label in builder words. Pure. */
-export function recordBlocks(record: BuilderRecord): MeData['blocks'] {
+export function recordBlocks(record: BuilderRecord, now: Date = new Date()): MeData['blocks'] {
+  return blocksOf(record).map((b) => ({ ...b, fields: b.fields.map((f) => (f.approved_on ? { ...f, approved_on: dayWords(new Date(f.approved_on), now) } : f)) }));
+}
+
+function blocksOf(record: BuilderRecord): MeData['blocks'] {
   const projects = record.projects.flatMap((p) => [
     ...PROJECT.map((s) => field(record, `projects.${p.id}.${s.key}`, label(`project.${s.key}`), s, obj(p)[s.key], `project.${s.key}`)),
     ...ANSWER_KINDS.filter((k) => p.answers[k]).map((k) => field(record, `projects.${p.id}.answers.${k}`, answerLabel(k), { kind: 'long' }, p.answers[k])),
@@ -241,7 +247,7 @@ async function linkBanner(code: string | null | undefined, builderId: number, no
   if (live.builder_id !== null && Number(live.builder_id) !== builderId) return dead(ME_LINK_NOT, OTHER);
   // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)".
   const name = displayName(live.client_name);
-  const parts = ME_LINK_PARTS(name, monthDay(live.created_at));
+  const parts = ME_LINK_PARTS(name, dayWords(live.created_at, now));
   return { title: ME_LINK_TITLE, code, text: parts.join(''), parts: name ? parts : null };
 }
 
@@ -264,7 +270,7 @@ export function ledgerRowWords(status: string, amounts: Amounts | number | strin
  * The builder's agents with the words /me shows for each (L21-10, v6.1.16): the agent's own name, else
  * "An agent linked Nov 6", a second unnamed one linked the same day " (2)" and so on, oldest first. Never a client id.
  */
-export async function agentList(builderId: number): Promise<MeData['installations']> {
+export async function agentList(builderId: number, now: Date = new Date()): Promise<MeData['installations']> {
   const rows = await sql()<{ id: number; client_name: string | null; linked_at: Date | null }[]>`
     SELECT id, client_name, linked_at FROM installations WHERE builder_id = ${builderId} ORDER BY linked_at DESC NULLS LAST, id`;
   const seen = new Map<string, number>();
@@ -276,12 +282,12 @@ export async function agentList(builderId: number): Promise<MeData['installation
       labels.set(r.id, name);
       continue;
     }
-    const base = ME_AN_AGENT(r.linked_at ? monthDay(r.linked_at) : null);
+    const base = ME_AN_AGENT(r.linked_at ? dayWords(r.linked_at, now) : null);
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
     labels.set(r.id, n > 1 ? `${base} (${n})` : base);
   }
-  return rows.map((r) => ({ id: r.id, client_name: cleanClientName(r.client_name), label: labels.get(r.id)!, linked_at: r.linked_at ? monthDay(r.linked_at) : '' }));
+  return rows.map((r) => ({ id: r.id, client_name: cleanClientName(r.client_name), label: labels.get(r.id)!, linked_at: r.linked_at ? dayWords(r.linked_at, now) : '' }));
 }
 
 /**
@@ -304,8 +310,8 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   const owner = `b:${builder.id}`;
   // L21-1 (v6.1.16): the current amount (a correction replaced it; a further payment added to it) and whether a further
   // payment came after the last correction, so the row reads "in all".
-  const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
-    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at, a.amount_usd, a.amounts,
+  const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date; claimed_at: Date | null; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
+    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at, a.claimed_at, a.amount_usd, a.amounts,
       EXISTS (SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.payment_key IS NOT NULL
         AND h.at >= COALESCE((SELECT max(c.at) FROM application_history c WHERE c.owner = a.owner AND c.program_id = a.program_id AND c.corrected), '-infinity'::timestamptz)) AS paid_more
     FROM applications a LEFT JOIN programs p ON p.id = a.program_id
@@ -321,17 +327,22 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     login: builder.login,
     name: builder.name,
     csrf: csrfToken(builder.id, utcDay(now), authSecret(), session),
-    blocks: recordBlocks(record),
+    blocks: recordBlocks(record, now),
     pending_approvals: pendingApprovals(record),
-    ledger: ledger.map((r) => ({
-      title: r.title ?? r.program_id,
-      status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')),
-      at: monthDay(r.at),
-      money: r.status === 'won' ? amountsText(amountsOf(r)) || null : null,
-      words: ledgerRowWords(r.status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, monthDay(r.at)),
-    })),
+    ledger: ledger.map((r) => {
+      // L23-7 (v6.1.16): a claim older than CLAIM_HOURS with no send reads "Started, not sent", until a find releases it.
+      const lapsed = r.status === 'started' && (r.claimed_at ?? r.at).getTime() <= now.getTime() - CLAIM_HOURS * 3_600_000;
+      const status = lapsed ? 'started_not_sent' : r.status;
+      return {
+        title: r.title ?? r.program_id,
+        status: ME_STATUS[status] ?? cap(status.replaceAll('_', ' ')),
+        at: dayWords(r.at, now),
+        money: r.status === 'won' ? amountsText(amountsOf(r)) || null : null,
+        words: ledgerRowWords(status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, dayWords(lapsed ? (r.claimed_at ?? r.at) : r.at, now)),
+      };
+    }),
     ledger_line: counts.applied > 0 ? ledgerCounts(counts) : null,
-    installations: await agentList(builder.id),
+    installations: await agentList(builder.id, now),
     reviews: reviews.map((id) => ME_REVIEWS(titleOf.get(id) ?? id)),
     projects_seen: projectsSeen(record, seen),
     link: await linkBanner(link, builder.id, now),

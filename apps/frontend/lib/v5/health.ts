@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { ProgramFile, type Program } from './program-file';
-import { upsertProgram } from './programs';
+import { dateStatus, upsertProgram } from './programs';
 import { probeLink, SafeFetchError, visibleText, type ProbeResult, type Resolver, type Transport } from './safe-fetch';
 
 /** One link's check (default: probeLink over the real resolver and transport). */
@@ -128,17 +128,8 @@ type Walked = {
 
 const sameDay = (a: Date, b: Date) => a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
 
-/**
- * The status a program's dates call for at `now` (L30-1), or null when it stays: an active or upcoming program whose
- * ends_at passed closes; an upcoming one whose starts_at came opens. Pure.
- */
-export function dateStatus(file: Pick<Program, 'status' | 'starts_at' | 'ends_at'>, now: Date): 'active' | 'closed' | null {
-  const t = now.getTime();
-  if (file.status === 'closed') return null;
-  if (file.ends_at !== null && Date.parse(file.ends_at) <= t) return 'closed';
-  if (file.status === 'upcoming' && file.starts_at !== null && Date.parse(file.starts_at) <= t) return 'active';
-  return null;
-}
+/** The status a program's dates call for at `now` (L30-1): one rule with `isOpenAt` (programs.ts, Task 9). */
+export { dateStatus };
 
 /**
  * The file as its dates call for it at `now` (L30-1), shared by the daily run and the deploy's sync (fix round 1, I1),

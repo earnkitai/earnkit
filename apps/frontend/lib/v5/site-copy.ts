@@ -5,10 +5,11 @@
 import { categoryOf } from './program-file';
 import { usdFull } from './programs-read';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** L23-11 (v6.1.16): the one date formatter in builder text, "Nov 6" in the current year and "Nov 6, 2025" in any other. */
+export { dayWords } from './deadline';
 
-/** "Nov 4" (UTC). */
-export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+/** L23-15 (v6.1.16): the line at the top of /docs#record after /me found the sign-in gone (`/docs?expired=1`). */
+export const SIGN_IN_EXPIRED = 'Your sign-in expired. Ask your agent for a new link.';
 
 /** The landing hero's figure, the one money that may round (lane 22, v6.1.15): down to one decimal in millions
  *  ("$3.1M" for 3,159,600), in full under a million ("$950,000"). Pure. */
@@ -262,6 +263,8 @@ export const ME_CHOICES: Record<string, string> = {
 };
 export const ME_STATUS: Record<string, string> = {
   started: 'Started', applied: 'Applied', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
+  // L23-7 (v6.1.16): a claim past its 24 hours with no send.
+  started_not_sent: 'Started, not sent',
 };
 export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.' } as const;
 export const ME_ERRORS = {

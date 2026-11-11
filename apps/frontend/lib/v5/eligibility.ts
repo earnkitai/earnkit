@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { integrationDocs, integrationLabel } from '../v6/integrations';
 import { CHAIN_REGISTRY, chainName } from './chains';
 import { categoryOf, eligibilityOf, ruleNotes, type EligibilityItem, type EligibilityKind } from './program-file';
-import type { ProgramRow } from './programs';
+import { isOpenAt, type ProgramRow } from './programs';
 import type { RepoFacts } from './repo-facts';
 
 /**
@@ -143,8 +143,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const rules = ruleNotes(p);
   const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot, rules });
 
-  if (p.status !== 'active') return out('no', [], 'not open');
-  if (p.ends_at && Date.parse(p.ends_at) <= now.getTime()) return out('no', [], 'closed');
+  // L23-2 (v6.1.16): the one open test, from the clock.
+  if (!isOpenAt(p, now)) return out('no', [], p.status === 'active' ? 'closed' : 'not open');
   // C54 (v6.1.8): a project with no chain reported and none in its code is not one change from a contract program.
   const onchain = items.find((i) => i.kind === 'chain' || i.kind === 'contract_on');
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);

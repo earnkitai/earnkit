@@ -16,7 +16,7 @@ import { bearerMatches, json, readBody } from './http';
 import { ownerMailEnabled, type Mailer } from './mail';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
-import { getProgram, isOpen, upsertProgram } from './programs';
+import { dateStatus, getProgram, isOpenAt, upsertProgram } from './programs';
 import {
   APPROVE_TTL_DAYS,
   approveExpiry,
@@ -107,7 +107,7 @@ export function apiRuleProblems(p: Program, now: Date): string[] {
   for (const [key, max] of [['max_award_usd', API_AWARD_MAX_USD], ['min_award_usd', API_AWARD_MAX_USD], ['pool_usd', API_POOL_MAX_USD]] as const)
     if (p[key] !== undefined && p[key]! > max)
       problems.push(`${key}: at most ${max.toLocaleString('en-US')} through the API; larger amounts need a curated file`);
-  if (p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= now.getTime())
+  if (p.status === 'active' && dateStatus(p, now) === 'closed')
     problems.push('ends_at: has passed; an active program needs a future ends_at or null');
   problems.push(...apiUrlProblems(p));
   const official = officialUrlProblem(p.official_url);
@@ -200,7 +200,7 @@ async function writeRefusal(p: Program, deps: Deps, at: Date = deps.now): Promis
   const checks = programProblems(p, at);
   if (checks.length > 0) return { status: 400, result: 'refused', problems: checks };
   const rules = apiRuleProblems(p, at);
-  if (at !== deps.now && p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= deps.now.getTime())
+  if (at !== deps.now && p.status === 'active' && dateStatus(p, deps.now) === 'closed')
     rules.push('ends_at: has passed; an active program needs a future ends_at or null');
   if (rules.length > 0) return { status: 400, result: 'refused', problems: rules };
   const [existing] = await sql()<{ source: string }[]>`SELECT source FROM programs WHERE id = ${p.id}`;
@@ -301,7 +301,7 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
 }
 
 /** Listed to builders now: open, or upcoming. */
-const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpen(p, now);
+const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, now);
 
 async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<Response> {
   const forbidden = notWritableFields(raw);

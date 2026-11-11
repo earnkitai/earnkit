@@ -5,7 +5,7 @@
  */
 import { revalidatePath, revalidateTag } from 'next/cache';
 import { CHAIN_REGISTRY } from './chains';
-import { closeDay, timeLeftWords } from './deadline';
+import { closeDay, closesWords, programZone } from './deadline';
 import { json } from './http';
 import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
 import { listListedPrograms } from './programs';
@@ -52,8 +52,11 @@ export type ListedProgram = {
   status: 'active' | 'upcoming';
   /** ISO, or null for a rolling program. */
   closes_at: string | null;
-  /** "in 20 hours", "in 16 days" or "rolling" on an open program; null for an upcoming one. */
+  /** The closes wording without "closes " (L23-9, v6.1.16: "in under an hour", "today", "tomorrow", "in 5 days",
+   *  "Nov 20") or "rolling" on an open program; null for an upcoming one. */
   closes_in: string | null;
+  /** The program's zone, for closes_in; sort and words only, not in the answer. */
+  zone: string;
   source_url: string;
   submission_url: string;
   source: 'file' | 'api';
@@ -172,15 +175,16 @@ export function moneyOf(p: Pick<Program, 'title' | 'summary' | 'investment' | 'm
   return moneyAt(p.investment && BARE_FIGURE.test(phrase) ? `${phrase} investment` : phrase, 'tile');
 }
 
-const closesIn = (status: ListedProgram['status'], closesAt: string | null, now: Date) =>
-  status === 'active' ? (closesAt ? timeLeftWords(closesAt, now) : 'rolling') : null;
+const closesIn = (status: ListedProgram['status'], closesAt: string | null, now: Date, zone: string) =>
+  status === 'active' ? (closesAt ? closesWords(closesAt, now, zone).replace(/^closes /, '') : 'rolling') : null;
 
 /** Every listed program, unsorted and unfiltered. */
 export async function readListedPrograms(now = new Date()): Promise<ListedProgram[]> {
   return (await listListedPrograms(now)).map(({ file: p, source }) => {
     const status = p.status === 'upcoming' ? 'upcoming' : 'active';
     // Rolling (no ends_at, or the summary says rolling) is null, as the card says "Rolling".
-    const closes_at = closeDay(p) ? new Date(p.ends_at!).toISOString() : null;
+    const closes_at = closeDay(p, now) ? new Date(p.ends_at!).toISOString() : null;
+    const zone = programZone(p);
     return {
       id: p.id,
       title: p.title,
@@ -191,7 +195,8 @@ export async function readListedPrograms(now = new Date()): Promise<ListedProgra
       money: moneyOf(p),
       status,
       closes_at,
-      closes_in: closesIn(status, closes_at, now),
+      closes_in: closesIn(status, closes_at, now, zone),
+      zone,
       source_url: p.source_url,
       submission_url: p.submission_url,
       source,
@@ -245,6 +250,6 @@ export async function programsListGet(
     .filter((p) => (category === null || p.category === category) && (status === null || p.status === status))
     .sort(byListOrder)
     .slice(0, PROGRAMS_LIST_MAX)
-    .map(({ max_award_usd: _sortOnly, ...p }) => ({ ...p, closes_in: closesIn(p.status, p.closes_at, now) }));
+    .map(({ max_award_usd: _sortOnly, zone, ...p }) => ({ ...p, closes_in: closesIn(p.status, p.closes_at, now, zone) }));
   return json({ ok: true, programs }, 200, { 'Cache-Control': 'public, max-age=60' });
 }

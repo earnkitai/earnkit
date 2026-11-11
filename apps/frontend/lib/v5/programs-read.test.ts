@@ -10,6 +10,7 @@ after(() => sql().end());
 const NOW = new Date('2026-11-04T12:00:00Z');
 
 const listed = (over: Partial<ListedProgram> & { id: string }): ListedProgram => ({
+  zone: 'UTC',
   title: over.id,
   organizer: 'Org',
   category: 'grant',
@@ -64,7 +65,8 @@ test('shape: the v4.9 keys, closes_in from the clock, no sort-only field', async
     'any_chain', 'category', 'chains', 'closes_at', 'closes_in', 'id', 'min_tier', 'money', 'needs', 'organizer', 'platform_name', 'prefers', 'sign_in', 'source', 'source_url', 'status',
     'submission_url', 'submit', 'title',
   ]);
-  assert.equal(soon.closes_in, 'in 36 hours');
+  // L23-9 (v6.1.16): the one closes wording, by calendar day.
+  assert.equal(soon.closes_in, 'in 2 days');
   assert.equal(body.programs.find((p) => p.id === 'g-rolling-big')!.closes_in, 'rolling');
   assert.equal(body.programs.find((p) => p.id === 'u-up')!.closes_in, null);
 });
@@ -121,7 +123,8 @@ test('readListedPrograms: listed programs from the table, with money and links',
     money: 'Up to $5,000',
     status: 'active',
     closes_at: '2026-11-20T12:00:00.000Z',
-    closes_in: 'in 16 days',
+    closes_in: 'Nov 20',
+    zone: 'UTC',
     source_url: 'https://example.com/grants',
     submission_url: 'https://example.com/apply',
     source: 'api',

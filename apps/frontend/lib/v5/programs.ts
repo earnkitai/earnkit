@@ -105,7 +105,7 @@ const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1
  * the sooner close, the id. Pure.
  */
 export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
-  const standing = (p: Program) => (isOpen(p, now) ? 0 : p.status === 'upcoming' ? 1 : 2);
+  const standing = (p: Program) => (isOpenAt(p, now) ? 0 : p.status === 'upcoming' ? 1 : 2);
   const ends = (p: Program) => (p.ends_at ? Date.parse(p.ends_at) : Infinity);
   return [...rows].sort((a, b) =>
     standing(a.file) - standing(b.file) || awardOf(b.file) - awardOf(a.file) || ends(a.file) - ends(b.file) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -182,9 +182,30 @@ export async function programsById(ids: string[]): Promise<ProgramRow[]> {
   return parseRows(rows);
 }
 
-/** Whether the program takes entries at `now`: active and not past ends_at. Pure. */
-export const isOpen = (p: Pick<Program, 'status' | 'ends_at'>, now: Date): boolean =>
-  p.status === 'active' && (p.ends_at === null || Date.parse(p.ends_at) > now.getTime());
+/**
+ * The status a program's dates call for at `now` (L30-1), or null when it stays: an active or upcoming program whose
+ * ends_at passed closes; an upcoming one whose starts_at came opens. The daily run and the sync move programs by it
+ * (health.ts re-exports it); `isOpenAt` reads it at every request. Pure.
+ */
+export function dateStatus(file: Pick<Program, 'status' | 'starts_at' | 'ends_at'>, now: Date): 'active' | 'closed' | null {
+  const t = now.getTime();
+  if (file.status === 'closed') return null;
+  if (file.ends_at !== null && Date.parse(file.ends_at) <= t) return 'closed';
+  if (file.status === 'upcoming' && file.starts_at !== null && Date.parse(file.starts_at) <= t) return 'active';
+  return null;
+}
+
+/**
+ * The one open test (L23-2, L23-10, v6.1.16): whether the program takes entries at `now`, derived from the clock at read
+ * time on every surface (find, tiles, guides, the lists, /me), whatever status the daily run last wrote. False for
+ * upcoming and closed, and false once ends_at <= now (`dateStatus` says closed). Pure.
+ */
+export const isOpenAt = (p: Pick<Program, 'status' | 'ends_at' | 'starts_at'>, now: Date): boolean =>
+  p.status === 'active' && dateStatus(p, now) === null;
+
+/** Whether the program reads closed at `now`: closed, or past its ends_at before any run flipped it (L23-2). Pure. */
+export const closedAt = (p: Pick<Program, 'status' | 'ends_at' | 'starts_at'>, now: Date): boolean =>
+  p.status === 'closed' || dateStatus(p, now) === 'closed';
 
 /** JSON with sorted keys, so two equal records compare equal whatever their key order. */
 function canonical(v: unknown): string {

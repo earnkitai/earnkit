@@ -31,7 +31,7 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
 });
 
 test('closes: a date, rolling, not open yet, closed', () => {
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' }))).closes, 'Closes Dec 1');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' }))).closes, 'Closes Dec 1.');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-b' }))).closes, 'Rolling');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-c', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] }))).closes, 'Not open yet');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).closes, 'Closed');
@@ -127,7 +127,7 @@ test('#9 (v6.1.15): every eligibility kind as a sentence; a date in plain words;
   })));
   assert.deepEqual(g.eligibility, [
     'A live product.', 'On Base or Tempo.', 'A contract on Base.', 'Base Builder Codes in the app.', 'Real users.',
-    'New work started after 30 Oct 2026.', 'A demo video.', 'In person.', 'Uses Smart Wallet.',
+    'New work started after Oct 30.', 'A demo video.', 'In person.', 'Uses Smart Wallet.',
   ]);
   const f = guideText(rowOf(programFixture({
     id: 'a-s',
@@ -227,16 +227,18 @@ test('Review Focus 10 (v6.1.16, L21-2): every closed program reads "Closed on {d
       continue;
     }
     closed++;
-    assert.match(g.closed_on ?? '', /^Closed on \d{1,2} [A-Z][a-z]{2} \d{4}\.$/, row.id);
+    // L23-11 (v6.1.16): the one date formatter; the year only when it is not this one.
+    assert.match(g.closed_on ?? '', /^Closed on [A-Z][a-z]{2} \d{1,2}(, \d{4})?\.$/, row.id);
     assert.equal(g.closes, 'Closed', row.id);
     for (const t of [g.description, ...g.rules]) assert.doesNotMatch(t, OPEN_WINDOW, `${row.id}: ${t}`);
   }
   assert.ok(closed >= 3, `${closed}`);
-  assert.equal(guideText(real('a16z-speedrun'), NOW).closed_on, 'Closed on 1 Nov 2026.');
+  assert.equal(guideText(real('a16z-speedrun'), NOW).closed_on, 'Closed on Nov 1.');
+  assert.equal(guideText(real('a16z-speedrun'), new Date('2027-01-05T00:00:00Z')).closed_on, 'Closed on Nov 1, 2026.');
   const a16z = guideText(real('a16z-speedrun'), NOW);
   for (const t of [a16z.description, ...a16z.rules]) assert.doesNotMatch(t, /are open/i);
-  assert.equal(guideText(real('goose-grant-program'), NOW).closed_on, 'Closed on 11 Nov 2026.');
-  assert.equal(guideText(real('monad-blitz-oregon'), NOW).closed_on, 'Closed on 10 Nov 2026.');
+  assert.equal(guideText(real('goose-grant-program'), NOW).closed_on, 'Closed on Nov 11.');
+  assert.equal(guideText(real('monad-blitz-oregon'), NOW).closed_on, 'Closed on Nov 10.');
   // A date-closed program whose file still reads active and open: the guide drops the open-window sentences.
   const dated = rowOf(programFixture({
     id: 'a-open-window', ends_at: '2026-11-01T23:59:00-07:00', tz: 'America/Los_Angeles',
@@ -244,7 +246,7 @@ test('Review Focus 10 (v6.1.16, L21-2): every closed program reads "Closed on {d
     rules: ['Apply now on the portal.', 'Applications are open through November 1. Results come in December.', 'One entry per team.'],
   }));
   const g = guideText(dated, NOW);
-  assert.equal(g.closed_on, 'Closed on 1 Nov 2026.');
+  assert.equal(g.closed_on, 'Closed on Nov 1.');
   assert.equal(g.description, 'A startup program. Founders meet weekly.');
   assert.deepEqual(g.rules, ['Results come in December.', 'One entry per team.']);
   assert.equal(closedOn(dated.file, new Date('2026-10-01T00:00:00Z')), null);
@@ -268,15 +270,18 @@ test('lane 20 audit (v6.1.16): circle money in full figures; Sovereign Tech fund
   assert.equal(replyMoney(sovereign.file), 'funds work from EUR 50,000');
 });
 
-test('L21-24 (v6.1.16): closesIn14 says tomorrow under 24 hours, in n days under 14, else the day', async () => {
-  const { closesIn14 } = await import('./guide');
+test('L21-24, L23-9 (v6.1.16): the guide closes through the one closes wording, by calendar day in the program zone', async () => {
+  const { closesSentence } = await import('./guide');
   const p = programFixture({ id: 'c14', ends_at: '2026-11-30T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' });
-  assert.equal(closesIn14(p, new Date('2026-11-30T08:00:00Z')), 'Closes tomorrow.');
-  assert.equal(closesIn14(p, new Date('2026-11-25T20:00:00Z')), 'Closes in 5 days.');
-  assert.equal(closesIn14(p, new Date('2026-11-25T08:00:00Z')), 'Closes in 6 days.');
-  assert.equal(closesIn14(p, new Date('2026-11-01T00:00:00Z')), 'Closes Nov 30');
-  assert.equal(closesIn14(programFixture({ id: 'c14r' }), new Date('2026-11-01T00:00:00Z')), 'Rolling');
+  assert.equal(closesSentence(p, new Date('2026-11-30T19:59:00Z')), 'Closes in under an hour.');
+  assert.equal(closesSentence(p, new Date('2026-11-30T08:00:00Z')), 'Closes today.');
+  assert.equal(closesSentence(p, new Date('2026-11-29T20:00:00Z')), 'Closes tomorrow.');
+  assert.equal(closesSentence(p, new Date('2026-11-25T20:00:00Z')), 'Closes in 5 days.');
+  assert.equal(closesSentence(p, new Date('2026-11-25T08:00:00Z')), 'Closes in 5 days.');
+  assert.equal(closesSentence(p, new Date('2026-11-01T00:00:00Z')), 'Closes Nov 30.');
+  assert.equal(closesSentence(programFixture({ id: 'c14r' }), new Date('2026-11-01T00:00:00Z')), 'Rolling');
   assert.equal(guideText(rowOf(p), new Date('2026-11-25T20:00:00Z')).closes, 'Closes in 5 days.');
+  assert.equal(guideText(rowOf(p), new Date('2026-11-30T19:59:00Z')).closes, 'Closes in under an hour.');
 });
 
 test('L21-3 (v6.1.16): the guide meta reads the page close, lower-cased, one full stop', async () => {
@@ -284,7 +289,7 @@ test('L21-3 (v6.1.16): the guide meta reads the page close, lower-cased, one ful
   assert.equal(guideMeta({ money: '$67,500 in prizes', closes: 'Closes Nov 12', closed_on: null }), '$67,500 in prizes, closes Nov 12. Who can apply, what the form asks and the rules.');
   assert.equal(guideMeta({ money: '$67,500 in prizes', closes: 'Closes tomorrow.', closed_on: null }), '$67,500 in prizes, closes tomorrow. Who can apply, what the form asks and the rules.');
   assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Rolling', closed_on: null }), 'Up to $5,000, rolling. Who can apply, what the form asks and the rules.');
-  assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Closed', closed_on: 'Closed on 1 Nov 2026.' }), 'Up to $5,000, closed. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Closed', closed_on: 'Closed on Nov 1.' }), 'Up to $5,000, closed. Who can apply, what the form asks and the rules.');
 });
 
 test('L21-25 (v6.1.16): the guide money equals the find reply money for every catalog program, figures included', () => {
