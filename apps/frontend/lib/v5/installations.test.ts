@@ -94,3 +94,22 @@ test('L25-1 (v6.1.16): displayName drops one trailing parenthetical; a name that
   assert.equal(displayName(null), null);
   assert.equal(displayName(''), null);
 });
+
+test('L26-11 (v6.1.16): 20 parallel finds from one installation: last_find_at is the latest now, prev_find_at older than it', async () => {
+  const id = await saveInstallation('l2611-' + Math.random(), 'Agent');
+  const nows = Array.from({ length: 20 }, (_, k) => new Date(NOW.getTime() + k * 1_000));
+  // Finished out of order: the oldest, then the newest, then the rest from the newest down, as slow early requests land last.
+  const order = [nows[0], ...[...nows.slice(1)].reverse()];
+  await Promise.all(order.map((n, k) => new Promise((ok) => setTimeout(ok, k)).then(() => markFind(id, n, {}, 'https://github.com/acme/l2611'))));
+  const [row] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((row.last_find_at as Date).toISOString(), nows[19].toISOString());
+  assert.ok((row.prev_find_at as Date).getTime() < (row.last_find_at as Date).getTime());
+  // In order, each find moves prev to the one before.
+  await markFind(id, new Date(NOW.getTime() + 60_000));
+  const [next] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((next.prev_find_at as Date).toISOString(), nows[19].toISOString());
+  // An older now changes neither.
+  await markFind(id, NOW);
+  const [same] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
+  assert.deepEqual([same.last_find_at, same.prev_find_at], [next.last_find_at, next.prev_find_at]);
+});

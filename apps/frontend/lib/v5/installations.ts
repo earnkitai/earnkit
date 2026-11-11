@@ -100,18 +100,25 @@ export type RememberedGap = { what: string; kind: string; item?: string };
  * (program_id to the first gap), replacing the last. `undefined` leaves the last gaps as they were. With `projectKey`
  * (a find with a project, v6.1.10 L1c-1) also the project a track without one belongs to.
  */
+/**
+ * L26-11 (v6.1.16 Task 12): parallel finds stamp in the order they finish, so the latest `now` wins: last_find_at
+ * never goes back, and prev_find_at moves only when this find's `now` is the newer one.
+ */
+const stamp = (now: Date) => sql()`prev_find_at = CASE WHEN last_find_at IS NULL OR last_find_at < ${now} THEN last_find_at ELSE prev_find_at END,
+  last_find_at = GREATEST(last_find_at, ${now})`;
+
 export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>, projectKey?: string): Promise<void> {
   // The gaps and their project are written in one statement (final round), so the two never describe different projects.
   if (gaps !== undefined && projectKey !== undefined) {
-    await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)}, last_project_key = ${projectKey} WHERE id = ${id}`;
+    await sql()`UPDATE installations SET ${stamp(now)}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)}, last_project_key = ${projectKey} WHERE id = ${id}`;
     return;
   }
   if (projectKey !== undefined) await rememberProject(id, projectKey);
   if (gaps === undefined) {
-    await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
+    await sql()`UPDATE installations SET ${stamp(now)}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
     return;
   }
-  await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)} WHERE id = ${id}`;
+  await sql()`UPDATE installations SET ${stamp(now)}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)} WHERE id = ${id}`;
 }
 
 /**
