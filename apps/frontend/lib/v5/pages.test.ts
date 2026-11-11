@@ -324,7 +324,7 @@ test('/link/nope is 404 text when sign-in is set up and 503 when not', async () 
     const on = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.202' } }), 'nope');
     assert.equal(on.status, 404);
     assert.match(on.headers.get('content-type') ?? '', /^text\/plain/);
-    assert.equal(await on.text(), 'This link is not valid.');
+    assert.equal(await on.text(), 'This link is not one of ours.');
   } finally {
     keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
   }
@@ -350,8 +350,8 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
-  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
-  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me', 'Skip awards above (USD)', 'Your one line on traction'])
+  assert.ok(t.lastIndexOf('Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.') > t.indexOf('Your agents'));
+  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me when I say yes.', 'Skip awards above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
   assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);

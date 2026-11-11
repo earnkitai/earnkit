@@ -44,7 +44,8 @@ export const NOT_OPEN_YET = 'Not open yet';
 export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';
 export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.';
-export const ALL_PROGRAMS = 'All programs';
+/** A button that reads as a sentence (L21-21, v6.1.16). */
+export const ALL_PROGRAMS = 'See all programs.';
 export const FOOT_CTA = 'Ask your agent: What can I earn?';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 
@@ -60,8 +61,9 @@ export const GUIDE_ASK = (title: string): string => `What can I earn on ${title}
 
 export const NOT_FOUND_BIG = '404';
 export const NOT_FOUND_TEXT = 'Nothing shipped here.';
-export const NOT_FOUND_HOME = 'Back home';
-export const NOT_FOUND_TITLE = 'Not found | EarnKit';
+export const NOT_FOUND_HOME = 'Go home.';
+/** The site's title separator is `·` (L21-26, v6.1.16). */
+export const NOT_FOUND_TITLE = 'Not found · EarnKit';
 export const NOT_FOUND_METADATA = { title: NOT_FOUND_TITLE, robots: { index: false } };
 
 export const DOCS_NAV: [string, string][] = [
@@ -162,6 +164,8 @@ export const ME_BY_AGENT = 'From your agent';
 export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
 export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
+/** A project the applications name that the record does not hold (L21-12, v6.1.16): read-only, by its repo link or name. */
+export const ME_PROJECT_SEEN = (label: string, n: number): string => `${label}: ${n} ${n === 1 ? 'application' : 'applications'}.`;
 export const ME_POLICY_LINE = 'Your agent applies on its own only when this is on, within these limits.';
 /** Under an answer: the short form the agent cut from it, which approving the answer approves too (v6.1.8 B16). */
 export const ME_SHORT_LABEL = 'Short form, for fields under 300 characters.';
@@ -178,24 +182,40 @@ export const ME_LEDGER_TITLE = 'Your applications';
 export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
 export const ME_AGENTS_TITLE = 'Your agents';
 export const ME_AGENTS_EMPTY = 'No agents linked.';
-export const ME_AN_AGENT = 'An agent';
+/** An agent with no name, by the day it was linked (L21-10, v6.1.16); never its client id. */
+export const ME_AN_AGENT = (day: string | null): string => (day ? `An agent linked ${day}` : 'An agent');
+/** One line per program the builder reviews (L21-13, v6.1.16). */
+export const ME_REVIEWS = (program: string): string => `You review ${program}. Results come through your agent.`;
+/** After an unlink (L21-7) and for an agent that is not the builder's (L21-15, v6.1.16). */
+export const ME_UNLINKED = (agent: string): string => `Unlinked ${agent}.`;
+export const ME_UNLINK_NOT_YOURS = 'That agent is not on your account.';
+/** After a save, beside the control (L21-11, v6.1.16). */
+export const ME_SAVED = 'Saved.';
 export const ME_LINKED = (day: string): string => `Linked ${day}.`;
 export const ME_UNLINK = 'Unlink';
 /** The banner above the record after sign-in from /link/<code>: the link happens only on Link this agent. */
 export const ME_LINK_TITLE = 'Link an agent to this account?';
 /** The link banner in three parts: the words before the agent's own name, the name (shown isolated, it is the agent's text) and the rest. */
 export const ME_LINK_PARTS = (agent: string | null, day: string): [string, string, string] => {
-  const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose Not me.`;
+  const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose This is not me.`;
   return agent ? ['The agent calling itself ', agent, rest] : ['Your agent', '', rest];
 };
 export const ME_LINK_LINE = (agent: string | null, day: string): string => ME_LINK_PARTS(agent, day).join('');
 /** After POST /me/link (v6.1.7 C2). */
 export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ?? 'your agent'}.`;
 export const ME_LINK_NOT = 'Not linked.';
+/** The banner's title for a code this builder used (L21-6, v6.1.16). */
+export const ME_LINK_USED = 'Linked.';
+/** The banner's title for an expired code (L21-6, L21-17). */
+export const ME_LINK_EXPIRED_TITLE = 'This link has expired.';
+/** A code EarnKit never made, or not code-shaped (L21-17, v6.1.16). */
+export const UNKNOWN_CODE = 'This link is not one of ours.';
 export const ME_LINK_YES = 'Link this agent';
-export const ME_LINK_NO = 'Not me';
+export const ME_LINK_NO = 'This is not me.';
 export const ME_DELETE_TITLE = 'Delete your record';
-export const ME_DELETE_LINE = 'This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.';
+export const ME_DELETE_LINE = 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.';
+/** On the home page after a delete (L21-9, v6.1.16). */
+export const ME_DELETED = 'Your account is deleted.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
 export const ME_DELETE = 'Delete everything';
 export const ME_NOT_SET = 'Not set';
@@ -223,7 +243,7 @@ export const ME_LABELS = {
   'traction.line_pre_launch': 'Your one line on traction', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
   'traction.notes': 'Notes',
   'policy.auto_apply': 'Apply overnight without asking, within these limits', 'policy.max_per_night': 'Most per night', 'policy.categories': 'Categories',
-  'policy.max_ask_usd': 'Skip awards above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me',
+  'policy.max_ask_usd': 'Skip awards above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me when I say yes.',
   'company.raised': 'Money raised',
 } as const;
 /** The words for a stored choice: company stages and program categories. */
@@ -241,11 +261,12 @@ export const ME_ERRORS = {
   form: 'Send this as a web form.',
   large: 'That is too long to save.',
   field: 'That cannot be changed here.',
-  confirm: 'Type your GitHub login exactly to delete.',
+  confirm: 'Type your GitHub login to delete.',
   broken: 'Your record could not be read, so nothing was saved. Try again later.',
   changed: 'This text changed since you opened the page. Read it again.',
   yesNo: 'choose yes or no.',
-  linkExpired: 'That link expired. Ask your agent for a new one.',
+  /** One expired wording everywhere (L21-17, v6.1.16): link-routes' EXPIRED is this line. */
+  linkExpired: 'This link has expired. Ask your agent for a new one.',
 } as const;
 /** What a value must be, in plain words, after "<label>: " (v6.1.7 C4). */
 const amount = (n: number) => n.toLocaleString('en-US');

@@ -1,4 +1,5 @@
 import Footer from './components/common/Footer';
+import DeletedNote from './components/landing/DeletedNote';
 import Hero from './components/landing/Hero';
 import Steps from './components/landing/Steps';
 import Opportunities from './components/landing/Opportunities';
@@ -15,6 +16,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
   return (
     <div data-ek-deep="" className="w-full">
       <div className={`${PAGE_COL_WIDE} flex flex-col gap-[72px] pt-2 md:gap-32`}>
+        <DeletedNote />
         <Hero chip={landing?.chip ?? null} />
         <Steps />
         {landing ? <Opportunities programs={landing.featured} total={landing.total} /> : null}

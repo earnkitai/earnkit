@@ -10,10 +10,12 @@ import { isKnownChain } from '../v5/chains';
 import { readCapped } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
-import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_VALUE_WORDS } from '../v5/site-copy';
+import {
+  ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_SAVED, ME_UNLINKED, ME_UNLINK_NOT_YOURS, ME_VALUE_WORDS, UNKNOWN_CODE,
+} from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
-import { ALREADY_LINKED, INVALID, OTHER, codeShaped, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
-import { type MeField, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
+import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
+import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
 import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
 
@@ -30,20 +32,32 @@ type For = { builder: { id: number }; now: Date };
  * The line signed for this builder, this key and today only: a link carrying it shows on no other builder's page (it
  * can hold an agent's name), never as the other kind of line, and only on the day it was written and the next (final review M1).
  */
-const signed = (key: 'problem' | 'note', who: For, line: string) =>
-  back(`/me?${key}=${encodeURIComponent(line)}&sig=${problemSig(key, line, who.builder.id, utcDay(who.now), authSecret())}`);
+const signed = (key: 'problem' | 'note', who: For, line: string, place = '') =>
+  back(`/me?${key}=${encodeURIComponent(line)}&sig=${problemSig(key, line, who.builder.id, utcDay(who.now), authSecret())}${place}`);
 /** Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. */
 const problemAt = (who: For, line: string) => signed('problem', who, line);
 /** Back to /me with a plain line that is not a refusal (v6.1.7 C2). */
 const noteAt = (who: For, line: string) => signed('note', who, line);
+/**
+ * `Saved.` beside the control that saved (L21-11, v6.1.16): the field's path in `at` (only where the line shows, so
+ * not signed) and the block's anchor.
+ */
+const savedAt = (who: For, path: string, anchor: string) => signed('note', who, ME_SAVED, `&at=${encodeURIComponent(path)}#${anchor}`);
 /** The largest id a Postgres integer holds (v6.1.7 B3). */
 const MAX_ID = 2_147_483_647;
 
-/** GET /me (the proxy): no live session is a 302 to /docs#record with no body; with one the page renders. */
+/**
+ * GET /me (the proxy): no live session is a 302 to /docs#record with no body; with one the page renders. L21-14
+ * (v6.1.16): signed out, a code-shaped `?link=` goes to /link/<code>, which signs in and comes back to the code.
+ */
 export async function meGet(request: Request, deps: Deps = {}): Promise<Response> {
   const builder = await sessionBuilder(request.headers.get('cookie'), deps.now ?? new Date());
-  // The proxy needs an absolute Location, on the public origin (the request URL can be the internal one).
-  if (!builder) return new Response(null, { status: 302, headers: { Location: `${publicOrigin(request)}/docs#record`, 'Cache-Control': 'no-store' } });
+  if (!builder) {
+    const code = new URL(request.url).searchParams.get('link') ?? '';
+    // The proxy needs an absolute Location, on the public origin (the request URL can be the internal one).
+    const to = codeShaped(code) ? `/link/${code}` : '/docs#record';
+    return new Response(null, { status: 302, headers: { Location: `${publicOrigin(request)}${to}`, 'Cache-Control': 'no-store' } });
+  }
   const res = NextResponse.next();
   res.headers.set('Cache-Control', 'no-store');
   return res;
@@ -173,14 +187,14 @@ export function wordsOf(path: string, value: unknown): string | null {
  * Merges `patch` as the builder under the row lock, all or nothing (v6.1.7 B1): any problem saves nothing and
  * comes back as a 303 to /me?problem=, one line per bad field.
  */
-async function merge(builder: Builder, now: Date, patch: unknown | ((current: BuilderRecord) => unknown), label: string, anchor: string): Promise<Response> {
+async function merge(builder: Builder, now: Date, patch: unknown | ((current: BuilderRecord) => unknown), label: string, anchor: string, path: string): Promise<Response> {
   const out = await withRecord(builder.id, now, (current) => {
     const m = mergeRecord(current, typeof patch === 'function' ? patch(current) : patch, 'builder', now);
     return { record: m.problems.length === 0 && m.changed.length > 0 ? m.record : null, result: m.problems };
   });
   if (out.broken) return problemAt({ builder, now }, ME_ERRORS.broken);
   if (out.result.length > 0) return problemAt({ builder, now }, [...new Set(out.result.map((l) => problemWords(label, l)))].join('\n'));
-  return back(`/me#${anchor}`);
+  return savedAt({ builder, now }, path, anchor);
 }
 
 /** POST /me/edit: csrf, path (an editable field /me lists), value. */
@@ -199,7 +213,7 @@ export async function editPost(request: Request, deps: Deps = {}): Promise<Respo
   // An unknown chain is named on its own (v6.1.8 C53): "Not a known chain: solanaa."
   if (words?.startsWith('not a known chain')) return problemAt(g, `N${words.slice(1)}.`);
   if (words) return problemAt(g, `${f.label}: ${words}.`);
-  return merge(g.builder, g.now, (current: BuilderRecord) => patchOf(path, v.value, current), f.label, block.key);
+  return merge(g.builder, g.now, (current: BuilderRecord) => patchOf(path, v.value, current), f.label, block.key, path);
 }
 
 /** POST /me/approve: csrf, path (approvable), action approve or unapprove; approve needs `seen`, the set_at shown. */
@@ -247,7 +261,7 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
   // On with nothing ticked would be off in effect while the page shows it on (v6.1.8 C43).
   if (policy.auto_apply && policy.categories.length === 0) problems.push(ME_PICK_CATEGORY);
   if (problems.length > 0) return problemAt(g, problems.join('\n'));
-  return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy');
+  return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy', 'policy');
 }
 
 /** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder; its next find says it was unlinked (B10). */
@@ -257,8 +271,10 @@ export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Res
   const raw = g.form.get('installation_id') ?? '';
   const id = /^\d{1,10}$/.test(raw) ? Number(raw) : 0;
   if (id < 1 || id > MAX_ID) return problemAt(g, ME_ERRORS.field);
-  await unlinkInstallation(id, g.builder.id, g.now);
-  return back('/me#agents');
+  // L21-7, L21-15 (v6.1.16): the agent named as /me shows it; one that is not the builder's says so.
+  const agent = (await agentList(g.builder.id)).find((a) => a.id === id);
+  if (!agent || !(await unlinkInstallation(id, g.builder.id, g.now))) return problemAt(g, ME_UNLINK_NOT_YOURS);
+  return noteAt(g, ME_UNLINKED(agent.label));
 }
 
 /**
@@ -272,7 +288,7 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   const code = g.form.get('code') ?? '';
   const action = g.form.get('action');
   if (action !== 'link' && action !== 'deny') return problemAt(g, ME_ERRORS.field);
-  if (!codeShaped(code)) return problemAt(g, INVALID);
+  if (!codeShaped(code)) return problemAt(g, UNKNOWN_CODE);
   if (action === 'deny') {
     await denyLinkCode(code, g.now);
     return noteAt(g, ME_LINK_NOT);
@@ -281,7 +297,9 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   const out = await consumeLinkCode(code, g.builder.id, g.now);
   if (out === 'other') return problemAt(g, OTHER);
   if (out === 'dead')
-    return (await linkedBy(code, g.builder.id)) ? noteAt(g, ALREADY_LINKED) : (await deniedCode(code)) ? noteAt(g, ME_LINK_NOT) : problemAt(g, ME_ERRORS.linkExpired);
+    return (await linkedBy(code, g.builder.id)) ? noteAt(g, ALREADY_LINKED)
+      : (await deniedCode(code)) ? noteAt(g, ME_LINK_NOT)
+      : problemAt(g, (await codeState(code, g.now)) === 'unknown' ? UNKNOWN_CODE : ME_ERRORS.linkExpired);
   return noteAt(g, ME_LINK_DONE(cleanClientName(live?.client_name)));
 }
 
@@ -291,7 +309,8 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
   if (g instanceof Response) return g;
   if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm);
   await deleteBuilder(g.builder.id, g.now);
-  return back('/', { 'Set-Cookie': clearCookie() });
+  // L21-9 (v6.1.16): the home page says the account is deleted.
+  return back('/?deleted=1', { 'Set-Cookie': clearCookie() });
 }
 
 /** POST /me/signout: csrf; ends this session. */

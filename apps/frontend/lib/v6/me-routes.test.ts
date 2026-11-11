@@ -41,6 +41,13 @@ const lineOf = (r: Response, who: number) => {
   const text = key ? loc.searchParams.get(key)! : null;
   return { status: r.status, path: loc.pathname, key, text, shown: key !== null && text !== null && problemShown(key, text, loc.searchParams.get('sig') ?? '', who, NOW, SECRET) === text };
 };
+/** L21-11 (v6.1.16): a save comes back to /me with the signed `Saved.` note, the saved control in `at` and the block's
+ *  anchor: "person.name#person". Empty when it is not a signed Saved. for this builder. */
+const savedTo = (r: Response, who = 0) => {
+  const loc = new URL(r.headers.get('location') ?? '/', 'https://earnkit.test');
+  const ok = r.status === 303 && loc.pathname === '/me' && loc.searchParams.get('note') === 'Saved.' && (who === 0 || problemShown('note', 'Saved.', loc.searchParams.get('sig') ?? '', who, NOW, SECRET) === 'Saved.');
+  return ok ? `${loc.searchParams.get('at')}${loc.hash}` : '';
+};
 const refused = (who: number, r: Response, text: string) => assert.deepEqual(lineOf(r, who), { status: 303, path: '/me', key: 'problem', text, shown: true });
 const FIELD = 'That cannot be changed here.';
 const EXPIRED_PAGE = 'This page expired. Reload it and try again.';
@@ -88,11 +95,24 @@ test('meGet without a session redirects to /docs#record', async () => {
   assert.notEqual(ok.status, 302);
 });
 
+test('L21-14 (v6.1.16): signed out, /me?link=<code> goes to /link/<code>, which signs in and returns to the code', async () => {
+  const code = 'A'.repeat(22);
+  const r = await meGet(new Request(`https://earnkit.test/me?link=${code}`), deps);
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get('location'), `https://earnkit.test/link/${code}`);
+  // Anything that is not code-shaped keeps /docs#record; nothing of it reaches the Location.
+  for (const bad of ['nope', '..%2F..%2Fadmin', 'A'.repeat(23), ''])
+    assert.equal((await meGet(new Request(`https://earnkit.test/me?link=${bad}`), deps)).headers.get('location'), 'https://earnkit.test/docs#record', bad);
+  // Signed in, the page renders as before.
+  const { cookie } = await signedIn();
+  assert.notEqual((await meGet(new Request(`https://earnkit.test/me?link=${code}`, { headers: { cookie } }), deps)).status, 302);
+});
+
 test('editPost on person.name saves with set_by builder', async () => {
   const { b, cookie, csrf } = await signedIn();
   const r = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Ada Lovelace' }, { cookie }), deps);
   assert.equal(r.status, 303);
-  assert.equal(r.headers.get('location'), '/me#person');
+  assert.equal(savedTo(r, b.id), 'person.name#person');
   const rec = await getRecord(b.id);
   assert.equal(rec.person.name, 'Ada Lovelace');
   assert.equal(rec.meta['person.name'].set_by, 'builder');
@@ -115,7 +135,7 @@ test('editPost on person.name saves with set_by builder', async () => {
 test('editPost on a project field and a project answer', async () => {
   const { b, cookie, csrf } = await signedIn();
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.one_liner', value: 'Grants for builders' }, { cookie }), deps)).headers.get('location'), '/me#projects');
+  assert.equal(savedTo(await editPost(post('/me/edit', { csrf, path: 'projects.kit.one_liner', value: 'Grants for builders' }, { cookie }), deps)), 'projects.kit.one_liner#projects');
   assert.equal((await getRecord(b.id)).projects[0].one_liner, 'Grants for builders');
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.nope.name', value: 'x' }, { cookie }), deps), FIELD);
 });
@@ -224,12 +244,13 @@ test('delete removes everything', async () => {
   await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at) VALUES (${inst}, ${'b:' + b.id}, 'zz-me-del', 'applied', ${NOW})`;
   await sql()`INSERT INTO link_codes (code, installation_id, created_at, expires_at, nonce) VALUES (${'me-del-' + inst}, ${inst}, ${NOW}, ${new Date(NOW.getTime() + 900_000)}, 'n')`;
   const wrong = await deletePost(post('/me/delete', { csrf, confirm: 'someone-else' }, { cookie }), deps);
-  refused(b.id, wrong, 'Type your GitHub login exactly to delete.');
+  refused(b.id, wrong, 'Type your GitHub login to delete.');
   assert.ok(await getBuilder(b.id));
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'b:' + b.id}`)[0].n, 1);
   const r = await deletePost(post('/me/delete', { csrf, confirm: 'deleteme' }, { cookie }), deps);
   assert.equal(r.status, 303);
-  assert.equal(r.headers.get('location'), '/');
+  // L21-9 (v6.1.16): the home page says the account is deleted.
+  assert.equal(r.headers.get('location'), '/?deleted=1');
   assert.match(r.headers.get('set-cookie') ?? '', /^ek_me=;.*Max-Age=0/);
   assert.equal(await getBuilder(b.id), null);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM sessions WHERE builder_id = ${b.id}`)[0].n, 0);
@@ -245,12 +266,16 @@ test('signoutPost ends the session; unlinkPost unlinks only the builder\'s own i
   const theirs = (await sql()`INSERT INTO installations (token_hash) VALUES (${'me-' + Math.random()}) RETURNING id`)[0].id as number;
   await linkInstallation(mine, b.id, NOW);
   await linkInstallation(theirs, other.b.id, NOW);
-  assert.equal((await unlinkPost(post('/me/unlink', { csrf, installation_id: String(theirs) }, { cookie }), deps)).status, 303);
+  // L21-15 (v6.1.16): an agent that is not the builder's says so.
+  refused(b.id, await unlinkPost(post('/me/unlink', { csrf, installation_id: String(theirs) }, { cookie }), deps), 'That agent is not on your account.');
   // An id no installation can have is a line, never a 500 (v6.1.7 B3).
   for (const id of ['1099511627776', '2147483648', '99999999999999999999', 'abc', '', '0', '-1', '1e3'])
     refused(b.id, await unlinkPost(post('/me/unlink', { csrf, installation_id: id }, { cookie }), deps), FIELD);
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${theirs}`)[0].builder_id, other.b.id);
-  await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps);
+  // L21-7, L21-10 (v6.1.16): the note names the agent as /me shows it; an unnamed one by its link day.
+  const gone = await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps);
+  assert.deepEqual(lineOf(gone, b.id), { status: 303, path: '/me', key: 'note', text: 'Unlinked An agent linked Nov 6.', shown: true });
+  refused(b.id, await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps), 'That agent is not on your account.');
   assert.deepEqual({ ...(await sql()`SELECT builder_id, linked_at FROM installations WHERE id = ${mine}`)[0] }, { builder_id: null, linked_at: null });
   // The refused id and the other builder's agent carry no unlink mark (B10).
   assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${theirs}`)[0].unlinked_at, null);
@@ -286,7 +311,7 @@ test('POST /me/link action=link links the installation to the signed-in builder,
   assert.deepEqual(lineOf(again, b.id), { status: 303, path: '/me', key: 'note', text: 'This agent is linked.', shown: true });
   // Another builder's double click on the same used code still reads expired.
   const other = await signedIn();
-  refused(other.b.id, await linkPost(post('/me/link', { csrf: other.csrf, code, action: 'link' }, { cookie: other.cookie }), deps), 'That link expired. Ask your agent for a new one.');
+  refused(other.b.id, await linkPost(post('/me/link', { csrf: other.csrf, code, action: 'link' }, { cookie: other.cookie }), deps), 'This link has expired. Ask your agent for a new one.');
 });
 
 test('a signed /me line is bound to its builder: an agent-named Linked line shows on no other page (fix round 1)', async () => {
@@ -326,11 +351,14 @@ test('POST /me/link action=deny expires the code and links nothing', async () =>
   // Denied is dead: a link after it does nothing and says so, as the Not me said it (Low 16, v6.1.13).
   assert.deepEqual(lineOf(await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps), b.id), { status: 303, path: '/me', key: 'note', text: 'Not linked.', shown: true });
   const { meData } = await import('./me-view');
-  assert.equal((await meData(b, new Date(NOW.getTime() + 60_000), 'sess', code)).link?.text, 'Not linked.');
+  // L21-6 (v6.1.16): the banner's title says it; no body repeats it.
+  assert.deepEqual((await meData(b, new Date(NOW.getTime() + 60_000), 'sess', code)).link, { title: 'Not linked.', code: null, text: '', parts: null });
   assert.equal(await instBuilder(id), null);
-  // A code EarnKit never makes is not valid, for either button.
+  // A code EarnKit never makes is not one of ours, for either button (L21-17, v6.1.16).
   for (const bad of ['nope', 'x'.repeat(1024), '%3Cscript%3E'])
-    for (const action of ['link', 'deny']) refused(b.id, await linkPost(post('/me/link', { csrf, code: bad, action }, { cookie }), deps), 'This link is not valid.');
+    for (const action of ['link', 'deny']) refused(b.id, await linkPost(post('/me/link', { csrf, code: bad, action }, { cookie }), deps), 'This link is not one of ours.');
+  // A code-shaped code EarnKit never made: not one of ours, never "expired".
+  refused(b.id, await linkPost(post('/me/link', { csrf, code: 'Q'.repeat(22), action: 'link' }, { cookie }), deps), 'This link is not one of ours.');
 });
 
 test('POST /me/link without the csrf comes back with the expired line and links nothing', async () => {
@@ -352,7 +380,7 @@ test('a second action=link on a used code links nothing and comes back with the 
   const code = await createLinkCode(id, NOW);
   await linkPost(post('/me/link', { csrf: first.csrf, code, action: 'link' }, { cookie: first.cookie }), deps);
   const r = await linkPost(post('/me/link', { csrf: second.csrf, code, action: 'link' }, { cookie: second.cookie }), deps);
-  refused(second.b.id, r, 'That link expired. Ask your agent for a new one.');
+  refused(second.b.id, r, 'This link has expired. Ask your agent for a new one.');
   assert.equal(await instBuilder(id), first.b.id);
 });
 
@@ -413,7 +441,7 @@ test('B17: the builder\'s edit of an approved answer leaves no approved short be
   await approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'approve', seen }, { cookie }), deps);
   assert.deepEqual(answerFor(await getRecord(b.id), null, 'problem'), { text: 'Teams lose time on payouts.', short: 'Payouts; we serve 5,000 paying customers.' });
   const r = await editPost(post('/me/edit', { csrf, path: 'answers.problem', value: 'Teams lose time on payouts. We have no customers yet.' }, { cookie }), deps);
-  assert.equal(r.headers.get('location'), '/me#answers');
+  assert.equal(savedTo(r), 'answers.problem#answers');
   const rec = await getRecord(b.id);
   assert.equal(rec.answers.problem?.short, undefined);
   assert.deepEqual(answerFor(rec, null, 'problem'), { text: 'Teams lose time on payouts. We have no customers yet.', short: null });
@@ -422,7 +450,7 @@ test('B17: the builder\'s edit of an approved answer leaves no approved short be
 test('B19: the team list is editable on /me: a role, a new member, a removal', async () => {
   const { b, cookie, csrf } = await signedIn();
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { team: [{ name: 'Cut Person', role: 'CEO' }, { name: 'Hidden Partner', role: 'CFO' }] }, 'agent', NOW).record, NOW);
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'team.0.role', value: 'Founder' }, { cookie }), deps)).headers.get('location'), '/me#team');
+  assert.equal(savedTo(await editPost(post('/me/edit', { csrf, path: 'team.0.role', value: 'Founder' }, { cookie }), deps)), 'team.0.role#team');
   await editPost(post('/me/edit', { csrf, path: 'team.2.name', value: 'Sam Cofounder' }, { cookie }), deps);
   await editPost(post('/me/edit', { csrf, path: 'team.1.name', value: '' }, { cookie }), deps);
   await editPost(post('/me/edit', { csrf, path: 'team.1.role', value: '' }, { cookie }), deps);
@@ -441,7 +469,7 @@ test('C43 and C53: standing approval on with no category is refused; an unknown 
   refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50' }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.\nPick at least one category.');
   assert.deepEqual(await getRecord(b.id), before);
   // Off with none ticked is fine: nothing is sent alone.
-  assert.equal((await policyPost(post('/me/policy', { csrf, max_per_night: '5' }, { cookie }), deps)).headers.get('location'), '/me#policy');
+  assert.equal(savedTo(await policyPost(post('/me/policy', { csrf, max_per_night: '5' }, { cookie }), deps)), 'policy#policy');
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base, solana, notachain' }, { cookie }), deps), 'Not a known chain: notachain.');
 });
@@ -459,7 +487,7 @@ test('v6.1.9 N7 and N8: renaming a team member drops the old github, x and email
   await editPost(post('/me/edit', { csrf, path: 'team.1.role', value: 'CTO' }, { cookie }), deps);
   assert.deepEqual((await getRecord(b.id)).team[1], { name: 'New Person', role: 'CTO' });
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, foo, bar' }, { cookie }), deps), 'Not a known chain: foo, bar.');
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, ARC' }, { cookie }), deps)).headers.get('location'), '/me#projects');
+  assert.equal(savedTo(await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, ARC' }, { cookie }), deps)), 'projects.kit.chains_claimed#projects');
   assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, ['base', 'arc']);
   // Review Focus 5 (v6.1.12, F10): a chain given twice, in any case or with an empty slot, is saved once, in first order.
   for (const [value, saved] of [['base,,base', ['base']], ['Base, base', ['base']], ['base, ARC, Arc', ['base', 'arc']], ['arc, base, ARC, base', ['arc', 'base']]] as const) {
@@ -471,7 +499,7 @@ test('v6.1.9 N7 and N8: renaming a team member drops the old github, x and email
 test('L13-14 (v6.1.14): /me chains one per line read as commas do; an unknown one is still named alone', async () => {
   const { b, cookie, csrf } = await signedIn();
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nsolana\r\nArc, base' }, { cookie }), deps)).headers.get('location'), '/me#projects');
+  assert.equal(savedTo(await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nsolana\r\nArc, base' }, { cookie }), deps)), 'projects.kit.chains_claimed#projects');
   assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, ['base', 'solana', 'arc']);
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nnotachain' }, { cookie }), deps), 'Not a known chain: notachain.');
 });

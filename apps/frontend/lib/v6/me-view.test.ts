@@ -37,7 +37,8 @@ test('labels have no path or dot; every pending approval is an approvable path',
   for (const block of d.blocks) {
     assert.ok(!/[._]/.test(block.title), block.title);
     for (const f of block.fields) {
-      assert.ok(f.label.length > 0 && !f.label.includes('.') && !f.label.includes('_') && f.label !== f.path, f.label);
+      // A label may end as a sentence (L21-18's `Press submit for me when I say yes.`); no dot inside it, so no path.
+      assert.ok(f.label.length > 0 && !f.label.replace(/\.$/, '').includes('.') && !f.label.includes('_') && f.label !== f.path, f.label);
       if (f.approvable) assert.ok(APPROVABLE(approvalPathOf(f.path)), f.path);
     }
   }
@@ -77,8 +78,8 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
   const d = await meData(b, NOW, 'sess', code);
-  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.';
-  assert.deepEqual(d.link, { code, text, parts: ['The agent calling itself ', 'Claude <Code>', text.slice('The agent calling itself Claude <Code>'.length)] });
+  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.';
+  assert.deepEqual(d.link, { title: 'Link an agent to this account?', code, text, parts: ['The agent calling itself ', 'Claude <Code>', text.slice('The agent calling itself Claude <Code>'.length)] });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(html.includes('Link an agent to this account?'), html);
   // The agent's own name sits isolated, so its text cannot turn the sentence around (v6.1.7 C1).
@@ -90,27 +91,29 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     assert.ok(form.includes(`name="csrf" value="${d.csrf}"`), action);
   }
   assert.ok(html.includes('>Link this agent</button>'));
-  assert.ok(html.includes('>Not me</button>'));
+  assert.ok(html.includes('>This is not me.</button>'));
   assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
   // The ledger rows show the program's title only, never its slug (lane 5, 3.27).
-  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6' }] }, problem: null }));
+  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6', money: null, words: 'Applied, Nov 6.' }] }, problem: null }));
   assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6.'), rows);
   assert.ok(!/base-builder-grants/.test(rows), rows);
 
   const unnamed = await createLinkCode(await inst(null), NOW);
-  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.');
+  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.');
 
-  // A dead code says it expired; a code EarnKit never makes says it is not valid (v6.1.7 S1).
-  const dead: [MeData, string][] = [
-    [await meData(b, new Date(NOW.getTime() + 16 * 60_000), 'sess', code), 'This link has expired. Ask your agent for a new one.'],
-    [await meData(b, NOW, 'sess', 'not-a-code'), 'This link is not valid.'],
-    [await meData(b, NOW, 'sess', 'x'.repeat(1024)), 'This link is not valid.'],
-    [await meData(b, NOW, 'sess', '<script>'), 'This link is not valid.'],
+  // L21-6, L21-17 (v6.1.16): a dead code's title says what it is: expired, or not one of ours (malformed, or a
+  // code-shaped one EarnKit never made).
+  const dead: [MeData, string, string][] = [
+    [await meData(b, new Date(NOW.getTime() + 16 * 60_000), 'sess', code), 'This link has expired.', 'Ask your agent for a new one.'],
+    [await meData(b, NOW, 'sess', 'not-a-code'), 'This link is not one of ours.', ''],
+    [await meData(b, NOW, 'sess', 'x'.repeat(1024)), 'This link is not one of ours.', ''],
+    [await meData(b, NOW, 'sess', '<script>'), 'This link is not one of ours.', ''],
+    [await meData(b, NOW, 'sess', 'Q'.repeat(22)), 'This link is not one of ours.', ''],
   ];
-  for (const [d2, words] of dead) {
-    assert.deepEqual(d2.link, { code: null, text: words, parts: null });
+  for (const [d2, title, words] of dead) {
+    assert.deepEqual(d2.link, { title, code: null, text: words, parts: null });
     const page = renderToStaticMarkup(MeView({ data: d2, problem: null }));
-    assert.ok(page.includes(words));
+    assert.ok(page.includes(`>${title}</h2>`) && page.includes(words), page);
     assert.ok(!page.includes('/me/link'));
     assert.ok(!page.includes('Link this agent'));
   }
@@ -119,7 +122,7 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   const usedCode = await createLinkCode(await inst('Claude Code'), NOW);
   const { consumeLinkCode } = await import('./link-routes');
   assert.equal(await consumeLinkCode(usedCode, b.id, NOW), 'linked');
-  assert.deepEqual((await meData(b, NOW, 'sess', usedCode)).link, { code: null, text: 'This agent is linked.', parts: null });
+  assert.deepEqual((await meData(b, NOW, 'sess', usedCode)).link, { title: 'Linked.', code: null, text: 'This agent is linked.', parts: null });
   assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('Link an agent to this account?'));
 });
 
@@ -132,12 +135,12 @@ test('/me?link=<code> for an agent already linked to another account reads the O
   await sql()`UPDATE installations SET builder_id = ${owner.id}, linked_at = ${NOW} WHERE id = ${id}`;
   const other = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
   const d = await meData(me, NOW, 'sess', code);
-  assert.deepEqual(d.link, { code: null, text: other, parts: null });
+  assert.deepEqual(d.link, { title: 'Not linked.', code: null, text: other, parts: null });
   const page = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(page.includes(other), page);
   assert.ok(!page.includes('/me/link'));
   assert.ok(!page.includes('Link this agent'));
-  assert.ok(!page.includes('Not me'));
+  assert.ok(!page.includes('This is not me.'));
   // The account it is linked to still sees the buttons.
   assert.equal((await meData(owner, NOW, 'sess', code)).link?.code, code);
 });
@@ -217,4 +220,82 @@ test('v6.1.9: the ledger row shows the catalog title now, else the stored title,
   await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, title) VALUES (0, ${owner}, 'lt-live', 'applied', ${NOW}, 'Old Name'), (0, ${owner}, 'lt-gone', 'applied', ${new Date(NOW.getTime() - 1000)}, 'Stored Name'), (0, ${owner}, 'lt-bare', 'applied', ${new Date(NOW.getTime() - 2000)}, NULL)`;
   const d = await meData(b, NOW, 'sess');
   assert.deepEqual(d.ledger.map((r) => r.title), ['Renamed Grant', 'Stored Name', 'lt-bare']);
+});
+
+test('L21-1, Review Focus 9 (v6.1.16): /me rows and totals equal the find reply, with a further payment and a correction', async () => {
+  const { record: track, summary, ledgerCounts } = await import('../v5/ledger');
+  const { linkInstallation } = await import('./builders');
+  const b = await upsertBuilder({ github_id: 810_070, login: 'rf9', name: null, avatar_url: null }, NOW);
+  const inst = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${'Codex'}, ${NOW}) RETURNING id`)[0].id as number;
+  await linkInstallation(inst, b.id, NOW);
+  const owner = `b:${b.id}`;
+  const ids = ['rf9-a', 'rf9-b', 'rf9-c', 'rf9-d', 'rf9-e', 'rf9-f'];
+  for (const id of ids) await upsertProgram(programFixture({ id, title: `Grant ${id.slice(-1).toUpperCase()}`, max_award_usd: 10_000 }), 'file', NOW);
+  const at = new Date('2026-11-11T12:00:00Z');
+  const o = { installationId: inst, now: at };
+  for (const id of ids) assert.equal((await track(owner, id, 'applied', o)).ok, true, id);
+  assert.equal((await track(owner, 'rf9-a', 'won', { ...o, amount_usd: 5_000 })).ok, true);
+  assert.equal((await track(owner, 'rf9-b', 'won', { ...o, amount_usd: 2_000 })).ok, true);
+  assert.equal((await track(owner, 'rf9-b', 'won', { ...o, amount_usd: 1_500, payment: { key: 'rf9-pay' } })).ok, true);
+  assert.equal((await track(owner, 'rf9-c', 'won', { ...o, amount_usd: 3_000 })).ok, true);
+  assert.equal((await track(owner, 'rf9-c', 'won', { ...o, amount_usd: 3_500 })).ok, true, 'a correction');
+  assert.equal((await track(owner, 'rf9-d', 'rejected', o)).ok, true);
+  const d = await meData(b, at, 'sess');
+  // The find reply's block is `Your applications: ${ledgerCounts(summary)}`; /me's card title is the prefix.
+  assert.equal(d.ledger_line, '6 sent, 3 won ($12,000), 1 rejected, 2 waiting.');
+  assert.equal(d.ledger_line, ledgerCounts(await summary(owner, [], at)));
+  const words = Object.fromEntries(d.ledger.map((r) => [r.title, r.words]));
+  assert.deepEqual(words, {
+    'Grant A': 'Won $5,000, Nov 11.', 'Grant B': 'Won $3,500 in all, Nov 11.', 'Grant C': 'Won $3,500, Nov 11.',
+    'Grant D': 'Rejected, Nov 11.', 'Grant E': 'Applied, Nov 11.', 'Grant F': 'Applied, Nov 11.',
+  });
+  assert.equal(d.ledger.find((r) => r.title === 'Grant B')!.money, '$3,500');
+  const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
+  assert.ok(html.includes('6 sent, 3 won ($12,000), 1 rejected, 2 waiting.') && html.includes('Won $3,500 in all, Nov 11.'), html);
+  // L21-19: every row ends in a full stop.
+  for (const r of d.ledger) assert.match(r.words, /\.$/);
+});
+
+test('ledgerRowWords (L21-1, L21-19, v6.1.16): one sentence per row, full figures', async () => {
+  const { ledgerRowWords } = await import('./me-view');
+  assert.equal(ledgerRowWords('won', '5000', false, 'Nov 11'), 'Won $5,000, Nov 11.');
+  assert.equal(ledgerRowWords('won', 3500, true, 'Nov 11'), 'Won $3,500 in all, Nov 11.');
+  assert.equal(ledgerRowWords('won', null, false, 'Nov 11'), 'Won, amount not given, Nov 11.');
+  assert.equal(ledgerRowWords('applied', null, false, 'Nov 11'), 'Applied, Nov 11.');
+  assert.equal(ledgerRowWords('rejected', null, false, 'Nov 11'), 'Rejected, Nov 11.');
+  assert.equal(ledgerRowWords('no_result', null, false, 'Nov 11'), 'No result, Nov 11.');
+});
+
+test('L21-10, L21-12, L21-13, L21-22 (v6.1.16): unnamed agents by day, projects seen, review lines, no install pill', async () => {
+  const { linkInstallation } = await import('./builders');
+  const { addReviewer } = await import('./reviewers');
+  const b = await upsertBuilder({ github_id: 810_071, login: 'agentsday', name: null, avatar_url: null }, NOW);
+  const mk = async (name: string | null) => (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
+  const first = await mk(null);
+  const second = await mk(null);
+  await linkInstallation(first, b.id, NOW);
+  await linkInstallation(second, b.id, new Date(NOW.getTime() + 60_000));
+  await upsertProgram(programFixture({ id: 'ad-rev', title: 'Review Grants' }), 'file', NOW);
+  assert.equal((await addReviewer('ad-rev', 'agentsday', null)).ok, true);
+  const owner = `b:${b.id}`;
+  await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, project_id) VALUES
+    (${first}, ${owner}, 'ad-1', 'applied', ${NOW}, 'https://github.com/ada/kit'), (${first}, ${owner}, 'ad-2', 'started', ${NOW}, 'https://github.com/ada/kit'),
+    (${first}, ${owner}, 'ad-3', 'applied', ${NOW}, 'name:side project')`;
+  const d = await meData(b, NOW, 'sess');
+  assert.deepEqual(d.installations.map((a) => a.label).sort(), ['An agent linked Nov 6', 'An agent linked Nov 6 (2)']);
+  assert.equal(d.installations.find((a) => a.id === second)!.label, 'An agent linked Nov 6 (2)', 'the later one carries the (2)');
+  assert.deepEqual(d.projects_seen.map((p) => p.line), ['https://github.com/ada/kit: 2 applications.', 'side project: 1 application.']);
+  assert.deepEqual(d.reviews, ['You review Review Grants. Results come through your agent.']);
+  const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
+  for (const t of ['An agent linked Nov 6 (2)', 'side project', ': 2 applications.', 'You review Review Grants. Results come through your agent.']) assert.ok(html.includes(t), t);
+  assert.ok(!html.includes('No projects yet.'), 'the empty line only when nothing is seen');
+  assert.ok(!new RegExp(`>${first}<|>${second}<`).test(html), 'no installation id is visible');
+  assert.ok(html.includes('data-me-linked'), 'the page marks a linked agent for the header');
+  // Saved. sits beside the control that saved, not in a banner.
+  const saved = renderToStaticMarkup(MeView({ data: d, problem: null, note: 'Saved.', saved: 'person.name' }));
+  assert.equal(saved.split('>Saved.</span>').length, 2, saved);
+  assert.ok(!saved.includes('px-5 py-4 text-[15px] text-s-good-text">Saved.'), 'no banner');
+  const fresh = await upsertBuilder({ github_id: 810_072, login: 'noagents', name: null, avatar_url: null }, NOW);
+  const none = renderToStaticMarkup(MeView({ data: await meData(fresh, NOW, 'sess'), problem: null }));
+  assert.ok(none.includes('No projects yet.') && !none.includes('data-me-linked'));
 });

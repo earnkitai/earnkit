@@ -143,7 +143,8 @@ test('POST /link sets ek_link and redirects to GitHub with a state whose nonce i
 test('GET and POST answer 404 for an unknown or expired code; a code EarnKit never makes is not valid (v6.1.7 S1)', async () => {
   const code = await createLinkCode(await install(), NOW);
   const later = new Date(NOW.getTime() + 16 * MIN);
-  const cases = [['nope', NOW, 'This link is not valid.'], ['x'.repeat(500), NOW, 'This link is not valid.'], ['x'.repeat(22), NOW, EXPIRED], [code, later, EXPIRED]] as const;
+  // L21-17 (v6.1.16): a code EarnKit never made, code-shaped or not, is not one of ours; one of ours that ended has expired.
+  const cases = [['nope', NOW, 'This link is not one of ours.'], ['x'.repeat(500), NOW, 'This link is not one of ours.'], ['x'.repeat(22), NOW, 'This link is not one of ours.'], [code, later, EXPIRED]] as const;
   for (const [c, now, words] of cases) {
     for (const r of [await linkGet(req(`/link/${c}`), c, { now }), await linkPost(req(`/link/${c}`, { method: 'POST' }), c, { now })]) {
       assert.equal(r.status, 404);
@@ -263,4 +264,17 @@ test('a rate-limited IP gets 429 on every route', async () => {
     assert.equal(r.status, 429);
     assert.ok(r.headers.get('retry-after'));
   }
+});
+
+test('codeState (L21-6, L21-17, v6.1.16): live, used, expired, or unknown (malformed or never made)', async () => {
+  const { codeState, consumeLinkCode } = await import('./link-routes');
+  const { upsertBuilder } = await import('./builders');
+  const code = await createLinkCode(await install(), NOW);
+  assert.equal(await codeState(code, NOW), 'live');
+  assert.equal(await codeState(code, new Date(NOW.getTime() + 16 * MIN)), 'expired');
+  assert.equal(await codeState('nope', NOW), 'unknown');
+  assert.equal(await codeState('Z'.repeat(22), NOW), 'unknown');
+  const b = await upsertBuilder({ github_id: 820_901, login: 'codestate', name: null, avatar_url: null }, NOW);
+  assert.equal(await consumeLinkCode(code, b.id, NOW), 'linked');
+  assert.equal(await codeState(code, NOW), 'used');
 });

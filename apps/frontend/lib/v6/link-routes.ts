@@ -11,6 +11,7 @@ import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
 import { escapeHtml } from '../v5/programs-pending';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
+import { ME_ERRORS, UNKNOWN_CODE } from '../v5/site-copy';
 import { SITE } from '../v5/site-theme';
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signState, verifyState } from './github-auth';
@@ -19,13 +20,13 @@ import { cookieOf, cookieValue, createSession } from './sessions';
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
 const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
-export const EXPIRED = 'This link has expired. Ask your agent for a new one.';
+/** One expired wording everywhere (L21-17, v6.1.16): /me's alert and the /link pages say the same. */
+export const EXPIRED = ME_ERRORS.linkExpired;
+export { UNKNOWN_CODE };
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
 export const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
 /** A used code whose agent is linked to this builder: a second click on "Link this agent" (v6.1.7 N4). */
 export const ALREADY_LINKED = 'This agent is linked.';
-/** A code that is not one EarnKit makes: garbage, cut or too long (v6.1.7 S1). */
-export const INVALID = 'This link is not valid.';
 /** A code as createLinkCode makes it: 22 base64url characters of an HMAC. */
 const CODE_SHAPE = /^[A-Za-z0-9_-]{22}$/;
 /** True for a code of the shape EarnKit makes (live or not). Pure. */
@@ -67,6 +68,21 @@ export async function createLinkCode(installationId: number, now: Date): Promise
 }
 
 export type Live = { installation_id: number; client_name: string | null; created_at: Date; builder_id: number | null };
+/**
+ * What a code is (L21-6, L21-17, v6.1.16): `live` (unused, unexpired), `used`, `expired` (timed out, replaced or
+ * denied), or `unknown` (not code-shaped, or a code EarnKit never made).
+ */
+export async function codeState(code: string, now: Date): Promise<'live' | 'used' | 'expired' | 'unknown'> {
+  if (!CODE_SHAPE.test(code)) return 'unknown';
+  const [r] = await sql()<{ used_at: Date | null; expires_at: Date }[]>`SELECT used_at, expires_at FROM link_codes WHERE code = ${hash(code)}`;
+  if (!r) return 'unknown';
+  if (r.used_at !== null) return 'used';
+  return r.expires_at.getTime() > now.getTime() ? 'live' : 'expired';
+}
+
+/** The page line for a code that is not live: one of ours that ended, or not one of ours. */
+const deadText = async (code: string, now: Date) => ((await codeState(code, now)) === 'unknown' ? UNKNOWN_CODE : EXPIRED);
+
 /** The unused, unexpired code's installation (with the builder it is already linked to, if any), or null. */
 export async function liveCode(code: string, now: Date): Promise<Live | null> {
   if (!CODE_SHAPE.test(code)) return null;
@@ -123,9 +139,10 @@ function confirmPage(live: Live, origin: string): Response {
 /** GET /link/<code>: the confirm page for a live code. */
 export function linkGet(request: Request, code: string, deps: { now?: Date } = {}): Promise<Response> {
   return guarded(request, async () => {
-    if (!codeShaped(code)) return page(INVALID, 404);
-    const live = await liveCode(code, deps.now ?? new Date());
-    return live ? confirmPage(live, publicOrigin(request)) : page(EXPIRED, 404);
+    if (!codeShaped(code)) return page(UNKNOWN_CODE, 404);
+    const now = deps.now ?? new Date();
+    const live = await liveCode(code, now);
+    return live ? confirmPage(live, publicOrigin(request)) : page(await deadText(code, now), 404);
   });
 }
 
@@ -137,8 +154,8 @@ export function linkPost(request: Request, code: string, deps: { now?: Date } = 
     // The button is on our page; a form posted from another site is refused.
     const from = request.headers.get('origin');
     if (from && from !== origin) return page(FAILED, 403);
-    if (!codeShaped(code)) return page(INVALID, 404);
-    if (!(await liveCode(code, now))) return page(EXPIRED, 404);
+    if (!codeShaped(code)) return page(UNKNOWN_CODE, 404);
+    if (!(await liveCode(code, now))) return page(await deadText(code, now), 404);
     const nonce = randomBytes(16).toString('base64url');
     const state = signState({ code, nonce, exp: now.getTime() + TTL_MS }, secret());
     return new Response(null, {

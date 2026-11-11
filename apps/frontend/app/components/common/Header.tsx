@@ -9,7 +9,8 @@ import { NAV_INSTALL } from '../../../lib/v5/site-copy';
  * The one site header on every page, transparent and not sticky: the wordmark (home), Programs and Docs
  * (NavLinks marks the current one), and the blue pill that opens the install sheet. The rows wrap: on a wide phone
  * the wordmark and the pill share the first row; on a narrow one (about 375px) the pill ("Add EarnKit to your agent",
- * no wrap) takes its own row, right-aligned. The links always take the last row on a phone.
+ * no wrap) takes its own row, right-aligned. The links always take the last row on a phone. On /me with a linked
+ * agent (the page carries `data-me-linked`, L21-22 v6.1.16) the pill is hidden.
  */
 export default function Header() {
   return (
@@ -18,7 +19,7 @@ export default function Header() {
         <Wordmark decorative width={104} height={20} />
       </Link>
       <NavLinks className="order-last flex w-full flex-wrap gap-x-6 sm:order-none sm:w-auto sm:flex-1" />
-      <InstallButton label={NAV_INSTALL} className={`${PILL_BLUE} ml-auto sm:ml-0`} />
+      <InstallButton label={NAV_INSTALL} className={`${PILL_BLUE} ml-auto sm:ml-0 [body:has([data-me-linked])_&]:hidden`} />
     </header>
   );
 }
