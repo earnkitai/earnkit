@@ -971,9 +971,13 @@ test('Review Focus 4 (v6.1.12, F8): a send under standing approval to a program 
 test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program by its id, title or title words only; several or none says so and records nothing', async () => {
   const c = await ctx();
   // An organizer's name is find's lookup, never track's (strict). Initials name the program (v6.1.16 Task 15 ruling).
-  const yc = await track(c, { program_id: 'YC', status: 'started' });
+  const yc = await track(c, { program_id: 'yc', status: 'started' });
   assert.match(yc.agent_note, /^Matched y-combinator\. /);
   await sql()`DELETE FROM applications WHERE program_id = 'y-combinator'`;
+  // Fix round 1b: in any case; an English word never names a program.
+  assert.match((await track(c, { program_id: 'YC', status: 'skipped' })).agent_note, /^Matched y-combinator\. /);
+  await sql()`DELETE FROM applications WHERE program_id = 'y-combinator'`;
+  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, 'Which program do you mean?', w);
   assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean?');
   const started = await track(c, { program_id: 'Y Combinator Winter 2027 Batch', status: 'started' });
   assert.equal(started.show_to_builder, '');

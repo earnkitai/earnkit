@@ -1027,7 +1027,7 @@ means what the last `Say` offered.
   Before line (one label: its clauses, then what the record lacks, joined by "; ") drops them. One week is singular, and
   builder_codes, integration, a non-question new_work_after and users of any effort close on their own clause. The
   no-project open list is names and money, five, `And {n} more.` and "Tell me which project and I match it." within
-  the 10 lines. The strict lookup takes initials only in capitals ("YC") or of three letters or more. A screen call
+  the 10 lines. The strict lookup takes initials in any case ("yc", "YC"); English words (COMMON_WORDS: "as", "am", "mm" and the rest) never name a program (fix round 1b). A screen call
   whose every outcome repeats is no error. A win recorded from outside EarnKit keeps no send date and reads
   "(recorded {day}, won {money})". A problems item that says what was not read is its own sentence.
 - **Needs (L1h-8).** `programProblems` refuses a required field whose need (or the todo standing in for it) holds

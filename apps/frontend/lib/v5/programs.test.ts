@@ -194,16 +194,16 @@ test('L24-3 (v6.1.16 Task 11): the strict lookup takes an id, an exact title or 
   const { programFixture: fx } = await import('./fixtures/program');
   const now = new Date('2026-11-04T12:00:00Z');
   await up(fx({ id: 'l24p-second', title: 'Second Grant' }), 'file', now);
-  assert.equal(COMMON_WORDS.size, 14);
+  assert.equal(COMMON_WORDS.size, 14 + 26 + 23);
   for (const w of ['next', 'build', 'start', 'first', 'open', 'apply'])
     assert.equal((await programByName(w, now, { strict: true })).row, null, w);
   assert.equal((await programByName('Second Grant', now, { strict: true })).row?.id, 'l24p-second');
   assert.equal((await programByName('paypal', now, { strict: true })).row?.id, 'paypal-ai-hackathon');
   // v6.1.16 Task 15 (controller's ruling): initials count as a title word in the strict lookup; common words still do not.
-  // Fix round 1 (N2): initials in capitals, or three letters or more; a short lower-case word never.
+  // Fix round 1b: initials in any case; an English word (COMMON_WORDS) never.
   assert.equal((await programByName('YC', now, { strict: true })).row?.id, 'y-combinator');
-  assert.equal((await programByName('yc', now, { strict: true })).row, null);
-  for (const w of ['as', 'am', 'mm']) assert.equal((await programByName(w, now, { strict: true })).row, null, w);
+  assert.equal((await programByName('yc', now, { strict: true })).row?.id, 'y-combinator');
+  for (const w of ['as', 'am', 'mm', 'AS']) assert.equal((await programByName(w, now, { strict: true })).row, null, w);
   assert.equal((await programByName('ai', now, { strict: true })).row, null);
   // find's lookup is unchanged.
   assert.equal((await programByName('yc', now)).row?.id, 'y-combinator');
