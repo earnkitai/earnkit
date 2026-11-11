@@ -18,6 +18,8 @@ export type ClaimResult = { ok: true } | { ok: false; already: Already } | { ok:
 
 /** T5-F4 (v6.1.14): a send or claim whose agent was unlinked from the builder meanwhile records nothing. */
 export const UNLINKED_MEANWHILE = 'This agent was just unlinked from your account; nothing recorded.';
+/** L17-9 (v6.1.16): the agent note when a send's record is refused as unlinked: the form already went out. */
+export const UNLINKED_SEND_NOTE = 'This agent was unlinked before the send was saved; the form went out but EarnKit holds no record of it. Tell the builder to keep their own note.';
 /**
  * T5-F4 (v6.1.14): inside the owner's per-program lock, whether the writing installation still belongs to a 'b:' owner.
  * The installation's row is read FOR SHARE, so an unlink (which updates it) waits for this write, or this write sees

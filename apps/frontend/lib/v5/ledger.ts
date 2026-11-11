@@ -22,6 +22,18 @@ export const WHICH_CHANGE = 'Which change did you finish? Say the program and th
 /** An agent's send over another of the owner's agents' live claim (v6.1.13, B3): nothing is written. */
 export const OTHER_AGENT_HOLDS = 'Your other agent is handling that one; nothing recorded.';
 
+/** L17-2 (v6.1.16): a correction whose event time is before the stored result's: nothing changes. */
+export const EARLIER_RESULT = 'An earlier result; nothing changed.';
+/** L17-8 (v6.1.16): a won with no further-payment mark and the stored win's amount, from either side: a confirmation. */
+export const CONFIRMED = 'Already recorded; nothing new.';
+/** L17-1 (v6.1.16): a skip over a program already sent and waiting on its result. */
+export const ALREADY_SENT_SKIP = 'That one was already sent; nothing to skip.';
+/**
+ * L17-8 (v6.1.16): one payment-key space per application. The key as given, with a legacy `s:` (screen) or `t:`
+ * (track) prefix stripped, so a key stored before v6.1.16 and the same key now match (alias until v6.1.17). Pure.
+ */
+export const paymentKeyOf = (key: string): string => key.replace(/^[st]:/, '');
+
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
 export type Ledger = {
@@ -152,7 +164,9 @@ export async function record(
   let closed = false;
   let total: number | null = null;
   let replacedFrom: number | null = null;
-  const paymentKey = status === 'won' && o.payment ? o.payment.key : null;
+  const paymentKey = status === 'won' && o.payment ? paymentKeyOf(o.payment.key) : null;
+  // L17-2 (v6.1.16): every history row names who wrote it.
+  const source = o.fromScreen ? 'screen' : 'builder';
 
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
@@ -167,9 +181,18 @@ export async function record(
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && row.amount_usd === null && status === 'won' && amount !== null;
     // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
+    // L17-8 (v6.1.16): one key space per application; a key stored with a legacy prefix matches the same key now.
     if (paymentKey !== null && row?.status === 'won'
-      && (await tx`SELECT 1 FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND payment_key = ${paymentKey}`).length > 0)
+      && (await tx<{ payment_key: string }[]>`SELECT payment_key FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND payment_key IS NOT NULL`)
+        .some((h) => paymentKeyOf(h.payment_key) === paymentKey))
       return { ok: false, note: 'Already tracked.' } as const;
+    // L17-1 (v6.1.16): a skip is decided here, under the lock, against the row as it is now: a repeat changes nothing,
+    // a sent program has nothing to skip, and another agent's live claim stays.
+    if (status === 'skipped' && row?.status === 'skipped') return { ok: true, repeated: true } as const;
+    if (status === 'skipped' && row?.status === 'applied') return { ok: false, note: ALREADY_SENT_SKIP } as const;
+    if (status === 'skipped' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
+      && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
+      return { ok: false, note: OTHER_AGENT_HOLDS } as const;
     const hasResult = row !== undefined && RESULTS.includes(row.status);
     // L16-1, L16-2 (v6.1.16): a further payment needs a win to add to; over another result, or over a send with no
     // result yet (fix round 1, M1: `none`, as the screen says), nothing is written.
@@ -191,6 +214,10 @@ export async function record(
     // L16-1, L16-2 (v6.1.16): a won or rejected, unmarked, over a different result is a correction: the latest result
     // replaces it, whether the program's screen or the builder's own track sends it (T8-F1's other amount among them).
     const corrects = hasResult && (status === 'won' || status === 'rejected') && paymentKey === null && !completes && !same;
+    // L17-2 (v6.1.16): a correction applies only when its event is at or after the stored result's; an older one changes nothing.
+    if (corrects && now.getTime() < row.at.getTime()) return { ok: false, note: EARLIER_RESULT } as const;
+    // L17-8 (v6.1.16): the stored win again, with no further-payment mark, from the screen or the builder: a confirmation.
+    if (same && status === 'won' && paymentKey === null) return { ok: false, note: CONFIRMED } as const;
     if (corrects && row.status === 'won' && row.amount_usd !== null && amount !== null) replacedFrom = Number(row.amount_usd);
     const resulted = hasResult && !completes && !adds && !corrects;
     if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
@@ -247,7 +274,8 @@ export async function record(
       await tx`UPDATE applications SET installation_id = ${installationId}, status = 'skipped', note = ${note}, at = ${now},
         claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (total !== null) {
-      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+      // L17-2: `at` never moves backwards.
+      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total}, at = GREATEST(at, ${now}) WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (corrects) {
       await tx`UPDATE applications SET installation_id = ${installationId}, status = ${status}, amount_usd = ${amount}, note = ${note}, at = ${now}
         WHERE owner = ${owner} AND program_id = ${programId}`;
@@ -258,8 +286,10 @@ export async function record(
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, note = EXCLUDED.note, at = EXCLUDED.at`;
     }
-    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, payment_key, corrected)
-      VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now}, ${paymentKey}, ${corrects})`;
+    // L17-1 (v6.1.16): a history row only when the ledger changed (a repeated gap_done changed nothing).
+    if (!repeated)
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, payment_key, corrected, source)
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source})`;
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : closed ? ({ ok: true, closed: true } as const)
       : total !== null ? ({ ok: true, total_usd: total } as const)
       : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced_usd: replacedFrom }) } as const) : ({ ok: true } as const);

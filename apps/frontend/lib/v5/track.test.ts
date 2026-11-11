@@ -65,8 +65,8 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   const rej = await track(c, { program_id: 't7-one', status: 'no_result' });
   assert.equal(rej.show_to_builder, 'That one already has a result here: won $3,000.');
   assert.equal(rej.ledger.won_usd, 3000);
-  // T8-F1 (v6.1.14): a resend is already recorded; another amount corrects; a marked further payment adds once.
-  assert.equal((await track(c, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Already tracked.');
+  // T8-F1 (v6.1.14), L17-8 (v6.1.16): a resend is a confirmation; another amount corrects; a marked further payment adds once.
+  assert.equal((await track(c, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Already recorded; nothing new.');
   const fixed = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 2000 });
   assert.equal(fixed.show_to_builder, 'Tracked: $2,000 from One Grant. Replaced the earlier amount.');
   assert.equal(fixed.ledger.won_usd, 2000);
@@ -1260,7 +1260,9 @@ test('T5-F4 (v6.1.14): a send or claim in flight from an agent unlinked meanwhil
   assert.equal(await unlinkInstallation(a.installationId, c.builderId!, NOW), true);
   // `a` still carries the builder id it was read with before the unlink.
   const sent = await track(a, { program_id: 'f4-send', status: 'applied', submitted_by: 'agent' });
-  assert.deepEqual([sent.show_to_builder, sent.agent_note], ['This agent was just unlinked from your account; nothing recorded.', 'Nothing was recorded.']);
+  // L17-9 (v6.1.16): the form went out; the agent tells the builder to keep their own note.
+  assert.deepEqual([sent.show_to_builder, sent.agent_note], ['This agent was just unlinked from your account; nothing recorded.',
+    'This agent was unlinked before the send was saved; the form went out but EarnKit holds no record of it. Tell the builder to keep their own note.']);
   const claimed = await track(a, { program_id: 'f4-claim', status: 'started' });
   assert.equal(claimed.show_to_builder, 'This agent was just unlinked from your account; nothing recorded.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner}`)[0].n, 0);

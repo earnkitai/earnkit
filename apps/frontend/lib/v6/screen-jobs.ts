@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
-import { record, resultWords, winCapOf } from '../v5/ledger';
+import { CONFIRMED, record, resultWords, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
 import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps } from '../v5/project-input';
 import { repoKey } from '../v5/repo-facts';
@@ -669,14 +669,14 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     }
     const ledgerNote = ledgerAmountNote(o);
     const res = await record(app.owner, job.program_id, o.outcome, {
-      installationId: app.installation_id, now, fromScreen: true, ...(pkey !== null && { payment: { key: `s:${pkey}` } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
+      installationId: app.installation_id, now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
       ...(ledgerNote && { note: ledgerNote }),
     });
     // Fix round 1 (C1): the reviewer hears only what the screen did. A repeat is a repeat whatever the ledger answers
     // (an FR-4 delivery stays silent), and any ledger refusal is one generic reason, its detail in the server log, so
     // the builder's own corrections, results and totals never reach a program.
     if (repeat) repeated();
-    else if (res.ok || res.note === 'Already tracked.') {
+    else if (res.ok || res.note === 'Already tracked.' || res.note === CONFIRMED) {
       passed++;
       if (o.outcome === 'won' && amount === null && !o.given) once(noAmount, o.ref);
     } else {

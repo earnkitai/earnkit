@@ -89,11 +89,16 @@ test('two claims at once from two agents of one builder: exactly one wins, one r
   }
 });
 
-test('skips and claims: a skip replaces a claim; a claim over a skip refuses; release leaves skips', async () => {
+test("skips and claims: a skip replaces the agent's own claim, never another agent's live one; a claim over a skip refuses; release leaves skips", async () => {
   await upsertProgram(programFixture({ id: 'cl-skip', title: 'Skip Grant' }), 'file', NOW);
   const { owner, a, c } = await builderWithTwoAgents();
   await claim(owner, 'cl-skip', 'earnkit', a, NOW);
-  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: c, now: new Date(NOW.getTime() + H) }), { ok: true });
+  // L17-1 (v6.1.16): another agent's skip over a live claim records nothing and leaves the claim.
+  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: c, now: new Date(NOW.getTime() + H) }),
+    { ok: false, note: 'Your other agent is handling that one; nothing recorded.' });
+  const [held] = await sql()`SELECT status, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
+  assert.deepEqual({ ...held }, { status: 'started', claimed_by: a });
+  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: a, now: new Date(NOW.getTime() + H) }), { ok: true });
   const [row] = await sql()`SELECT status, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
   assert.deepEqual({ ...row }, { status: 'skipped', claimed_at: null, claimed_by: null });
   assert.deepEqual(await claim(owner, 'cl-skip', 'earnkit', a, new Date(NOW.getTime() + 2 * H)), { ok: false, skipped: true });

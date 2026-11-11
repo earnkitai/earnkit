@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
+import { CONFIRMED, EARLIER_RESULT, OTHER_AGENT_HOLDS, paymentKeyOf, askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
 
 after(() => sql().end());
 
@@ -116,8 +116,8 @@ test('a result over a result: no_result and applied are refused and change nothi
   assert.deepEqual(await record(o(i), 'l-res', 'no_result', { now: NOW }), won);
   assert.deepEqual(await record(o(i), 'l-res', 'applied', { now: NOW }), won);
   assert.deepEqual(await counts(i), before);
-  // T8-F1 (v6.1.14): the same win resent is already recorded; another amount, unmarked, is a correction that replaces it.
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: 'Already tracked.' });
+  // T8-F1 (v6.1.14), L17-8 (v6.1.16): the same win resent is a confirmation; another amount, unmarked, is a correction that replaces it.
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: CONFIRMED });
   assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, now: NOW }), { ok: true, corrected: true, replaced_usd: 3000 });
   assert.equal((await summary(o(i), [], NOW)).won_usd, 2500);
   // A further payment, marked with its key, adds once (L15-17); a repeat of the key changes nothing; the total stays under the cap.
@@ -167,7 +167,7 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): the ledger keeps the latest result
   // A win in another currency (from a screen) after a dollar win: won, the currency note, no dollar amount.
   assert.deepEqual(await record(o(i), 'l-mirror', 'won', { amountNotGiven: true, note: 'amount in EUR, not converted', now: NOW }), { ok: true, corrected: true });
   assert.deepEqual(await state(), ['won', null, 'amount in EUR, not converted']);
-  assert.deepEqual(await record(o(i), 'l-mirror', 'won', { amountNotGiven: true, note: 'amount in EUR, not converted', now: NOW }), { ok: false, note: 'Already tracked.' });
+  assert.deepEqual(await record(o(i), 'l-mirror', 'won', { amountNotGiven: true, note: 'amount in EUR, not converted', now: NOW }), { ok: false, note: CONFIRMED });
   const e = await summary(o(i), [], NOW);
   assert.deepEqual([e.won, e.won_usd], [1, 0]);
   // A no_result over a result is still refused.
@@ -234,7 +234,8 @@ test('gap_done writes gaps_done only', async () => {
   assert.deepEqual(await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW }), { ok: true });
   // The row existed: the same item again says so (v6.1.7, C26).
   assert.deepEqual(await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW }), { ok: true, repeated: true });
-  assert.deepEqual(await counts(i), { apps: 0, hist: 2 });
+  // L17-1 (v6.1.16): a repeat changed nothing, so it writes no history row.
+  assert.deepEqual(await counts(i), { apps: 0, hist: 1 });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap', ''))], ['users']);
 });
 
@@ -385,7 +386,8 @@ test('a record under one b: owner from two installations is one row, written by 
   const rows = await sql()`SELECT installation_id, status FROM applications WHERE owner = ${b} AND program_id = 'l-b1'`;
   assert.deepEqual(rows.map((r) => ({ ...r })), [{ installation_id: two, status: 'won' }]);
   const hist = await sql()`SELECT installation_id FROM application_history WHERE owner = ${b} AND program_id = 'l-b1' ORDER BY id`;
-  assert.deepEqual(hist.map((r) => r.installation_id), [one, two, one, two]);
+  // L17-1 (v6.1.16): the second gap_done changed nothing and writes no history row.
+  assert.deepEqual(hist.map((r) => r.installation_id), [one, two, one]);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner = ${b} AND program_id = 'l-b1'`)[0].n, 1);
   assert.equal((await summary(b, [], NOW)).won, 1);
   assert.deepEqual([...(await doneItems(b, 'l-b1', ''))], ['users']);
