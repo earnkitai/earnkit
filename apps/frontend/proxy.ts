@@ -10,6 +10,10 @@
  * (`/Programs/Thiel-Fellowship` to `/programs/thiel-fellowship`). The matcher picks only such paths, and never
  * /_next, /api (case-exact), /.well-known, a file name with a dot, /mcp, /oauth or /link in any case (a sign-in code
  * is case-sensitive: lower-casing /link/<code> broke every link, L27-4 v6.1.16). A POST to /link/<code> is 405.
+ * L31-1 (v6.1.16 Task 17): every other path the proxy matches (every page, /me, /link/<code>) answers a method outside
+ * its `METHODS_BY_ROUTE` set (lib/v5/route-methods.ts) with 405 and that set as Allow; TRACE and CONNECT get the same
+ * answer here, but on a real server Next 16.4.1 refuses them before the proxy runs (a bare 500, the parked edge rule).
+ * Routes with a body (/me/*, /link/<code>/confirm, /api/*) are not matched and answer from their route files.
  * L27-3 (v6.1.16): a guide path for an id no list shows is rewritten to a path no route serves, so the site's 404 page
  * renders in the server HTML (lang, main, the h1) with status 404. A notFound() thrown by the page itself reaches the
  * browser as Next's empty error shell (seen on a production build of Next 16.4.1), so it stays only as the fallback.
@@ -19,6 +23,7 @@ import { notAllowed } from './lib/v5/http';
 import { meGet } from './lib/v6/me-routes';
 import { publicOrigin } from './lib/v5/oauth';
 import { listGuideIds } from './lib/v5/guide-page';
+import { allowOf, serves } from './lib/v5/route-methods';
 
 /** The methods a route handler can be asked for; any other never reaches one. */
 const ROUTE_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
@@ -36,9 +41,6 @@ export function lowerPath(url: URL): URL | null {
 
 /** Paths the lower-case redirect never touches (the matcher leaves them out too): case-exact or body-carrying routes. */
 const NOT_A_PAGE = /^\/(?:_next\/|api\/|\.well-known\/|mcp(?:\/|$)|oauth\/|link\/)|\.[^/]*$/i;
-
-/** A /link page (never its /confirm route). */
-const LINK_PAGE = /^\/link\/[^/.]+$/;
 
 /** A path no route serves: a rewrite to it renders the site's 404 page with status 404. */
 export const NOT_A_ROUTE = '/_ek/not-found';
@@ -72,13 +74,15 @@ async function guideIds(): Promise<ReadonlySet<string>> {
 export async function proxy(request: Request) {
   const url = new URL(request.url);
   const { pathname } = url;
-  if (pathname === '/me') return meGet(request);
   if (pathname === '/oauth/authorize' || pathname.startsWith('/.well-known/')) {
     if (!ROUTE_METHODS.has(request.method.toUpperCase())) return notAllowed(ALLOW);
     return NextResponse.next();
   }
-  // L27-4 (v6.1.16): /link/<code> is a page now; its POST moved to /link/<code>/confirm.
-  if (LINK_PAGE.test(pathname) && !['GET', 'HEAD'].includes(request.method.toUpperCase())) return notAllowed('GET');
+  // L31-1 (v6.1.16 Task 17): a method the path does not serve (L27-4: /link/<code> is a page; its POST is /confirm).
+  // Read on the lower-case path, so a capitalised route path (/Me/Edit) keeps its 308 for the methods it serves.
+  const allow = allowOf(pathname.toLowerCase());
+  if (!serves(allow, request.method)) return notAllowed(allow);
+  if (pathname === '/me') return meGet(request);
   const lower = NOT_A_PAGE.test(pathname) ? null : lowerPath(url);
   if (lower) return new Response(null, { status: 308, headers: { Location: `${publicOrigin(request)}${lower.pathname}${lower.search}` } });
   const gone = await guideGate(url, guideIds);
@@ -87,8 +91,10 @@ export async function proxy(request: Request) {
 }
 
 /**
- * The last entry matches only a path with an upper-case letter and no dot, outside /_next, /api, /mcp, /oauth and
- * /link (in any case), so /mcp, /oauth/token and /oauth/register are never matched (their bodies stay unbuffered, Task 5).
+ * The page entry (L31-1, v6.1.16 Task 17) matches every path with no dot outside /_next, /api, /mcp, /oauth, /me/,
+ * /link/ and /auth/ (in any case), so a page's unserved method is 405; the last entry matches only a path with an
+ * upper-case letter and no dot, outside /_next, /api, /mcp, /oauth and /link (in any case). /mcp, /oauth/token,
+ * /oauth/register and every route with a body are never matched (their bodies stay unbuffered, Task 5).
  */
 export const config = {
   matcher: [
@@ -97,6 +103,7 @@ export const config = {
     '/.well-known/:path*',
     '/programs/:id([^/.]+)',
     '/link/:code([^/.]+)',
+    '/((?!_next/|[Aa][Pp][Ii]/|[Mm][Cc][Pp](?:/|$)|[Oo][Aa][Uu][Tt][Hh]/|[Mm][Ee]/|[Ll][Ii][Nn][Kk]/|[Aa][Uu][Tt][Hh]/|\\.well-known/)[^.]*)',
     '/((?![Aa][Pp][Ii]/|_next/|[Mm][Cc][Pp](?:/|$)|[Oo][Aa][Uu][Tt][Hh]/|[Ll][Ii][Nn][Kk]/)[^.]*[A-Z][^.]*)',
   ],
 };

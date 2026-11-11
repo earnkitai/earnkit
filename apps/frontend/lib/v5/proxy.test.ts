@@ -50,11 +50,42 @@ test('L25-20 (v6.1.16): a capitalised page path is a 308 to its lower-case form 
 });
 
 test('L25-20 (v6.1.16): the matcher picks capitalised page paths and never /mcp, /oauth/token, /oauth/register, /api or files', () => {
-  for (const p of ['/Programs', '/programs/Thiel-Fellowship', '/DOCS', '/Terms', '/Me']) assert.ok(matched(p), p);
+  for (const p of ['/Programs', '/programs/Thiel-Fellowship', '/DOCS', '/Terms', '/Me', '/Me/Edit']) assert.ok(matched(p), p);
   // L27-4 (v6.1.16): /link/<code> is matched for its 405 on POST, never by the case entry (a code is case-sensitive).
   assert.ok(matched('/link/AbCdEfGhIjKlMnOpQrStUv') && !matched('/Link/ABC') && !matched('/link/AbC/confirm'));
-  for (const p of ['/mcp', '/MCP', '/Mcp/x', '/oauth/token', '/oauth/register', '/OAuth/Token', '/api/Programs', '/API/programs', '/_next/static/AbC/x.js', '/images/agents/Foo.svg', '/docs', '/programs', '/programs/thiel-fellowship/x', '/programs/thiel-fellowship.svg', '/'])
+  // Task 5 (I1) and L31-1 (v6.1.16 Task 17): a route with a body is never matched, so Next never buffers it.
+  for (const p of ['/mcp', '/MCP', '/Mcp/x', '/oauth/token', '/oauth/register', '/OAuth/Token', '/api/Programs', '/API/programs', '/api/programs', '/api/programs/write', '/api/cron', '/me/edit', '/me/signout', '/auth/github/callback', '/llms.txt', '/_next/static/AbC/x.js', '/images/agents/Foo.svg', '/programs/thiel-fellowship.svg'])
     assert.ok(!matched(p), p);
-  // Task 5's entries stay; L27-3 (v6.1.16): a guide path is matched for the unknown-id 404 rewrite.
-  for (const p of ['/me', '/oauth/authorize', '/.well-known/oauth-authorization-server', '/programs/thiel-fellowship']) assert.ok(matched(p), p);
+  // Task 5's entries stay; L27-3 (v6.1.16): a guide path is matched for the unknown-id 404 rewrite; L31-1: every page.
+  for (const p of ['/me', '/oauth/authorize', '/.well-known/oauth-authorization-server', '/programs/thiel-fellowship', '/', '/docs', '/programs', '/terms', '/install', '/nope', '/programs/thiel-fellowship/x'])
+    assert.ok(matched(p), p);
+});
+
+/** A request object for a method undici's Request refuses to build (TRACE, CONNECT). */
+const raw = (method: string, path: string, headers: Record<string, string> = {}) =>
+  ({ url: `https://earnkit.test${path}`, method, headers: new Headers(headers) }) as never;
+
+test('L31-1 (v6.1.16 Task 17): TRACE and CONNECT are 405 with a non-empty Allow on every path; an unserved page method too', async () => {
+  // On a real server Next 16.4.1 refuses TRACE and CONNECT before the proxy (a bare 500, the parked edge rule); this
+  // is the proxy's own answer, and /api/programs (not matched) answers every other method from its route file.
+  for (const method of ['TRACE', 'CONNECT'])
+    for (const path of ['/', '/me', '/programs/x', '/link/abcd-efgh', '/api/programs']) {
+      const r = await proxy(raw(method, path));
+      assert.equal(r.status, 405, `${method} ${path}`);
+      assert.ok((r.headers.get('allow') ?? '').length > 0, `${method} ${path}`);
+      assert.equal(r.headers.get('access-control-allow-origin'), '*');
+      assert.deepEqual(await r.json(), { error: 'method_not_allowed' });
+    }
+  for (const [method, path, allow] of [['PATCH', '/docs', 'GET, HEAD'], ['POST', '/', 'GET, HEAD'], ['DELETE', '/me', 'GET, HEAD'], ['PROPFIND', '/programs/x', 'GET, HEAD'], ['PUT', '/link/abcd-efgh', 'GET'], ['OPTIONS', '/terms', 'GET, HEAD']]) {
+    const r = await proxy(raw(method, path));
+    assert.equal(r.status, 405, `${method} ${path}`);
+    assert.equal(r.headers.get('allow'), allow, `${method} ${path}`);
+  }
+  // Served methods go on: a page's GET and HEAD, and a capitalised route path's POST keeps its 308.
+  await withOrigin(async () => {
+    assert.equal((await proxy(new Request('https://earnkit.test/docs', { method: 'HEAD' }) as never)).status, 200);
+    const up = await proxy(new Request('https://earnkit.test/Me/Edit', { method: 'POST', body: 'x=1' }) as never);
+    assert.equal(up.status, 308);
+    assert.equal(up.headers.get('location'), 'https://earnkit.com/me/edit');
+  });
 });
