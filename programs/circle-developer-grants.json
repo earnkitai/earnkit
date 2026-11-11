@@ -5,17 +5,16 @@
   "description": "Grants for teams building on Arc and the Circle Developer Platform: milestone-based USDC funding, co-marketing, technical guidance, and Circle ecosystem access. Focus areas: agentic economic activity, stablecoin FX, peer-to-peer payments, treasury management, prediction markets, and lending and borrowing. The current round is Circle 2026 Cohort 2.",
   "source_url": "https://www.circle.com/grant",
   "submission_url": "https://circle.questbook.app/",
-  "reward": "Milestone-based USDC grants from $5,000 to $100,000 per project (Cohort 2 shows $135K available)",
-  "summary": "$5,000 to $100,000 USDC grants · rolling",
+  "reward": "Milestone-based USDC grants from $10,000 to $100,000 per project, sized to scope and impact; most are $10,000 to $20,000, and $25,000 or more needs demonstrated traction",
+  "summary": "$10,000 to $100,000 USDC grants · rolling",
   "max_award_usd": 100000,
-  "min_award_usd": 5000,
+  "min_award_usd": 10000,
   "ideas": [
     "An agent that settles payments in USDC on Arc",
     "A peer-to-peer payments app using Circle Wallets",
     "A lending or borrowing protocol built on Arc"
   ],
-  "tag": "needs a live product",
-  "min_tier": "live",
+  "min_tier": "building",
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
@@ -38,7 +37,7 @@
     "Payments are released as agreed milestones are met and approved, not up front.",
     "Process: application, initial review, finalist technical review (with screenings), milestone design, then disbursement.",
     "Selective: as of Nov 1, 2026 the Cohort 2 portal showed 925 proposals and 14 accepted.",
-    "Qualifying Arc builders can also get security audit funding through Developer Grants."
+    "You don't need to be live yet, but you need a working product, a technical roadmap and at least one Circle integration you can show on video."
   ],
   "submission_requirements": [
     { "key": "business", "label": "Details on your business", "kind": "solution", "todo": "details on your business", "type": "text", "required": true, "from": "project" },

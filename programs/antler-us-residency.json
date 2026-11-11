@@ -38,7 +38,8 @@
     "Co-founders are welcome, but at least one founder must be full-time in the residency. Solo founders are welcome.",
     "At least one co-founder must already be a US citizen, permanent resident, or hold independent, unrestricted work authorization. Antler does not sponsor visas.",
     "Founders past the residency can pitch Antler's investment committee directly through Pitch Us.",
-    "Antler backs founders across AI, enterprise SaaS, consumer, fintech, climate, deep tech, health and new categories."
+    "Antler backs founders across AI, enterprise SaaS, consumer, fintech, climate, deep tech, health and new categories.",
+    "The link opens Antler's founder page; pick the US residency."
   ],
   "submission_requirements": [
     { "key": "first_name", "label": "First name", "kind": "contact", "todo": "your first name", "type": "text", "required": true, "from": "builder" },

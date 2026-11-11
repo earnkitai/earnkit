@@ -11,8 +11,8 @@
   "max_award_usd": 100000,
   "starts_at": null,
   "ends_at": null,
-  "status": "active",
-  "verified_at": "2026-11-09",
+  "status": "closed",
+  "verified_at": "2026-11-11",
   "existing_work": "allowed",
   "needs_repo": false,
   "chains": [],
@@ -32,7 +32,8 @@
     "Each grant is $100,000 USD for a 12-month project. Progress is reviewed quarterly by the goose team and selected external reviewers, and payouts are made quarterly.",
     "Each project defines its own deliverables and milestones. The program looks for clear, compelling and ambitious ideas aligned with goose, built with an open-source-first mindset.",
     "The July 2025 announcement describes four categories (integrations and extensions, tooling and infrastructure, research and innovation, education and documentation), OSI-approved licenses for funded work, a 1 to 2 page project description as the initial proposal, then a technical review and an interview with Block's Open Source team.",
-    "The application is a 6-page Google Form created inside Block, Inc.; EarnKit could read only page 1 (name, email, country)."
+    "The application is a 6-page Google Form created inside Block, Inc.; EarnKit could read only page 1 (name, email, country).",
+    "The program page now points to Spiral's grants instead; EarnKit lists this program as closed."
   ],
   "submission_requirements": [
     { "key": "name", "label": "Name", "type": "text", "required": true, "todo": "your name", "from": "builder", "kind": "contact" },
