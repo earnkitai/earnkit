@@ -147,10 +147,16 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
     'In claude.ai or the desktop app, open "Customize", then "Connectors".',
     'Choose "+ Add", then "Add custom connector".',
     'Name it EarnKit, paste the EarnKit link, choose "Continue".',
-    'Keep the connection settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
+    'Keep the connection settings it detected and choose "Continue" again.',
     'Choose "Add".',
     'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
   ]);
+  // v6.1.15 Task 14: claude.ai signs in with its client document, so no copy asks the builder to register a client.
+  for (const [name, text] of [['llms', LLMS_TEXT], ['README', readFileSync(join(ROOT, 'README.md'), 'utf8')]] as const) {
+    assert.ok(!/Register automatically|OAuth client/i.test(text), `${name}: no OAuth client step`);
+  }
+  assert.ok(LLMS_TEXT.includes(`- Claude: ${claude.steps.join(' ')}`), 'llms: the Claude block is the tab\'s steps');
+  assert.ok(readFileSync(join(ROOT, 'README.md'), 'utf8').includes('Continue, Continue again, Add'), 'README: the Claude row');
 });
 
 test('every copy of the connect steps carries the approve and reload steps', () => {

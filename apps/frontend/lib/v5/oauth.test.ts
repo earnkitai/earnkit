@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import {
+  CIMD_FAILED,
   OAuthError,
+  authorizationServerMetadata,
   checkAuthorize,
   clientKeyOf,
   clientLimitKey,
@@ -427,4 +429,20 @@ test('T6-F2 (v6.1.14 fix round 1): a client id registered before the check, carr
   // saveInstallation refuses it too, whatever calls it.
   const { saveInstallation } = await import('./installations');
   await assert.rejects(saveInstallation('ek_reserved_' + Math.random(), 'Earn Kit'), (e) => e instanceof OAuthError && e.message === INVALID_CLIENT_NAME);
+});
+
+test('v6.1.15 Task 14: the authorization-server metadata (RFC 8414) advertises client ID metadata documents', () => {
+  assert.deepEqual(authorizationServerMetadata('https://earnkit.test'), {
+    issuer: 'https://earnkit.test',
+    authorization_endpoint: 'https://earnkit.test/oauth/authorize',
+    token_endpoint: 'https://earnkit.test/oauth/token',
+    registration_endpoint: 'https://earnkit.test/oauth/register',
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+    authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
+  });
+  assert.equal(CIMD_FAILED, "Connecting EarnKit failed. Your agent's client document could not be read.");
 });
