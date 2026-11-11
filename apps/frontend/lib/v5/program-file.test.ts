@@ -151,7 +151,7 @@ test('L1c-2 (v6.1.10): a rule item may carry up to 8 lower-case keywords of at m
 
 test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on licence rules; L1e-2 (v6.1.13): Thiel names who its person rule is for', () => {
   const kw = (f: string) => eligibilityOf(ProgramFile.parse(read(`${f}.json`))).flatMap((i) => i.keywords ?? []);
-  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'quest', 'hands-first', 'oculus']);
+  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'meta quest', 'quest 3', 'horizon os', 'hands-first', 'oculus']);
   assert.deepEqual(kw('codegeist-2026'), ['atlassian', 'atlassian forge', 'jira', 'confluence']);
   assert.deepEqual(kw('qnx-global-hackathon-2026'), ['qnx']);
   assert.deepEqual(kw('paypal-ai-hackathon'), ['paypal']);

@@ -105,7 +105,11 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    no Quest while `mini-app`, `web3`, `team1` and `v4 hook` still count, as does a prose compound of letter-only parts
 whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix round 1, T7-F5); topics and chains are read as given), `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
    with no keywords keeps the slot rule. With nothing ready, the closing's rule question names a keyword-hit rule-only
-   program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. One yes per reply (L1e-2,
+   program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. v6.1.16 (L1g-8b): a gap
+   program whose gaps hold `repo:public` carries `public_first` and never lends its rule (neither `firstRule` nor
+   `stepRuleOf`); in the full list a program `unlikely` held for carries `unlikely`, whose rule is asked only when no
+   step is shown, and `firstStepOf` closes on a likely program's step before an unlikely one's. A multi-word keyword
+   matches only as a whole phrase (Meta VR's `meta quest`, `quest 3`, `horizon os`: "Quest Runner" is no hit, L1g-1). One yes per reply (L1e-2,
    T3-R5): no rule line, remote or in person, carries its own `Say "yes n" if that is you.`; the closing is the one
    yes, and the builder may still answer `yes n` for any numbered line. Several rules still to confirm read as one
    sentence, `Their rules: a; b.` (L1e-6). Every gap line closing in 14 whole days or fewer says `closes in {n} days`
@@ -419,7 +423,7 @@ a repo: it is a gap of `code in a repo` (`NEEDS_CODE`) and its rules (`codeStep`
 Solana project with no repo sees Solana Foundation Grants as its step; any other program with a bar is still no fit.
 `gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Tracked. Tell me when it is live
 and I look again." with no repo; the read settles it. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
-"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else "First: {step}. Tell me when it is done and I look again."), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
+"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply." (v6.1.16 L16-11: "Say yes and I apply to {title}." for the one ready program, `closingLine`'s `title`, also after a yes that stands or waits; a program with a result shows its title and money, then "Won $3,000." / "Rejected." / "No result." and no yes, step or sign-in, from `resultOf` in `ledger.ts`, L16-7), "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else "First: {step}. Tell me when it is done and I look again."), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
@@ -524,9 +528,13 @@ wants a rule naming it) is never ready for a private repo (the report's `private
 `private` note): its gap is `a public repo` (`PUBLIC_REPO`, item `repo:public`, setup `make the repo public`). L1f-3: an
 archived repo, for a program that wants the code or its users (`needs_repo`, a users item or a used bar), gets `the repo
 is archived` (`ARCHIVED_REPO`, item `repo:archived`, setup `tell me the live repo`) and never the users question. A gap's
-`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step
-("First: make the repo public. Tell me when it is done and I look again.", "First: tell me the live repo, and I look
-again."); a step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
+`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step.
+v6.1.16 (L1g-5): every single step closes in one shape, `Tell me when {step} and I look again.` (`singleStepClosing`,
+the step from `stepClause`: "the code is in a repo", "the repo is public", "the contract is on {Chain}[ mainnet]", "the
+live link is up", "the demo video is ready", "you {setup}"; a telling setup reads "Tell me the live repo and I look
+again."), the same in the list closing ("Nothing is ready yet. " before it) and the one-program action; the started
+question is "Tell me when you started and I check it."; several real changes keep "Tell me when that is done and I
+apply."; the archived repo note is left out when a shown line reads `the repo is archived`. A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
 the one-program line keeps it), and the code closing is picked by the gap's kind (`FirstStep.code`, M3). A repo the
 read itself finds private (`RepoPrivateError` from `github.ts`, fresh or on the cached row's re-check) is private, never
 gone (M1); neither is closed by gap_done: the agent passes `private: false` or the live `repo_url` (`REPO_STEP_NOTE`).
