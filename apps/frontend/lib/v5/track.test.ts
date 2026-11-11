@@ -1724,6 +1724,10 @@ test('L28-3 (v6.1.16 Task 14): a login that is not owner, org member or committe
   assert.equal(own.show_to_builder, 'Sent Mine Grant.');
   assert.match(own.agent_note, /^The repo is not yours; recorded under the project name only\. /);
   assert.deepEqual((await rowsOf(d.owner, 'l28-mine')).map((r) => [r.status, r.project_id, r.repo_key, r.off_repo]), [['applied', 'name:theirs', null, 'https://github.com/org/theirs']]);
+  // Controller ruling: a win with no application here, on a repo not shown to be theirs, is kept by name, off the repo.
+  await upsertProgram(programFixture({ id: 'l28-mine-w', title: 'Mine Win Grant' }), 'file', NOW);
+  assert.match((await track(d, { program_id: 'l28-mine-w', status: 'won', amount_usd: 100, project: T })).show_to_builder, /^Recorded: Mine Win Grant won, \$100\./);
+  assert.deepEqual((await rowsOf(d.owner, 'l28-mine-w')).map((r) => [r.status, r.project_id, r.repo_key, r.off_repo]), [['won', 'name:theirs', null, 'https://github.com/org/theirs']]);
   // It takes no repo slot: a committer still applies.
   const c1 = await signedIn('c1');
   assert.equal((await send(c1, 'l28-mine', T)).show_to_builder, 'Sent Mine Grant.');

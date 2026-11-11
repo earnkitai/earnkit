@@ -71,8 +71,8 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
 
 /** The owner's row for the program and project key (L28-4, v6.1.16 Task 14: `pickRow`; `anyProject` for a result). */
 async function rowHere(owner: string, programId: string, key: string, anyProject = false) {
-  return pickRow(await sql()<{ project_id: string | null; status: string; application_id: string | null }[]>`
-    SELECT project_id, status, application_id FROM applications WHERE owner = ${owner} AND program_id = ${programId}`, key, anyProject);
+  return pickRow(await sql()<{ project_id: string | null; off_repo: string | null; status: string; application_id: string | null }[]>`
+    SELECT project_id, off_repo, status, application_id FROM applications WHERE owner = ${owner} AND program_id = ${programId}`, key, anyProject);
 }
 
 /** True when the owner's row for the program and project is an application already sent (applied or with a result). */
@@ -551,6 +551,11 @@ async function act(
   // L28-3: a send the builder made with a repo that is not theirs is kept (L23-3), under the project's name only, so it
   // never matches a screen row for that repo and never takes the repo's place.
   let offRepo: string | null = null;
+  // Controller ruling: a win recorded with no application here never reserves a repo that is not shown to be theirs.
+  if (i.status === 'won' && (await notMine())) {
+    offRepo = repoKeyOf(appKey);
+    appKey = (await nameKey()) || appKey.replace(/^https:\/\//, 'name:');
+  }
   if (i.status === 'applied' && sender === 'builder' && (await notMine())) {
     offRepo = repoKeyOf(appKey);
     appKey = await nameKey();
@@ -583,7 +588,7 @@ async function act(
   // L29-3 (v6.1.16 Task 15): a win with no application here is recorded as the builder's own send, then the win.
   // L28-4 (v6.1.16 Task 14): every status names its project key (FR-3: the key, never the record id).
   let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied, showLogin,
-    ...(i.status === 'won' ? { outsideWin: true as const } : {}),
+    ...(i.status === 'won' ? { outsideWin: true as const, offRepo } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // L28-1 (v6.1.16 Task 14): a send the builder made of a repo another account sent is kept under the name only.
   if (!res.ok && res.repo_taken && sender === 'builder' && i.status === 'applied' && !nameOnly) {

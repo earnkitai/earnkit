@@ -2629,7 +2629,8 @@ test('L16-7 (v6.1.16, Review Focus 2): a program with a result shows the result 
   const won = await dashCtx();
   const before = (await view(won)).reply!.show_to_builder as string;
   assert.match(before, /Say yes/);
-  await mcpCall(won, 'track', { program_id: 'floss-fund-zerodha', status: 'applied' });
+  // L28-3 (v6.1.16 Task 14): unsigned in, the builder's own send is kept by name, off the repo, and still read here.
+  await mcpCall(won, 'track', { program_id: 'floss-fund-zerodha', status: 'applied', submitted_by: 'builder' });
   // Sent, no result yet: today's view.
   assert.equal((await view(won)).reply!.show_to_builder, before);
   await mcpCall(won, 'track', { program_id: 'floss-fund-zerodha', status: 'won', amount_usd: 3000 });
@@ -2638,7 +2639,7 @@ test('L16-7 (v6.1.16, Review Focus 2): a program with a result shows the result 
   assert.equal(w.agent_note, 'This program already has a result; nothing to send.');
   assert.doesNotMatch(w.show_to_builder as string, /Say|Sign in|Tell me/);
   const lost = await dashCtx();
-  await mcpCall(lost, 'track', { program_id: 'floss-fund-zerodha', status: 'applied' });
+  await mcpCall(lost, 'track', { program_id: 'floss-fund-zerodha', status: 'applied', submitted_by: 'builder' });
   await mcpCall(lost, 'track', { program_id: 'floss-fund-zerodha', status: 'rejected' });
   assert.equal((await view(lost)).reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000.', 'Rejected.'].join('\n'));
   // No project: the program's own view, not the result.

@@ -167,8 +167,9 @@ export function projectWords(key: string, name?: string | null): string {
  * '' or the one candidate row has none (a row from before v6.1.10), that row; with `anyProject` (a result, a hold, an
  * unskip) the owner's one row for the program whatever its key. Undefined when none or more than one fit. Pure.
  */
-export function pickRow<T extends { project_id: string | null }>(rows: T[], key: string, anyProject = false): T | undefined {
-  const exact = rows.find((r) => (r.project_id ?? '') === key);
+export function pickRow<T extends { project_id: string | null; off_repo?: string | null }>(rows: T[], key: string, anyProject = false): T | undefined {
+  // A send kept off this repo under the project's name (L28-3) is still this builder's application for this project.
+  const exact = rows.find((r) => (r.project_id ?? '') === key) ?? (key ? rows.find((r) => r.off_repo === key) : undefined);
   if (exact) return exact;
   const fit = anyProject ? rows : rows.filter((r) => key === '' || (r.project_id ?? '') === '');
   return fit.length === 1 ? fit[0] : undefined;
@@ -412,8 +413,8 @@ export async function record(
     if (outside) {
       // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
       // fix round 1 (N4): its send date is not known, so none is kept (the line says when it was recorded).
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null})
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL,
           submitted_by = 'builder', title = EXCLUDED.title, held_at = NULL, claimed_at = NULL, claimed_by = NULL,
           application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
@@ -634,8 +635,8 @@ export function applicationsLine(apps: ApplicationItem[], now: Date): string | n
  * 14): with `key`, for that project only (`pickRow`).
  */
 export async function sentOf(owner: string, programId: string, key?: string): Promise<Date | null> {
-  const rows = await sql()<{ project_id: string | null; sent: Date }[]>`
-    SELECT project_id, COALESCE(sent_at, at) AS sent FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = 'applied'`;
+  const rows = await sql()<{ project_id: string | null; off_repo: string | null; sent: Date }[]>`
+    SELECT project_id, off_repo, COALESCE(sent_at, at) AS sent FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = 'applied'`;
   return (key === undefined ? rows[0] : pickRow(rows, key))?.sent ?? null;
 }
 
@@ -644,11 +645,11 @@ export async function sentOf(owner: string, programId: string, key?: string): Pr
  * (Task 14): with `key`, that project's (`pickRow`).
  */
 export async function resultOf(owner: string, programId: string, key?: string): Promise<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: Amounts | null; note: string | null } | null> {
-  const rows = await sql()<{ project_id: string | null; status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: unknown; note: string | null }[]>`
-    SELECT project_id, status, amount_usd, amounts, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})`;
+  const rows = await sql()<{ project_id: string | null; off_repo: string | null; status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: unknown; note: string | null }[]>`
+    SELECT project_id, off_repo, status, amount_usd, amounts, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})`;
   const r = key === undefined ? rows[0] : pickRow(rows, key);
   if (!r) return null;
-  const { project_id: _p, ...rest } = r;
+  const { project_id: _p, off_repo: _o, ...rest } = r;
   return { ...rest, amounts: r.status === 'won' ? amountsOf(r) : null };
 }
 
@@ -658,9 +659,9 @@ export async function resultOf(owner: string, programId: string, key?: string): 
  * list (a row with no project, from before projects were kept, leaves every list); a skip leaves every list.
  */
 export async function excluded(owner: string, here?: (projectId: string | null) => boolean): Promise<Set<string>> {
-  const rows = await sql()<{ program_id: string; status: string; project_id: string | null }[]>`
-    SELECT program_id, status, project_id FROM applications WHERE owner = ${owner} AND status <> 'started'`;
-  return new Set(rows.filter((r) => !here || r.status === 'skipped' || !r.project_id || here(r.project_id)).map((r) => r.program_id));
+  const rows = await sql()<{ program_id: string; status: string; project_id: string | null; off_repo: string | null }[]>`
+    SELECT program_id, status, project_id, off_repo FROM applications WHERE owner = ${owner} AND status <> 'started'`;
+  return new Set(rows.filter((r) => !here || r.status === 'skipped' || !r.project_id || here(r.project_id) || (r.off_repo !== null && here(r.off_repo))).map((r) => r.program_id));
 }
 
 /** L1e-4 (v6.1.13): items that are facts about the project, not one program's step: done on any program of the
