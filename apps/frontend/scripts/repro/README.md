@@ -26,6 +26,10 @@ The guard (`target.ts`, read by `lib.mts`, `run.sh` and `run-all.sh`):
 
 The default secrets are the throwaway values of the local journeys server; they sign nothing anywhere else.
 
+`REPRO_BASE_URL` must be the origin the server was started with (its `EARNKIT_URL`), exactly: the /me forms refuse a
+post whose Origin is not the public origin (403), so `http://127.0.0.1:4600` against a server on
+`EARNKIT_URL=http://localhost:4600` fails every script that posts to /me (L23-1, L24-4, L28-10, L29-4 to L29-6).
+
 ## Run it
 
 ```
@@ -51,7 +55,7 @@ export DATABASE_URL=postgresql://localhost:5432/earnkit_test
 node --input-type=module -e "const m = await import('./apps/frontend/lib/v5/fixtures/test-db-template.mjs'); await m.buildTemplate(process.env.DATABASE_URL, { ifMissing: true }); console.log(m.TEMPLATE_NAME)"
 # 2. A throwaway database copied from it.
 createdb -T ek_test_template_<key> ek_repro
-# 3. The dev server on a free port, no vendor keys, the same secrets as the pack.
+# 3. The dev server on a free port, no vendor keys, the same secrets as the pack; EARNKIT_URL is the REPRO_BASE_URL below.
 env -u RESEND_API_KEY -u GITHUB_TOKEN -u EARNKIT_PROGRAMS_TOKEN -u GITHUB_OAUTH_CLIENT_ID -u GITHUB_OAUTH_CLIENT_SECRET \
   DATABASE_URL=postgresql://localhost:5432/ek_repro EARNKIT_URL=http://localhost:4597 \
   EARNKIT_AUTH_SECRET=journeys-local-secret-not-for-prod-0123456789abcdef CRON_SECRET=journeys-cron-secret \

@@ -574,6 +574,27 @@ copied from a template. Tests skip nothing; a run whose output has no failure li
 - Replay: `pnpm -s tsx apps/frontend/scripts/replay.mts <fixture> [--monday]` runs find, track applied, find on a
   scratch database and prints each `show_to_builder` and `agent_note`. `--monday` brings one deadline within a week
   and moves the clock to the next Monday 09:00 UTC so the "Since" line shows.
+- Repro pack (v6.1.17 Task 5): `apps/frontend/scripts/repro/` holds one script per journey Break (lanes 22 to 29 and
+  1h), each printing one `PASS`/`FAIL` line against a running local instance. `run-all.sh` runs them all, then the pack
+  cleanup. The target comes from `REPRO_BASE_URL` (default `http://localhost:4600`) and `REPRO_DATABASE_URL` (default
+  `earnkit_journeys`), plus `REPRO_AUTH_SECRET` and `REPRO_CRON_SECRET` to match the server. `target.ts` refuses a host
+  other than `localhost`, `127.0.0.1` or `::1` unless `REPRO_ALLOW_REMOTE=1`, refuses earnkit.com always, and needs a
+  local Postgres (pinned in `repro-target.test.ts`). The pack is not part of `pnpm test`. Its README has the recipe for a
+  dev server from a worktree on a throwaway database copied from the test template.
+- Persona replays (v6.1.17 Task 5): `find.test.ts` replays lane 1h's personas on recorded repos of the same kind
+  (`LANE_1H`). Personas 8, 9, 12, 15, 30 and 31 have their default reply pinned exactly: the gap once in line 1, the
+  closing naming only the step. Personas 2, 3, 6, 18, 24, 26, 29 and 31 have filter.all with no
+  `on Solana and Mobile Wallet Adapter`. `reply.test.ts` keeps every reply it renders and, last, walks them all for
+  `tonight` and for more than one Say.
+
+## Release gate
+
+Every release and patch bumps `apps/frontend/package.json`'s `version` (served as the MCP `serverInfo.version`) to
+the version the PR ships (L1j-8, v6.1.17). `mcp.test.ts` pins `serverInfo.version` equal to the package version. It
+also pins the package version equal to the newest `v6.1.*` plan file in
+`docs/design-docs-and-implementation-plans/` (for example `v6.1.17-journeys-11-plan.md` gives 6.1.17), so a release
+whose plan is written but whose package is not bumped fails the suite. A four-part patch (`v6.1.16.1-patch-plan.md`)
+needs the package at that four-part version.
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -1138,7 +1159,7 @@ means what the last `Say` offered.
   approval, which is still recorded), record (a set that saved nothing, the policy sets, an unlinked set) and screen
   (unlinked, not a reviewer, no such screen, expired, the limit, over 200, thresholds, a bad requeue, outcomes that
   recorded nothing) goes through it; too-deep and non-object arguments are input errors at the route too.
-  `refusals.test.ts` drives each path through POST /mcp. `serverInfo.version` is `apps/frontend/package.json`'s (6.1.16).
+  `refusals.test.ts` drives each path through POST /mcp. `serverInfo.version` is `apps/frontend/package.json`'s (6.1.17; the release gate bumps it, see Release gate).
 - **Track (L29-3, L29-7, L29-8, L29-15, L29-21, L29-23, L29-32).** `status` and `submitted_by` read in any case
   (`caseFolded`); `submitted_by` defaults to agent; an applied with no `fields_used` is accepted with "Pass
   fields_used next time; nothing was checked against your record." A number is the program numbered so by the last

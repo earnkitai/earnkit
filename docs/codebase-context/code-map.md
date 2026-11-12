@@ -68,6 +68,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/fixtures/test-db-drop.mjs`: Drops one test database
 - `apps/frontend/lib/v5/fixtures/cimd.ts`: A resolver and transport serving an OAuth client ID metadata document (records every request; stall, redirect, size and type cases)
 - `apps/frontend/lib/v5/fixtures/local-postgres.mjs`: Refuses any database that is not local
+- `apps/frontend/lib/v5/repro-target.test.ts`: Pins the repro pack's target guard (`scripts/repro/target.ts`): the defaults, `local only` for earnkit.com always and for another host without `REPRO_ALLOW_REMOTE=1`, a local database only
 - `apps/frontend/lib/v5/fixtures/github.ts`: Replays a recorded repo read as a fetch
 - `apps/frontend/lib/v5/fixtures/mcp-call.ts`: Calls the real MCP server over an in-memory transport
 - `apps/frontend/lib/v5/fixtures/program.ts`: A valid program for tests with any field overridden
@@ -195,6 +196,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/scripts/screen.mts`: pnpm screen: the screening pilot over a program's applicant CSV into a markdown and a CSV report (via lib/v6/screen.ts)
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements
+- `apps/frontend/scripts/repro/`: The repro pack (v6.1.17 Task 5): one `l<lane>-<n>.mts` script per journey Break, each printing one `PASS`/`FAIL` line against a running local instance; `lib.mts` (OAuth agents, MCP calls, builders with sessions, /me posts, programs, repo seeds, per-script cleanup), `target.ts` (`reproTarget`: `REPRO_BASE_URL`, `REPRO_DATABASE_URL`, `REPRO_AUTH_SECRET`, `REPRO_CRON_SECRET`; local only unless `REPRO_ALLOW_REMOTE=1`, earnkit.com never), `target-check.mts`, `run.sh`, `run-all.sh`, `cleanup.mts`, `README.md` (variables, the worktree recipe). Never run by `pnpm test`
 - `db/schema.sql`: The whole schema, additive and safe to run twice; v6.1.16 Task 15: `installations.last_list` and `installations.next_needs`; v6.1.16.1 Task 2: `applications.identity` with `applications_owner_program_identity` (partial unique) and its backfill, `cimd_documents`; v6.1.17 Task 3: `program_health.first_failed_at`, `cron_state` (one row; fix round 1: `prev_run_at`, `day_first_at`)
 
 ## apps/frontend (config)
