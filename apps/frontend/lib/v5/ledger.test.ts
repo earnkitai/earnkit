@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
+import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, storedPaymentKeys, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
 
 after(() => sql().end());
 
@@ -496,6 +496,24 @@ test('L17-8 (v6.1.16): paymentKeyOf strips a legacy s: or t: prefix only', () =>
   assert.equal(paymentKeyOf('t:final'), 'final');
   assert.equal(paymentKeyOf('x:final'), 'x:final');
   assert.equal(paymentKeyOf('t:s:final'), 's:final');
+  // v6.1.16 Task 4 N1 (v6.1.17): a legacy double prefix matches as s:final and as final.
+  assert.deepEqual(storedPaymentKeys('t:s:final'), ['s:final', 'final']);
+  assert.deepEqual(storedPaymentKeys('t:final'), ['final']);
+  assert.deepEqual(storedPaymentKeys('final'), ['final']);
+  assert.deepEqual(storedPaymentKeys('x:final'), ['x:final']);
+});
+
+test('v6.1.16 Task 4 N1 (v6.1.17): a legacy t:s: key resent as s:x or x never adds twice', async () => {
+  const i = await install();
+  await prog('l-double', { max_award_usd: 10_000 });
+  await record(o(i), 'l-double', 'applied', { now: NOW });
+  const t = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  assert.equal((await record(o(i), 'l-double', 'won', { amount_usd: 100, now: t(1) })).ok, true);
+  await sql()`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, at, payment_key) VALUES (${o(i)}, ${i}, 'l-double', 'won', 50, ${t(2)}, 't:s:x')`;
+  const before = await counts(i);
+  for (const key of ['s:x', 'x', 't:x'])
+    assert.deepEqual(await record(o(i), 'l-double', 'won', { amount_usd: 50, payment: { key }, now: t(3) }), { ok: false, note: 'Already tracked.' }, key);
+  assert.deepEqual(await counts(i), before);
 });
 
 test('L17-2, L17-8 (v6.1.16): an older correction changes nothing; a key stored with a legacy prefix matches; history names its source', async () => {

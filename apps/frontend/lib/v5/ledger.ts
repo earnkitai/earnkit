@@ -44,6 +44,11 @@ export const ALREADY_SENT_SKIP = 'That one was already sent; nothing to skip.';
  * (track) prefix stripped, so a key stored before v6.1.16 and the same key now match (alias until v6.1.17). Pure.
  */
 export const paymentKeyOf = (key: string): string => key.replace(/^[st]:/, '');
+/**
+ * v6.1.16 Task 4 N1 (v6.1.17): the keys a stored payment key matches. A legacy key kept with a prefix on a key sent
+ * with one (`t:s:x`) matches as `s:x` and as `x`, so the same key resent never adds twice. Pure.
+ */
+export const storedPaymentKeys = (stored: string): string[] => [...new Set([paymentKeyOf(stored), paymentKeyOf(paymentKeyOf(stored))])];
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done' | 'held';
@@ -490,7 +495,7 @@ export async function record(
     if (paymentKey !== null && row?.status === 'won'
       // FR-5 (fix round 1): this project's application only.
       && (await tx<{ payment_key: string }[]>`SELECT payment_key FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk} AND payment_key IS NOT NULL`)
-        .some((h) => paymentKeyOf(h.payment_key) === paymentKey))
+        .some((h) => storedPaymentKeys(h.payment_key).includes(paymentKey)))
       return { ok: false, note: 'Already tracked.' } as const;
     // L17-1 (v6.1.16): a skip is decided here, under the lock, against the row as it is now: a repeat changes nothing,
     // a sent program has nothing to skip, and another agent's live claim stays.
