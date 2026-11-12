@@ -4,7 +4,7 @@
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
 import { EARNKIT_CUT_NOTE } from './prefill';
-import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, signInSentence, type ProofBar } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, signInCheck, signInThen, type ProofBar } from '../v6/reply-words';
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
@@ -327,8 +327,16 @@ function gapActionOf(g: GapProgram, signIn: string | null, draftOnly = false): {
   if (g.in_person) return { action: null };
   // L36-5 (v6.1.18): several rules on the row are one ask.
   if (ruleOnlyGap(g)) return { action: ruleCount(g) > 1 ? RULES_ACTION : 'Say yes if that is you and I draft it.' };
-  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
-  if (signIn && signInOnly([g.gap, ...g.also])) return { action: signIn };
+  const all = [g.gap, ...g.also];
+  // L38 big 1 (v6.1.18 Task 10): unlinked, the proof waits on the sign-in: it comes first in the action's own sentence
+  // (`signIn` is that clause, `signInCheck`); the proof as the only step left is the sign-in, then a look again.
+  if (signIn && hasProof(all)) {
+    const left = all.filter((x) => !confirmGap(x));
+    if (left.length === 0) return { action: signInThen(signIn, 'I look again.') };
+    const rest = gapActionOf({ ...g, gap: left[0], also: left.slice(1) }, null, draftOnly);
+    return { action: signInThen(signIn, rest.action ?? 'I look again.'), ...(rest.step ? { step: rest.step } : {}) };
+  }
+  const real = all.filter((x) => x.kind !== 'rule');
   if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return { action: null };
   if (canDo(real)) return { action: `Say "do" and I ${doVerb(real, true)} first.` };
   if (real.every(usersQuestion)) return { action: 'Say yes if they do and I draft it.' };
@@ -997,10 +1005,6 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           return { text: [...(limitUsed ? [LIMIT_USED] : []), c.text].join(' '), offer: c.offer };
         })();
-  // R5a: unlinked with a link, signing in is its own line before the Say. The first find after a link names the
-  // account it linked to (security M2); after an unlink the notice carries the sign-in link itself, so the sign-in
-  // sentence is left out (v6.1.7 B10). An empty repo was read but gave nothing to prove: the sign-in promises only to
-  // remember (C59). Fix round 1 (v6.1.14, F2): with a proof gap shown and no link to give, the sign-in is still said.
   // L1g-5 (v6.1.16): a shown line that reads the archive says it, so the archived note is left out.
   // L38-6 (v6.1.18): so is the private note when a shown line asks for the public repo, and the empty note when one
   // asks for code in a repo.
@@ -1008,22 +1012,25 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const namedByGap: Partial<Record<RepoNote, string>> = { archived: 'repo:archived', private: 'repo:public', empty: 'repo' };
   const allNotes = [...new Set(r.repo_notes ?? [])];
   const notes = allNotes.filter((n) => !(namedByGap[n] && shownItem(namedByGap[n]!)));
-  const read = !r.as_reported && !allNotes.includes('empty');
-  const proof = showsProof(r.gaps) ? (proofBarOf(r.gaps.flatMap((g) => [g.gap, ...g.also])) ?? true) : false;
-  // L1i-3 (v6.1.16.1): one sign-in sentence per reply. When the closing's Say already asks to sign in (the unlinked
-  // users question), the link goes into it and (L1j-1, v6.1.17) no other line mentions signing in.
+  // L1i-3 (v6.1.16.1): one sign-in sentence per reply. L38 big 1 (v6.1.18 Task 10): a sign-in is said only when the
+  // reply's one action needs it, and then inside the Say line, first: the unlinked users question (its own sign-in, with
+  // the link), the rule Say of the only step program whose change is the proof ("Sign in at {link} so I can check the
+  // repo, then say "yes n" ..."), or, with no other action, the proof itself ("..., then I look again."). Any other reply
+  // has no sign-in line; the link stays in the JSON for the agent, and a send with a repo is gated by find (`signInFirst`).
   // Fix round 1 (I2): judged on the Say the reply ends on; the full view ends on the default view's.
   const endsOn = o.all && o.defaultSay !== undefined ? o.defaultSay : closingOf.text;
   const asksSignIn = !r.linked && /Do real people use it\? Say yes, sign in once\b/.test(endsOn);
+  const proofWaits = !r.linked && !asksSignIn && tonight === 0 && closingOf.offer !== 'apply';
+  const stepRuleRow = stepRule !== null && firstRule === null ? steps.find((g) => g.n === stepRule) : undefined;
+  const proofRow = proofWaits && closingOf.offer === 'rule' && stepRuleRow && signInOnly([stepRuleRow.gap, ...stepRuleRow.also]) ? stepRuleRow : undefined;
+  const proofAlone = proofWaits && closingOf.text === NOTHING_READY && showsProof(steps);
+  if (proofRow) closingOf.text = `${NOTHING_READY} ${signInThen(signInCheck(r.sign_in ?? null), closingOf.text.replace(/^Nothing is ready yet\. /, ''))}`;
+  else if (proofAlone) closingOf.text = `${NOTHING_READY} ${signInThen(signInCheck(r.sign_in ?? null), 'I look again.')}`;
   // Task 2 (v6.1.16.1, Task 1 leftover): with the unlinked notice too, the closing still carries the link and the
   // notice keeps only its first sentence, so the reply has one sign-in sentence.
   if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
-  const notice = asksSignIn && r.sign_in && r.linked_notice ? r.linked_notice.replace(/ Sign in once at \S+ to link it again\.$/, '') : r.linked_notice;
-  const signIn = r.linked || asksSignIn
-    ? null
-    : r.sign_in
-        ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
-        : proof ? signInSentence(null, read, true) : null;
+  const signsIn = asksSignIn || !!proofRow || proofAlone;
+  const notice = signsIn && r.sign_in && r.linked_notice ? r.linked_notice.replace(/ Sign in once at \S+ to link it again\.$/, '') : r.linked_notice;
 
   // ONE_SAY_ORDER (L23-21): the first line through it that carries a Say keeps it, and (L29-33, v6.1.16 Task 15) goes
   // last; every other line keeps its fact sentence only.
@@ -1037,7 +1044,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const plain = (x: string | null) => (x === null || x === sayLine ? null : carriesSay(x) ? withoutSay(x) || null : x);
   const offer = early ? 'apply' : closingOf.offer;
 
-  const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(signIn ? [signIn] : []), ...(notice ? [notice] : [])];
+  const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(notice ? [notice] : [])];
   // L1i-5 (v6.1.16.1): the full view closes on the default view's Say, never on a rule it does not show.
   // L35-9 (v6.1.17): in blocks under the default view's headings, each with its true count.
   if (o.all) {
@@ -1082,9 +1089,6 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     ? { head: `One step away (${steps.length}):`, ids: steps.map((g) => g.program_id), line: (i) => stepLines[i], order: [steps.indexOf(gapShown), ...steps.map((_, i) => i).filter((i) => steps[i] !== gapShown)] }
     : null;
   const l = r.ledger;
-  // L1j-6 (v6.1.17): a closing that is only "Nothing is ready yet." asks nothing, so the sign-in after it is the action.
-  const bare = sayLine === NOTHING_READY;
-  const tail = bare ? [signIn, notice].filter((x): x is string => !!x) : [];
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
   const apps = applicationsLine(r.applications ?? [], now);
   const since = first ? null : sinceLine(r, now);
@@ -1117,16 +1121,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     { lines: r.evidence_summary ? [r.evidence_summary.line] : [], rank: 13 },
     { lines: (l.results_soon ?? []).length > 0 ? [`Results due soon: ${listWords(l.results_soon!.map((x) => x.title), l.results_soon!.length)}.`] : [], rank: 14 },
     { lines: notes.length > 0 ? [repoNoteText(notes)] : [], rank: 8 },
-    // L29-33: before the Say.
-    // L1i-3 (v6.1.16.1): the reply's one sign-in carries the link (or settles a proof gap), so it stays ahead of the
-    // step rows past the first.
-    // Fix round 1 (I1): the line carrying the reply's only link outranks every line but the Say; a linkless sign-in
-    // still stays ahead of the step rows past the first.
-    // L1j-6 (v6.1.17): the action is always last, so these sit before it whether or not it carries a Say; after a bare
-    // "Nothing is ready yet." the sign-in is the action, so it follows (`tail`).
-    { lines: signIn && !bare ? [signIn] : [], rank: signIn && LINK.test(signIn) ? 0 : 5.65 },
-    // v6.1.17: the account notice is said once, so it stays ahead of the step rows past the first too.
-    { lines: notice && !bare ? [notice] : [], rank: notice && LINK.test(notice) ? 0 : 5.6 },
+    // v6.1.17: the account notice is said once, so it stays ahead of the step rows past the first; the line carrying
+    // the reply's only link (the unlink notice) outranks every line but the Say (fix round 1, I1).
+    { lines: notice ? [notice] : [], rank: notice && LINK.test(notice) ? 0 : 5.6 },
     // The closing's fact sentence when another line keeps the Say ("Nothing is ready yet.").
     { lines: [plain(closingOf.text)].filter((x): x is string => !!x), rank: 15 },
   ];
@@ -1147,7 +1144,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L18-1 (v6.1.18): the rows the rank cap left out are added once, and the line names those closing this week that the
   // default view does not show.
   const capHidden = Math.max(0, o.hidden?.count ?? 0);
-  const room = DEFAULT_LINES - 1 - tail.length;
+  const room = DEFAULT_LINES - 1;
   const once = fit(slots, room);
   const { kept, hidden, shown, rows } = hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
   const left = hiddenOf(shown) + capHidden;
@@ -1155,7 +1152,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shown.includes(c.program_id));
   // L1k-5 (v6.1.18): the more line follows the numbered blocks directly, ahead of the repo note and the rest.
   const moreLine = left > 0 ? [moreInFull(left, closingHidden, now)] : [];
-  return { text: [...kept.slice(0, rows), ...moreLine, ...kept.slice(rows), sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine, more: left };
+  return { text: [...kept.slice(0, rows), ...moreLine, ...kept.slice(rows), sayLine].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine, more: left };
 }
 
 /** L29-26: a slot of the default view: plain lines, or (L1i-2) a numbered block, with its rank and, for the step block,
@@ -1227,7 +1224,7 @@ const IN_PERSON_HEAD = 'In person';
 export const FULL_RULE_SAY = 'Say a number and I show what that program asks.';
 const fullSay = (say: string): string => {
   const fact = withoutSay(say);
-  return /Say "yes \d+" if (that rule fits you|all of that is you)/.test(say) ? [fact, FULL_RULE_SAY].filter(Boolean).join(' ') : say;
+  return /[Ss]ay "yes \d+" if (that rule fits you|all of that is you)/.test(say) ? [fact, FULL_RULE_SAY].filter(Boolean).join(' ') : say;
 };
 
 /**

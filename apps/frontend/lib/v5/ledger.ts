@@ -151,10 +151,25 @@ export const ALREADY_SENT_UNLINKED = 'Already sent from your account; nothing re
 export const NOT_YOUR_REPO = 'This repo is not yours; I apply only with repos you commit to.';
 /** FR-1 (fix round 1): a signed-out builder's claim or send with a repo: sign-in comes first, never "not yours". */
 export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
-/** FR-1: find's one Say for a signed-out builder with a repo: no apply offer until linked. */
-export const SIGN_IN_FIRST_SAY = 'Sign in once and I check the repo is yours; then say yes.';
-/** FR-1, N5 (fix round 2): the same line with the sign-in link when the reply has one (one sign-in line, never two). */
-export const SIGN_IN_FIRST_LINK = (link: string): string => `Sign in once at ${link} and I check the repo is yours; then say yes.`;
+/**
+ * FR-1, N5 (fix round 2); L38 big 1 (v6.1.18 Task 10): find's one Say for a signed-out builder with a repo: the apply
+ * offer the reply made (`offer`), with the sign-in first in the same sentence, so no apply can be offered before it:
+ * "Sign in at {link} so I know the repo is yours, then say yes and I apply to {title}." A setup step of the builder's own
+ * stays between them ("..., then publish X, then say yes and I apply."); an offer it cannot read closes on the plain yes.
+ * With no link to give, the same words without one. Pure.
+ */
+export function signInFirst(link: string | null, offer: string | null = null): string {
+  const head = link ? `Sign in at ${link} so I know the repo is yours` : 'Sign in so I know the repo is yours';
+  const lower = (x: string) => (/^I\b/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1));
+  let o = (offer ?? '').trim();
+  // An offer that already signs in first (a reply gated twice) keeps only its action.
+  const merged = /^Sign in\b[^,]*, then (.+)$/.exec(o);
+  if (merged) o = merged[1];
+  const step = /^(.+?) first, then (say yes\b.*\bI (also )?apply\b.*)$/i.exec(o);
+  if (step) return `${head}, then ${lower(step[1])}, then ${step[2]}`;
+  if (/^say yes\b.*\bI (also )?apply\b/i.test(o)) return `${head}, then ${lower(o)}`;
+  return `${head}, then say yes and I apply.`;
+}
 /** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".
  *  L36-6 (v6.1.18): the builder is signed in, so EarnKit has their login: name the repo it could not read and the one
  *  way on. */

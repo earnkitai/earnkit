@@ -11,12 +11,12 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -376,8 +376,11 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
 };
 
 /** L24-2 (v6.1.16 Task 11): the kind of the `Say` a one-program gap action offers, null when it offers none. Pure. */
-const actionOffer = (action: string | null): OfferKind | null =>
-  action === null ? null : /^Say "do"/.test(action) ? 'do' : /^Say yes if /.test(action) ? 'draft' : /^Say yes/.test(action) ? 'apply' : null;
+const actionOffer = (action: string | null): OfferKind | null => {
+  // L38 big 1 (v6.1.18 Task 10): a sign-in first is read by the action after it.
+  const a = action?.replace(/^Sign in\b[^,]*, then s/, 'S') ?? null;
+  return a === null ? null : /^Say "do"/.test(a) ? 'do' : /^Say yes if /.test(a) ? 'draft' : /^Say yes/.test(a) ? 'apply' : null;
+};
 
 /**
  * The verdict as the find list would render it, without the number, then its one action (v6.1.8, 1b): ready, yes and
@@ -391,13 +394,12 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   if (v.status === 'no') return { lines: [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules], offer: null };
   if (v.status === 'gap') {
     const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
-    // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once; when it is the only step it is the action. L1j-6
-    // (v6.1.17): the action is last, so the sign-in beside other gaps comes before it.
-    const signFirst = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
+    // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once. L38 big 1 (v6.1.18 Task 10): inside the action,
+    // first ("Sign in at {link} so I can check the repo, then ..."), never a line of its own.
     // L18-3 (v6.1.18): a program the builder sends closes on the draft, never on apply.
     const action = gapAction(g, o.signIn, o.draftOnly);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
-    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn, o.draftOnly)), ...o.rules, signFirst, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
+    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn, o.draftOnly)), ...o.rules, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
   }
   const r = { ...ready(), n: 0 };
   // L1j-7 (v6.1.17): an in-person program closes on its one action too.
@@ -507,7 +509,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && hasProof(verdict.gaps);
   const link = signStep ? await linkOf(ctx) : null;
   // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
-  const signIn = signStep ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), proofBarOf(verdict.gaps) ?? true) : null;
+  const signIn = signStep ? signInCheck(link) : null;
   // L23-18 (v6.1.16): a closed program the builder sent says when, and when results come.
   const sent = closed ? await sentOf(ownerOf(ctx), id, key) : null;
   const due = sent ? resultsDateOf(row) : null;
@@ -743,6 +745,16 @@ export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I
 const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
 /** Whether the builder text offers an apply anywhere. Pure. */
 const offersApply = (text: string): boolean => text.split('\n').some((l) => APPLY_OFFER.test(l) || TAIL_OFFER.test(l));
+/** L38 big 1 (v6.1.18 Task 10): the last apply offer of the builder text (a whole line, or a line's closing sentence),
+ *  which the signed-out gate says again after the sign-in; null when none. Pure. */
+export const applyOfferOf = (text: string): string | null => {
+  for (const l of text.split('\n').reverse()) {
+    if (APPLY_OFFER.test(l)) return l;
+    const tail = TAIL_OFFER.exec(l);
+    if (tail) return tail[0].trim();
+  }
+  return null;
+};
 /** The builder lines with every apply offer taken out (a whole line, or a line's closing sentence). Pure. */
 const withoutApply = (text: string): string[] =>
   text.split('\n').filter((l) => l && !APPLY_OFFER.test(l)).map((l) => l.replace(TAIL_OFFER, ''));
@@ -949,11 +961,12 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     // Never after the record was deleted (final review M8: that reply offers no link).
     const link = (r as { sign_in?: string }).sign_in ?? (r.show_to_builder.includes(DELETED_NOTICE) ? null : await linkOf(ctx));
     // N5b: one sign-in sentence: the unlink notice keeps only its first sentence, and the closing carries the link.
-    const kept = withoutApply(r.show_to_builder).filter((l) => !/^Sign in once\b/.test(l))
+    // L38 big 1 (v6.1.18 Task 10): the apply offer is said again after the sign-in, in one sentence.
+    const kept = withoutApply(r.show_to_builder).filter((l) => !/^Sign in\b/.test(l))
       .map((l) => l.replace(/ Sign in once at \S+ to link it again\.$/, ''));
     return {
       ...r,
-      show_to_builder: [...kept, link ? SIGN_IN_FIRST_LINK(link) : SIGN_IN_FIRST_SAY].join('\n'),
+      show_to_builder: [...kept, signInFirst(link, applyOfferOf(r.show_to_builder))].join('\n'),
       ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };

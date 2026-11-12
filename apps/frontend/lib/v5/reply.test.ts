@@ -409,15 +409,15 @@ test('standing approval: the closing line counts what an agent can send alone, a
   assert.ok(agentNote(MONDAY, { more: 0 }).includes("Draft each ready program from its fields: 'earnkit' values as given;"));
 });
 
-// L29-33 (v6.1.16 Task 15): the sign-in is its own line, before the Say; the Say is last.
-test('unlinked with a sign-in link: saying yes is the one action, the sign-in just before it (R5a); linked never shows it', () => {
+// L38 big 1 (v6.1.18 Task 10): a sign-in is said only when the action needs it; a yes to send needs none here (find
+// gates a send with a repo), so no sign-in line, and the link stays in the JSON.
+test('L38 big 1 (v6.1.18 Task 10): unlinked with a sign-in link and a yes that needs no sign-in: no sign-in line; linked never shows it', () => {
   const link = 'https://earnkit.test/link/abcdefghijklmnop';
   const text = replyText({ ...MONDAY, sign_in: link }, false, MON);
   const lines = text.split('\n');
   assert.equal(lines.at(-1), 'Say yes and I apply to all 2 ready.');
-  assert.equal(lines.at(-2), `Sign in once at ${link} and I read your repo for proof and remember you.`);
-  assert.equal(lines.at(-3), 'Your applications: X Grant (sent Nov 3, waiting).');
-  assert.equal(text.match(/Sign in once at/g)!.length, 1);
+  assert.equal(lines.at(-2), 'Your applications: X Grant (sent Nov 3, waiting).');
+  assert.doesNotMatch(text, /Sign in|remember you/);
   assert.match(replyText(MONDAY, false), /\nSay yes and I apply to all 2 ready\.$/);
   assert.doesNotMatch(replyText({ ...LINKED, sign_in: link }, false), /Sign in once at/);
 });
@@ -625,11 +625,10 @@ test('R21: the Before block never names an in-person program\'s sign-in or click
   assert.ok(!replyText(onlyYc, true).includes('Before applying'), replyText(onlyYc, true));
 });
 
-test('R19: with no repo read the sign-in sentence only promises to remember (v6.1.6)', () => {
+test('L38 big 1 (v6.1.18 Task 10): with no repo read, no sentence promises to remember the builder', () => {
   const link = 'https://earnkit.test/link/abcdefghijklmnop';
   const text = replyText({ ...MONDAY, sign_in: link, as_reported: true }, false);
-  assert.ok(text.includes(`\nSign in once at ${link} and I remember you across agents.\n`), text);
-  assert.doesNotMatch(text, /read your repo/);
+  assert.doesNotMatch(text, /remember you|Sign in/);
 });
 
 test('R26, L29-26: the left-out count and the lines the default view left out go to the agent', () => {
@@ -1051,27 +1050,27 @@ test('Review Focus 2 (v6.1.14): an unlinked builder reads the sign-in ask once p
   const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video link (a short screen recording of it working)', effort: 'hours' as const, agent_can: false };
   const link = 'https://earnkit.com/link?c=abc';
   const show = replyText(base({ sign_in: link, gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })] }), true);
-  // L29-33 (v6.1.16 Task 15): its own line; after a bare closing it is the action, last. L1j-6 (v6.1.17): it names what it checks.
-  assert.equal(show, ['One step away (1):', '1. Sign Grant, Up to $5,000: proof of real users.', 'Nothing is ready yet.', `Sign in once at ${link} and I check your users and remember you.`].join('\n'));
+  // L38 big 1 (v6.1.18 Task 10): the proof is the only action, so the sign-in is in the Say line, first.
+  assert.equal(show, ['One step away (1):', '1. Sign Grant, Up to $5,000: proof of real users.', `Nothing is ready yet. Sign in at ${link} so I can check the repo, then I look again.`].join('\n'));
   assert.equal(show.match(/Sign in/g)!.length, 1, show);
   assert.equal(gapLine({ ...gap({ title: 'G', gap: TIER, also: [DEMO] }), n: 1 }), '1. G, $1K: proof of real users and a demo video link (a short screen recording of it working).');
-  // No proof gap shown: the closing keeps its repo-read promise.
-  assert.match(replyText(base({ sign_in: link, ready: [ready({ title: 'A' })] }), true), /\nSign in once at \S+ and I read your repo for proof and remember you\.\nSay yes and I apply to A\.$/);
+  // No proof gap shown: the yes needs no sign-in, so none is said.
+  assert.equal(replyText(base({ sign_in: link, ready: [ready({ title: 'A' })] }), true), 'Ready to apply (1):\n1. A, $1K.\nSay yes and I apply to A.');
 });
 
-test('fix round 1 (v6.1.14, F1 and F2): the proof sign-in promises a check only after a repo read, and is said without a link when none can be made', () => {
+test('fix round 1 (v6.1.14, F1 and F2), L38 big 1 (v6.1.18 Task 10): the proof sign-in is one sentence in the Say line, read or not, and is said without a link when none can be made', () => {
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof of real users', effort: 'weeks' as const, agent_can: false };
   const link = 'https://earnkit.com/link?c=abc';
-  const end = (over: Partial<R>) => replyText(base({ gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })], ...over }), true).split('\n').slice(-2).join(' ');
-  // F1: nothing read.
-  assert.equal(end({ sign_in: link, as_reported: true }), `Nothing is ready yet. Sign in once at ${link} and I remember you.`);
-  assert.equal(end({ sign_in: link, repo_notes: ['empty'] }), `Nothing is ready yet. Sign in once at ${link} and I remember you.`);
+  const end = (over: Partial<R>) => replyText(base({ gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })], ...over }), true).split('\n').at(-1);
+  // F1: nothing read: the same one sentence, no promise to remember.
+  assert.equal(end({ sign_in: link, as_reported: true }), `Nothing is ready yet. Sign in at ${link} so I can check the repo, then I look again.`);
+  assert.equal(end({ sign_in: link, repo_notes: ['empty'] }), `Nothing is ready yet. Sign in at ${link} so I can check the repo, then I look again.`);
   // F2: no link (linkOf failed).
-  assert.equal(end({}), 'Nothing is ready yet. Sign in once and I check your users.');
-  assert.equal(end({ as_reported: true }), 'Nothing is ready yet. Sign in once and I remember you.');
-  // F2: after the account was deleted, no link is given, the sign-in is still said once, the notice last.
+  assert.equal(end({}), 'Nothing is ready yet. Sign in so I can check the repo, then I look again.');
+  assert.equal(end({ as_reported: true }), 'Nothing is ready yet. Sign in so I can check the repo, then I look again.');
+  // F2: after the account was deleted, no link is given, the sign-in is still said once, in the Say, after the notice.
   const del = replyText(base({ gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })], linked_notice: DELETED_NOTICE }), true);
-  assert.equal(del.split('\n').slice(-3).join('\n'), `Nothing is ready yet.\nSign in once and I check your users.\n${DELETED_NOTICE}`);
+  assert.equal(del.split('\n').slice(-2).join('\n'), `${DELETED_NOTICE}\nNothing is ready yet. Sign in so I can check the repo, then I look again.`);
   assert.equal(del.match(/Sign in/g)!.length, 1, del);
   // No proof gap and no link: no sign-in sentence, as before.
   assert.equal(replyText(base({ ready: [ready({ title: 'A' })] }), true).split('\n').at(-1), 'Say yes and I apply to A.');
@@ -1435,11 +1434,12 @@ test('Fix round 1 (I1, v6.1.16.1): the line carrying the only link outranks ever
     ask_outcome: [{ program_id: 'z', title: 'Zeta Grant', due_at: '2026-11-01T00:00:00Z' }],
     nothing_new_since: '2026-11-03T10:00:00.000Z',
   };
+  // L38 big 1 (v6.1.18 Task 10): the rule yes needs no sign-in, so only the unlink notice carries the link.
   for (const over of [{}, { linked_notice: unlinkedNoticeLine(link) }]) {
     const p = replyParts(base({ ...busy, ...over }), false, MON);
     const lines = p.text.split('\n');
     assert.ok(lines.length <= 10, p.text);
-    assert.equal(p.text.split(link).length, 2, p.text);
+    assert.equal(p.text.split(link).length, 'linked_notice' in over ? 2 : 1, p.text);
     assert.ok(!p.hidden.some((h) => h.includes(link)), p.hidden.join('\n'));
     assert.match(lines.at(-1)!, /^Nothing is ready yet\. Say "yes 1" if that rule fits you and I draft Rule Grant\.$/);
     // The since line gives way first, then the results question; the extra step rows last.
@@ -1514,10 +1514,16 @@ test('L1j-1, L1j-6 (v6.1.17): one sentence mentions signing in, and the action i
   const users = replyText(base({ sign_in: link, gaps: [gap({ title: 'FLOSS', gap: USERS })] }), true);
   assert.equal(users.split(/(?<=[.?!])\s+/).filter((x) => /sign in/i.test(x)).length, 1, users);
   assert.equal(users.split('\n').at(-1), `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`);
-  // A closing that names its action ends the reply, the sign-in before it.
+  // L38 big 1 (v6.1.18 Task 10): a closing whose action needs no sign-in (the code step of another program) has no
+  // sign-in line; the link stays in the JSON.
   const code = replyText(base({ sign_in: link, gaps: [gap({ title: 'Sign Grant', gap: TIER }), gap({ title: 'Code Grant', gap: NEEDS_CODE })] }), true);
-  assert.equal(code.split('\n').at(-2), `Sign in once at ${link} and I check your users and remember you.`, code);
-  assert.match(code.split('\n').at(-1)!, /^Nothing is ready yet\. /);
+  assert.doesNotMatch(code, /Sign in/, code);
+  assert.equal(code.split('\n').at(-1), 'Nothing is ready yet. Tell me when the code is in a repo and I look again.', code);
+  // The only step program's change is the proof, with a rule: the rule Say carries the sign-in, first.
+  const ruled = replyText(base({ sign_in: link, gaps: [gap({ title: 'Thiel Fellowship', gap: TIER, also: [ruleGap('a student')], rules: ['a student'] })] }), true);
+  assert.equal(ruled.split('\n').at(-1), `Nothing is ready yet. Sign in at ${link} so I can check the repo, then say "yes 1" if that rule fits you and I draft Thiel Fellowship.`, ruled);
+  assert.equal(ruled.split(/(?<=[.?!])\s+/).filter((x) => /sign in/i.test(x)).length, 1, ruled);
+  assert.doesNotMatch(ruled, /remember you/);
 });
 
 // Registered last, so it reads every reply the tests above rendered.

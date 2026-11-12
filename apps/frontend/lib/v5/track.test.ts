@@ -1832,8 +1832,10 @@ test('M1, FR-1 (Task 14 fix round 1): with no evidence the refusal and find say 
   await seedRead('org/m1', ['someone']);
   const R = { name: 'M1', description: 'A repo.', repo_url: 'https://github.com/org/m1' };
   const fo = await find({ ...out, linkUrl: async () => null }, { program_id: 'l28-m1', project: R });
-  assert.equal(fo.show_to_builder.split('\n').at(-1), 'Sign in once and I check the repo is yours; then say yes.');
-  assert.doesNotMatch(fo.show_to_builder, /not yours|I apply to/);
+  assert.equal(fo.show_to_builder.split('\n').at(-1), 'Sign in so I know the repo is yours, then say yes and I apply to Confirm Grant.');
+  // L38 big 1 (v6.1.18 Task 10): the only apply offer is the one after the sign-in, in its sentence.
+  assert.doesNotMatch(fo.show_to_builder, /not yours/);
+  assert.ok(fo.show_to_builder.split('\n').filter((l) => /I apply to/.test(l)).every((l) => /^Sign in\b[^,]*, then /.test(l)), fo.show_to_builder);
   for (const status of ['started', 'applied'] as const) {
     const r = await track(out, { program_id: 'l28-m1', status, project: R, submitted_by: 'agent' });
     assert.equal(r.show_to_builder, 'Sign in first so I can check the repo is yours.', status);
@@ -2003,9 +2005,10 @@ test('N5a (Task 14 fix round 3): a signed-out find of a ready program ends on th
   await upsertProgram(programFixture({ id: 'l28-n5a', title: 'N5a Grant' }), 'file', NOW);
   const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l28-n5a-' + Math.random()}) RETURNING id`;
   const r = await find({ installationId: u.id as number, builderId: null, now: NOW, linkUrl: async () => 'https://earnkit.test/link/n5a' }, { program_id: 'l28-n5a', project: { name: 'N5a', description: 'A repo.', repo_url: 'https://github.com/org/n5a' } });
-  assert.equal(r.show_to_builder.split('\n').at(-1), 'Sign in once at https://earnkit.test/link/n5a and I check the repo is yours; then say yes.');
+  // L38 big 1 (v6.1.18 Task 10): the sign-in first, in the one sentence with the yes it gates.
+  assert.equal(r.show_to_builder.split('\n').at(-1), 'Sign in at https://earnkit.test/link/n5a so I know the repo is yours, then say yes and I apply to N5a Grant.');
   assert.equal((r as { sign_in?: string }).sign_in, 'https://earnkit.test/link/n5a');
-  assert.equal(r.show_to_builder.match(/Sign in once/g)!.length, 1);
+  assert.equal(r.show_to_builder.match(/Sign in/g)!.length, 1);
 });
 
 // ---- v6.1.16.1 Task 2: ownership, identity and list numbers (lane 35) ----

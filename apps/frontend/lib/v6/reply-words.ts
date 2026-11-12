@@ -40,23 +40,19 @@ export const isConfirmWhat = (what: string): boolean => confirmBar(what) !== nul
 export const confirmBar = (what: string): ProofBar | null => (Object.keys(CONFIRM) as ProofBar[]).find((k) => confirmLine(k) === `${what}.`) ?? null;
 export type ProofBar = keyof typeof CONFIRM;
 
-/** L1j-6 (v6.1.17): what the sign-in checks, by the bar the proof gap names: never a bare "that". */
-const CHECKS: Record<ProofBar, string> = { used: 'your users', live: 'your product is live', building: 'your project has code' };
-
-/** The one line that offers the link (the record tool and find's open list). Pure. */
-export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
-
-/** Unlinked find (R5a): the sign-in sentence of the closing block; saying yes stays the one action. With a proof gap
- *  shown (`proof`, v6.1.14) it is the one sign-in ask: after a repo read it names what it checks by the gap's bar (L1j-6,
- *  v6.1.17: "I check your users", never a bare "that"; `true` reads as the users bar), else it promises only to remember
- *  (R19). With no link to give (`link` null: linkOf failed, or after the account was deleted), only the proof shape is
- *  said, linkless: "Sign in once and I check your users." or "Sign in once and I remember you." (fix round 1). Pure. */
-export function signInSentence(link: string | null, repoRead: boolean, proof: boolean | ProofBar = false): string {
-  const checks = CHECKS[proof === true || proof === false ? 'used' : proof];
-  if (link === null) return repoRead ? `Sign in once and I check ${checks}.` : 'Sign in once and I remember you.';
-  if (proof) return repoRead ? `Sign in once at ${link} and I check ${checks} and remember you.` : `Sign in once at ${link} and I remember you.`;
-  return repoRead ? `Sign in once at ${link} and I read your repo for proof and remember you.` : `Sign in once at ${link} and I remember you across agents.`;
-}
+/**
+ * L38 big 1 (v6.1.18 Task 10): a sign-in is said only when the reply's one action needs it, and then inside that
+ * action's line, first: the repo check a program's proof waits on ("Sign in at {link} so I can check the repo, then
+ * ..."). With no link to give (linkOf failed, or after the account was deleted) the same words without one. No sign-in
+ * sentence promises to remember the builder. Pure.
+ */
+export const signInCheck = (link: string | null): string => (link ? `Sign in at ${link} so I can check the repo` : 'Sign in so I can check the repo');
+/** A sentence's first letter lowered (never the pronoun "I"), so an action reads after "then". Pure. */
+export const lowerFirst = (x: string): string => (/^I\b/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1));
+/** L38 big 1: the sign-in first, then the action it waits on, as one sentence ("..., then say yes and I draft it."). Pure. */
+export const signInThen = (signIn: string, action: string): string => `${signIn}, then ${lowerFirst(action)}`;
+/** L38 big 1: the one action of a proof that is the only step left: sign in, and EarnKit reads it again. Pure. */
+export const signInLookAgain = (link: string | null): string => signInThen(signInCheck(link), 'I look again.');
 
 /** The first find after a link (security M2): the account this agent now writes to, and where to undo it. Pure. */
 export const linkedNoticeLine = (login: string) => `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;

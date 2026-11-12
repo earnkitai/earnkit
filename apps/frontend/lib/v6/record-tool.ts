@@ -13,9 +13,9 @@ import { answerBrief } from './answer-brief';
 import { LinkRefused, readStoredRecord, takeUnlinkedNotice, unlinkedReason, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
-import { DELETED_NOTICE, listWords, signInLine, signInSentence } from './reply-words';
+import { DELETED_NOTICE, listWords } from './reply-words';
 
-export { listWords, signInLine };
+export { listWords };
 import { APPROVABLE, type Answer, type BuilderRecord, KIND_WORDS, allowedKey, isApproved, mergeRecord, recordItems } from './record';
 import { cleanText, quoteName } from '../v5/controls';
 import { ME_VALUE_WORDS } from '../v5/site-copy';
@@ -176,6 +176,8 @@ export function recordReplyCap<T extends { agent_note: string }>(reply: T, cap =
 const SIGN_IN_NOTE = 'Show the link once. Ask for a personal fact only when the next form needs it; nothing is saved until the builder has signed in. Call record with get afterwards.';
 /** L29-20 (v6.1.16 Task 15): an unlinked record get. */
 export const REMEMBER_YOU = 'Sign in once and I remember you.';
+/** L29-20: an unlinked record get with its link (the record is what signing in keeps). Pure. */
+const rememberYouAt = (link: string): string => `Sign in once at ${link} and I remember you.`;
 /** L29-20: an unlinked policy set. */
 export const NO_STANDING_HERE = 'There is no standing approval on this agent.';
 /** L29-4 (v6.1.16 Task 15): a linked policy set, with no missing list. L35-14 (v6.1.17): by the approval's state: on, how
@@ -225,7 +227,7 @@ async function unlinked(installationId: number, now: Date, setting: boolean, pol
   if (policy) return refuse({ show_to_builder: lead(NO_STANDING_HERE), agent_note: `Nothing was saved. ${STOP_HELD_NOTE}`, linked: false });
   const link = await signInLink(installationId, now);
   // L29-20: a get says what signing in does, with the link when there is one; a set saved nothing (a refusal).
-  if (!setting) return { show_to_builder: lead(link ? signInSentence(link, false, true) : REMEMBER_YOU), agent_note: SIGN_IN_NOTE, linked: false, ...(link ? { sign_in: link } : {}) };
+  if (!setting) return { show_to_builder: lead(link ? rememberYouAt(link) : REMEMBER_YOU), agent_note: SIGN_IN_NOTE, linked: false, ...(link ? { sign_in: link } : {}) };
   if (!link) return refuse({ show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false });
   return refuse({ show_to_builder: lead(`Not saved. Sign in once at ${link}, then tell me again.`), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link });
 }
