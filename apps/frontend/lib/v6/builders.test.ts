@@ -382,3 +382,18 @@ test('L28-10 (v6.1.16 Task 14, controller ruling): unlink moves nothing and mark
   await linkInstallation(j, b2.id, NOW);
   assert.equal((await sql()`SELECT former_builder_id AS f FROM installations WHERE id = ${j}`)[0].f, null);
 });
+
+test('v6.1.16 Task 9 N5 (v6.1.17 Task 3): an unlink takes that agent\'s results-question markers for the builder; its other markers and other agents\' stay', async () => {
+  const b = await builder('unl-asks');
+  const one = await install();
+  const two = await install();
+  await linkInstallation(one, b.id, NOW);
+  await linkInstallation(two, b.id, NOW);
+  const owner = `b:${b.id}`;
+  await sql()`INSERT INTO outcome_asks (installation_id, owner, program_id, asked_on) VALUES
+    (${one}, ${owner}, 'asks-a', '2026-11-01'), (${two}, ${owner}, 'asks-a', '2026-11-01'), (${one}, ${`i:${one}`}, 'asks-b', '2026-11-01')`;
+  assert.equal(await unlinkInstallation(one, b.id, NOW), true);
+  const left = await sql()`SELECT installation_id, owner FROM outcome_asks WHERE program_id LIKE 'asks-%' ORDER BY installation_id, owner`;
+  assert.deepEqual(left.map((r) => [Number(r.installation_id), r.owner]), [[one, `i:${one}`], [two, owner]]);
+  await sql()`DELETE FROM outcome_asks WHERE program_id LIKE 'asks-%'`;
+});

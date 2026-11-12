@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
+import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, storedPaymentKeys, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
 
 after(() => sql().end());
 
@@ -496,6 +496,24 @@ test('L17-8 (v6.1.16): paymentKeyOf strips a legacy s: or t: prefix only', () =>
   assert.equal(paymentKeyOf('t:final'), 'final');
   assert.equal(paymentKeyOf('x:final'), 'x:final');
   assert.equal(paymentKeyOf('t:s:final'), 's:final');
+  // v6.1.16 Task 4 N1 (v6.1.17): a legacy double prefix matches as s:final and as final.
+  assert.deepEqual(storedPaymentKeys('t:s:final'), ['s:final', 'final']);
+  assert.deepEqual(storedPaymentKeys('t:final'), ['final']);
+  assert.deepEqual(storedPaymentKeys('final'), ['final']);
+  assert.deepEqual(storedPaymentKeys('x:final'), ['x:final']);
+});
+
+test('v6.1.16 Task 4 N1 (v6.1.17): a legacy t:s: key resent as s:x or x never adds twice', async () => {
+  const i = await install();
+  await prog('l-double', { max_award_usd: 10_000 });
+  await record(o(i), 'l-double', 'applied', { now: NOW });
+  const t = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  assert.equal((await record(o(i), 'l-double', 'won', { amount_usd: 100, now: t(1) })).ok, true);
+  await sql()`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, at, payment_key) VALUES (${o(i)}, ${i}, 'l-double', 'won', 50, ${t(2)}, 't:s:x')`;
+  const before = await counts(i);
+  for (const key of ['s:x', 'x', 't:x'])
+    assert.deepEqual(await record(o(i), 'l-double', 'won', { amount_usd: 50, payment: { key }, now: t(3) }), { ok: false, note: 'Already tracked.' }, key);
+  assert.deepEqual(await counts(i), before);
 });
 
 test('L17-2, L17-8 (v6.1.16): an older correction changes nothing; a key stored with a legacy prefix matches; history names its source', async () => {
@@ -539,15 +557,19 @@ test('L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to t
 test('L23-12 (v6.1.16), lane 23 K7: 181 days on, the sweep keeps the name key, its repo and the rule yes; only cached evidence goes', async () => {
   const { resolvedKey, saveReport, sweepReports } = await import('./ledger');
   const i = await install();
-  await prog('l-k7');
+  await prog('l-k7', { eligibility: [{ kind: 'rule', note: 'a first-time founder' }] });
   const repoKey = 'https://github.com/lane23/keeper';
   await saveReport(o(i), 'name:keeper', { name: 'Keeper', repo_url: repoKey } as never, NOW);
   assert.equal((await record(o(i), 'l-k7', 'gap_done', { item: 'repo', projectKey: repoKey, now: NOW })).ok, true);
+  // v6.1.17 Task 5 (v6.1.16 Task 9 N3): a confirmed rule item too (the find reply is pinned in find.test).
+  const { ruleItem } = await import('./eligibility');
+  const rule = ruleItem('a first-time founder');
+  assert.equal((await record(o(i), 'l-k7', 'gap_done', { item: rule, projectKey: repoKey, now: NOW })).ok, true);
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at) VALUES ('lane23/keeper-k7', '{}', ${NOW})`;
   const later = new Date(NOW.getTime() + 181 * DAY);
   assert.ok((await sweepReports(later)) >= 1);
   assert.equal(await resolvedKey(o(i), 'name:keeper'), repoKey);
-  assert.deepEqual([...(await doneItems(o(i), 'l-k7', repoKey))], ['repo']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-k7', repoKey))].sort(), [rule, 'repo'].sort());
   assert.equal((await sql()`SELECT 1 FROM repo_cache WHERE repo = 'lane23/keeper-k7'`).length, 0);
 });
 
@@ -672,4 +694,55 @@ test('L35-2, L35-3, L35-11, L35-20 (v6.1.16.1 Task 2): sentForRepo by key, id, p
   assert.equal(await unlinkInstallation(i, bd.id, NOW), true);
   assert.ok(await sql().begin((tx) => formerSentAt(tx, `i:${i}`, 'l35-former', '')));
   assert.equal(await sql().begin((tx) => formerSentAt(tx, `i:${i}`, 'l35-former', 'name:c')), null);
+});
+
+test('v6.1.16 Task 15 N4 (v6.1.17): a win sent outside EarnKit has no send date: the line names the result alone', () => {
+  const now = new Date('2026-11-12T12:00:00Z');
+  assert.equal(applicationsLine([{ program_id: 'thiel', title: 'Thiel Fellowship', status: 'won', sent_at: null, result_at: '2026-11-11T10:00:00.000Z', amount: 'EUR 2,000' }], now), 'Your applications: Thiel Fellowship (won EUR 2,000).');
+  assert.equal(applicationsLine([{ program_id: 'a', title: 'A Grant', status: 'won', sent_at: '2026-11-03T10:00:00.000Z', result_at: '2026-11-11T10:00:00.000Z', amount: '$5,000' }], now), 'Your applications: A Grant (sent Nov 3, won $5,000).');
+});
+
+// ---- v6.1.17 Task 5: the untied stranger and find's silent move (I3, v6.1.16.1 close) ----
+
+test('I3 (v6.1.17 Task 5): ten untied strangers at once, each a find with the victim\'s repo racing a send and a started by name, land 0 rows on the repo; the victim\'s sends go through', async () => {
+  const { find } = await import('./find');
+  const { track } = await import('./track');
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const key = 'i3v/app';
+  const facts = {
+    chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_lead: 'It keeps time.', contributors: ['i3v'], repo_id: 359901,
+  };
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
+    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at`;
+  let gid = 959_000;
+  const signedIn = async (login: string) => {
+    const b = await upsertBuilder({ github_id: ++gid, login, name: login, avatar_url: null }, NOW);
+    const [r] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'i3l-' + Math.random()}, 'Claude Code') RETURNING id`;
+    await linkInstallation(r.id as number, b.id, NOW);
+    return { installationId: r.id as number, builderId: b.id as number | null, now: NOW, owner: `b:${b.id}` };
+  };
+  const VIC = { name: 'App', description: 'An app.', repo_url: `https://github.com/${key}` };
+  const NAME = { name: 'App', description: 'An app.' };
+  const send = (c: { installationId: number; builderId: number | null; now: Date }, program_id: string, project: Record<string, unknown>, by = 'agent') =>
+    track(c, { program_id, status: 'applied', submitted_by: by, fields_used: ['project_name'], project });
+  const ids = Array.from({ length: 10 }, (_, k) => ({ sent: `i3l-s${k}`, start: `i3l-c${k}` }));
+  for (const { sent, start } of ids) for (const id of [sent, start]) await prog(id, { title: `I3L ${id}` });
+  const strangers = await Promise.all(ids.map((_, k) => signedIn(`i3l-rms-${k}`)));
+  // All 30 calls at once: every stranger's find carries the victim's repo while its own sends go by name. Each
+  // stranger's sends start k ms after its find, so across the ten they land before, during and after find's read of the name.
+  const after = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  await Promise.all(strangers.flatMap((s, k) => [
+    find({ ...s, linkUrl: async () => null }, { project: VIC }),
+    after(k).then(() => send(s, ids[k].sent, NAME, 'builder')),
+    after(k).then(() => track(s, { program_id: ids[k].start, status: 'started', project: NAME })),
+  ]));
+  const owners = strangers.map((s) => s.owner);
+  const landed = await sql()`SELECT owner, program_id FROM applications WHERE owner = ANY(${owners}) AND (repo_key IS NOT NULL OR project_id LIKE 'https://%')`;
+  assert.deepEqual([...landed], []);
+  const vic = await signedIn('i3v');
+  for (const { sent, start } of ids) for (const id of [sent, start]) {
+    assert.equal((await send({ ...vic, now: new Date(NOW.getTime() + 3_600_000) }, id, VIC)).show_to_builder, `Sent I3L ${id}.`);
+  }
 });

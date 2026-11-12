@@ -13,23 +13,48 @@ concurrency:
 jobs:
   cron:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Two tries of 540 s with 10 minutes between them (v6.1.17 Task 3, L30-14).
+    timeout-minutes: 30
     steps:
       - name: POST https://earnkit.com/api/cron
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Set the repo variable EARNKIT_CRON_PAUSED to true only while the cron is deliberately off (before go-live).
+          CRON_PAUSED: ${{ vars.EARNKIT_CRON_PAUSED }}
+          CRON_URL: https://earnkit.com/api/cron
+          RETRY_AFTER_S: 600
         run: |
-          # Not set up yet (before go-live): skip quietly instead of failing (and emailing) every day.
-          test -n "$CRON_SECRET" || { echo "::notice::CRON_SECRET is not set; skipping."; exit 0; }
-          # A run that answers 5xx, or no answer within 540 s, fails the job (curl's own exit code), and the failed run
-          # emails the owner. A 200 lists every failure of the run in `failed` (a program's id, or null for a whole
-          # step, and an error code: db, fetch, timeout, budget, catalog, parse or error; the message stays in the server log): any
-          # entry fails the job too, so the owner sees it; the next run retries.
-          curl -sS --fail-with-body --max-time 540 -X POST \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -o body.json \
-            https://earnkit.com/api/cron || { cat body.json 2>/dev/null; echo; exit 1; }
+          # v6.1.17 Task 3 (L30-14): EarnKit is live, so a missing secret fails the job (and emails the owner) instead of
+          # skipping green every day. Only a deliberate pause skips.
+          if [ -z "$CRON_SECRET" ]; then
+            if [ "$CRON_PAUSED" = "true" ]; then echo "::notice::the cron is paused (EARNKIT_CRON_PAUSED); skipping."; exit 0; fi
+            echo "::error::CRON_SECRET is not set, so the daily run did not happen. Set the repo secret to the value on Railway."
+            exit 1
+          fi
+          # One POST: the HTTP status in $code (000 when there was no answer) and curl's exit code in $rc.
+          post() {
+            rc=0
+            code=$(curl -sS --max-time 540 -X POST -H "Authorization: Bearer $CRON_SECRET" \
+              -o body.json -w '%{http_code}' "$CRON_URL") || rc=$?
+          }
+          post
+          # A 5xx (a deploy, a crash) or no answer within 540 s is tried once more after 10 minutes; a 4xx is not.
+          if [ "$rc" -eq 28 ] || { [ "$rc" -eq 0 ] && [ "$code" -ge 500 ]; }; then
+            echo "::warning::the run answered ${code} (curl exit ${rc}); trying once more in ${RETRY_AFTER_S} s."
+            cat body.json 2>/dev/null || true; echo
+            sleep "$RETRY_AFTER_S"
+            post
+          fi
+          # A run that answers 4xx or 5xx, or no answer within 540 s, fails the job, and the failed run emails the owner.
+          if [ "$rc" -ne 0 ] || [ "$code" -ge 400 ]; then
+            echo "::error::the run answered ${code} (curl exit ${rc})."
+            cat body.json 2>/dev/null || true; echo
+            exit 1
+          fi
           cat body.json; echo
+          # A 200 lists every failure of the run in `failed` (a program's id, or null for a whole step, and an error code:
+          # db, fetch, timeout, budget, catalog or error; the message stays in the server log): any entry fails the job
+          # too, so the owner sees it; the next run retries. Unreadable programs are named in the digest, not here.
           n=$(jq '.failed | length' body.json) || { echo "::error::the answer is not JSON"; exit 1; }
           if [ "$n" -gt 0 ]; then
             jq -r '.failed[] | "::error::\(.step) \(.id // "(whole step)"): \(.error)"' body.json

@@ -130,7 +130,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    The users question closes "Do real people use it? Say yes and I apply." only when that yes makes the program ready;
    with a setup step or a rule left beside it, "Do real people use it? Say yes and I look again." (final fix, v6.1.12); only when no remote step is shown (or none names an
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
-   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check that and remember you." after a repo read, "... and I remember you." with none; with no link to give, after a deleted account or a failed link, "Sign in once and I check that." or "Sign in once and I remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
+   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check the repo is yours; then say yes." with a repo (v6.1.16.1), "Sign in once at <link> and I remember you." with none; with no link to give, after a deleted account or a failed link, "Sign in once and I check that." or "Sign in once and I remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
    `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
@@ -145,7 +145,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
    results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
    how it went when results are due." is always kept.
-8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
+8. `find` caps the lists (every remote ready program since v6.1.17, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
    programs get their own block with their setup (never in "apply to all N"), and the reply ends with
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
@@ -175,13 +175,15 @@ The pipeline, in order:
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
-   stale after two failing days, closes an active or upcoming program whose deadline passed and opens an upcoming one
-   at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is listed in the
-   run's `failed` until its file has them; a closed program may have none). A redirect to another host counts as alive
+   stale after 20 hours of failing (v6.1.17 Task 3, L30-9: from `program_health.first_failed_at`, set at the first
+   failing check and cleared by a clean one, so two runs a minute apart across midnight are not stale; a parked page
+   for sale or a soft 404 counts as down, L30-8), closes an active or upcoming program whose deadline passed and opens an upcoming one
+   at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is named in the
+   digest's could-not-read list (v6.1.17 Task 3) until its file has them; a closed program may have none). A redirect to another host counts as alive
    (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
-   listed in the owner's digest and never marks the program stale. A program unverified or stale for 14 days leaves
-   the open list. The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
+   listed in the owner's digest and never marks the program stale. A program unverified or stale for `STALE_DAYS`
+   (12, v6.1.17 Task 3) leaves the open list, so a page that stays down leaves within 14 days of its first failure. The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
    an upcoming one past `starts_at` active with opens_note dropped, one warning each), so a deploy never undoes a move. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
    `stats.ts` feed the site. A program card shows the summary's money phrase whenever it has a figure ("$250,000 over two years", "Up to $100,000 by tier, more by DAO vote", v6.1.15 fix round 2), never a threshold the builder must reach (" at $10M USDG TVL" is cut); with no figure in the phrase, the pool (`pool_usd`, as "$N in grants" or "$N in prizes"), then the per-winner `max_award_usd` ("$10,000 to $900,000" with a `min_award_usd`), else the phrase's words; a big tile, one lone figure, draws "Up to" small above it (`moneyOf` in `programs-read.ts`). v6.1.15 (lane 22, #12): money is in full figures on every surface (tile, list API, guide, reply), never K or M; only the hero chip rounds, down, to one decimal (`heroUsdText`, "$3.1M"). The tile, the list API, the guide header and the find reply share `moneyOf`'s string: with a capital on the tile and guide, and lowercase mid-sentence in the reply (find's `moneyOf` is `moneyAt(moneyOf(p), 'mid')`), keeping "EUR", "NYC", "$", "iOS", "DeFi" and chain names (`lowerFirst`, one rule wherever a phrase is lower-cased). `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M; v6.1.16 (L1h-1) also K or M (any case: `$325k`, `2M ARB`) in the description, the reward, every past round (label, themes, examples) and each requirement's `todo`, so the guide, the lookup JSON and the needs lists carry full figures; a requirement's `label` is the program's own question and keeps its words. v6.1.16 Task 8 (lane 22): one money format for the ledger too: `moneyText(amount, currency)` in `programs-read.ts` (`$5,000`, `$2,500.50` with cents only when given, `EUR 2,000` code first and never converted; `usdFull` is `moneyText` in USD) and `totalText` for totals (`$3,500.50 and EUR 2,000`, `$5,000, one amount not given`); find's applications line, track's lines, /me's rows and totals and the screen's notes all use them. `/api/stats` keeps `won_usd` (the US dollar part only) and adds `won_other` (`[{ currency, amount }]`) and `won_without_amount`; the landing reads `open_money_usd` only. Every catalog write (the API's, `syncFiles`, the cron's status flip) calls `revalidateCatalog()` (`programs-read.ts`), which expires the shared `PROGRAMS_TAG` (stats, landing, list, guides) and the catalog paths at once. v6.1.16 (L21-2): `programs:check` refuses a closed program whose description or rules carry an open-window sentence (`OPEN_WINDOW` in `program-checks.ts`: "applications are open", "apply now", "open until"); a closed program's guide (status closed, or `ends_at` passed) reads `Closed on 1 Nov 2026.` (`closedOn`: the `ends_at` day in the program's zone, else `verified_at`) as its window line, and its description and rules drop each open-window sentence, so a date-closed file still marked active reads right. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). v6.1.16 (Task 7): an open guide's close reads the one closes wording (`closesSentence` over `closesWords`, v6.1.16 Task 9: `Closes in under an hour.`, `Closes today.`, `Closes tomorrow.`, `Closes in {n} days.` within 14 calendar days, else `Closes Nov 30.`), its meta description is `guideMeta` ("$67,500 in prizes, closes Nov 12. ..."), its description ends as a sentence, and an in-person program's first pill is `In person: {city}.` (`city` on the file; `programs:check` refuses an in-person file without one). An unknown guide id renders the site's not-found content in the server HTML with noindex (HTTP 200; notFound() left the production body empty on Next 16.4.1). The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M. v6.1.16 (L21-2): `programs:check` refuses a closed program whose description or rules carry an open-window sentence (`OPEN_WINDOW` in `program-checks.ts`: "applications are open", "apply now", "open until"); a closed program's guide (status closed, or `ends_at` passed) reads `Closed on 1 Nov 2026.` (`closedOn`: the `ends_at` day in the program's zone, else `verified_at`) as its window line, and its description and rules drop each open-window sentence, so a date-closed file still marked active reads right. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). v6.1.16 (Task 7): an open guide's close reads the one closes wording (`closesSentence` over `closesWords`, v6.1.16 Task 9: `Closes in under an hour.`, `Closes today.`, `Closes tomorrow.`, `Closes in {n} days.` within 14 calendar days, else `Closes Nov 30.`), its meta description is `guideMeta` ("$67,500 in prizes, closes Nov 12. ..."), its description ends as a sentence, and an in-person program's first pill is `In person: {city}.` (`city` on the file; `programs:check` refuses an in-person file without one). An unknown guide id is a true 404 (v6.1.16 Task 13, L27-3): `proxy.ts` (`guideGate`, the listed ids read at most once a minute) rewrites `/programs/<id>` for an id no list shows to a path no route serves (`NOT_A_ROUTE`), so `app/not-found.tsx` renders inside the layout (lang, main, the h1) with status 404; the page's own `notFound()` stays only as the fallback, because on Next 16.4.1 a thrown `notFound()` reaches the browser as the empty `__next_error__` shell. The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment An unknown guide id is a true 404 (v6.1.16 Task 13, L27-3): `proxy.ts` (`guideGate`, the listed ids read at most once a minute) rewrites `/programs/<id>` for an id no list shows to a path no route serves (`NOT_A_ROUTE`), so `app/not-found.tsx` renders inside the layout (lang, main, the h1) with status 404; the page's own `notFound()` stays only as the fallback, because on Next 16.4.1 a thrown `notFound()` reaches the browser as the empty `__next_error__` shell. The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment
@@ -364,7 +366,8 @@ never moves the stored time, which stays the original result's (fix round 1, I1)
 retry reaches the ledger at the kept outcome's own time, never its arrival, so it never overwrites a builder's later
 correction (the reviewer hears "Already recorded; nothing new."). An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
 needs its mark, and payment keys share one space per application (track and screen send them unprefixed;
-`paymentKeyOf` reads a stored `s:`/`t:` key as the bare key, alias until v6.1.17). A send refused because its agent was
+`paymentKeyOf` reads a stored `s:`/`t:` key as the bare key; v6.1.17 Task 2: `storedPaymentKeys` also reads a
+legacy `t:s:x` as `x`, so a resent key never adds twice). A send refused because its agent was
 unlinked meanwhile tells the agent the form went out with no record. The screen queue takes one lock per program and
 never queues an applicant an unread row of the program's live screens holds by identity (EarnKit id and repo key; for
 applicants with neither, the same reviewer's ref and site); the reviewer hears which row holds it. find lists held
@@ -388,11 +391,26 @@ that never exchanged a code (`oauth_clients.used_at`), `sweep_evidence` the evid
 `SCREEN_BATCH` 200 until `min(start + 300 s, deadline - 20 s)`), then `digest`. One `deadline = start +
 RUN_BUDGET_MS` (420 s; curl waits 540), the walk's own share `HEALTH_BUDGET_MS` 180 s (fix round 1, so the queue keeps at least 220 s): health and the queue start only before it, else they are listed with error
 `budget`; a probe starts only when it can finish before it; the sweeps and the digest always run. The answer is
-`{ health, swept: {per table}, screen: { read, left, jobs_finished }, digest, failed: [{ id, step, error }] }`
-(`id` a program's, or null for a whole step; `error` a code by the error's class: `db`, `fetch`, `timeout`, `budget`, `catalog` (a program its file keeps from opening or closing), `parse` (a stored file that no longer parses) or
-`error`, never the message, which goes only to the `[cron]`/`[health]` server log line), 200 with
-the list, 500 only when every step failed. The workflow prints the body and fails the job when curl fails (5xx, no
-answer in 540 s) or `failed` is not empty, one `::error::` line per entry; the next run retries. The owner's digest
+`{ health: { checked, stale, changed, closed, opened, unreadable }, swept: { repo_cache, reports, screens, link_codes,
+sessions, oauth_codes, oauth_clients, evidence, windows, outcome_asks }, screen: { read, requeued, left, jobs_finished },
+digest, failed: [{ id, step, error }] }` (v6.1.17 Task 3, L30-13: the shape is pinned in `cron.test.ts`; `requeued`
+counts reads put back for a retry, never in `read`; `sweep_asks` drops `outcome_asks` rows asked over 30 days before
+the run's UTC day) (`id` a program's, or null for a whole step; `error` a code by the error's class: `db`, `fetch`,
+`timeout`, `budget`, `catalog` (a program whose moved file the schema refuses) or `error`, never the message, which
+goes only to the `[cron]`/`[health]` server log line), 200 with the list, 500 only when every step failed. v6.1.17
+Task 3 (L30-18, L35-18): a stored row that no longer parses and an upcoming program at its start with no form are not
+failures (the `parse` code is gone) but `health.unreadable`, each named in the digest as `{id}: {fix}`
+(`UNREADABLE_FIX`), so they no longer turn every run red. A run that answers 200 stores its time in the one-row
+`cron_state` (`last_run_at`, never moved back; step `last_run`, listed in `failed` if the write fails); `/api/stats`
+shows it as `last_run_at` (within its 10-minute cache) and the next digest names a gap over `GAP_HOURS` (26): `No daily run finished for {n} hours
+before this one; the last was {day time} UTC.` (L30-14; fix round 1, M2: the gap belongs to the UTC day, from the last run
+before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a new day) to the day's first run
+(`day_first_at`), so a second run that day builds the same body and is not mailed again). Program links also count
+"may be for sale" and "available for purchase" as parked (fix round 1, N1). Every sweep boundary is pinned 1 ms either side in
+`cron.test.ts`. The workflow prints the body and fails the job when the answer is 4xx or 5xx, there is no answer in
+540 s, or `failed` is not empty, one `::error::` line per entry; a 5xx or a timeout is tried once more after 10 minutes
+(`RETRY_AFTER_S`, job timeout 30 minutes); a missing `CRON_SECRET` fails the job unless the repo variable
+`EARNKIT_CRON_PAUSED` is `true` (v6.1.17 Task 3, L30-14); the next run retries. The owner's digest
 (`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
 change to live programs since the last digest, with revert links; nothing happened, nothing sent) answers `sent`,
 `none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
@@ -412,7 +430,7 @@ JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minu
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications, agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
-| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has nine counts and names no one |
+| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency and `last_run_at` (v6.1.17), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
@@ -507,7 +525,8 @@ keys from tool-call bodies before anything sees them.
 | `programs` | Every program: the whole record in `file`, plus mirrored columns and source (`file` or `api`) |
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
-| `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
+| `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at, `first_failed_at` (v6.1.17: stale at 20 hours of failing) |
+| `cron_state` | v6.1.17 Task 3: one row, `last_run_at` of the last daily run that answered 200 (`/api/stats`, the digest's gap line) |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
@@ -555,6 +574,28 @@ copied from a template. Tests skip nothing; a run whose output has no failure li
 - Replay: `pnpm -s tsx apps/frontend/scripts/replay.mts <fixture> [--monday]` runs find, track applied, find on a
   scratch database and prints each `show_to_builder` and `agent_note`. `--monday` brings one deadline within a week
   and moves the clock to the next Monday 09:00 UTC so the "Since" line shows.
+- Repro pack (v6.1.17 Task 5): `apps/frontend/scripts/repro/` holds one script per journey Break (lanes 22 to 29 and
+  1h), each printing one `PASS`/`FAIL` line against a running local instance. `run-all.sh` runs them all, then the pack
+  cleanup. The target comes from `REPRO_BASE_URL` (default `http://localhost:4600`) and `REPRO_DATABASE_URL` (default
+  `earnkit_journeys`), plus `REPRO_AUTH_SECRET` and `REPRO_CRON_SECRET` to match the server. `target.ts` refuses a host
+  other than `localhost`, `127.0.0.1` or `::1` unless `REPRO_ALLOW_REMOTE=1`, refuses earnkit.com always, and needs a
+  local Postgres (pinned in `repro-target.test.ts`). The pack is not part of `pnpm test`. Its README has the recipe for a
+  dev server from a worktree on a throwaway database copied from the test template.
+- Persona replays (v6.1.17 Task 5): `find.test.ts` replays lane 1h's personas on recorded repos of the same kind
+  (`LANE_1H`). Personas 8, 9, 12, 15, 30 and 31 have their default reply pinned exactly: the gap once in line 1, the
+  closing naming only the step. Personas 2, 3, 6, 18, 24, 26, 29 and 31 have filter.all with no
+  `on Solana and Mobile Wallet Adapter`. `reply.test.ts` keeps every reply it renders and, last, walks them all for
+  `tonight` and for more than one Say.
+
+## Release gate
+
+Every release and patch bumps `apps/frontend/package.json`'s `version` (served as the MCP `serverInfo.version`) to
+the version the PR ships (L1j-8, v6.1.17). `mcp.test.ts` pins `serverInfo.version` equal to the package version. It
+also pins the package version equal to the newest `v6.1.*` plan file in
+`docs/design-docs-and-implementation-plans/` (for example `v6.1.17-journeys-11-plan.md` gives 6.1.17), so a release
+whose plan is written but whose package is not bumped fails the suite. Only major.minor.patch is compared (v6.1.17
+final round, `releaseVersionOf`): a four-part patch plan (`v6.1.17.1-patch-plan.md`) is a patch of 6.1.17 and asks
+for 6.1.17, since a fourth part is not semver.
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -611,7 +652,8 @@ before v6.1.15 is reworded on read (`currentBuilderLine`, a small table of the o
 mainnet. A screen row read before v6.1.15 reads on a results page with the rule `self_funded_users` and the head
 `flagged (self-funded users)` (`currentReviewerLine`; alias until v6.1.16); the markdown report's flag lines use `ruleWords`. The farmed-wallet flag's rule id is `self_funded_users` (read "self-funded users"; a row stored as
 `unfunded` reads the same, `RULE_WORDS`); the threshold names are unchanged. The CSV and the results rows show the
-count as `outside_senders_90d`, with `funded_senders_90d` beside it as an alias until v6.1.16.
+count as `outside_senders_90d` only (v6.1.17 Task 2, L35-23: the `funded_senders_90d` alias ended; the evidence
+row inside keeps its internal key).
 
 **The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
 <json>]` (`scripts/screen.mts` over `lib/v6/screen.ts`). `applicants.ts` parses the CSV (columns by name; a bad
@@ -641,9 +683,11 @@ and I look again." with no repo; the read settles it. The unlinked path names `b
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`sessions.ts`; v6.1.16 Task 17, L31-6:
 the cookie is `__Host-ek_me` in production, so Secure, Path=/ and no Domain, and `ek_me` on local http; for one
-release a session under the old `ek_me` is still read (`sessionToken`), the /me gate moves it to the new name
-(`renewedCookies`), the callback expires any old one, and sign-out and delete end the session behind each cookie
-present and expire both names) and lands
+release a session under the old `ek_me` is still read (`sessionToken`), the callback expires any old one, and sign-out
+and delete end the session behind each cookie present and expire both names; v6.1.17 Task 4, L35-17: the old name is
+never promoted into `__Host-ek_me` (`renewedCookies` is gone), so it dies with its session; a /me write carrying only
+the old name is 403 `Sign in again from the link your agent gives you.` (`currentName` in `guard`), sign-out still
+works, and from v6.1.18 the old name is ignored) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
 names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
 links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
@@ -828,8 +872,13 @@ does (a GitHub budget stop puts it back and ends the run; a tierless read worth 
 the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
 `record`). The daily cron gives the queue 300 s at most, cut to its run's deadline (v6.1.16 Task 16): `workQueue`
 returns `read` and `left` (the share not reached when it stopped) and each job stores `last_run_read` and
-`last_run_left`; while a job's `last_run_left` is over 0 its results line adds "{n} of {m} read today; the rest
-tomorrow." (read so far, the job's total); `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
+`last_run_left`; while a job's `last_run_left` is over 0 and one of its rows was read on this UTC day (v6.1.16 Task
+16 N5, v6.1.17 Task 3: the worker also clears it first for a job none of whose rows was read today) its results line
+adds "{n} of {m} read today; the rest tomorrow." (read so far, the job's total). v6.1.17 Task 3 (L30-16): the worker
+reads only jobs whose queuing builder still reviews the program (`queuerReviews`); the daily sweep drops the unread
+rows of an unfinished job whose queuer no longer does (no reviewer left, removed, or deleted), then finishes it on
+what was read, or deletes it when nothing (no row, no outcome) is left. `createJob`'s hold check is one set-based
+query over the whole list (`jsonb_to_recordset`, v6.1.16 Task 4 N3), and `screen_jobs_program` indexes the program; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
 (that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
 with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
 amount is `amount_usd` or `amount` with a currency code, read by the one shared reader `readAmount` (`lib/v5/amount.ts`,
@@ -932,8 +981,12 @@ program. With a linked agent the page carries `data-me-linked` and the header an
 data-install>` that a mount-time click handler upgrades to the install modal. The modal keeps focus (`useFocusTrap`:
 Tab and Shift+Tab loop, `#site-root` is `inert` while it is open; Esc and the focus return as before). The layout puts
 the skip link `Skip to content.` first in `body`, wraps header and page in `#site-root` and the page in `main#content`,
-and reads the session cookie (presence only) so the header shows `Your record`; that `cookies()` call makes every
-page render per request (the data stays cached). Under 360px the pill says `Add`. /programs is a semantic list
+and reads no cookie (v6.1.17 Task 4; v6.1.16 read it, which made every page render per request): `/`, `/programs`,
+`/docs` and `/terms` are static (ISR) and each guide is ISR on its first request (`generateStaticParams` returns none).
+The header's `NavLinks` asks `/api/me/signed-in` after load (`{ signedIn: boolean }` only, `Cache-Control: no-store`,
+a read-only session check, `hasSession`, no `last_seen_at` write) and shows `Your record` on a true answer, never
+prefetched; the server HTML never carries it. The footer always links `/me` with a plain `<a>` (`Your record`), the
+way there without JavaScript (signed out, /me goes to the docs). Under 360px the pill says `Add`. /programs is a semantic list
 (`Opportunities`: a section and h2 per block, Open now, Not open yet, Closed, each a `ul` of `li > article` with an h3
 link, the money and the close line; the landing's Open now uses the same markup); a tile without a logo shows the
 organizer's initials (`initialsOf`) and the organizer wraps to two lines. One `@media print` block (white page,
@@ -946,7 +999,28 @@ link is not one of ours.`, `Sign-in failed.`, `Too many sign-ins.`, `Sign-in is 
 shell with one h1 and the title `{h1 without its full stop} · EarnKit`. A page answers 200 for every state (Next sets
 no 429 or 503 from a page); the state's own status is data only. The confirm form posts to `/link/<code>/confirm`;
 a POST to `/link/<code>` is 405 (`Allow: GET`, proxy); a refused post or callback is a 303 to `/link/failed` (a dead
-code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive).
+code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive). /link pages send
+`Content-Security-Policy: frame-ancestors 'none'; form-action 'self' https://github.com` (`LINK_CSP`, v6.1.17 Task 4,
+v6.1.16 Task 13 N2: the confirm form posts to itself and continues to GitHub; the value repeats frame-ancestors because
+Next keeps the last matching header).
+
+**/me answers collapsed (v6.1.17 Task 4, L35-24).** Each answer (`answers.{kind}`, `projects.{id}.answers.{kind}`,
+`isAnswerPath`) is a `<details name="answers">` showing its label and first line (`firstLineOf`, 60 characters, cut at
+a word with an ellipsis); only the one named by `?open={path}` holds its field (edit box, short form, Approve), every
+other holds the link `Open this answer` to `/me?open={path}#a-{path}`, so one is open at a time with no script. The
+section form carries `open`, so a Save or a refusal comes back with it open. Waiting for you counts the answers that
+wait (`{n} answers wait for you below.` and `Open the first one`) instead of repeating them; each is marked
+`Waiting for you.` in its section, and an Approve opens the next waiting answer (`approvePost`). The row styles sit on
+the container (`ANSWER_ROWS`). A 154-answer record (lane 35's H.19) is about 420 KB as served (it was 2.4 MB in dev).
+
+**Guide reads that fail (v6.1.17 Task 4, v6.1.16 Task 13 N3).** A failed read is never kept as a 404: the guide ids
+are `definiteGuideIds` (an empty list throws like a failed read), so neither `cachedRead` nor the proxy's minute cache
+(`okFor`, a success only) keeps it. When the proxy cannot read the ids it rewrites the guide path to `/guide-unavailable`
+(`GUIDE_DOWN`, per request, noindex: `This guide is unavailable right now. Try again in a few minutes.`). If the page's
+own read fails, `getGuidePage` answers `'error'` and the page throws, so ISR keeps the last good guide (or, with none,
+`app/programs/[id]/error.tsx` shows the same line once JavaScript runs: the server answers 500 with Next's error
+shell, so the line is not in that HTML; v6.1.17 final round: the panel is the shared `Unavailable`, footer included); `connection()` is not called there (in an ISR render it is an empty
+500). The next request reads again.
 
 **/me sections (v6.1.16, Task 13).** One form per card, one `Save` each: the inputs carry `form="form-{section}"` (so the approval forms stay beside their fields) and `/me/edit` takes `section` with every field of the card by its path; only fields whose value differs from the page's are written (an untouched one keeps who set it), each checked as one edit is; the valid ones save and each refused one is named beside the Save (`Saved.`, then `Not saved: {field}: {reason}.` per field, fix round 1), and a removed team member goes last. The policy form stays all or nothing. Success is `/me?saved={section}#{section}` (`Saved.` beside that Save); a refusal is the signed line with `at={section}` and shows inside that card, a failed delete beside the delete form (`/me#delete`). The skip list is part of the standing-approval form (`never`). The single `path`/`value` edit still works. Labels hold the label only; the hint is its own element, the field's `aria-describedby`. A delete lands on `/?deleted=1`: `Your record is deleted.`. /me has no canonical.
 
@@ -1087,7 +1161,7 @@ means what the last `Say` offered.
   approval, which is still recorded), record (a set that saved nothing, the policy sets, an unlinked set) and screen
   (unlinked, not a reviewer, no such screen, expired, the limit, over 200, thresholds, a bad requeue, outcomes that
   recorded nothing) goes through it; too-deep and non-object arguments are input errors at the route too.
-  `refusals.test.ts` drives each path through POST /mcp. `serverInfo.version` is `apps/frontend/package.json`'s (6.1.16).
+  `refusals.test.ts` drives each path through POST /mcp. `serverInfo.version` is `apps/frontend/package.json`'s (6.1.17; the release gate bumps it, see Release gate).
 - **Track (L29-3, L29-7, L29-8, L29-15, L29-21, L29-23, L29-32).** `status` and `submitted_by` read in any case
   (`caseFolded`); `submitted_by` defaults to agent; an applied with no `fields_used` is accepted with "Pass
   fields_used next time; nothing was checked against your record." A number is the program numbered so by the last
@@ -1118,8 +1192,9 @@ means what the last `Say` offered.
   per line with no blank lines: the ready block (heading and three lines; else the held, on-hold or in-person block), one
   gap line (the one the closing speaks to), the applications, Task 9's lines (not sent, started not sent, since or
   nothing new, the overnight sends, the results question), the Before line, repo notes, sign-in, the linked notice,
-  then the one Say last (`ONE_SAY_ORDER`'s first Say moves to the end); with no Say the closing comes before the
-  sign-in and the notice. What does not fit goes to the agent note under "Not shown to the builder:", one per line.
+  then the one Say last (`ONE_SAY_ORDER`'s first Say moves to the end); v6.1.17 (L1j-6): with no Say the closing still
+  comes last, after the sign-in and the notice, except a bare "Nothing is ready yet." (`NOTHING_READY`), after which the
+  sign-in is the action and follows it. What does not fit goes to the agent note under "Not shown to the builder:", one per line.
   `filter.all` ("say more") is `fullView`: "{n}. {title}, {money}." per program, the repo notes, sign-in and notice,
   then the Say. An unknown `filter.category` and a top-level project key are named in the problems line. The project
   schema advertises a type on every field, `required: ["name"]` and "A project needs a description when it has no
@@ -1146,12 +1221,61 @@ means what the last `Say` offered.
   and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
   closes and in person per line (`openLine`); with `filter.all` it lists every open program, for no project and a
   name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on): when the closing's Say is the unlinked users question, the link
-  goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and the proof line reads `I read
-  your repo for proof once you sign in.` (`SIGN_IN_PROOF`, only when there is a link). `findInputOf` returns an input
+  goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and (v6.1.17, L1j-1) no other line
+  mentions signing in (`SIGN_IN_PROOF` is gone). `findInputOf` returns an input
   error (isError, no builder text, the field named) for an unknown top-level key and a project with no name; an
   unknown category stays a problems line in the agent note, project or not. `closesWords` counts calendar days in the
   program's zone on every surface (reply, tile, guide). `programs:check` also refuses a figure beside "million" or
   "billion" (`MONEY_WORDS`).
+- **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35; fix round 1).** The no-project find (open list,
+  applications line or bad category) ends on its ask, with the sign-in sentence, the unlink notice or the linked report
+  before it (fix round 1 I3). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
+  before it (M1, N1); a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
+  default view leaves out (in-person and held rows too) is counted once, on
+  `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown)` gives
+  `{ readyShown, readyHidden, stepShown, stepHidden }`; `fit` runs again one line shorter when anything is hidden; the
+  step block has no more line of its own). Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the
+  hidden count is said once, so with ready rows hidden the yes reads `Say yes and I apply to all {n} ready.` (`hidden`
+  in `closingLine` keeps the word "ready"). Fix round 1 (I2): the default JSON's ready list holds every remote ready
+  program with its fields (`shownReadyOf` caps only in-person ones, `MAX_IN_PERSON`), so the Ready heading, `all {n}`
+  and the full list's Ready count agree and a yes never covers a program the agent lacks; the default list's size cap
+  (`findReplyCap(..., keepReady)`) trims the other lists' fields and details before any ready program's. The full view (`fullView(blocks, ...)`) writes the default's block headings with their
+  true counts: `Ready to apply ({n}):`, `Being handled by your other agent ({n}):`, `On hold until you say go ({n}):`,
+  `One step away ({n}):`, `In person ({n}):`. The Before line ranks 5.55 and a linkless notice 5.6, ahead of the step
+  rows past the first (5.7). The sign-in after a repo read names what it checks by the proof gap's bar
+  (`signInSentence(link, read, bar)`, `proofBarOf`): "Sign in once at {link} and I check your users and remember you."
+  The one-program reply puts the sign-in before its action, and an in-person ready program ends `You apply in person;
+  the guide has the steps.` (`IN_PERSON_ONE`). An unknown name with no candidates reads `I do not know a program called
+  "{name}". Say its full name.` (`unknownProgramLine(suggest, name)`, find and track). A same-day repeat reads `Nothing
+  new since your last look.`; a later day keeps the date. A program the not-sent line names gets no started line. With
+  every ready program under "Your yes stands", a do gap is still offered (`..., or "do {n}" and I {verb} first.`). An
+  unknown key inside `project` is a problems line `project.{key} was not read.` (`unknownProjectKeys`, find and track);
+  `unreadNote` (in `reply.ts`, shared by find and track) keeps the outer "Some arguments were not read:" only for items
+  that do not say it themselves. An outside-EarnKit win reads `(won EUR 2,000)` with no date. `record`: a policy set
+  reads `STANDING_YOURS(on)` ("... turn on at earnkit.com/me." when off); `page` without `get` with a kind, and `get`
+  with `brief`, are input errors; a page past the end adds `There are {n} pages of {kind}.` to the agent note. In-person
+  sends carry no `fields_used` note. find's `filter.all` description: every program that fits or nearly fits; for all of
+  them, find with no project. TRACK_DESCRIPTION lists won last, with its amount clause as one sentence.
+- **Readers, keys and checks (v6.1.17 Task 2).** Lengths are characters as people count them, code points: zod 4's
+  string max counts code points (pinned in `record.test.ts`), so 1,996 emoji fit a 2,000-character answer, and
+  `record get`'s per-kind `length` is `Array.from(text).length` (L35-15). `readAmount` never calls an amount starting
+  `0.` ambiguous (`0.001` is 0.001; `1.234` still is), and reads a leading `0,` as a decimal comma (`0,500` is 0.5;
+  final round). prefill's record-value cut check counts code points too (`fit: 'cut'` only over `max_chars`; final
+  round, review M1). Initials stand for a program only through `initialsWord` (two
+  letters or more, never a COMMON_WORDS English word, any case), in find's lookup, its several-words tier and track's
+  strict one: `as`, `am`, `mm` name nothing; `yc`, `YC` name Y Combinator (Task 15 N2). `isOpenAt` reads `starts_at`
+  for an active program too: active before its start is not open, `statusAt` says upcoming, `listOpenPrograms` leaves
+  it out and `listListedPrograms` keeps it, eligibility says `not open` (L35-19); `programProblems` refuses it
+  (`status: active with starts_at {t} in the future; write upcoming`) and refuses an `ends_at` whose offset is not
+  the `tz` zone's at that instant (`ends_at: offset -04:00 is not America/New_York's at that time (-05:00)`, L30-15).
+  A refused MCP call counts on no window: `refusedFor` takes an own-limit refusal back from the agent's window and an
+  address refusal from both (`uncountHit`, L35-25). The screen's day count is taken inside `createJob`'s transaction
+  through its `admit` hook (`countHit(..., tx)`), only when there is something new to queue, so a nothing-new call
+  never holds one of the ten and the eleventh is refused with its job undone (`limited`, Task 12 N2). The
+  nothing-new reply carries the unknown-field and dropped-link notes the queued reply carries (Task 4 N4). A screen
+  outcomes call of repeats only is a success with `recorded: 0` and `Already recorded; nothing new.` (Task 15 N3,
+  pinned since v6.1.16 fix round 1). Solana Incubator need phrases: `Web3 or Solana experience`, `reason for your
+  idea, with proof of need`, `your insight on the competition` (Task 15 N5).
 - **Says and notes (L29-5, L29-6, L29-17, L29-19, L29-27 to L29-29, L29-31, L29-34).** A yes that needs answers names
   them: "Say yes and tell me {needs}, and I apply to ...". No "Or say the numbers to skip." (the note's "A number skips
   that program: call track skipped with its id."). The rule Say ends "and I get it ready."; unlinked, the users question

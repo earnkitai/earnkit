@@ -425,7 +425,7 @@ test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when
   assert.ok(size < 20_480, `${size}`);
 });
 
-test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then under its old key (alias until v6.1.16)', async () => {
+test('#15 (v6.1.15), L35-23 (v6.1.17): a sampled-senders row is shown as outside_senders_90d only, the old key gone', async () => {
   const r = await reviewer('jobs-alias');
   const j = await job(r, [{ ref: 'o-1', name: 'Outside', live_url: 'https://outside.example/' }]);
   const at = NOW.toISOString();
@@ -440,10 +440,9 @@ test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then
   assert.deepEqual(seen.map((x) => [x.key, x.value, x.note]), [
     ['onchain[0].senders_90d', 90, null],
     ['onchain[0].outside_senders_90d', 40, 'sampled 50'],
-    ['onchain[0].funded_senders_90d', 40, 'sampled 50'],
     ['onchain[1].outside_senders_90d', 3, null],
-    ['onchain[1].funded_senders_90d', 3, null],
   ]);
+  assert.ok(!JSON.stringify(seen).includes('funded_senders_90d'));
 });
 
 test('M2 (v6.1.15 fix round 1): a row read before v6.1.15 reads with today\'s rule id and words on a results page', async () => {
@@ -1009,4 +1008,16 @@ test('L28-3 (v6.1.16 Task 14): a send kept under the name only, off a repo that 
   assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'theirs', outcome: 'won', amount_usd: 500 }], NOW),
     { recorded: 1, notFound: [], notes: ['Not passed on, the EarnKit id belongs to another project: theirs.'] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${d.id}`} AND program_id = 'jobs-l28o'`)[0].status, 'applied');
+});
+
+test('v6.1.16 Task 4 N3 (v6.1.17 Task 3): the hold is one set-based query: a list of 60 names each held row (the oldest screen first), in list order, and queues the rest', async () => {
+  const r = await reviewer('jobs-set');
+  const site = (i: number) => ({ ref: `s${i}`, name: `S${i}`, live_url: `https://s${i}.example/` });
+  const older = await job(r, [site(1), site(3)]);
+  const newer = await job(r, [site(3), site(5)]);
+  assert.deepEqual([older.total, newer.total, newer.already], [2, 1, ['s3']]);
+  const big = await job(r, Array.from({ length: 60 }, (_, i) => site(i)));
+  assert.deepEqual(big.already, ['s1', 's3', 's5']);
+  assert.equal(big.total, 57);
+  assert.deepEqual(big.notes, [`Already queued: s1 (row s1 of screen ${older.id}), s3 (row s3 of screen ${older.id}) and s5 (row s5 of screen ${newer.id}).`]);
 });

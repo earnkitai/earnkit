@@ -44,6 +44,11 @@ export const ALREADY_SENT_SKIP = 'That one was already sent; nothing to skip.';
  * (track) prefix stripped, so a key stored before v6.1.16 and the same key now match (alias until v6.1.17). Pure.
  */
 export const paymentKeyOf = (key: string): string => key.replace(/^[st]:/, '');
+/**
+ * v6.1.16 Task 4 N1 (v6.1.17): the keys a stored payment key matches. A legacy key kept with a prefix on a key sent
+ * with one (`t:s:x`) matches as `s:x` and as `x`, so the same key resent never adds twice. Pure.
+ */
+export const storedPaymentKeys = (stored: string): string[] => [...new Set([paymentKeyOf(stored), paymentKeyOf(paymentKeyOf(stored))])];
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done' | 'held';
@@ -490,7 +495,7 @@ export async function record(
     if (paymentKey !== null && row?.status === 'won'
       // FR-5 (fix round 1): this project's application only.
       && (await tx<{ payment_key: string }[]>`SELECT payment_key FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk} AND payment_key IS NOT NULL`)
-        .some((h) => paymentKeyOf(h.payment_key) === paymentKey))
+        .some((h) => storedPaymentKeys(h.payment_key).includes(paymentKey)))
       return { ok: false, note: 'Already tracked.' } as const;
     // L17-1 (v6.1.16): a skip is decided here, under the lock, against the row as it is now: a repeat changes nothing,
     // a sent program has nothing to skip, and another agent's live claim stays.
@@ -542,7 +547,7 @@ export async function record(
     const outside = status === 'won' && o.outsideWin === true && !o.fromScreen && program !== null && (!row || row.status === 'skipped' || row.status === 'started');
     if (outside) {
       // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
-      // fix round 1 (N4): its send date is not known, so none is kept (the line says when it was recorded).
+      // fix round 1 (N4): its send date is not known, so none is kept (the line names the result alone).
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo, identity)
         VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL, identity = COALESCE(applications.identity, EXCLUDED.identity),
@@ -752,8 +757,8 @@ export const APPLICATIONS_SHOWN = 5;
 
 /**
  * L29-1 (v6.1.16 Task 15): "Your applications: PayPal AI Hackathon (sent Nov 3, waiting), Thiel Fellowship (sent Oct 30,
- * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)"; a win recorded from outside
- * EarnKit "(recorded Nov 11, won $5,000)" (fix round 1, N4). Null when there are none. Pure.
+ * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)"; a win sent outside EarnKit
+ * has no send date: "(won EUR 2,000)" (v6.1.16 Task 15 N4, v6.1.17). Null when there are none. Pure.
  */
 export function applicationsLine(apps: ApplicationItem[], now: Date): string | null {
   if (apps.length === 0) return null;
@@ -761,8 +766,7 @@ export function applicationsLine(apps: ApplicationItem[], now: Date): string | n
     const day = a.sent_at ? dayWords(new Date(a.sent_at), now) : null;
     if (a.status === 'held') return 'held';
     const result = a.status === 'won' ? (a.amount ? `won ${a.amount}` : `won, ${AMOUNT_NOT_GIVEN}`) : a.status === 'no_result' ? 'no result' : a.status;
-    // Fix round 1 (N4): with no send date, the day it was recorded.
-    if (!day && a.result_at) return `recorded ${dayWords(new Date(a.result_at), now)}, ${result}`;
+    // v6.1.16 Task 15 N4 (v6.1.17): with no send date (a send outside EarnKit), the result alone.
     return day ? `sent ${day}, ${result}` : result;
   };
   const shown = apps.slice(0, APPLICATIONS_SHOWN).map((a) => `${a.title} (${words(a)})`);

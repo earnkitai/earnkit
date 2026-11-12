@@ -8,6 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
+import type postgres from 'postgres';
 import { cleanText } from '../v5/controls';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { CONFIRMED, amountsOf, record, resultWords, winCapOf } from '../v5/ledger';
@@ -52,11 +53,11 @@ export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
 const FUNDED_KEY = /^(onchain\[\d+\]\.)funded_senders_90d$/;
 /**
  * A row as a reviewer sees it: the site's own words carry the fixed note first. #15 (v6.1.15): a sampled-senders row
- * is shown first as `onchain[i].outside_senders_90d`, then under its old key (alias until v6.1.16). Pure.
+ * is shown as `onchain[i].outside_senders_90d`; L35-23 (v6.1.17): its old key, the alias, is no longer shown. Pure.
  */
 const shown = (x: Row): Row[] => {
   const m = FUNDED_KEY.exec(x.key);
-  if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }, x]; // alias until v6.1.16
+  if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }];
   return [x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x];
 };
 /** A results row: `read_at` only when it differs from its applicant's (L26-4). */
@@ -287,7 +288,13 @@ export async function createJob(o: {
   applicants: ScreenApplicant[];
   thresholds?: Partial<Thresholds>;
   now: Date;
-}): Promise<{ id: string | null; total: number; already: string[]; cached: number; notes: string[]; dropped: string[] }> {
+  /**
+   * v6.1.16 Task 12 N2 (v6.1.17): called in the queue transaction only when there is something new to queue, before
+   * the job is written; false refuses the job (`limited`) and undoes whatever it wrote, so a call that queues nothing,
+   * or is refused, never counts.
+   */
+  admit?: (tx: postgres.TransactionSql) => Promise<boolean>;
+}): Promise<{ id: string | null; total: number; already: string[]; cached: number; notes: string[]; dropped: string[]; limited?: true }> {
   const id = randomBytes(12).toString('base64url');
   // L24-7 (v6.1.16 Task 11): every applicant-written string is cleaned at queue time, so results and the CSV show the
   // cleaned text: no bidi, zero-width or control character is stored or echoed.
@@ -326,6 +333,7 @@ export async function createJob(o: {
   const already: string[] = [];
   /** Each applicant held, with the row that holds it, for the reviewer's note. */
   const heldBy: string[] = [];
+  const NOT_ADMITTED = Symbol('not admitted');
   const fresh = (await sql().begin(async (tx) => {
     // L17-5 (v6.1.16): one queue decision at a time per program, so parallel calls for one applicant queue it once.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${'screen:' + o.programId}))`;
@@ -336,23 +344,35 @@ export async function createJob(o: {
     // at least one of them given, so a copied id with another repo (or none) never blocks the real applicant (L16-3);
     // with neither given, the same ref by the same reviewer with the same site. A ref alone never holds across
     // reviewers. The note names the row that holds it, so a false hold shows.
+    // v6.1.16 Task 4 N3 (v6.1.17 Task 3): one set-based query for the whole list, the first holding row per applicant
+    // (oldest screen first), instead of one query per applicant.
+    const probe = list.map((a, i) => ({
+      i, ref: a.ref, application_id: a.application_id, repo_key: a.repo_key, live_url: a.live_url,
+      requeue_job_id: a.requeue_job_id ?? '', requeue_ref: a.requeue_ref ?? '',
+    }));
+    const hits = list.length === 0 ? [] : await tx<{ i: number; job_id: string; ref: string }[]>`
+      SELECT DISTINCT ON (a.i) a.i, x.job_id, x.ref
+      FROM jsonb_to_recordset(${tx.json(probe)}::jsonb) AS a(i int, ref text, application_id text, repo_key text, live_url text, requeue_job_id text, requeue_ref text)
+      JOIN screen_applicants x ON x.status = ANY(${UNREAD})
+        AND x.application_id IS NOT DISTINCT FROM a.application_id AND x.repo_key IS NOT DISTINCT FROM a.repo_key
+      JOIN screen_jobs j ON j.id = x.job_id AND j.program_id = ${o.programId} AND j.expires_at > ${o.now}
+      WHERE ((a.application_id IS NOT NULL OR a.repo_key IS NOT NULL)
+          OR (x.ref = a.ref AND j.builder_id = ${o.builderId} AND x.live_url IS NOT DISTINCT FROM a.live_url))
+        AND NOT (x.job_id = a.requeue_job_id AND x.ref = a.requeue_ref)
+        AND NOT EXISTS (SELECT 1 FROM screen_applicants y JOIN screen_jobs k ON k.id = y.job_id
+          WHERE k.program_id = ${o.programId} AND y.requeue_job_id = x.job_id AND y.requeue_ref = x.ref)
+      ORDER BY a.i, j.created_at, x.job_id, x.ref`;
+    const hitOf = new Map(hits.map((h) => [h.i, h]));
     const keep: typeof list = [];
-    for (const a of list) {
-      const [hit] = await tx<{ job_id: string; ref: string }[]>`SELECT x.job_id, x.ref FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
-        WHERE j.program_id = ${o.programId} AND j.expires_at > ${o.now} AND x.status = ANY(${UNREAD})
-          AND x.application_id IS NOT DISTINCT FROM ${a.application_id}::text AND x.repo_key IS NOT DISTINCT FROM ${a.repo_key}::text
-          AND ((${a.application_id}::text IS NOT NULL OR ${a.repo_key}::text IS NOT NULL)
-            OR (x.ref = ${a.ref} AND j.builder_id = ${o.builderId} AND x.live_url IS NOT DISTINCT FROM ${a.live_url}::text))
-          AND NOT (x.job_id = ${a.requeue_job_id ?? ''} AND x.ref = ${a.requeue_ref ?? ''})
-          AND NOT EXISTS (SELECT 1 FROM screen_applicants y JOIN screen_jobs k ON k.id = y.job_id
-            WHERE k.program_id = ${o.programId} AND y.requeue_job_id = x.job_id AND y.requeue_ref = x.ref)
-        ORDER BY j.created_at, x.job_id LIMIT 1`;
+    list.forEach((a, i) => {
+      const hit = hitOf.get(i);
       if (hit) {
         already.push(a.ref);
         heldBy.push(`${a.ref} (row ${hit.ref} of screen ${hit.job_id})`);
       } else keep.push(a);
-    }
+    });
     if (keep.length === 0) return keep;
+    if (o.admit && !(await o.admit(tx))) throw NOT_ADMITTED;
     await tx`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, thresholds, total, expires_at)
       VALUES (${id}, ${o.programId}, ${o.builderId}, ${o.installationId}, ${o.now}, ${o.thresholds ? tx.json(o.thresholds) : null}, ${keep.length}, ${expires})`;
     for (const a of keep) {
@@ -361,7 +381,11 @@ export async function createJob(o: {
           ${a.requeue_job_id}, ${a.requeue_ref})`;
     }
     return keep;
-  })) as typeof list;
+  }).catch((err: unknown) => {
+    if (err === NOT_ADMITTED) return null;
+    throw err;
+  })) as typeof list | null;
+  if (fresh === null) return { id: null, total: 0, already, notes, dropped: [], cached: 0, limited: true };
   const queued = new Set(fresh.map((a) => a.ref));
   const dropped = [...droppedBy].map(([why, refs]) => `${why} (${listWords(refs, 10)})`);
   return {
@@ -387,18 +411,29 @@ export async function badRequeues(programId: string, applicants: ScreenApplicant
   return bad;
 }
 
+/**
+ * L30-16 (v6.1.17 Task 3): the builder who queued the job (`j`) still reviews its program. The worker reads only such
+ * jobs; the daily sweep cuts the rest. SQL condition.
+ */
+export const queuerReviews = () =>
+  sql()`EXISTS (SELECT 1 FROM program_reviewers r WHERE r.program_id = j.program_id AND r.builder_id = j.builder_id)`;
+
 /** A job of a program this builder reviews (L15-12, v6.1.14: the program's, whoever queued it). SQL condition. */
 const reviewedBy = (builderId: number) =>
   sql()`EXISTS (SELECT 1 FROM program_reviewers r WHERE r.program_id = screen_jobs.program_id AND r.builder_id = ${builderId})`;
 
 /** The job's progress, when it is a job of a program this builder reviews; `expired` past its KEEP_DAYS. */
 export async function jobStatus(id: string, builderId: number, now: Date = new Date()): Promise<JobStatus | null> {
-  const [j] = await sql()<{ id: string; program_id: string; total: number; done: number; finished_at: Date | null; expires_at: Date; last_run_left: number }[]>`
-    SELECT id, program_id, total, done, finished_at, expires_at, last_run_left FROM screen_jobs WHERE id = ${id} AND ${reviewedBy(builderId)}`;
+  const dayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  const [j] = await sql()<{ id: string; program_id: string; total: number; done: number; finished_at: Date | null; expires_at: Date; last_run_left: number; read_today: boolean }[]>`
+    SELECT id, program_id, total, done, finished_at, expires_at, last_run_left,
+      EXISTS (SELECT 1 FROM screen_applicants a WHERE a.job_id = screen_jobs.id AND a.read_at >= ${dayStart}) AS read_today
+    FROM screen_jobs WHERE id = ${id} AND ${reviewedBy(builderId)}`;
   if (!j) return null;
   return {
     id: j.id, program_id: j.program_id, total: j.total, done: j.done, finished: j.finished_at !== null, expired: j.expires_at <= now,
-    last_run_left: j.finished_at !== null ? 0 : j.last_run_left,
+    // v6.1.16 Task 16 N5 (v6.1.17 Task 3): "read today" only when a row was read on this UTC day.
+    last_run_left: j.finished_at !== null || !j.read_today ? 0 : j.last_run_left,
   };
 }
 
@@ -454,7 +489,10 @@ export const TOMBSTONE_DAYS = 365;
  * Deletes the applicants and outcomes of jobs created over KEEP_DAYS ago (L15-14, v6.1.14: past their results and
  * decisions, and past the counts' 90 days); the `screen_jobs` row stays as a tombstone until TOMBSTONE_DAYS (L23-13,
  * v6.1.16), so `jobStatus` answers expired and the reply is "That screen has expired; queue the list again.", never
- * "I don't have that screen.". The jobs whose rows were swept (tombstoned or deleted).
+ * "I don't have that screen.". L30-16 (v6.1.17 Task 3): an unfinished job whose queuing builder no longer reviews its
+ * program (the program has no reviewer, or the builder was removed or deleted) loses its unread applicants, which the
+ * worker skips; it is then finished on what was read, or deleted when nothing of it is left. The jobs whose rows were
+ * swept (tombstoned, cut or deleted).
  */
 export async function sweepScreens(now: Date): Promise<number> {
   const before = new Date(now.getTime() - Math.max(KEEP_DAYS, XP_DAYS) * DAY);
@@ -462,6 +500,17 @@ export async function sweepScreens(now: Date): Promise<number> {
   return sql().begin(async (tx) => {
     const ids = (await tx<{ id: string }[]>`SELECT id FROM screen_jobs WHERE created_at < ${before}`).map((r) => r.id);
     const swept = new Set<string>();
+    const orphans = (await tx<{ id: string }[]>`SELECT j.id FROM screen_jobs j WHERE j.finished_at IS NULL AND NOT ${queuerReviews()}`).map((r) => r.id);
+    if (orphans.length) {
+      await tx`DELETE FROM screen_applicants WHERE job_id = ANY(${orphans}) AND status = ANY(${UNREAD})`;
+      for (const r of await tx<{ id: string }[]>`DELETE FROM screen_jobs j WHERE j.id = ANY(${orphans})
+          AND NOT EXISTS (SELECT 1 FROM screen_applicants a WHERE a.job_id = j.id) AND NOT EXISTS (SELECT 1 FROM screen_outcomes o WHERE o.job_id = j.id)
+          RETURNING j.id`) swept.add(r.id);
+      for (const r of await tx<{ id: string }[]>`UPDATE screen_jobs j SET
+            total = (SELECT count(*) FROM screen_applicants a WHERE a.job_id = j.id),
+            done = (SELECT count(*) FROM screen_applicants a WHERE a.job_id = j.id), last_run_left = 0, finished_at = ${now}
+          WHERE j.id = ANY(${orphans}) RETURNING j.id`) swept.add(r.id);
+    }
     if (ids.length) {
       for (const r of await tx<{ job_id: string }[]>`DELETE FROM screen_applicants WHERE job_id = ANY(${ids}) RETURNING job_id`) swept.add(r.job_id);
       for (const r of await tx<{ job_id: string }[]>`DELETE FROM screen_outcomes WHERE job_id = ANY(${ids}) RETURNING job_id`) swept.add(r.job_id);

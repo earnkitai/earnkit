@@ -15,9 +15,9 @@ import {
 } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
-import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
+import { type MeField, agentList, authSecret, isAnswerPath, pendingApprovals, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
-import { clearCookies, endSession, sessionBuilder, sessionToken } from './sessions';
+import { clearCookies, currentName, endSession, sessionBuilder, sessionToken } from './sessions';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -44,9 +44,16 @@ const signed = (key: 'problem' | 'note', who: For, line: string, place = '') =>
  * Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. `section` (L27-9,
  * v6.1.16): the card the line is about, where it shows (`at`, unsigned: it only places the signed line) and the anchor.
  */
-const problemAt = (who: For, line: string, section?: string) => signed('problem', who, line, section ? `&at=${section}#${section}` : '');
+const problemAt = (who: For, line: string, section?: string, open: string | null = null) =>
+  signed('problem', who, line, section ? `${openPart(open)}&at=${section}#${section}` : '');
 /** After a section's Save (L27-10, v6.1.16): `Saved.` beside that section's button. */
-const savedSection = (section: string) => back(`/me?saved=${section}#${section}`);
+const savedSection = (section: string, open: string | null = null) => back(`/me?saved=${section}${openPart(open)}#${section}`);
+/** The answer the form kept open (L35-24, v6.1.17 Task 4), an answer's path or null. Pure. */
+const openOf = (form: URLSearchParams): string | null => {
+  const v = form.get('open');
+  return v && isAnswerPath(v) ? v : null;
+};
+const openPart = (open: string | null) => (open ? `&open=${encodeURIComponent(open)}` : '');
 /** Back to /me with a plain line that is not a refusal (v6.1.7 C2). */
 const noteAt = (who: For, line: string) => signed('note', who, line);
 /**
@@ -96,8 +103,11 @@ export function sameOrigin(request: Request): boolean {
   }
 }
 
-/** The checks every post shares; on success the builder, the form and the time. */
-async function guard(request: Request, deps: Deps): Promise<Response | { builder: Builder; form: URLSearchParams; now: Date }> {
+/**
+ * The checks every post shares; on success the builder, the form and the time. `oldName`: a session held only under
+ * the old cookie name passes (sign-out only, so a builder can always end it).
+ */
+async function guard(request: Request, deps: Deps, oldName = false): Promise<Response | { builder: Builder; form: URLSearchParams; now: Date }> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (type !== 'application/x-www-form-urlencoded') return text(415, ME_ERRORS.form);
   // A body slower than 5 s is a 408 with the page's line (v6.1.16 Task 5 fix round 1, I2).
@@ -107,6 +117,9 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   const now = deps.now ?? new Date();
   // L31-3 (v6.1.16 Task 17): a same-origin Origin, or with none a same-origin Referer, before the session and csrf.
   if (!sameOrigin(request)) return text(403, ME_ERRORS.notFromUs);
+  // L35-17 (v6.1.17 Task 4): a session held only under the old cookie name reads the page but writes nothing; the
+  // builder signs in again, which sets the new name.
+  if (!oldName && !currentName(request.headers.get('cookie'))) return text(403, ME_ERRORS.signin);
   const builder = await sessionBuilder(request.headers.get('cookie'), now);
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
@@ -283,13 +296,14 @@ async function sectionPost(g: { builder: Builder; form: URLSearchParams; now: Da
       }
       return { record: changed > 0 ? record : null, result: { lines, kept } };
     });
-    if (out.broken) return problemAt(g, ME_ERRORS.broken, section);
+    if (out.broken) return problemAt(g, ME_ERRORS.broken, section, openOf(g.form));
     refused.push(...out.result.lines);
     saved = out.result.kept;
   }
-  if (refused.length === 0) return savedSection(section);
+  const open = openOf(g.form);
+  if (refused.length === 0) return savedSection(section, open);
   const lines = [...new Set(refused)];
-  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section);
+  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section, open);
 }
 
 /**
@@ -332,6 +346,11 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
   });
   if (out.broken) return problemAt(g, ME_ERRORS.broken);
   if (!out.result) return problemAt(g, ME_ERRORS.changed);
+  // L35-24 (v6.1.17 Task 4): an approved answer opens the next one waiting, so they are read one at a time.
+  if (action === 'approve' && isAnswerPath(path)) {
+    const next = pendingApprovals(await getRecord(g.builder.id)).find((p) => isAnswerPath(p.path))?.path;
+    if (next) return back(`/me?open=${encodeURIComponent(next)}#a-${next}`);
+  }
   return back('/me#approvals');
 }
 
@@ -427,7 +446,7 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
 
 /** POST /me/signout: csrf; ends this session. */
 export async function signoutPost(request: Request, deps: Deps = {}): Promise<Response> {
-  const g = await guard(request, deps);
+  const g = await guard(request, deps, true);
   if (g instanceof Response) return g;
   await endSession(request.headers.get('cookie'));
   return signedOut('/');

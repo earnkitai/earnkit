@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ProjectArg, ProjectInput, parseProject, projectKeyOf } from './project-input';
+import { ProjectArg, ProjectInput, parseProject, projectKeyOf, unknownProjectKeys } from './project-input';
 
 const base = { name: 'Tipjar', description: 'Tips for creators.' };
 
@@ -445,4 +445,11 @@ test('L35-2, L35-20 (v6.1.16.1 Task 2): identityOf: the record project\'s repo i
   assert.equal(identityFor('https://github.com/a/x', 5), 'gh:5');
   assert.equal(identityFor('name:x', 5), 'name:x');
   assert.equal(identityFor('', null), null);
+});
+
+test('L1j-5 (v6.1.17): a project key that is no project field is named as not read', () => {
+  assert.deepEqual(unknownProjectKeys({ name: 'A', repo_url: 'https://github.com/a/b', bogus: 1, 'x\u0000y': 2 }), ['project.bogus was not read', 'project.xy was not read']);
+  assert.deepEqual(unknownProjectKeys({ name: 'A', users: true }), []);
+  assert.deepEqual(unknownProjectKeys(null), []);
+  assert.deepEqual(unknownProjectKeys(['bogus']), []);
 });

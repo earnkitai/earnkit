@@ -107,3 +107,23 @@ test('probeLink: 401, 403 and 429 are alive; 404 and an error page are 4xx, 500 
   assert.equal(inside.requests.length, 0);
   assert.deepEqual(await probeLink('http://w.example/', f), { ok: false, why: 'refused' });
 });
+
+// v6.1.17 Task 3 (L30-8): a parked domain or a soft 404 on a program link is down; the builder live-link reader keeps its list.
+test('probeLink: a 200 page saying the domain is for sale, or that the page could not be found, is down; safeProbePage reads them as before', async () => {
+  const html = (t: string) => site({ status: 200, contentType: 'text/html', body: `<html><head><title>Welcome</title></head><body><p>${t}</p></body></html>` });
+  for (const t of [
+    'example-grants.com is for sale',
+    'This domain is for sale. Make an offer.',
+    'Buy this domain today.',
+    'This domain may be for sale.',
+    'example-grants.com is available for purchase.',
+    'Sorry, we could not find that page',
+    'This program is no longer available.',
+  ]) {
+    assert.deepEqual(await probeLink('https://example-grants.com/', html(t)), { ok: false, why: '4xx' }, t);
+    assert.ok((await safeProbePage('https://example-grants.com/', html(t))).includes(t), t);
+  }
+  const titled = site({ status: 200, contentType: 'text/html', body: '<html><title>example-grants.com is for sale</title><p>Hello.</p></html>' });
+  assert.deepEqual(await probeLink('https://example-grants.com/', titled), { ok: false, why: '4xx' });
+  assert.equal((await probeLink('https://grants.example/', site({ status: 200, contentType: 'text/html', body: PAGE }))).ok, true);
+});

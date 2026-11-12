@@ -135,17 +135,3 @@ export default function GuideView({ id, page }: { id: string; page: GuidePage })
   );
 }
 
-/** The panel a page shows when its read failed (HTTP 200, no stack): one line, then the footer. */
-export function Unavailable({ text }: { text: string }) {
-  return (
-    <>
-      <div className={`${PAGE_COL} pt-8 md:pt-12`}>
-        <p className="text-[18px] text-s-muted">{text}</p>
-        <Link href="/" className={`${LINK} mt-4`}>
-          EarnKit home
-        </Link>
-      </div>
-      <Footer />
-    </>
-  );
-}

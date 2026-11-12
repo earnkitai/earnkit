@@ -139,3 +139,24 @@ test('L1i-10 (v6.1.16.1): a figure beside "million" or "billion" is refused in a
   assert.ok(floss.rules.some((r) => r.endsWith('A fresh $1,000,000 was planned for 2026.')));
   assert.ok(read('herodevs-sustainability-fund').description.startsWith("HeroDevs' $20,000,000 fund for maintainers of open source developer tools "));
 });
+
+test('L35-19 (v6.1.17): active with a starts_at in the future is refused; upcoming with it, or active once started, passes', () => {
+  const at = new Date('2026-11-12T12:00:00Z');
+  assert.deepEqual(programProblems(programFixture({ id: 'k-activefuturestart', status: 'active', starts_at: '2026-11-17T12:00:00Z' }), at), [
+    'status: active with starts_at 2026-11-17T12:00:00Z in the future; write upcoming',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'k-upcoming', status: 'upcoming', opens_note: 'Opens on 17 November', starts_at: '2026-11-17T12:00:00Z' }), at), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'k-started', status: 'active', starts_at: '2026-11-12T12:00:00Z' }), at), []);
+});
+
+test('L30-15 (v6.1.17): an ends_at offset that is not the zone\'s at that instant is refused', () => {
+  const at = new Date('2026-11-12T00:00:00Z');
+  const ny = (ends_at: string) => programProblems(programFixture({ id: 'l30-dst', tz: 'America/New_York', ends_at }), at);
+  assert.deepEqual(ny('2026-11-01T23:59:00-04:00'), ["ends_at: offset -04:00 is not America/New_York's at that time (-05:00)"]);
+  assert.deepEqual(ny('2026-11-01T23:59:00-05:00'), []);
+  assert.deepEqual(ny('2026-10-31T23:59:00-04:00'), []);
+  assert.deepEqual(ny('2026-12-04T23:59:00Z'), ["ends_at: offset +00:00 is not America/New_York's at that time (-05:00)"]);
+  assert.deepEqual(programProblems(programFixture({ id: 'l30-utc', tz: 'UTC', ends_at: '2026-12-06T23:59:59Z' }), at), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'l30-ist', tz: 'Asia/Kolkata', ends_at: '2026-12-06T23:59:00+05:30' }), at), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'l30-none', ends_at: '2026-12-06T23:59:00-04:00' }), at), []);
+});

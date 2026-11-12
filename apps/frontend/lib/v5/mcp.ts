@@ -8,7 +8,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { FindArgs, find, type FindContext } from './find';
-import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, hit } from './rate-limit';
+import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, hit, uncountHit } from './rate-limit';
 import { MAX_ARG_DEPTH, tooDeep } from './secrets';
 import { TOO_DEEP_NOTE, inputError, isRefused, lenient } from './tool-input';
 import pkg from '../../package.json';
@@ -36,15 +36,25 @@ export const BUSY = 'EarnKit is busy. Try again in a minute.';
 /**
  * Counts one tool call against the installation's own hourly limit first, then the IP floor (v6.1.16 Task 12, L26-1):
  * a call the installation's own limit refuses returns before the address window, so one looping agent never locks out
- * its colleagues on the same network. Who refused and the seconds to wait, else null.
+ * its colleagues on the same network. L35-25 (v6.1.17): a refused call never counts, whichever window refused it: an
+ * own-limit refusal is taken back from the agent's window, an address refusal from both. Who refused and the seconds
+ * to wait, else null.
  */
 export async function refusedFor(ctx: McpContext, now: Date): Promise<{ retryAfter: number; who: 'installation' | 'address' } | null> {
-  const count = (name: 'mcp' | 'mcpIp', who: string | number) => hit(`${name}:${who}`, LIMITS[name].limit, LIMITS[name].windowSeconds, now);
+  const key = (name: 'mcp' | 'mcpIp', who: string | number) => `${name}:${who}`;
+  const count = (name: 'mcp' | 'mcpIp', who: string | number) => hit(key(name, who), LIMITS[name].limit, LIMITS[name].windowSeconds, now);
+  const uncount = (name: 'mcp' | 'mcpIp', who: string | number) => uncountHit(key(name, who), LIMITS[name].windowSeconds, now);
   const own = await count('mcp', ctx.installationId);
-  if (!own.allowed) return { retryAfter: own.retryAfter, who: 'installation' };
+  if (!own.allowed) {
+    await uncount('mcp', ctx.installationId);
+    return { retryAfter: own.retryAfter, who: 'installation' };
+  }
   if (ctx.ip) {
     const ip = await count('mcpIp', ctx.ip);
-    if (!ip.allowed) return { retryAfter: ip.retryAfter, who: 'address' };
+    if (!ip.allowed) {
+      await Promise.all([uncount('mcpIp', ctx.ip), uncount('mcp', ctx.installationId)]);
+      return { retryAfter: ip.retryAfter, who: 'address' };
+    }
   }
   return null;
 }

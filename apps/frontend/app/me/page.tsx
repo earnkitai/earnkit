@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import Footer from '../components/common/Footer';
 import MeView from './MeView';
 import { ME_DESCRIPTION, ME_TITLE } from '../../lib/v5/site-copy';
-import { authSecret, meData, problemShown } from '../../lib/v6/me-view';
+import { authSecret, isAnswerPath, meData, problemShown } from '../../lib/v6/me-view';
 import { sessionBuilder, sessionToken } from '../../lib/v6/sessions';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: `${ME_TITLE} · EarnKit`, description: ME_DESCRIPTION, robots: { index: false, follow: false } };
 
 /** The signed-in builder's record (proxy.ts sends a visitor without a session to /docs#record first). */
-type Query = { problem?: string | string[]; note?: string | string[]; sig?: string | string[]; link?: string | string[]; at?: string | string[]; saved?: string | string[] };
+type Query = { problem?: string | string[]; note?: string | string[]; sig?: string | string[]; link?: string | string[]; at?: string | string[]; saved?: string | string[]; open?: string | string[] };
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+const openOf = (v: string | undefined) => (v && isAnswerPath(v) ? v : null);
 
 export default async function MePage({ searchParams }: { searchParams: Promise<Query> }) {
   const now = new Date();
@@ -30,7 +31,8 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
   return (
     <>
       {/* L27-9, L27-10 (v6.1.16): `saved` and `at` name a section (unsigned: they only place `Saved.` and a signed line). */}
-      <MeView data={data} problem={problem} note={note} saved={one(q.saved) ?? null} at={one(q.at) ?? null} />
+      {/* L35-24 (v6.1.17 Task 4): `open` names the one answer shown in full (unsigned: it only opens a row). */}
+      <MeView data={data} problem={problem} note={note} saved={one(q.saved) ?? null} at={one(q.at) ?? null} open={openOf(one(q.open))} />
       {/* L21-22 (v6.1.16): with a linked agent the install pill goes; the Ask line stays. */}
       <Footer linked={data.installations.length > 0} />
     </>

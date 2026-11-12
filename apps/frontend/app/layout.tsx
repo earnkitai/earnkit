@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
 import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
@@ -7,7 +6,6 @@ import Header from '@/app/components/common/Header';
 import { SITE } from '@/lib/v5/site-theme';
 import { SITE_METADATA } from '@/app/lib/meta';
 import { SKIP_LINK } from '@/lib/v5/site-copy';
-import { sessionToken } from '@/lib/v6/sessions';
 
 // Self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
@@ -37,10 +35,11 @@ export const metadata: Metadata = SITE_METADATA;
 
 /**
  * Pages for everyone (L27-8, L27-2, L27-16, v6.1.16): the skip link is the first thing in `body` and lands on
- * `main#content`; `#site-root` wraps everything but the install modal's portal, so the modal makes it `inert`; the
- * header shows `Your record` when a session cookie is present (presence only, no database read).
+ * `main#content`; `#site-root` wraps everything but the install modal's portal, so the modal makes it `inert`. The
+ * layout reads no cookie (v6.1.17 Task 4), so every page but /me is static (ISR): the header asks /api/me/signed-in
+ * after load for `Your record`, and the footer always links /me.
  */
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
@@ -71,7 +70,7 @@ export default async function RootLayout({
           {SKIP_LINK}
         </a>
         <div id="site-root">
-          <Header signedIn={Boolean(sessionToken((await headers()).get('cookie')))} />
+          <Header />
           <main id="content" tabIndex={-1}>
             {children}
           </main>

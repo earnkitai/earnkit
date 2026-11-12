@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { dateStatus, PROBE_MS, PROBE_PARALLEL, probeProgram, runHealth, type LinkCheck } from './health';
+import { dateStatus, PROBE_MS, PROBE_PARALLEL, probeProgram, runHealth, STALE_AFTER_MS, UNREADABLE_FIX, type LinkCheck } from './health';
 import { programFixture } from './fixtures/program';
 import { cimdFixture } from './fixtures/cimd';
 import { ProgramFile } from './program-file';
 import { findProgramsDir } from './programs-api';
-import { listListedPrograms, listOpenPrograms, upsertProgram } from './programs';
+import { listListedPrograms, listOpenPrograms, STALE_DAYS, upsertProgram } from './programs';
 import type { ProbeResult } from './safe-fetch';
 
 after(() => sql().end());
@@ -101,7 +101,7 @@ test('a changed page is listed, never stale', async () => {
   assert.equal(await stale('h-nostale'), null);
 });
 
-test('a failure today is not stale; failing two days running is stale; a clean day clears it', async () => {
+test('a failure today is not stale; failing 24 hours later is stale; a clean day clears it', async () => {
   await upsertProgram(programFixture({ id: 'h-stale', source_url: 'https://stale.example/grants' }), 'file', D1);
   const bad = links('<p>x</p>', { 'https://stale.example/grants': { ok: false, why: '4xx' } });
 
@@ -118,14 +118,50 @@ test('a failure today is not stale; failing two days running is stale; a clean d
   assert.equal((await row('h-stale')).fail_days, 2);
   assert.equal((await stale('h-stale'))?.toISOString(), D2.toISOString());
   assert.ok((await listOpenPrograms(D2)).some((x) => x.id === 'h-stale'));
-  assert.ok(!(await listOpenPrograms(new Date(D2.getTime() + 15 * DAY))).some((x) => x.id === 'h-stale'));
+  assert.ok(!(await listOpenPrograms(new Date(D2.getTime() + 13 * DAY))).some((x) => x.id === 'h-stale'));
 
   await runHealth(D3, { link: bad }); // first-time only: stale_since keeps D2
   assert.equal((await stale('h-stale'))?.toISOString(), D2.toISOString());
 
   await runHealth(new Date(D3.getTime() + DAY), { link: ok });
   assert.equal((await row('h-stale')).fail_days, 0);
+  assert.equal((await row('h-stale')).first_failed_at, null);
   assert.equal(await stale('h-stale'), null);
+});
+
+// v6.1.17 Task 3 (L30-9, Review Focus 5): stale by hours of failing, never by UTC dates.
+test('L30-9: a link failing from 23:59 to 00:01 is not stale; one failing for 20 hours is, 19 h 59 min is not', async () => {
+  const H = 3_600_000;
+  assert.equal(STALE_AFTER_MS, 20 * H);
+  assert.equal(STALE_DAYS, 12);
+  await upsertProgram(programFixture({ id: 'h-mid', source_url: 'https://mid.example/a', submission_url: 'https://mid.example/a' }), 'file', D1);
+  await only('h-mid');
+  const bad = links('<p>x</p>', { 'https://mid.example/a': { ok: false, why: '5xx' } });
+  const t0 = new Date('2026-11-30T23:59:00Z');
+  const r1 = await runHealth(t0, { link: bad });
+  assert.deepEqual(r1.stale, []);
+  assert.equal((await row('h-mid')).first_failed_at.toISOString(), t0.toISOString());
+  const r2 = await runHealth(new Date('2026-12-01T00:01:00Z'), { link: bad });
+  assert.deepEqual(r2.stale, []);
+  assert.equal((await row('h-mid')).fail_days, 2); // two UTC dates, yet not stale
+  assert.equal(await stale('h-mid'), null);
+  assert.equal((await row('h-mid')).first_failed_at.toISOString(), t0.toISOString());
+  const r3 = await runHealth(new Date(t0.getTime() + 20 * H - 60_000), { link: bad });
+  assert.deepEqual(r3.stale, []);
+  const at20 = new Date(t0.getTime() + 20 * H);
+  const r4 = await runHealth(at20, { link: bad });
+  assert.deepEqual(r4.stale, ['h-mid']);
+  assert.equal((await stale('h-mid'))?.toISOString(), at20.toISOString());
+  // Within about two weeks of the first failure: listed 12 days after stale, gone 1 ms later.
+  assert.ok((await listOpenPrograms(new Date(at20.getTime() + 12 * DAY))).some((x) => x.id === 'h-mid'));
+  assert.ok(!(await listOpenPrograms(new Date(at20.getTime() + 12 * DAY + 1))).some((x) => x.id === 'h-mid'));
+  assert.ok(at20.getTime() + 12 * DAY - t0.getTime() < 14 * DAY);
+  // A clean check clears the start; the next failure starts again.
+  await runHealth(new Date(t0.getTime() + 21 * H), { link: ok });
+  assert.equal((await row('h-mid')).first_failed_at, null);
+  const again = new Date(t0.getTime() + 22 * H);
+  assert.deepEqual((await runHealth(again, { link: bad })).stale, []);
+  assert.equal((await row('h-mid')).first_failed_at.toISOString(), again.toISOString());
 });
 
 test('a passed ends_at closes an active program and records the status change', async () => {
@@ -273,10 +309,11 @@ test('L30-1: nlnet-open-call closes at its deadline (Jan 3, 12:00 CET); arbitrum
   // At its start it has no requirements yet: it stays upcoming and the owner hears, every run, until the file has them.
   const start = await run('2027-02-08T03:01:00Z');
   assert.deepEqual(start.opened, []);
-  assert.deepEqual(start.failed, [{ id: arb.id, step: 'health', error: 'catalog' }]);
+  assert.deepEqual(start.failed, []);
+  assert.deepEqual(start.unreadable, [{ id: arb.id, fix: UNREADABLE_FIX.noForm }]);
   assert.equal(await statusOf(arb.id), 'upcoming');
   const end = await run('2027-03-01T02:59:00Z');
-  assert.deepEqual([end.closed, end.failed], [[arb.id], []]);
+  assert.deepEqual([end.closed, end.failed, end.unreadable], [[arb.id], [], []]);
   assert.equal(await statusOf(arb.id), 'closed');
 
   // With its requirements published, it opens at its start.
@@ -348,7 +385,7 @@ test('budget: no probe starts that could not finish before the deadline; the dat
   assert.equal(r2.checked, 0); // all three closed already: nothing listed
 });
 
-test('failure codes: a stored row whose file no longer parses is parse; an upcoming program that cannot open for its file is catalog', async () => {
+test('L30-18, L35-18: a stored row whose file no longer parses, and an upcoming program at its start with no form, are unreadable with their fix, never failed', async () => {
   await upsertProgram(programFixture({ id: 'h-parse' }), 'file', D1);
   await upsertProgram(programFixture({ id: 'h-cat', status: 'upcoming', opens_note: 'Opens Nov 1.', starts_at: '2026-11-01T00:00:00Z', submission_requirements: [] }), 'file', D1);
   await only('h-parse', 'h-cat');
@@ -362,12 +399,13 @@ test('failure codes: a stored row whose file no longer parses is parse; an upcom
   } finally {
     console.error = was;
   }
-  assert.deepEqual(r.failed.sort((x, y) => x.id!.localeCompare(y.id!)), [
-    { id: 'h-cat', step: 'health', error: 'catalog' },
-    { id: 'h-parse', step: 'health', error: 'parse' },
+  assert.deepEqual(r.failed, []);
+  assert.deepEqual(r.unreadable, [
+    { id: 'h-cat', fix: 'its start date passed but it has no form questions, so it stays upcoming; add them.' },
+    { id: 'h-parse', fix: 'its saved entry no longer reads, so it is not checked; correct the entry.' },
   ]);
+  for (const f of Object.values(UNREADABLE_FIX)) assert.match(f, /^[a-z][^—]*\.$/);
   assert.equal(await statusOf('h-cat'), 'upcoming');
-  // The reasons are in the server log only.
-  assert.ok(logged.includes('[health] h-parse failed: the program file does not parse'));
-  assert.ok(logged.includes('[health] h-cat failed: opens today but has no submission requirements'));
+  assert.ok(logged.includes('[health] h-parse unreadable: the program file does not parse'));
+  assert.ok(logged.includes('[health] h-cat unreadable: opens today but has no submission requirements'));
 });

@@ -65,6 +65,13 @@ export const ProjectArg = z
   .describe(PROJECT_DESCRIPTION)
   .meta({ required: ['name'] });
 
+/** L1j-5 (v6.1.17): the keys of a project report that are no project field, each named as not read
+ *  ("project.bogus was not read"), never a refusal. Pure. */
+export function unknownProjectKeys(v: unknown): string[] {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return [];
+  return Object.keys(v).filter((k) => !Object.hasOwn(ProjectArg.shape, k)).map((k) => `project.${cleanText(k, 40)} was not read`);
+}
+
 const MAX = { name: 80, description: 280 } as const;
 /**
  * Control and format characters (zero-width, bidi overrides, NUL) are never part of a project string (v6.1.7, C15);

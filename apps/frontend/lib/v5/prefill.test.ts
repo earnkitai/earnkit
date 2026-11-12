@@ -418,6 +418,12 @@ test('C42: a record value longer than the field is marked to cut, with the note;
   assert.deepEqual([tight.value, tight.fit], [PROBLEM.answers.problem.short, 'cut']);
   const fits = prefill(problemRow({ max_chars: 200 }), facts, s).fields[0];
   assert.equal('fit' in fits, false);
+  // v6.1.17 final round (Task 2 review M1): characters are code points, so 40 emoji (80 UTF-16 units) fit 60.
+  const emojiRow = rowWith([req({ key: 'tagline', label: 'Tagline', type: 'text', kind: 'one_liner', max_chars: 60, todo: 'a tagline' })]);
+  const under = prefill(emojiRow, facts, rec(recordWith({ answers: { one_liner: { text: '\u{1F680}'.repeat(40) } } }, ['answers.one_liner']))).fields[0];
+  assert.equal('fit' in under, false);
+  const overE = prefill(emojiRow, facts, rec(recordWith({ answers: { one_liner: { text: '\u{1F680}'.repeat(61) } } }, ['answers.one_liner']))).fields[0];
+  assert.equal(overE.fit, 'cut');
 });
 
 test('B16: a short form whose text is not approved is never used; an agent\'s new short drops the approval', async () => {

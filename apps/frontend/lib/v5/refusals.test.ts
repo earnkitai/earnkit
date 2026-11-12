@@ -68,11 +68,12 @@ const p = (id: string, over: Record<string, unknown> = {}) => upsertProgram(prog
 
 test('track and find: an unknown program and a common word ask which; nothing is written', async () => {
   const a = await agent();
-  refused(await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' }), 'Which program do you mean? Say its name.');
-  refused(await a.call('track', { program_id: 'next', status: 'started' }), 'Which program do you mean? Say its name.');
+  // L1j-2 (v6.1.17): the name it was given.
+  refused(await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' }), 'I do not know a program called "zz-no-such-thing". Say its full name.');
+  refused(await a.call('track', { program_id: 'next', status: 'started' }), 'I do not know a program called "next". Say its full name.');
   const r = await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' });
   assert.equal(r.reply!.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  refused(await a.call('find', { program_id: 'zz-no-such-thing' }), 'Which program do you mean? Say its name.');
+  refused(await a.call('find', { program_id: 'zz-no-such-thing' }), 'I do not know a program called "zz-no-such-thing". Say its full name.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${a.id}`)[0].n, 0);
 });
 
@@ -114,7 +115,8 @@ test('track: a send outside the standing approval is recorded and answered isErr
 
 test('record: a policy set, linked and unlinked; an unlinked set; input errors with no builder text', async () => {
   const l = await linked();
-  refused(await l.call('record', { set: { policy: { auto_apply: false } } }), 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.');
+  // L35-14 (v6.1.17): standing approval is off here, so the line says where to turn it on.
+  refused(await l.call('record', { set: { policy: { auto_apply: false } } }), 'Standing approval is yours to turn on at earnkit.com/me.');
   const u = await agent();
   refused(await u.call('record', { set: { policy: { auto_apply: false } } }), 'There is no standing approval on this agent.');
   refused(await u.call('record', { set: { person: { name: 'Ada' } } }), "I can't save that yet, so I keep it for this chat.");

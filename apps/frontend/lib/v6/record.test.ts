@@ -327,3 +327,14 @@ test('L35-1 (v6.1.16.1 Task 2): a project\'s join answer is EarnKit\'s own, neve
   assert.ok(r.problems.some((p) => /join/.test(p) && /EarnKit only/.test(p)), r.problems.join('; '));
   assert.equal(r.record.projects[0]?.join, undefined);
 });
+
+test('L35-15 (v6.1.17): lengths count code points, so 1,996 emoji save and 2,001 code points do not', () => {
+  const emoji = '\u{1F680}'.repeat(1_996);
+  assert.equal(emoji.length, 3_992);
+  const { record, changed, problems } = merge({ answers: { one_liner: { text: emoji, short: '\u{1F680}'.repeat(280) } } });
+  assert.deepEqual(problems, []);
+  assert.ok(changed.length > 0);
+  assert.equal(record.answers.one_liner?.text, emoji);
+  const over = merge({ answers: { risks: { text: '\u{1F680}'.repeat(2_001) } } });
+  assert.deepEqual(over.problems, ['answers.risks.text: Too big: expected string to have <=2000 characters']);
+});

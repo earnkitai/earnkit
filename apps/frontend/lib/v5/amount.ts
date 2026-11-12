@@ -22,7 +22,7 @@ export type ReadAmount = { value: number; currency: string };
  * A win's amount as given: a number, or text with cents, thousands commas, a `k`/`K` for thousands, a symbol (`$`, `€`,
  * `£`) or a currency code before or after (`5k`, `$5,000`, `5000 USD`, `USD 5000`, `5,000.00`, `€5000`, `£5000`);
  * `amount_usd` is US dollars. The amount and its upper-case currency (USD when none is named), null when no amount
- * was given, 'ambiguous' for a dot used as a thousands separator (`5.000`, L16-14), 'bad' when it cannot be read
+ * was given, 'ambiguous' for a dot used as a thousands separator (`5.000`, L16-14; never after a lone `0`, where a comma is a decimal comma), 'bad' when it cannot be read
  * otherwise or is not above 0. Cents are kept. Pure.
  */
 export function readAmount(o: { amount_usd?: number; amount?: number | string; currency?: string }): ReadAmount | null | 'bad' | 'ambiguous' {
@@ -42,8 +42,12 @@ export function readAmount(o: { amount_usd?: number; amount?: number | string; c
       code = SYMBOLS[sym];
       t = t.slice(sym.length).trim();
     }
-    // M3 (v6.1.14): "2.500" may be 2,500 written with a European separator: ambiguous, so refused.
-    if (/^(?:[A-Z]{3}\s*)?\d{1,3}(?:\.\d{3})+(?:\s*K)?(?:\s*[A-Z]{3})?$/.test(t) && !/^\d{1,3}\.\d{3}\s*K$/.test(t)) return 'ambiguous';
+    // v6.1.17 final round (Task 2 review N1): a leading `0,` is never a thousands group but a decimal comma: `0,500`
+    // reads 0.5, `0,001` reads 0.001.
+    t = t.replace(/^((?:[A-Z]{3}\s*)?)0,(\d+)(?=\s*K?\s*(?:[A-Z]{3})?$)/, '$10.$2');
+    // M3 (v6.1.14): "2.500" may be 2,500 written with a European separator: ambiguous, so refused. An amount starting
+    // with `0.` is never a thousands group, so `0.001` reads as 0.001 (v6.1.16 Task 8 N3, v6.1.17).
+    if (/^(?:[A-Z]{3}\s*)?(?!0\.)\d{1,3}(?:\.\d{3})+(?:\s*K)?(?:\s*[A-Z]{3})?$/.test(t) && !/^\d{1,3}\.\d{3}\s*K$/.test(t)) return 'ambiguous';
     const m = /^(?:([A-Z]{3})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*(K))?(?:\s*([A-Z]{3}))?$/.exec(t);
     if (!m || (m[1] && m[5])) return 'bad';
     const word = m[1] ?? m[5];

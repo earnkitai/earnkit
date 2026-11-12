@@ -42,3 +42,19 @@ test('M2 (v6.1.16 Task 8 fix round 1): the reader keeps the given value unrounde
   assert.deepEqual(readAmount({ amount: '10000.004' }), { value: 10000.004, currency: 'USD' });
   assert.equal(overCap(10000.004, 'USD', 10_000), true);
 });
+
+test('v6.1.16 Task 8 N3 (v6.1.17): an amount starting with 0. is never ambiguous; 1.234 still is', () => {
+  assert.deepEqual(readAmount({ amount: '0.001' }), { value: 0.001, currency: 'USD' });
+  assert.deepEqual(readAmount({ amount: '$0.500' }), { value: 0.5, currency: 'USD' });
+  assert.deepEqual(readAmount({ amount: 'USD 0.250' }), { value: 0.25, currency: 'USD' });
+  assert.equal(readAmount({ amount: '1.234' }), 'ambiguous');
+  assert.equal(readAmount({ amount: '10.000' }), 'ambiguous');
+});
+
+test('v6.1.17 final round (Task 2 review N1): a leading 0, is a decimal comma, never a thousands group', () => {
+  assert.deepEqual(readAmount({ amount: '0,500' }), { value: 0.5, currency: 'USD' });
+  assert.deepEqual(readAmount({ amount: '0,001' }), { value: 0.001, currency: 'USD' });
+  assert.deepEqual(readAmount({ amount: '€0,25' }), { value: 0.25, currency: 'EUR' });
+  assert.deepEqual(readAmount({ amount: '5,000' }), { value: 5000, currency: 'USD' });
+  assert.equal(readAmount({ amount: '0,5,000' }), 'bad');
+});

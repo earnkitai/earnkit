@@ -9,13 +9,20 @@ import { listOpenPrograms, type ProgramRow } from './programs';
 
 export const STATS_KEYS = [
   'programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'won', 'won_usd',
-  'won_other', 'won_without_amount',
+  'won_other', 'won_without_amount', 'last_run_at',
 ] as const;
 /**
  * L22-1 (v6.1.16): `won_usd` is the US dollar part of the wins only; `won_other` sums each other currency (never
  * converted), and `won_without_amount` counts wins kept with no amount, so the three describe every win.
  */
-export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other'>, number> & { won_other: { currency: string; amount: number }[] };
+/**
+ * v6.1.17 Task 3 (L30-14): `last_run_at` is when the daily run last finished (ISO, or null before the first), so a day
+ * with no run shows.
+ */
+export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other' | 'last_run_at'>, number> & {
+  won_other: { currency: string; amount: number }[];
+  last_run_at: string | null;
+};
 
 const WEEK_MS = 7 * 86_400_000;
 
@@ -61,6 +68,7 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
              count(*) FILTER (WHERE status = 'won' AND counted AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none
       FROM a`,
   ]);
+  const [run] = await db<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
   const other = await db<{ currency: string; amount: string }[]>`
     WITH w AS (${wonOnce(db)})
     SELECT e.key AS currency, sum(e.value::numeric) AS amount FROM w a, jsonb_each_text(a.amounts) e
@@ -77,6 +85,7 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     won_usd: Number(a.won_usd ?? 0),
     won_other: other.map((r) => ({ currency: r.currency, amount: Number(r.amount) })),
     won_without_amount: Number(a.won_none),
+    last_run_at: run?.last_run_at.toISOString() ?? null,
   };
 }
 

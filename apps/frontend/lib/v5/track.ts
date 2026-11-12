@@ -10,11 +10,11 @@ import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, ST
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNightFind } from './installations';
-import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { closedAt, statusAt, getProgram, listOpenPrograms, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SIGN_IN_FIRST, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
-import { clock } from './reply';
+import { clock, unreadNote } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
@@ -382,7 +382,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
   const acted = !row && !sentRow
-    ? await refuse(unknownProgramLine(suggest), WHICH_PROGRAM_NOTE)
+    ? await refuse(unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
@@ -391,7 +391,9 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
   // L31-4 (v6.1.16 Task 17): an id with any non-ASCII character was matched after NFKC folding; the problems line names it.
   const problems = row && /[^\x00-\x7f]/.test(raw) ? [...loose.problems, `program id read as ${row.id}`] : loose.problems;
-  const p = problems.length > 0 ? { ...p0, agent_note: `${p0.agent_note} Some arguments were not read: ${problems.join('; ')}.` } : p0;
+  // L1j-5 (v6.1.17): a key inside project that is no project field is named, as find names it.
+  const unread = [...problems, ...unknownProjectKeys(input && typeof input === 'object' ? (input as { project?: unknown }).project : undefined)];
+  const p = unread.length > 0 ? { ...p0, agent_note: `${p0.agent_note} ${unreadNote(unread)}` } : p0;
   return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 
@@ -813,7 +815,8 @@ async function act(
         // L23-1 (v6.1.16): no night is promised.
         ? "Done for now. The builder's next find reports it; do not call find again until they ask."
         : i.status === 'skipped' ? `Call find again for the updated applications. ${BRING_BACK_NOTE}`
-        : i.status === 'applied' && !i.fields_used ? `Call find again for the updated applications. ${NO_FIELDS_NOTE}`
+        // L35-22 (v6.1.17): an in-person program has no form fields to name.
+        : i.status === 'applied' && !i.fields_used && !row?.file.in_person ? `Call find again for the updated applications. ${NO_FIELDS_NOTE}`
         : 'Call find again for the updated applications.',
     ledger: await summary(owner, programs, ctx.now),
   };

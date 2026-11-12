@@ -108,10 +108,13 @@ test('closed by deadline is never ready', async () => {
 });
 
 test('new work only with a first commit before the start is no', async () => {
+  // L35-19 (v6.1.17): an active program has started, so the start and the clock are both after the first commit.
   const p = toRow(programFixture({ id: 'p', existing_work: 'new_work_only', starts_at: '2030-01-01T00:00:00Z' }));
-  const v = evaluate(p, await factsOf('earnkit'), new Set(), NOW);
+  const v = evaluate(p, await factsOf('earnkit'), new Set(), new Date('2030-01-02T00:00:00Z'));
   assert.equal(v.status, 'no');
   assert.equal(v.reason, 'needs work started after 2030-01-01');
+  // Before its start it is not open yet, never "closed".
+  assert.equal(evaluate(p, await factsOf('earnkit'), new Set(), NOW).reason, 'not open');
 });
 
 test('O3 (v6.1.10, Review Focus 4): no first-commit date asks when the work started, never a refusal; a date or the builder\'s word settles it', async () => {

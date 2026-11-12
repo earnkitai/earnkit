@@ -4,7 +4,7 @@
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
 import { EARNKIT_CUT_NOTE } from './prefill';
-import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, SIGN_IN_PROOF, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, signInSentence, type ProofBar } from '../v6/reply-words';
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
@@ -180,6 +180,11 @@ export const attendRuleGap = (g: GapProgram) => g.in_person && ruleOnlyGap(g);
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
 /** Whether a reply's gaps show the unlinked proof gap, so its closing says what signing in checks (v6.1.14). Pure. */
 export const showsProof = (gaps: Pick<GapProgram, 'gap' | 'also'>[]): boolean => gaps.some((g) => hasProof([g.gap, ...g.also]));
+/** L1j-6 (v6.1.17): the bar the first unlinked proof gap names, so the sign-in says what it checks; null with none. Pure. */
+export const proofBarOf = (gaps: Gap[]): ProofBar | null => {
+  const g = gaps.find(confirmGap);
+  return g ? confirmBar(g.what) : null;
+};
 /** Whether one program's gaps hold the unlinked proof. Pure. */
 export const hasProof = (gaps: Gap[]): boolean => gaps.some(confirmGap);
 /** A tier gap whose action is not a change the closing names: the unlinked proof (signing in, in the closing), or the
@@ -477,6 +482,8 @@ export const HOLD_CLOSING = 'On hold until you say go. Say go and I apply.';
 /** The closing when nothing fits (v6.1.14): EarnKit never writes first, so the builder asks again. */
 export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show what is new.';
 
+/** The closing with nothing ready and no step to name (L1j-6, v6.1.17: then the sign-in is the reply's last line). */
+export const NOTHING_READY = 'Nothing is ready yet.';
 /** O2 (v6.1.10): the closing when in-person programs are listed and nothing remote is ready. */
 export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I start the in-person applications.';
 
@@ -515,6 +522,9 @@ export function closingLine(o: {
   linked?: boolean;
   /** Task 11 fix round 1 (M1): ready programs the builder held; with none other ready, the reply closes on the hold. */
   onHold?: number;
+  /** L35-8 (v6.1.17, fix round 1 I1): the default view hides ready rows; its And-more line says how many, and the yes
+   *  says "ready" so it reads against the heading. */
+  hidden?: boolean;
 }): Closing {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
   // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead. L1e-3 (v6.1.13): a program
@@ -530,7 +540,9 @@ export function closingLine(o: {
       ...waits.map((w) => `${w.title} needs your ${joinAnd(capped(w.needs.map(bare)))}; then ${w.draft ? 'I draft it for you to send' : 'I apply'}.`),
     ].join(' ');
     const left = o.ready - stands.length - drafts.length - waits.length;
-    return { text: left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], draftStands: [], yesWaits: [] }).text}` : said, offer: 'apply' };
+    if (left > 0) return { text: `${said} ${closingLine({ ...o, ready: left, yesStands: [], draftStands: [], yesWaits: [] }).text}`, offer: 'apply' };
+    // v6.1.16 Task 11 N2 (v6.1.17): every ready one is covered, so a gap EarnKit can make is still offered, last.
+    return { text: o.doOffer ? `${said.replace(/\.$/, '')}, or "do ${o.doOffer.n}" and I ${o.doOffer.verb} first.` : said, offer: 'apply' };
   }
   const { ready, draftOnly } = o;
   const doPart = o.doOffer ? `"do ${o.doOffer.n}" and I ${o.doOffer.verb}` : null;
@@ -546,7 +558,7 @@ export function closingLine(o: {
         ? `Say yes and I apply to ${k === 1 && o.applyTitle ? o.applyTitle : k} and draft ${listWords(mixed, mixed.length)} for you to send`
         : ready === 1
           ? o.overLimit && o.title ? `${o.title} is over your limit. ${say} I apply` : o.title ? `${say} I apply to ${o.title}` : `${say} I apply`
-          : `${say} I apply to all ${ready}${o.others ? ' ready' : ''}`;
+          : `${say} I apply to all ${ready}${o.others || o.hidden ? ' ready' : ''}`;
     // L29-27 (v6.1.16 Task 15): one action; a number skips through the agent note.
     if (doPart) return { text: `${yes}, or ${doPart} first.`, offer: 'apply' };
     return { text: `${yes}.`, offer: 'apply' };
@@ -572,7 +584,7 @@ export function closingLine(o: {
     // L1g-5 (v6.1.16): one closing shape for every single step, the gap line names the gap.
     if (step && !step.users) return withDo({ text: `Nothing is ready yet. ${step.gap ? singleStepClosing(step.gap) : `Tell me when ${step.what} is done and I look again.`}`, offer: null });
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
-    return o.inPerson > 0 ? { text: IN_PERSON_CLOSING, offer: 'apply' } : withDo({ text: 'Nothing is ready yet.', offer: null });
+    return o.inPerson > 0 ? { text: IN_PERSON_CLOSING, offer: 'apply' } : withDo({ text: NOTHING_READY, offer: null });
   }
   if (o.inPerson > 0) return { text: IN_PERSON_CLOSING, offer: 'apply' };
   // v6.1.14: nothing is pushed to the builder, so nothing is promised.
@@ -737,35 +749,41 @@ const LINK = /https?:\/\/\S+/;
 export const moreInFull = (n: number): string => `And ${n} more in the full list.`;
 
 /**
- * L1i-2 (v6.1.16.1): the step rows the default view shows: at least one, then as many as `room` lines allow, the more
- * line counted when some are left out. Pure.
+ * L1j-3 (v6.1.17): what the default view shows and hides of the ready rows (every ready program, in person and held
+ * ones too) and of the step rows, from the ids it numbers (`shown`).
+ * `And {readyHidden + stepHidden} more in the full list.` follows when either is non-zero. Pure.
  */
-export function defaultRows<G>(steps: G[], room: number): { shown: G[]; hidden: number } {
-  if (steps.length <= Math.max(room, 1)) return { shown: steps, hidden: 0 };
-  const k = Math.max(1, room - 1);
-  return { shown: steps.slice(0, k), hidden: steps.length - k };
+export function defaultRows(ready: string[], steps: string[], shown: string[]): { readyShown: number; readyHidden: number; stepShown: number; stepHidden: number } {
+  const on = new Set(shown);
+  const readyShown = ready.filter((id) => on.has(id)).length;
+  const stepShown = steps.filter((id) => on.has(id)).length;
+  return { readyShown, readyHidden: ready.length - readyShown, stepShown, stepHidden: steps.length - stepShown };
 }
 
-/** L1i-2: a numbered block of the default view: its heading (the true count), its rows in order, at most `cap` shown. */
-type Block = { head: string; ids: string[]; line: (i: number) => string; order?: number[]; cap?: number; more?: boolean };
-/** Lines a block takes at most. Pure. */
-const blockMax = (b: Block): number => {
-  const rows = Math.min(b.ids.length, b.cap ?? b.ids.length);
-  return b.ids.length === 0 ? 0 : 1 + rows + (b.more && rows < b.ids.length ? 1 : 0);
+/** L35-8 (v6.1.17): within a day of closing. Pure. */
+const closesWithinDay = (p: Pick<ReadyProgram, 'closes_at'>, now: Date): boolean => {
+  const left = p.closes_at ? Date.parse(p.closes_at) - now.getTime() : NaN;
+  return left > 0 && left <= 86_400_000;
 };
-/** How many rows a block shows in `k` lines: all it may when they fit, else (L1i-2) `defaultRows` with its more line;
- *  0 when not even one row, its heading and the more line fit. Pure. */
+/** L35-8 (v6.1.17): the ready rows with those closing within a day first, soonest first; the rest in their order. Pure. */
+export const soonFirst = <P extends Pick<ReadyProgram, 'closes_at'>>(ps: P[], now: Date): P[] => [
+  ...ps.filter((p) => closesWithinDay(p, now)).sort((a, b) => Date.parse(a.closes_at!) - Date.parse(b.closes_at!)),
+  ...ps.filter((p) => !closesWithinDay(p, now)),
+];
+
+/** L1i-2: a numbered block of the default view: its heading (the true count), its rows in order, at most `cap` shown.
+ *  L1j-3 (v6.1.17): the rows any block leaves out are counted once, on the line before the Say (`defaultRows`). */
+type Block = { head: string; ids: string[]; line: (i: number) => string; order?: number[]; cap?: number };
+/** Lines a block takes at most. Pure. */
+const blockMax = (b: Block): number => (b.ids.length === 0 ? 0 : 1 + Math.min(b.ids.length, b.cap ?? b.ids.length));
+/** How many rows a block shows in `k` lines: all it may when they fit, else as many as fit under its heading. Pure. */
 const blockRows = (b: Block, k: number): number => {
   const n = b.ids.length;
-  const full = Math.min(n, b.cap ?? n);
   if (n === 0 || k < 2) return 0;
-  if (blockUses(b, full) <= k) return full;
-  if (!b.more) return k - 1;
-  if (k < 3) return 0;
-  return Math.min(full, defaultRows(b.ids, k - 1).shown.length);
+  return Math.min(n, b.cap ?? n, k - 1);
 };
 /** The lines a block uses for `rows` shown rows. Pure. */
-const blockUses = (b: Block, rows: number): number => (rows === 0 ? 0 : 1 + rows + (b.more && rows < b.ids.length ? 1 : 0));
+const blockUses = (rows: number): number => (rows === 0 ? 0 : 1 + rows);
 
 /**
  * The builder text and the kind of the one `Say` it offers (L24-2, v6.1.16 Task 11), for find to keep. L29-26 (v6.1.16
@@ -792,7 +810,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const attendCount = inPerson.length + attendRules.length;
   const heldInPerson = inPerson.filter((p) => p.claimed_since).length;
   // A program another agent holds leaves the count to say yes to (v6.1.7, C37); so does one the builder held (L24-4).
-  const free = ready.filter((p) => !p.claimed_since && !p.held);
+  // L35-8 (v6.1.17): one closing within a day is shown first.
+  const free = soonFirst(ready.filter((p) => !p.claimed_since && !p.held), now);
   const onHold = ready.filter((p) => !p.claimed_since && p.held);
   const heldReady = ready.filter((p) => p.claimed_since);
   // With nothing ready to say yes to, the closing names a rule-only gap (1a): a keyword hit when one is listed (L1e-5,
@@ -835,6 +854,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const overLimit = r.auto_apply && unsaid.length === 1 && r.blockers.some((b) => b.program_id === unsaid[0].program_id && b.outside_approval && b.over_limit_usd !== undefined);
   const stepRule = stepRuleOf(steps);
   const doOffer = doOfferOf(steps as (GapProgram & { n: number })[]);
+  // L35-8 (v6.1.17, fix round 1 I1): the default view shows at most READY_SHOWN ready rows; the And-more line counts the
+  // rest once, and the yes says "ready".
+  const readyHidden = !o.all && free.length > READY_SHOWN;
   const closingOf: Closing =
     tonight > 0
       // L23-1 (v6.1.16): nothing runs at night; the agent applies the next time it checks.
@@ -860,6 +882,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
             yesNeeds,
             linked: r.linked,
             onHold: onHold.length,
+            ...(readyHidden ? { hidden: true } : {}),
           });
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           return { text: [...(limitUsed ? [LIMIT_USED] : []), c.text].join(' '), offer: c.offer };
@@ -872,9 +895,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const archivedShown = r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:archived'));
   const notes = [...new Set(r.repo_notes ?? [])].filter((n) => !(n === 'archived' && archivedShown));
   const read = !r.as_reported && !notes.includes('empty');
-  const proof = showsProof(r.gaps);
+  const proof = showsProof(r.gaps) ? (proofBarOf(r.gaps.flatMap((g) => [g.gap, ...g.also])) ?? true) : false;
   // L1i-3 (v6.1.16.1): one sign-in sentence per reply. When the closing's Say already asks to sign in (the unlinked
-  // users question), the link goes into it and the proof line says only what the sign-in lets EarnKit read.
+  // users question), the link goes into it and (L1j-1, v6.1.17) no other line mentions signing in.
   // Fix round 1 (I2): judged on the Say the reply ends on; the full view ends on the default view's.
   const endsOn = o.all && o.defaultSay !== undefined ? o.defaultSay : closingOf.text;
   const asksSignIn = !r.linked && /Do real people use it\? Say yes, sign in once\b/.test(endsOn);
@@ -882,30 +905,34 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // notice keeps only its first sentence, so the reply has one sign-in sentence.
   if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
   const notice = asksSignIn && r.sign_in && r.linked_notice ? r.linked_notice.replace(/ Sign in once at \S+ to link it again\.$/, '') : r.linked_notice;
-  const signIn = r.linked
+  const signIn = r.linked || asksSignIn
     ? null
-    : asksSignIn
-      ? (read && r.sign_in ? SIGN_IN_PROOF : null)
-      : r.sign_in
+    : r.sign_in
         ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
         : proof ? signInSentence(null, read, true) : null;
 
   // ONE_SAY_ORDER (L23-21): the first line through it that carries a Say keeps it, and (L29-33, v6.1.16 Task 15) goes
   // last; every other line keeps its fact sentence only.
   const notSent = notSentLine(r, now);
-  const started = startedNotSentLines(r, now);
+  // v6.1.16 Task 9 N4 (v6.1.17): a program the not-sent line names gets no started line too.
+  const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
+  const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
   const sayers = [notSent, ...started, closingOf.text].filter((x): x is string => x !== null);
   const sayLine = sayers.find(carriesSay) ?? closingOf.text;
   const early = sayLine !== closingOf.text;
   const plain = (x: string | null) => (x === null || x === sayLine ? null : carriesSay(x) ? withoutSay(x) || null : x);
   const offer = early ? 'apply' : closingOf.offer;
-  const saysAny = carriesSay(sayLine);
 
   const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(signIn ? [signIn] : []), ...(notice ? [notice] : [])];
   // L1i-5 (v6.1.16.1): the full view closes on the default view's Say, never on a rule it does not show.
+  // L35-9 (v6.1.17): in blocks under the default view's headings, each with its true count.
   if (o.all) {
     const say = fullSay(o.defaultSay ?? sayLine);
-    return { text: fullView([...ready, ...inPerson, ...steps, ...attendRules], after, say, o.closes), offer, hidden: [], shown: [], say };
+    const blocks: [string, (ReadyProgram | GapProgram)[]][] = [
+      ['Ready to apply', free], ['Being handled by your other agent', heldReady], ['On hold until you say go', onHold],
+      ['One step away', steps], ['In person', [...inPerson, ...attendRules]],
+    ];
+    return { text: fullView(blocks, after, say, o.closes), offer, hidden: [], shown: [], say };
   }
 
   // L29-26 (v6.1.16 Task 15): the default view: the slots in display order, each with its priority (lower stays first
@@ -934,21 +961,28 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // true count and a more line says what is left for the full list.
   const stepLines = steps.map((g) => gapLine(g, false, closed));
   const gapBlock: Block | null = steps.length > 0
-    ? { head: `One step away (${steps.length}):`, ids: steps.map((g) => g.program_id), line: (i) => stepLines[i], more: true, order: [steps.indexOf(gapShown), ...steps.map((_, i) => i).filter((i) => steps[i] !== gapShown)] }
+    ? { head: `One step away (${steps.length}):`, ids: steps.map((g) => g.program_id), line: (i) => stepLines[i], order: [steps.indexOf(gapShown), ...steps.map((_, i) => i).filter((i) => steps[i] !== gapShown)] }
     : null;
   const l = r.ledger;
+  // L1j-6 (v6.1.17): a closing that is only "Nothing is ready yet." asks nothing, so the sign-in after it is the action.
+  const bare = sayLine === NOTHING_READY;
+  const tail = bare ? [signIn, notice].filter((x): x is string => !!x) : [];
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
   const apps = applicationsLine(r.applications ?? [], now);
   const since = first ? null : sinceLine(r, now);
-  // L23-16 (v6.1.16): the same list as the last find, and nothing else moved.
-  const nothingNew = !first && !since && r.nothing_new_since ? `Nothing new since ${dayWords(new Date(r.nothing_new_since), now)}.` : null;
+  // L23-16 (v6.1.16): the same list as the last find, and nothing else moved. L35-21 (v6.1.17): the same day reads "your
+  // last look", never today's date.
+  const lastLook = r.nothing_new_since ? new Date(r.nothing_new_since) : null;
+  const nothingNew = !first && !since && lastLook
+    ? (dayWords(lastLook, now) === dayWords(now, now) && now.getTime() - lastLook.getTime() < 86_400_000 ? 'Nothing new since your last look.' : `Nothing new since ${dayWords(lastLook, now)}.`)
+    : null;
   const before = beforeLine(r, waitingClauses(r, yesNeeds), yesNeeds);
   const slots: Slot[] = [
     { block: readyBlock, lines: [], rank: 1 },
     // L1i-2: one step row (and its more line) right after the ready rows; the rest of the rows before the repo notes
     // and the sign-in.
     // Fix round 1 (I1): when lines are short, the since line gives way first, then the results question, then these.
-    { block: gapBlock, lines: [], rank: 2, min: steps.length > 1 ? 3 : 2, grow: 5.7 },
+    { block: gapBlock, lines: [], rank: 2, min: 2, grow: 5.7 },
     { block: attendBlock, lines: [], rank: 2 },
     { lines: apps ? [apps] : [], rank: 3 },
     { lines: [plain(notSent)].filter((x): x is string => !!x), rank: 4 },
@@ -960,17 +994,21 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     // Fix round 1 (I1): ahead of the step rows past the first, as the Before line.
     { lines: reportLines(r), rank: 5.5 },
     // L1i-2 (v6.1.16.1): what a send waits on stays ahead of the step rows past the first.
-    { lines: before ? [before] : [], rank: 5.85 },
+    // v6.1.17: its rank now matches that comment (5.55, ahead of the step rows' 5.7).
+    { lines: before ? [before] : [], rank: 5.55 },
     { lines: r.evidence_summary ? [r.evidence_summary.line] : [], rank: 13 },
     { lines: (l.results_soon ?? []).length > 0 ? [`Results due soon: ${listWords(l.results_soon!.map((x) => x.title), l.results_soon!.length)}.`] : [], rank: 14 },
     { lines: notes.length > 0 ? [repoNoteText(notes)] : [], rank: 8 },
-    // L29-33: before the Say; with no Say at all the closing line comes first and these follow it (`tail`).
+    // L29-33: before the Say.
     // L1i-3 (v6.1.16.1): the reply's one sign-in carries the link (or settles a proof gap), so it stays ahead of the
     // step rows past the first.
     // Fix round 1 (I1): the line carrying the reply's only link outranks every line but the Say; a linkless sign-in
     // still stays ahead of the step rows past the first.
-    { lines: signIn && saysAny ? [signIn] : [], rank: signIn && LINK.test(signIn) ? 0 : 5.65 },
-    { lines: notice && saysAny ? [notice] : [], rank: notice && LINK.test(notice) ? 0 : 10 },
+    // L1j-6 (v6.1.17): the action is always last, so these sit before it whether or not it carries a Say; after a bare
+    // "Nothing is ready yet." the sign-in is the action, so it follows (`tail`).
+    { lines: signIn && !bare ? [signIn] : [], rank: signIn && LINK.test(signIn) ? 0 : 5.65 },
+    // v6.1.17: the account notice is said once, so it stays ahead of the step rows past the first too.
+    { lines: notice && !bare ? [notice] : [], rank: notice && LINK.test(notice) ? 0 : 5.6 },
     // The closing's fact sentence when another line keeps the Say ("Nothing is ready yet.").
     { lines: [plain(closingOf.text)].filter((x): x is string => !!x), rank: 15 },
   ];
@@ -981,9 +1019,18 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     ...((free.length > 0 || heldReady.length > 0) && onHold.length > 0 ? readyLines(onHold) : []),
     ...(attendBlock ? [] : inPersonLines),
   ];
-  const tail = saysAny ? [] : [signIn, notice].filter((x): x is string => !!x);
-  const { kept, hidden, shown } = fit(slots, DEFAULT_LINES - 1 - tail.length);
-  return { text: [...kept, sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine };
+  // L1j-3 (v6.1.17): any ready or step row left out is counted on one line before the Say; it takes a line of its own.
+  const readyIds = r.ready.map((p) => p.program_id);
+  const stepIds = r.gaps.map((g) => g.program_id);
+  const hiddenOf = (sh: string[]) => {
+    const d = defaultRows(readyIds, stepIds, sh);
+    return d.readyHidden + d.stepHidden;
+  };
+  const room = DEFAULT_LINES - 1 - tail.length;
+  const once = fit(slots, room);
+  const { kept, hidden, shown } = hiddenOf(once.shown) > 0 ? fit(slots, room - 1) : once;
+  const left = hiddenOf(shown);
+  return { text: [...kept, ...(left > 0 ? [moreInFull(left)] : []), sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine };
 }
 
 /** L29-26: a slot of the default view: plain lines, or (L1i-2) a numbered block, with its rank and, for the step block,
@@ -992,8 +1039,8 @@ type Slot = { lines: string[]; rank: number; block?: Block | null; min?: number;
 
 /**
  * L29-26: the slots that fit `room` lines, by rank (a slot cut to what is left), in display order; the rest. L1i-2
- * (v6.1.16.1): a block shows whole rows under its heading, numbered 1, 2, 3 in display order across the blocks, and
- * ends on `And {n} more in the full list.` when rows are left out; `shown` is the ids those numbers name. Pure.
+ * (v6.1.16.1): a block shows whole rows under its heading, numbered 1, 2, 3 in display order across the blocks; `shown`
+ * is the ids those numbers name. Pure.
  */
 function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; shown: string[] } {
   const take = new Map<number, number>();
@@ -1007,7 +1054,7 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
       if (!b) continue;
       const want = grow ? blockMax(b) : Math.min(s.min ?? blockMax(b), blockMax(b));
       const rows = blockRows(b, Math.min(want, had + left));
-      const uses = blockUses(b, rows);
+      const uses = blockUses(rows);
       if (uses < had) continue;
       take.set(i, uses);
       left -= uses - had;
@@ -1033,7 +1080,6 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
       const idx = b.ids.map((_, j) => j);
       if (n > 0) {
         kept.push(b.head, ...idx.filter((j) => on.has(j)).map((j) => b.line(j)));
-        if (b.more && n < b.ids.length) kept.push(moreInFull(b.ids.length - n));
         shown.push(...idx.filter((j) => on.has(j)).map((j) => b.ids[j]));
       }
       hidden.push(...idx.filter((j) => !on.has(j)).map((j) => b.line(j)));
@@ -1055,16 +1101,29 @@ const fullSay = (say: string): string => {
 
 /**
  * L29-26 (v6.1.16 Task 15): the full view ("say more", filter.all): each listed program as its number, name, money and
- * (L1i-6, v6.1.16.1) close and in person, one per line in number order, then what the repo read was and the link notice
- * (`after`), then the Say. No rule is asked here (L1i-5). Pure.
+ * (L1i-6, v6.1.16.1) close and in person, one per line, then what the repo read was and the link notice (`after`), then
+ * the Say. No rule is asked here (L1i-5). L35-9 (v6.1.17): the rows sit under the default view's block headings
+ * (`Ready to apply (6):`), each with its true count, in number order within a block; an empty block is left out. Pure.
  */
-export function fullView(items: (ReadyProgram | GapProgram)[], after: string[], say: string, closes?: Map<string, string>): string {
-  const all = [...items].sort((a, b) => a.n - b.n).map((p) => {
+export function fullView(blocks: [string, (ReadyProgram | GapProgram)[]][], after: string[], say: string, closes?: Map<string, string>): string {
+  const line = (p: ReadyProgram | GapProgram) => {
     const when = closes?.get(p.program_id) || p.closes_in;
     return `${p.n}. ${p.title}, ${p.money}${when ? `, closes ${when}` : ''}${p.in_person ? ', in person' : ''}.`;
-  });
-  return [...all, ...after, say].join('\n');
+  };
+  const rows = blocks.filter(([, ps]) => ps.length > 0).flatMap(([head, ps]) => [`${head} (${ps.length}):`, ...[...ps].sort((a, b) => a.n - b.n).map(line)]);
+  return [...rows, ...after, say].join('\n');
 }
+
+/** Fix round 1 (N6, v6.1.16 Task 15): an item that says itself what was not read (L29-13, L29-14; L1j-5, v6.1.17:
+ *  "project.bogus was not read") is its own sentence. */
+const OWN_SENTENCE = / was not read(: |$)| belongs inside project$/;
+/** The agent's line for arguments find or track could not read (L13-4, v6.1.14), or ''. v6.1.16 Task 15 N6 (v6.1.17):
+ *  the outer "Some arguments were not read:" only for the items that do not say it themselves. Pure. */
+export const unreadNote = (unread: string[]): string => {
+  const own = unread.filter((u) => OWN_SENTENCE.test(u));
+  const rest = unread.filter((u) => !OWN_SENTENCE.test(u));
+  return [...(rest.length > 0 ? [`Some arguments were not read: ${rest.join('; ')}.`] : []), ...own.map((u) => `${u}.`)].join(' ');
+};
 
 /** A contract the read still does not find may be on chain only (v6.1.9 fix round 1). */
 export const CONTRACT_NOTE = 'Pass the contract address if it is on chain.';

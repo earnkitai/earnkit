@@ -11,7 +11,7 @@ import { AMOUNT_DOT, AMOUNT_UNREAD, UNKNOWN_CURRENCY_NOTE, comparable, overCap, 
 import { moneyText } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { SHORT_LINK_NOTE } from '../v5/project-input';
-import { LIMITS, hit, uncountHit } from '../v5/rate-limit';
+import { LIMITS, countHit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
 import { badRequeues, createJob, jobResults, jobStatus, NOT_PASSED, type Outcome, PAGE_SIZE, OUTCOME_NOTES, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
@@ -290,26 +290,30 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   // Task 8 security follow-up (v6.1.14): a requeue must name an earlier row of this program carrying the same id.
   const bad = await badRequeues(programId, input.applicants);
   if (bad.length > 0) return no(SCREEN_TEXT.badRequeue(listWords(bad, 10)), 'Nothing was queued. Each requeue names { job_id, ref } of an earlier row of this program with the same application_id; fix or drop it and call screen again.');
-  // Counted atomically, per reviewer (not per installation), only once every refusal above has passed.
+  // Counted per reviewer (not per installation), only once every refusal above has passed. v6.1.16 Task 12 N2
+  // (v6.1.17): counted inside createJob's transaction, only when it makes a job, so a call that queues nothing never
+  // takes one of the ten, not even for a moment beside a parallel real screen; the eleventh is undone with its job.
   const { limit, windowSeconds } = LIMITS.screenJobs;
   const dayKey = `screenJobs:b:${ctx.builderId}`;
-  if (!(await hit(dayKey, limit, windowSeconds, ctx.now)).allowed) return no(SCREEN_TEXT.limit);
-
-  const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds: thresholds as Partial<Thresholds>, now: ctx.now });
+  const job = await createJob({
+    programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds: thresholds as Partial<Thresholds>, now: ctx.now,
+    admit: async (tx) => (await countHit(dayKey, windowSeconds, ctx.now, tx)) <= limit,
+  });
+  if (job.limited) return no(SCREEN_TEXT.limit);
   // L17-5 (v6.1.16): applicants a live screen of the program already holds are not queued again; with none left, no job.
   const k = job.already.length;
-  // v6.1.16 Task 12 (from Task 4): a call that queued nothing new never counts against the day's ten.
-  if (job.id === null) await uncountHit(dayKey, windowSeconds, ctx.now);
-  if (job.id === null)
-    return line(`Nothing new to queue for ${program.file.title}; ${k} already queued.`, [...job.notes, 'Nothing was queued; their results come with the screens that hold them.'].join(' '));
-  const ahead = await queuedAhead(job.id, ctx.now);
   // L15-4 (v6.1.14): applicant fields the list carried that the screen does not read are named, never dropped silently.
   const ignored = ignoredFields(list);
   // L16-13, L16-8 (v6.1.16): a repo link off a code host, or a shortened link, is named beside the unknown fields.
   const dropped = job.dropped.length ? [`${job.dropped.join('; ')}.`, ...(job.dropped.some((d) => d.includes('shortened')) ? [SHORT_LINK_NOTE] : [])] : [];
+  const fieldNotes = [...(ignored.length ? [`Unknown applicant fields ignored: ${ignored.join(', ')}. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }].`] : []), ...dropped];
+  // v6.1.16 Task 4 N4 (v6.1.17): nothing new carries the same field and link notes a queued reply does.
+  if (job.id === null)
+    return line(`Nothing new to queue for ${program.file.title}; ${k} already queued.`, [...fieldNotes, ...job.notes, 'Nothing was queued; their results come with the screens that hold them.'].join(' '));
+  const ahead = await queuedAhead(job.id, ctx.now);
   return {
     show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}${k > 0 ? `; ${k} already queued` : ''}. ${promiseLine(ahead, job.total)}`,
-    agent_note: [SCREEN_TEXT.queuedNote, ...(ignored.length ? [`Unknown applicant fields ignored: ${ignored.join(', ')}. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }].`] : []), ...dropped, ...job.notes].join(' '),
+    agent_note: [SCREEN_TEXT.queuedNote, ...fieldNotes, ...job.notes].join(' '),
     job_id: job.id,
   };
 }

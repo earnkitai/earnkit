@@ -75,6 +75,8 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   await sql()`UPDATE screen_applicants SET status = 'done' WHERE job_id IN (SELECT id FROM screen_jobs WHERE builder_id = ${c.builderId})`;
   const tenth = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.ok(tenth.reply!.job_id, tenth.text);
+  // v6.1.16 Task 12 N2 (v6.1.17): only a screen that would make a job meets the limit, so these are read first again.
+  await sql()`UPDATE screen_applicants SET status = 'done' WHERE job_id IN (SELECT id FROM screen_jobs WHERE builder_id = ${c.builderId})`;
   const over = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.equal(over.reply!.show_to_builder, 'You can queue ten screens a day. Try again tomorrow.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 2);
@@ -556,6 +558,15 @@ test('L16-13, L16-8 (v6.1.16): the queue note names a repo link off a code host 
   assert.equal(q.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged. '
     + 'Unknown applicant fields ignored: website. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }]. '
     + 'repo_url dropped: not a code host (d-1); live_url dropped: a shortened link (d-2). Shortened links are not read; send the real one.');
+  // v6.1.16 Task 4 N4 (v6.1.17): the same list again queues nothing new and carries the same field and link notes.
+  const again = await mcpCall(c, 'screen', { program_id: 'scr-drop', applicants: [
+    { ref: 'd-1', name: 'Site', repo_url: 'https://example.com/acme/x', website: 'https://x.example' },
+    { ref: 'd-2', name: 'Short', live_url: 'https://bit.ly/abc' },
+  ] });
+  assert.equal(again.reply!.show_to_builder, 'Nothing new to queue for Grants scr-drop; 2 already queued.');
+  assert.equal(again.reply!.agent_note, 'Unknown applicant fields ignored: website. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }]. '
+    + 'repo_url dropped: not a code host (d-1); live_url dropped: a shortened link (d-2). Shortened links are not read; send the real one. '
+    + `Already queued: d-1 (row d-1 of screen ${q.reply!.job_id}) and d-2 (row d-2 of screen ${q.reply!.job_id}). Nothing was queued; their results come with the screens that hold them.`);
 });
 
 test('L16-14 (v6.1.16): a dot used as a thousands separator is its own line, once, the refs in the agent note; other bad amounts keep theirs', async () => {
@@ -782,4 +793,46 @@ test('L31-5 (v6.1.16 Task 17, ruling 43): one bad-amount line on the screen; the
     const r = await mcpCall(c, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'a', outcome: 'won', amount }] });
     assert.equal(r.reply!.show_to_builder, `Recorded 0 outcomes. ${line}`, amount);
   }
+});
+
+test('v6.1.16 Task 12 N2 (v6.1.17): a screen counts on the ten only when it makes a job; at nine a parallel nothing-new call never refuses the real one', async () => {
+  const c = await reviewerOf('scr-ten');
+  const key = `screenJobs:b:${c.builderId}`;
+  const day = windowStart(NOW, 86_400_000);
+  const countNow = async () => (await sql()<{ count: number }[]>`SELECT count FROM rate_windows WHERE key = ${key} AND window_start = ${day}`)[0]?.count ?? 0;
+  const first = await mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: APPLICANTS });
+  assert.ok(first.reply!.job_id, first.text);
+  await sql()`UPDATE rate_windows SET count = 9 WHERE key = ${key} AND window_start = ${day}`;
+  const fresh = [{ ref: 'n-1', name: 'New One', live_url: 'https://new-one.example/' }];
+  for (let round = 0; round < 3; round++) {
+    const [none, real] = await Promise.all([
+      mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: APPLICANTS }),
+      mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: fresh }),
+    ]);
+    assert.equal(none.reply!.show_to_builder, 'Nothing new to queue for Grants scr-ten; 2 already queued.');
+    assert.ok(real.reply!.job_id, real.text);
+    assert.equal(await countNow(), 10);
+    // Put the real one back, so the race runs again from nine.
+    await sql()`DELETE FROM screen_applicants WHERE job_id = ${real.reply!.job_id as string}`;
+    await sql()`DELETE FROM screen_jobs WHERE id = ${real.reply!.job_id as string}`;
+    await sql()`UPDATE rate_windows SET count = 9 WHERE key = ${key} AND window_start = ${day}`;
+  }
+  // At ten a nothing-new call still says nothing new; the eleventh real screen is refused, no job is kept, nothing counted.
+  await sql()`UPDATE rate_windows SET count = 10 WHERE key = ${key} AND window_start = ${day}`;
+  const none = await mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: APPLICANTS });
+  assert.equal(none.reply!.show_to_builder, 'Nothing new to queue for Grants scr-ten; 2 already queued.');
+  const over = await mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: fresh });
+  assert.equal(over.reply!.show_to_builder, 'You can queue ten screens a day. Try again tomorrow.');
+  assert.equal(await countNow(), 10);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 1);
+  // Two real screens in parallel at nine: one queued, one refused, ten counted.
+  await sql()`UPDATE rate_windows SET count = 9 WHERE key = ${key} AND window_start = ${day}`;
+  const pair = await Promise.all([
+    mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: fresh }),
+    mcpCall(c, 'screen', { program_id: 'scr-ten', applicants: [{ ref: 'n-2', name: 'New Two', live_url: 'https://new-two.example/' }] }),
+  ]);
+  assert.equal(pair.filter((r) => r.reply!.job_id).length, 1);
+  assert.equal(pair.filter((r) => r.reply!.show_to_builder === 'You can queue ten screens a day. Try again tomorrow.').length, 1);
+  assert.equal(await countNow(), 10);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 2);
 });

@@ -5,6 +5,10 @@
 import { categoryOf } from './program-file';
 import { usdFull } from './programs-read';
 import { quoteName } from './controls';
+import { ART_CREDIT, CTA_INSTALL, FOOT_CTA, NAV_RECORD } from './footer-words';
+
+/** The footer's words live in footer-words.ts (no imports), so the client error panel can carry the footer (v6.1.17). */
+export { ART_CREDIT, CTA_INSTALL, FOOT_CTA, NAV_RECORD };
 
 /** L23-11 (v6.1.16): the one date formatter in builder text, "Nov 6" in the current year and "Nov 6, 2025" in any other. */
 export { dayWords } from './deadline';
@@ -32,13 +36,11 @@ export const HERO_TITLE = 'Get funded for what you ship.';
 /** The one line about EarnKit (L25-2, v6.1.16): the hero, the meta description, every share card and SchemaOrg. */
 export const ONE_LINE = 'Your agent finds the grants and prizes your repo fits and fills the forms. Free.';
 export const HERO_SUB = ONE_LINE;
-export const CTA_INSTALL = 'Add EarnKit to your agent';
 /** The nav pill says the CTA's words: one install action (v6.1.15, #13). */
 export const NAV_INSTALL = CTA_INSTALL;
 /** Pages for everyone (L27-8, L27-16, L27-17, v6.1.16): the skip link first on every page, the signed-in nav link to
  *  /me, and the install pill's word under 360px (the header fits two rows at 320px). */
 export const SKIP_LINK = 'Skip to content.';
-export const NAV_RECORD = 'Your record';
 export const NAV_INSTALL_SHORT = 'Add';
 /** The one way the project-name limit is told on the pages (L27-31, v6.1.16): /me's hint and /docs' record card. */
 export const PROJECT_NAME_LIMIT = 'Project names are at most 80 characters.';
@@ -57,8 +59,6 @@ export const PROGRAMS_TITLE = 'Programs';
 export const PROGRAMS_DESCRIPTION = 'Every grant, prize and investment EarnKit lists, with the money and the close date.';
 /** A button that reads as a sentence (L21-21, v6.1.16). */
 export const ALL_PROGRAMS = 'See all programs.';
-export const FOOT_CTA = 'Ask your agent: What can I earn?';
-export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 
 export const GUIDE_FIELDS_TITLE = 'What the form asks';
 export const GUIDE_RULES_TITLE = 'Rules';
@@ -175,12 +175,21 @@ export const ME_DESCRIPTION = 'Your facts, links, documents and answers, kept on
 export const ME_SIGNED_IN = (login: string): string => `Signed in as ${login}.`;
 export const ME_SIGN_OUT = 'Sign out';
 export const ME_SAVE = 'Save';
+/** L35-24 (v6.1.17 Task 4): a collapsed answer's link that opens it on the page, the only one open. */
+export const ME_ANSWER_OPEN = 'Open this answer';
 export const ME_APPROVE = 'Approve';
 export const ME_UNAPPROVE = 'Unapprove';
 export const ME_APPROVED = (day: string): string => `Approved ${day}.`;
 export const ME_BY_AGENT = 'From your agent';
 export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
+/**
+ * L35-24 (v6.1.17 Task 4): Waiting for you counts the answers instead of repeating them; each waits collapsed in its
+ * section with this mark, and opens with its Approve.
+ */
+export const ME_PENDING_ANSWERS = (n: number) => (n === 1 ? '1 answer waits for you below.' : `${n} answers wait for you below.`);
+export const ME_PENDING_FIRST = 'Open the first one';
+export const ME_WAITING = 'Waiting for you.';
 export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
 /** A project the applications name that the record does not hold (L21-12, v6.1.16): read-only, by its repo link or name. */
 export const ME_PROJECT_SEEN = (label: string, n: number): string => `${label}: ${n} ${n === 1 ? 'application' : 'applications'}.`;

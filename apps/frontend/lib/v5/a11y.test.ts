@@ -150,14 +150,25 @@ test('L27-30, L27-31: the docs command block is a focusable region; the record c
   assert.ok(docs.includes(`>${PROJECT_NAME_LIMIT}</p>`));
 });
 
-test('L27-16, L27-17: signed in the nav shows Your record to /me; under 360px the pill says Add', () => {
+test('L27-16, L27-17 (v6.1.17 Task 4): the server header never carries Your record; the nav asks after load; the footer always links /me; under 360px the pill says Add', async () => {
   const out = html(Header());
-  const signed = html(Header({ signedIn: true }));
-  assert.ok(!out.includes(NAV_RECORD));
-  assert.match(signed, new RegExp(`<a[^>]*href="/me"[^>]*>${NAV_RECORD}</a>`));
-  assert.ok(signed.includes('<span class="hidden max-[360px]:inline">Add</span>'));
-  assert.ok(signed.includes('max-[360px]:gap-x-4'));
-  assert.ok(read('layout.tsx').includes("<Header signedIn={Boolean(sessionToken((await headers()).get('cookie')))} />"));
+  assert.ok(!out.includes(NAV_RECORD), 'the server HTML of the header has no Your record');
+  assert.ok(out.includes('<span class="hidden max-[360px]:inline">Add</span>'));
+  assert.ok(out.includes('max-[360px]:gap-x-4'));
+  // The layout reads no cookie, so the pages it wraps stay static.
+  const layout = read('layout.tsx');
+  assert.ok(layout.includes('<Header />'));
+  assert.ok(!/headers\(\)|cookies\(\)|sessionToken/.test(layout), 'no cookie read in the layout');
+  // The client upgrade: one no-store ask of the signed-in route, the link only on a true answer, never prefetched.
+  const nav = read('components/site/NavLinks.tsx');
+  assert.match(nav, /fetch\(SIGNED_IN_URL, \{ cache: 'no-store'/);
+  assert.match(nav, /SIGNED_IN_URL = '\/api\/me\/signed-in'/);
+  assert.match(nav, /setOn\(j\?\.signedIn === true\)/);
+  assert.match(nav, /record && signedIn \? \[record\]/);
+  assert.match(nav, /prefetch=\{l\.href === '\/me' \? false/);
+  // Without JavaScript /me stays one plain link away, on every page with the footer.
+  const { default: Footer } = await import('../../app/components/common/Footer');
+  for (const foot of [html(Footer()), html(Footer({ linked: true }))]) assert.match(foot, new RegExp(`<a href="/me" class="[^"]*">${NAV_RECORD}</a>`));
 });
 
 test('L27-23, L27-24: a tile without a logo shows the organizer initials; the organizer chip wraps to two lines, no ellipsis', () => {

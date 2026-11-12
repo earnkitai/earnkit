@@ -27,7 +27,7 @@ import { GET as llmsGet } from '../../app/llms.txt/route';
 import { GET as statsGet } from '../../app/api/stats/route';
 import { GET as programsGet } from '../../app/api/programs/route';
 import sitemap from '../../app/sitemap';
-import { NOT_A_ROUTE, guideGate, proxy } from '../../proxy';
+import { GUIDE_DOWN, NOT_A_ROUTE, guideGate, proxy } from '../../proxy';
 import MeView from '../../app/me/MeView';
 import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
 import { meData } from '../v6/me-view';
@@ -279,8 +279,8 @@ test('L27-3 (v6.1.16): an unknown guide id is a true 404: the proxy rewrites it 
   assert.equal(await guideGate(new URL('https://earnkit.com/programs'), ids), null);
   assert.equal(await guideGate(new URL('https://earnkit.com/programs/zz-page-open.svg'), ids), null);
   assert.equal(await guideGate(new URL('https://earnkit.com/docs'), ids), null);
-  // A failed read leaves the page to answer.
-  assert.equal(await guideGate(new URL('https://earnkit.com/programs/nope'), async () => { throw new Error('db down'); }), null);
+  // A failed read goes to the per-request unavailable page (N3, v6.1.17 Task 4), never the 404.
+  assert.equal((await guideGate(new URL('https://earnkit.com/programs/nope'), async () => { throw new Error('db down'); }))?.pathname, GUIDE_DOWN);
   // The page behind it: notFound() for an unknown id and a record that no longer parses (noindex through the metadata).
   for (const id of ['nope', 'zz-page-broken', 'Not A Slug']) await throws404(ProgramGuidePage(params(id)));
   const meta = await guideMetadata(params('nope'));
@@ -334,11 +334,11 @@ test('/llms.txt is plain text', async () => {
   assert.match(await res.text(), /https:\/\/earnkit\.com\/mcp/);
 });
 
-test('/api/stats answers the eleven keys (L22-1, v6.1.16: won_other and won_without_amount)', async () => {
+test('/api/stats answers the twelve keys (L22-1, v6.1.16: won_other and won_without_amount; v6.1.17: last_run_at)', async () => {
   const res = await statsGet();
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, number>;
-  assert.equal(Object.keys(body).length, 11);
+  assert.equal(Object.keys(body).length, 12);
   assert.ok(body.programs_open >= 2);
 });
 
@@ -444,7 +444,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   const b = await upsertBuilder({ github_id: 990_001, login: 'pagesme', name: null, avatar_url: null }, now);
   const patch = { person: { name: 'Pat' }, answers: { problem: { text: 'Builders <miss> grants.' } }, projects: [{ id: 'kit', name: 'Kit' }] };
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', now).record, now);
-  const m = html(MeView({ data: await meData(b, now, 'sess'), problem: '<b>Email: bad.</b>' }));
+  const m = html(MeView({ data: await meData(b, now, 'sess'), problem: '<b>Email: bad.</b>', open: 'answers.problem' }));
   const t = textOf(m);
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
@@ -475,10 +475,14 @@ test('L21-22 (v6.1.16, fix round 1 M2): on /me with a linked agent the footer an
   assert.ok(header.includes('[body:has([data-me-linked])_&amp;]:hidden') || header.includes('[body:has([data-me-linked])_&]:hidden'), header);
 });
 
-test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city pill first and the close in days', async () => {
-  const ends = new Date(Date.now() + 5 * 86_400_000 - 3_600_000).toISOString();
-  await upsertProgram(programFixture({ id: 'zz-page-city', title: 'Page City Hack', in_person: true, city: 'Eugene', ends_at: ends, summary: '$4,600 in prizes · 11:59 PM PT', pool_usd: 4600, reward: '$4,600 in prizes' }), 'file', new Date());
+test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city pill first and the close in days', async (t) => {
+  // v6.1.17 Task 1 fix round 1 (I4): rendered at a fixed instant (noon in PT), so the PT day count holds at any hour.
+  const at = new Date('2026-11-12T20:00:00Z');
+  const ends = new Date(at.getTime() + 5 * 86_400_000 - 3_600_000).toISOString();
+  await upsertProgram(programFixture({ id: 'zz-page-city', title: 'Page City Hack', in_person: true, city: 'Eugene', ends_at: ends, summary: '$4,600 in prizes · 11:59 PM PT', pool_usd: 4600, reward: '$4,600 in prizes' }), 'file', at);
+  t.mock.timers.enable({ apis: ['Date'], now: at });
   const m = html(await ProgramGuidePage(params('zz-page-city')));
+  t.mock.timers.reset();
   const pills = m.match(/<ul aria-label="How to apply"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
   const first = pills.match(/<li[^>]*>([^<]*)<\/li>/)?.[1];
   assert.equal(first, 'In person: Eugene.', pills);
@@ -501,4 +505,121 @@ test('L21-5 (v6.1.16): the landing, programs-list and guide caches are keyed thr
     for (const f of readdirSync(d).filter((x) => /\.tsx?$/.test(x) && x !== 'cached.ts'))
       assert.ok(!/unstable_cache\(/.test(readFileSync(join(d, f), 'utf8')), `${dir}/${f}`);
   }
+});
+
+test('v6.1.17 Task 4: /api/me/signed-in answers only { signedIn } and is never stored: true with a live session, false without', async () => {
+  const { GET } = await import('../../app/api/me/signed-in/route');
+  const { createSession, cookieName } = await import('../v6/sessions');
+  const b = await upsertBuilder({ github_id: 990_101, login: 'signedinroute', name: null, avatar_url: null }, new Date());
+  const { token } = await createSession(b.id, new Date());
+  for (const [cookie, want] of [[`${cookieName()}=${token}`, true], [null, false], [`${cookieName()}=forged`, false]] as const) {
+    const r = await GET(new Request('https://earnkit.test/api/me/signed-in', { headers: cookie ? { cookie } : {} }));
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('cache-control'), 'no-store', String(cookie));
+    assert.deepEqual(await r.json(), { signedIn: want }, String(cookie));
+  }
+  // The home page's server HTML (the layout's header and the page) never names the record link.
+  const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
+  assert.ok(!/headers\(\)|cookies\(\)/.test(layout));
+  const { default: Header } = await import('../../app/components/common/Header');
+  assert.ok(!html(Header()).includes('Your record'));
+});
+
+test('L35-24 (v6.1.17 Task 4): /me collapses each answer to its first line, one open at a time, and a 154-answer record stays under 500 KB', async () => {
+  process.env.EARNKIT_AUTH_SECRET ??= 'pages-secret-0123456789abcdef0123456789';
+  const { ANSWER_KINDS } = await import('./program-file');
+  const { firstLineOf } = await import('../v6/me-view');
+  const now = new Date();
+  // Lane 35's H.19 fixture: 14 kinds in 11 places (the record and 10 projects), each near the 2,000 cap (emoji count
+  // two toward it today).
+  for (const [n, body] of [[0, '\u{1F600}'.repeat(960)], [1, 'x'.repeat(1930)]] as const) {
+    const b = await upsertBuilder({ github_id: 990_200 + n, login: `bigrecord${n}`, name: null, avatar_url: null }, now);
+    const ans = (tag: string) => Object.fromEntries(ANSWER_KINDS.map((k) => [k, { text: `${tag} ${k} ${body}\nSecond line ${k}.` }]));
+    const patch = { answers: ans('rec'), projects: Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `Proj ${i}`, answers: ans(`p${i}`) })) };
+    const merged = mergeRecord(await getRecord(b.id), patch, 'agent', now);
+    assert.deepEqual(merged.problems, []);
+    await saveRecord(b.id, merged.record, now);
+    const data = await meData(b, now, 'sess');
+    const closed = html(MeView({ data, problem: null }));
+    assert.equal((closed.match(/<details[^>]*name="answers"/g) ?? []).length, 154);
+    assert.ok(!/<details[^>]* open=""/.test(closed), 'none open');
+    assert.ok(!closed.includes('Second line'), 'collapsed to the first line');
+    // Waiting for you counts the 154 and links the first; each is marked where it sits.
+    assert.ok(textOf(closed).includes('154 answers wait for you below. Open the first one'));
+    assert.ok(closed.includes('href="/me?open=answers.one_liner#a-answers.one_liner"'));
+    assert.equal(closed.split('Waiting for you.').length - 1, 154);
+    // The page in a browser carries the React payload too, about one and a half times this again (lane 35 measured the
+    // whole response: 755 KB before the count replaced the repeated rows, under 500 KB after).
+    const size = Buffer.byteLength(closed);
+    assert.ok(size < 200 * 1024, `${Math.round(size / 1024)} KB`);
+    // One open: its field (the edit box and Approve) in full; every other stays one line.
+    const opened = html(MeView({ data, problem: null, open: 'projects.p3.answers.risks' }));
+    assert.equal((opened.match(/<details[^>]* open=""/g) ?? []).length, 1);
+    assert.equal(opened.split('Second line risks.').length - 1, 1);
+    assert.match(opened, /name="path" value="projects\.p3\.answers\.risks"\/><input type="hidden" name="action" value="approve"\/>/);
+    assert.ok(opened.includes('name="projects.p3.answers.risks"'));
+    assert.ok(/<input type="hidden" name="open" value="projects\.p3\.answers\.risks"\/>/.test(opened), 'the open answer stays open after Save');
+    assert.ok(Buffer.byteLength(opened) < 200 * 1024);
+    assert.ok(closed.includes(`href="/me?open=answers.problem#a-answers.problem"`));
+  }
+  // The first line: cut at a word with an ellipsis, by characters.
+  assert.equal(firstLineOf('\n  First one.\nSecond.'), 'First one.');
+  assert.equal(firstLineOf(`${'word '.repeat(40)}`), `${'word '.repeat(12).trim()}…`);
+  assert.equal(Array.from(firstLineOf('\u{1F600}'.repeat(300))).length, 61);
+});
+
+test('v6.1.16 Task 13 N2 (v6.1.17 Task 4): /link pages send form-action self and GitHub, after the site-wide CSP so theirs wins, frame-ancestors kept', async () => {
+  const rules = await nextConfig.headers!();
+  const csp = (source: string) => rules.findLastIndex((r) => r.source === source && r.headers.some((h) => h.key === 'Content-Security-Policy'));
+  const link = rules[csp('/link/:path*')];
+  assert.ok(link, 'a /link CSP rule');
+  assert.ok(csp('/link/:path*') > csp('/:path*'), 'after the site-wide one');
+  assert.equal(link.headers.find((h) => h.key === 'Content-Security-Policy')?.value, "frame-ancestors 'none'; form-action 'self' https://github.com");
+});
+
+test('v6.1.16 Task 13 N3 (v6.1.17 Task 4): a failed guide-id read is never kept as a 404; the next request reads again', async () => {
+  const { okFor } = await import('../../proxy');
+  const { definiteGuideIds } = await import('./guide-page');
+  // An empty list is a failed read: it throws, so no cache keeps it.
+  await assert.rejects(definiteGuideIds(new Date(), async () => []), /no guide ids/);
+  assert.ok((await definiteGuideIds()).includes('zz-page-open'));
+  // The proxy's minute cache keeps only a success: a failure throws (the gate lets the request through) and is retried.
+  let t = 0;
+  let calls = 0;
+  let fail = true;
+  const ids = okFor(async () => {
+    calls++;
+    if (fail) throw new Error('db down');
+    return new Set(['zz-page-open']);
+  }, 60_000, () => t);
+  await assert.rejects(ids());
+  assert.equal((await guideGate(new URL('https://earnkit.com/programs/nope'), ids))?.pathname, GUIDE_DOWN, 'a failed read is never a 404');
+  fail = false;
+  assert.ok((await ids()).has('zz-page-open'));
+  assert.equal(calls, 3, 'retried on the next request');
+  t = 59_000;
+  await ids();
+  assert.equal(calls, 3, 'a success is kept for a minute');
+  // The page's gate: a failed id read throws (getGuidePage answers 'error', uncached), never null (a 404).
+  await assert.rejects(gatedGuidePage('zz-page-open', async () => { throw new Error('db down'); }, guideTextById));
+  const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
+  assert.match(src, /cachedRead\(\(\) => definiteGuideIds\(\), \['guide-ids-v6'\]\)/);
+  // The guide route is ISR: a failed read throws (never cached; a kept guide stays served), and the route's error panel
+  // says the guide is unavailable.
+  assert.ok(!/await connection\(\)/.test(src.slice(src.indexOf('export const getGuidePage'))), 'no dynamic bailout in an ISR render');
+  const page = readFileSync(join(import.meta.dirname, '../../app/programs/[id]/page.tsx'), 'utf8');
+  assert.match(page, /if \(page === 'error'\) throw new Error\('guide read failed'\);/);
+  assert.match(page, /export async function generateStaticParams\(\)[\s\S]*?return \[\];/);
+  // GUIDE_DOWN renders per request (never cached) in the server HTML: the panel, no JavaScript needed.
+  const down = await import('../../app/guide-unavailable/page');
+  assert.equal(down.dynamic, 'force-dynamic');
+  assert.deepEqual(down.metadata.robots, { index: false, follow: false });
+  assert.ok(textOf(html(down.default())).startsWith('This guide is unavailable right now. Try again in a few minutes. EarnKit home'));
+  const { default: GuideError } = await import('../../app/programs/[id]/error');
+  // v6.1.17 final round (Task 4 review N2): the error boundary is the one shared panel, footer included, as the
+  // server-rendered unavailable page.
+  const errorHtml = html(React.createElement(GuideError));
+  assert.ok(textOf(errorHtml).startsWith('This guide is unavailable right now. Try again in a few minutes. EarnKit home'));
+  assert.match(errorHtml, /<footer/);
+  assert.equal(errorHtml, html(down.default()));
 });
