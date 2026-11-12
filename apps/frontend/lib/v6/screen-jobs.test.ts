@@ -1010,3 +1010,15 @@ test('L28-3 (v6.1.16 Task 14): a send kept under the name only, off a repo that 
     { recorded: 1, notFound: [], notes: ['Not passed on, the EarnKit id belongs to another project: theirs.'] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${d.id}`} AND program_id = 'jobs-l28o'`)[0].status, 'applied');
 });
+
+test('v6.1.16 Task 4 N3 (v6.1.17 Task 3): the hold is one set-based query: a list of 60 names each held row (the oldest screen first), in list order, and queues the rest', async () => {
+  const r = await reviewer('jobs-set');
+  const site = (i: number) => ({ ref: `s${i}`, name: `S${i}`, live_url: `https://s${i}.example/` });
+  const older = await job(r, [site(1), site(3)]);
+  const newer = await job(r, [site(3), site(5)]);
+  assert.deepEqual([older.total, newer.total, newer.already], [2, 1, ['s3']]);
+  const big = await job(r, Array.from({ length: 60 }, (_, i) => site(i)));
+  assert.deepEqual(big.already, ['s1', 's3', 's5']);
+  assert.equal(big.total, 57);
+  assert.deepEqual(big.notes, [`Already queued: s1 (row s1 of screen ${older.id}), s3 (row s3 of screen ${older.id}) and s5 (row s5 of screen ${newer.id}).`]);
+});
