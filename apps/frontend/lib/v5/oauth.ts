@@ -278,6 +278,9 @@ export type ClientDeps = {
   fetchLimit?: (host: string, block: string) => Promise<unknown>;
   /** L35-5 (v6.1.16.1 Task 2): the caller's address block (`blockOf(clientIp)`), the second half of the fetch cap's key. */
   block?: string;
+  /** L35-5: false leaves the stored documents (`cimd_documents`) out: a test with mocked timers, which the database
+   *  driver's own timers would wait on. */
+  store?: false;
 };
 
 const CIMD_OK_MS = 60 * 60 * 1000;
@@ -376,7 +379,7 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   const now = (deps.now ?? Date.now)();
   // L35-5 (v6.1.16.1 Task 2): with no entry in this process, the copy another process (or this one before a restart)
   // read good is the entry, checked again as a fetched one is.
-  if (!cimdCache.has(url)) {
+  if (deps.store !== false && !cimdCache.has(url)) {
     const kept = await storedDocument(url);
     const client = kept && now - kept.at < CIMD_STALE_MS ? cimdPayload(url, kept.doc) : null;
     if (client) remember(url, { at: kept!.at, ok: client });
@@ -407,18 +410,18 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
       return good.ok;
     }
     remember(url, { at: now, failed: true });
-    if (good) await dropDocument(url);
+    if (good && deps.store !== false) await dropDocument(url);
     throw refused();
   }
   const client = cimdPayload(url, doc);
   if (!client) {
     // The vendor's document now fails a check: it replaces any good copy.
     remember(url, { at: now, failed: true });
-    if (good) await dropDocument(url);
+    if (good && deps.store !== false) await dropDocument(url);
     throw refused();
   }
   remember(url, { at: now, ok: client });
-  await storeDocument(url, doc, now);
+  if (deps.store !== false) await storeDocument(url, doc, now);
   return client;
 }
 

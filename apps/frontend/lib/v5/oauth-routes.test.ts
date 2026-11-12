@@ -122,8 +122,8 @@ test('an unlisted redirect_uri is refused on our page, never redirected', async 
 test('a 5,001 ms stall is refused with the failure page', async () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    // The fetch cap's database call is left out: its driver's timers would be mocked too.
-    const f = { ...cimdFixture({ stall: true }), fetchLimit: noLimit };
+    // The fetch cap's and the document store's database calls are left out: its driver's timers would be mocked too.
+    const f = { ...cimdFixture({ stall: true }), fetchLimit: noLimit, store: false as const };
     const p = authorize(DOC_URL, f);
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
     mock.timers.tick(5_001);
