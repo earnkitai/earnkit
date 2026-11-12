@@ -1,6 +1,8 @@
 /**
  * A valid program for tests, with any field overridden. Parsed, so defaults are filled.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ProgramFile, type Program } from '../program-file';
 
 export function programFixture(over: Partial<Program> & { id: string }): Program {
@@ -27,4 +29,15 @@ export function programFixture(over: Partial<Program> & { id: string }): Program
     ],
     ...over,
   });
+}
+
+/**
+ * v6.1.18 Task 6a (L39-1): a catalog file as it was while open: `status: active` and no `opens_note`. Base Builder
+ * Grants is upcoming since Round 2 closed, but it is the one program with a Builder Codes rule, so the tests of that
+ * rule (eligibility, find, the journey) seed it open with this.
+ */
+export function openCatalogProgram(id: string): Program {
+  const file = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../../programs', `${id}.json`), 'utf8'));
+  const { opens_note: _note, ...rest } = file;
+  return ProgramFile.parse({ ...rest, status: 'active' });
 }

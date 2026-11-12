@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { replayFetch } from './fixtures/github';
+import { openCatalogProgram } from './fixtures/program';
 import { mcpCall } from './fixtures/mcp-call';
 import { registerClient } from './oauth';
 import { connectInstallation, saveInstallation } from './installations';
@@ -19,6 +20,9 @@ const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unk
 process.env.EARNKIT_AUTH_SECRET ??= 'journey-test-secret-0123456789abcdef';
 after(() => sql().end());
 before(() => sql()`DELETE FROM repo_cache`);
+// L39-1 (v6.1.18): Base Builder Grants is upcoming (Round 2 closed); these tests read it as it was while open, the
+// one program with a Builder Codes rule.
+before(() => upsertProgram(openCatalogProgram('base-builder-grants'), 'file', new Date('2026-11-01T00:00:00Z')));
 
 const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;

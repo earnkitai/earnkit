@@ -162,7 +162,8 @@ test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any
   assert.equal(unknownProgramLine([], 'say "hi"'), 'I do not know a program called "say \'hi\'". Say its full name.');
   assert.equal(unknownProgramLine(['A', 'B'], 'zzqx'), 'Which program do you mean: A or B?');
   // Several: the first three by rank (open first, then the larger award, the sooner close), as a question.
-  assert.deepEqual(await one('Base'), { id: null, line: "Which program do you mean: Base Builder Grant Program, Base Ecosystem Fund or Base Batches 005?" });
+  // L39-1 (v6.1.18): Base Builder Grants is upcoming, so the open Base Ecosystem Fund leads.
+  assert.deepEqual(await one('Base'), { id: null, line: "Which program do you mean: Base Ecosystem Fund, Base Batches 005 or Base Builder Grant Program?" });
   // Lane 20 (v6.1.16): Monad Blitz Oregon is closed, so the open ones lead.
   assert.deepEqual(await one('monad'), { id: null, line: "Which program do you mean: Monad Blitz @广州 (Guangzhou), Monad Nitro or Monad Metropolis Hackathon?" });
   assert.deepEqual(await one('Monad Blitz'), { id: null, line: "Which program do you mean: Monad Blitz @广州 (Guangzhou) or Monad Blitz Oregon?" });

@@ -10,7 +10,7 @@ import { parseProject } from './project-input';
 import { ProgramFile, eligibilityOf } from './program-file';
 import type { ProgramRow } from './programs';
 import { replayFetch } from './fixtures/github';
-import { programFixture } from './fixtures/program';
+import { openCatalogProgram, programFixture } from './fixtures/program';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -32,7 +32,8 @@ async function factsOf(slug: string, over: Record<string, unknown> = {}): Promis
 }
 
 test('EarnKit vs Base: ready with builder codes and users, else the builder codes gap', async () => {
-  const base = fromFile('base-builder-grants');
+  // L39-1 (v6.1.18): Base Builder Grants is upcoming; its Builder Codes rule is tested as it read while open.
+  const base = toRow(openCatalogProgram('base-builder-grants'));
   // The report stands where no repo was read (private); a public read that finds none beats it (v6.1.9).
   const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true, private: true, chains: [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] }), new Set(), NOW);
   assert.equal(ready.status, 'ready', JSON.stringify(ready));
@@ -162,7 +163,7 @@ test('users: not reported is a gap only the builder can answer; false is no; tru
 });
 
 test('EarnKit vs Base with users not reported: one change away, the builder codes and the users question', async () => {
-  const v = evaluate(fromFile('base-builder-grants'), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
+  const v = evaluate(toRow(openCatalogProgram('base-builder-grants')), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.deepEqual(v.gaps.map((g) => g.kind).sort(), ['builder_codes', 'users']);
 });
