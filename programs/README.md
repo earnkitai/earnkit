@@ -39,7 +39,7 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `verified_at` | the day the facts were checked (`YYYY-MM-DD`), never ahead of today |
 | `existing_work` | `allowed`, `new_work_only` or `unknown` |
 | `needs_repo` | whether entering needs a repo or a live product |
-| `open_source` | `true` when the program's rule is an open source license or open source software (a rule or a `rules` line must say so; `programs:check` refuses it otherwise); a private repo is then one step from it, `a public repo`, never ready, and a project with no repo link on a `needs_repo` program is one step, `code in a public repo`; never also a rule item for it (`programs:check` refuses a `rule` item naming the public repo or the open source license on an `open_source` file). Leave it out (false) when open source is judged on, not required, or only the funded work must be released open |
+| `open_source` | `true` when the program's rule is an open source license or open source software (a rule or a `rules` line must say so; `programs:check` refuses it otherwise); a private repo is then one step from it, `a public repo`, never ready, and a project with no repo link on a `needs_repo` program is one step, `code in a public repo`; never also a rule item for it (`programs:check` refuses a `rule` item naming the public repo or the open source license on an `open_source` file), except a license rule with `"check": "license"` (see `eligibility`), which the repo read settles once the code step is done. Leave it out (false) when open source is judged on, not required, or only the funded work must be released open |
 | `chains`, `any_chain` | registered chain slugs, or `any_chain: true` and none |
 | `chain_required` | `true` only when the source requires one of `chains` at the project's core |
 | `needs_contract` | a chain (one of `chains`) where a deployed mainnet contract is required |
@@ -74,6 +74,14 @@ answers"`). It reads after "Needs your", so never start it with a verb or a ques
 `todo`. Changing `need`, `todo`, `description` or `guidance` alone is not a form change: no builder is told the form
 changed. Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
+
+How-you-heard fields (v6.1.18): a field that asks only how the builder heard of the program is EarnKit's to fill.
+Give it the key `referral`, `heard_from`, `how_did_you_hear`, `hear_about` or `referral_source`, or keep the form's
+own label when it starts "How did you hear / find / learn", "Referral" or "Where did you hear". A `text` field is
+filled `EarnKit (earnkit.com)`; a `choice` or `multi_choice` takes the option naming a referral, else the one starting
+"Other" (the agent is told to write EarnKit in an other box); a choice with neither is left to the builder. A field
+about a partner or alumni referral, or one that asks for more than the source (its `need` holds "with", as in
+`"referral source with email"`), is not one: label it as the form does and it is left alone.
 
 ### `eligibility`
 
@@ -117,7 +125,7 @@ items take keywords.
 
 A `rule` whose whole requirement is an open source license on the repo takes `"check": "license"`: the repo read
 settles it. A license GitHub detects as OSI-approved (MIT, Apache-2.0, the BSD, GPL, LGPL, AGPL, MPL, EPL licenses,
-ISC, Unlicense, CC0-1.0, 0BSD) confirms it and nothing is asked; a repo with no license file gets the step `a license
+ISC, Unlicense, 0BSD; CC0-1.0 is not OSI-approved and keeps the question) confirms it and nothing is asked; a repo with no license file gets the step `a license
 file`, which EarnKit adds (MIT) on "do"; an unrecognized or other license, or a repo not read, keeps the rule question.
 Leave it off a rule that asks more than the license (recent releases, open standards). Only `rule` items take `check`.
 

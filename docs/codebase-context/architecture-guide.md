@@ -130,7 +130,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    The users question closes "Do real people use it? Say yes and I apply." only when that yes makes the program ready;
    with a setup step or a rule left beside it, "Do real people use it? Say yes and I look again." (final fix, v6.1.12); only when no remote step is shown (or none names an
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
-   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof of real users" and the sign-in is asked once, inside the Say that needs it (v6.1.18 Task 10, see that section; never a promise to remember the builder); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
+   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof of real users" and the sign-in is asked once, inside the Say that needs it (v6.1.18 Task 10, see that section; never a promise to remember the builder); the one-program reply puts the sign-in first in its action when the program carries the proof (`Sign in at {link} so I can check the repo, then ...`; v6.1.18 Task 10, appended after the action before); nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
    `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
@@ -145,8 +145,8 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
    results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
    how it went when results are due." is always kept.
-8. `find` caps the lists (every remote ready program since v6.1.17, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
-   programs get their own block with their setup (never in "apply to all N"), and the reply ends with
+8. `find` caps the lists (every remote ready program since v6.1.17, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. The default view shows at most `READY_SHOWN` (3) ready rows and splits the gap rows into `One step away` and `More to do first` (v6.1.18 Task 10); `And {n} more in the full list.` counts the rest (v6.1.18 Task 1). In-person
+   programs get their own block (one line in the default view since v6.1.18 Task 10, its setup in the agent's lines and the one-program reply; never in "apply to all N"), and the reply ends with
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
    `find` also saves every gap (at most 60) to `installations.last_gaps` as `{ program_id: what is missing }`;
@@ -182,7 +182,12 @@ The pipeline, in order:
    digest's could-not-read list (v6.1.17 Task 3) until its file has them; a closed program may have none). A redirect to another host counts as alive
    (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
-   listed in the owner's digest and never marks the program stale. A program unverified or stale for `STALE_DAYS`
+   listed in the owner's digest and never marks the program stale. v6.1.18 (L39-5): a submission page that answers but
+   whose text says it is closed (`is now closed`, `applications are closed`, `no longer accepting`, `closed for
+   submissions`, any case; `formSaysClosed` in `health.ts`) is stored as `submit_closed` and listed in the digest's
+   failing block as `{title}: the form says it is closed ({url})`; it never marks the program stale and never changes
+   `submit_ok`. A redirect to another host is followed only for this read (`landingPage` in safe-fetch: https, public
+   addresses, at most `LANDING_MAX_REDIRECTS` (3) hops), so forms.gle reaches the Google form; the link check itself still never follows. A program unverified or stale for `STALE_DAYS`
    (12, v6.1.17 Task 3) leaves the open list, so a page that stays down leaves within 14 days of its first failure. The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
    an upcoming one past `starts_at` active with opens_note dropped, one warning each), so a deploy never undoes a move. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
@@ -260,8 +265,8 @@ with a repo shows one sign-in line: the reply's apply offer, said again after th
 
 Task 14 fix round 3: once track's gate shows the tie, `record` (applied, held; `tied`) and `claim` (`tied`) take over the
 builder's own keyless row for the program (its key and repo key set, only when no other owner holds that repo), so a
-keyless send then a repo send reads `Already sent on {date}.` and no orphan claim or hold is left. A signed-out find that
-ends on the sign-in line always fetches the link (never after the record was deleted) and carries it as `sign_in`; right
+keyless send then a repo send reads `Already sent on {date}.` and no orphan claim or hold is left. A signed-out find whose
+Say signs in (v6.1.18 Task 10; "ends on the sign-in line" before) always fetches the link (never after the record was deleted) and carries it as `sign_in`; right
 after an unlink the notice keeps only `This agent was unlinked from your account.` and the closing carries the link.
 
 **Ownership, identity and list numbers (v6.1.16.1 Task 2, lane 35).** Each application row carries `identity`
@@ -415,7 +420,10 @@ before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a
 (`RETRY_AFTER_S`, job timeout 30 minutes); a missing `CRON_SECRET` fails the job unless the repo variable
 `EARNKIT_CRON_PAUSED` is `true` (v6.1.17 Task 3, L30-14); the next run retries. The owner's digest
 (`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
-change to live programs since the last digest, with revert links; nothing happened, nothing sent) answers `sent`,
+change to live programs since the last digest, with revert links; nothing happened, nothing sent; v6.1.18 Task 5,
+L18-5: when the previous UTC day had sends, an `Applications: {n} sent ({a} by agents, {d} drafted here and sent by
+builders, {r} reported from outside); {total} all time.` block with one `- {title} ({id}): {k}` line per program, most
+first; a day with none adds nothing) answers `sent`,
 `none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
 day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
@@ -433,8 +441,9 @@ JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minu
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications, agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
-| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency and `last_run_at` (v6.1.17), and names no one |
+| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17) and `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
+| `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`; never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
@@ -491,8 +500,10 @@ http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
 and `reservedClientName` (a name holding `earnkit` after look-alike letters fold, and v6.1.16 L16-10 digits and `l`
-read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
-are capped at 30 an hour per document host and caller address block (`cimdFetch`, `CIMD_FETCH_KEY(host, block)`;
+read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused; v6.1.18 lane 40: `fold`
+reads each letter through the full confusables table plus ĸ ƙ ʞ, and dynamic registration checks the cleaned name
+too, `clientNameOf`); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
+are capped at 30 an hour per document host and caller address block (`cimdFetch`, `CIMD_FETCH_KEY(host, block)`, the host lower-cased with trailing dots removed since v6.1.18 lane 40;
 v6.1.16.1 Task 2, L35-5; the routes pass `blockOf(clientIp)`) and 300 an hour per host across every block
 (`cimdFetchHost`, controller ruling); both must pass before a fetch (over either, no fetch and the failure page). A good
 document is also stored in `cimd_documents` (document, fetched_at; rows past 6 hours go on each write), so a process with
@@ -537,6 +548,7 @@ keys from tool-call bodies before anything sees them.
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered, with the last body's hash (`body_hash`) |
+| `outcome_asks`, `sent_asks` | When each installation was last asked about a program: the results question (daily) and, v6.1.18 Task 4, the "did you send it" question for a builder-sent program (`asked_on`, weekly; key installation and program) |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (180 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
@@ -582,7 +594,12 @@ copied from a template. Tests skip nothing; a run whose output has no failure li
   cleanup. The target comes from `REPRO_BASE_URL` (default `http://localhost:4600`) and `REPRO_DATABASE_URL` (default
   `earnkit_journeys`), plus `REPRO_AUTH_SECRET` and `REPRO_CRON_SECRET` to match the server. `target.ts` refuses a host
   other than `localhost`, `127.0.0.1` or `::1` unless `REPRO_ALLOW_REMOTE=1`, refuses earnkit.com always, and needs a
-  local Postgres (pinned in `repro-target.test.ts`). The pack is not part of `pnpm test`. Its README has the recipe for a
+  local Postgres (pinned in `repro-target.test.ts`; v6.1.18 lane 40: trailing dots stripped, a look-alike earnkit.com
+  folded and refused, `*.up.railway.app`, an empty database host, `hostaddr=` and any non-loopback IP address refused
+  even with `REPRO_ALLOW_REMOTE=1`). The pack is not part of `pnpm test`. v6.1.18 FR-4: `run.sh` exits with the
+  script's own code and loads `fail-line.mjs`, so an uncaught error prints one `FAIL <id>: <message>` line, never a
+  stack; `l23-2.mts` polls the guide until its cached id list refreshes (up to 700 s; the wait variant is gone) and
+  `cleanup.mts` also deletes the pack's `oauth_clients` rows (lane 37). Its README has the recipe for a
   dev server from a worktree on a throwaway database copied from the test template.
 - Persona replays (v6.1.17 Task 5): `find.test.ts` replays lane 1h's personas on recorded repos of the same kind
   (`LANE_1H`). Personas 8, 9, 12, 15, 30 and 31 have their default reply pinned exactly: the gap once in line 1, the
@@ -599,6 +616,11 @@ also pins the package version equal to the newest `v6.1.*` plan file in
 whose plan is written but whose package is not bumped fails the suite. Only major.minor.patch is compared (v6.1.17
 final round, `releaseVersionOf`): a four-part patch plan (`v6.1.17.1-patch-plan.md`) is a patch of 6.1.17 and asks
 for 6.1.17, since a fourth part is not semver.
+
+Releases under this gate: 6.1.17 (`v6.1.17-journeys-11-plan.md`), 6.1.18 (`v6.1.18-journeys-12-plan.md`: the more line
+and what closes this week, code in a public repo as the step, the builder-sent closing, the sent ask and how-you-heard
+field, the owner's applications view, lane 1k's file landing and full-list numbers, lanes 36 and 38, the license read
+and FLOSS manifest, and the deferred v6.1.17 FR-3 and FR-5 pins).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -798,9 +820,11 @@ L18-2: every `needs_repo` program (any category) is one step from a project with
 the empty-repo step stays for grants for existing code only. For a program for new work (a hackathon, an event) the
 code step is the entry itself, so like the started question it counts toward neither gap limit. Wherever it is left,
 it is the one-program closing's step ("Tell me when the code is in a public repo and I look again."), whatever else
-remains. `programs:check` refuses a `rule` item (with no keywords) on an `open_source` file whose note names the
+remains. `programs:check` refuses a `rule` item on an `open_source` file whose note names the
 public repo or the open source license (`eligibility: the public repo is the open_source flag's step; drop the rule
-item`): the flag carries it, never a rule to confirm.
+item`): the flag carries it, never a rule to confirm. Since the v6.1.18 merge a license rule item with `"check":
+"license"` is the exception: the repo read settles it (Task 11, L38-27; see the merge section), and it waits while the
+code step stands. The `ARCHIVED_REPO` gap now reads `a live repo` (v6.1.18 L38-9).
 v6.1.16 (L1g-5): every single step closes in one shape, `Tell me when {step} and I look again.` (`singleStepClosing`,
 the step from `stepClause`: "the code is in a repo", "the repo is public", "the contract is on {Chain}[ mainnet]", "the
 live link is up", "the demo video is ready", "you {setup}"; a telling setup reads "Tell me the live repo and I look
@@ -1222,8 +1246,8 @@ means what the last `Say` offered.
   then the one Say last (`ONE_SAY_ORDER`'s first Say moves to the end); v6.1.17 (L1j-6): with no Say the closing still
   comes last, after the sign-in and the notice, except a bare "Nothing is ready yet." (`NOTHING_READY`), after which the
   sign-in is the action and follows it. What does not fit goes to the agent note under "Not shown to the builder:", one per line.
-  `filter.all` ("say more") is `fullView`: "{n}. {title}, {money}." per program, the repo notes, sign-in and notice,
-  then the Say. An unknown `filter.category` and a top-level project key are named in the problems line. The project
+  `filter.all` ("say more") is `fullView`: "{n}. {title}, {money}." per program, the repo notes and notice, then the
+  Say (any sign-in inside it, v6.1.18 Task 10). An unknown `filter.category` and a top-level project key are named in the problems line. The project
   schema advertises a type on every field, `required: ["name"]` and "A project needs a description when it has no
   repo_url".
 - **Find after the 10-line cap (v6.1.16.1, lane 1i).** The step block shows as many rows as the budget allows, at least
@@ -1234,7 +1258,10 @@ means what the last `Say` offered.
   block, the applications line, Task 9's not-sent and started lines, the overnight report (5.5), a linkless sign-in
   (5.65), the other step rows (5.7), the results question (5.8), the Before line (5.85) and the since line (6); when
   lines are short the since line gives way first, then the results question, then the extra step rows (a line left out
-  is the agent's, under "Not shown to the builder"). Shown rows are numbered 1, 2, 3 in display order: `replyParts`
+  is the agent's, under "Not shown to the builder"). v6.1.18 Task 10: the sign-in is never a line of its own (it sits
+  inside the Say, which ranks last), so only an unlink notice carrying the link ranks 0 and a linkless notice 5.6; the
+  step blocks grow at 5.7 (One step away) and 5.85 (More to do first), the sent questions sit beside the results
+  question (5.8) and the Before line ranks 5.55 (the Task 10 section has the current table). Shown rows are numbered 1, 2, 3 in display order: `replyParts`
   lays the view out once (`asShown`), renumbers the shown ids first and the rest after, and writes the reply (and its
   Say's "yes n" / "do n") from those numbers; it returns `shown` and `say`. The numbers the builder sees are the JSON's
   `n` and track's (fix round 1, I4): a default find numbers its shown rows 1..k (the rest after) and stores that as
@@ -1248,7 +1275,8 @@ means what the last `Say` offered.
   from the programs the default view lists), and never asks a rule it does not show: a rule Say becomes `Say a number
   and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
   closes and in person per line (`openLine`); with `filter.all` it lists every open program, for no project and a
-  name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on): when the closing's Say is the unlinked users question, the link
+  name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on; since v6.1.18 Task 10 always
+  inside the Say that needs it): when the closing's Say is the unlinked users question, the link
   goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and (v6.1.17, L1j-1) no other line
   mentions signing in (`SIGN_IN_PROOF` is gone). `findInputOf` returns an input
   error (isError, no builder text, the field named) for an unknown top-level key and a project with no name; an
@@ -1256,8 +1284,8 @@ means what the last `Say` offered.
   program's zone on every surface (reply, tile, guide). `programs:check` also refuses a figure beside "million" or
   "billion" (`MONEY_WORDS`).
 - **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35; fix round 1).** The no-project find (open list,
-  applications line or bad category) ends on its ask, with the sign-in sentence, the unlink notice or the linked report
-  before it (fix round 1 I3). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
+  applications line or bad category) ends on its ask, with the unlink notice or the linked report before it (fix round
+  1 I3; v6.1.18 L38-31: the open list carries no sign-in line, the link stays in `sign_in`). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
   before it (M1, N1); v6.1.18 (L1k-4): an open online lookup with no project ends on `NO_PROJECT_ONE` (`Tell me
   about your project and I check the fit.`) after the rules; a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
   default view leaves out (in-person and held rows too) is counted once, on
