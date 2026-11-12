@@ -205,7 +205,7 @@ test("L18-5c: the digest's applications block counts the previous UTC day's send
     sent: 3, agent: 1, drafted: 1, reported: 1, total: 7,
     byProgram: [{ id: 'od-b', title: 'Beta  Prize', sent: 1 }, { id: 'od-a', title: 'Alpha Grants', sent: 2 }],
   });
-  assert.equal(block, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (1 by agents, 1 drafted here and sent by builders, 1 reported from outside); 7 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
+  assert.equal(block, 'EarnKit programs: 2026-12-20\n\n3 sent yesterday: 1 by agents, 1 drafted here, 1 from outside. 7 to date.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
   assert.equal(dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, { sent: 0, agent: 0, drafted: 0, reported: 0, total: 7, byProgram: [] }), null);
 
   const db = sql();
@@ -229,8 +229,12 @@ test("L18-5c: the digest's applications block counts the previous UTC day's send
     await ins(`i:${ia.id}`, ia.id, 'od-b', 'started', y(4), null, null, 'Beta Prize', 'app_od4');
     // An older send counts all time only.
     await ins(`i:${ia.id}`, ia.id, 'od-c', 'applied', new Date('2026-11-01T00:00:00Z'), new Date('2026-11-01T00:00:00Z'), 'agent', 'Old', 'app_od5');
+    // L42-2: an outside win (a builder row with no send time) yesterday counts in neither number.
+    await ins(`i:${ib.id}`, ib.id, 'od-e', 'won', y(6), null, 'builder', 'Outside', 'app_od8');
+    // L42-1: a result yesterday on a send from November is not a send yesterday (it counts to date).
+    await ins(`i:${ia.id}`, ia.id, 'od-f', 'won', y(7), new Date('2026-11-02T00:00:00Z'), 'agent', 'Older', 'app_od9');
     const day = new Date('2026-12-20T06:15:00Z');
-    const want = 'EarnKit programs: 2026-12-20\n\nApplications: 4 sent (2 by agents, 1 drafted here and sent by builders, 1 reported from outside); 5 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n- Delta Fund (od-d): 1\n';
+    const want = 'EarnKit programs: 2026-12-20\n\n4 sent yesterday: 2 by agents, 1 drafted here, 1 from outside. 6 to date.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n- Delta Fund (od-d): 1\n';
     assert.equal(await sendOwnerDigest(day, mailer), 'sent');
     assert.equal(sent[0].text, want);
     // A send today changes neither yesterday's block nor the all-time number: the same-day rerun builds the same hash.
@@ -297,4 +301,11 @@ test('L39-5 fix round 1: a forms.gle-style link that redirects to a closed form 
   assert.deepEqual([run.stale, run.failed], [[], []]);
   assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
   assert.match(sent[0]!.text, /Links that did not load\n- Gle Form Grants: the form says it is closed \(https:\/\/forms\.gle\/xyz\)/);
+});
+
+test('L42-7: the digest line', () => {
+  const health = { closed: [], failing: [], changed: [] };
+  const text = dailyOwnerText('2026-11-13', [], health, { sent: 6, agent: 3, drafted: 2, reported: 1, total: 8, byProgram: [{ id: 'futo', title: 'FUTO Microgrants', sent: 6 }] })!;
+  assert.ok(text.includes('6 sent yesterday: 3 by agents, 2 drafted here, 1 from outside. 8 to date.\n- FUTO Microgrants (futo): 6'));
+  assert.doesNotMatch(text, /[\u2014\u2013]/);
 });

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { programFixture } from './fixtures/program';
 import { listOpenPrograms, upsertProgram, type ProgramRow } from './programs';
-import { openMoneyUsd, readStats, statsGet, STATS_KEYS } from './stats';
+import { openMoneyUsd, readStats, sendCounts, sendRows, statsGet, STATS_KEYS } from './stats';
+import { record } from './ledger';
 
 after(() => sql().end());
 
@@ -142,4 +143,47 @@ test('L36-3, L36-4: applications_via_earnkit counts agent sends (submitted_by nu
   assert.equal(now.applications - before.applications, 5);
   assert.equal(now.applications_via_earnkit - before.applications_via_earnkit, 3, 'the agent send, the unmarked (an agent\'s, L29-23) and the drafted one; a start after the send counts nothing');
   assert.equal(now.read_at, NOW.toISOString());
+});
+
+// ---- v6.1.19 Task 1 (lane 42): the owner's count dates a send by its send ----
+
+const statInstall = async () => {
+  const [r] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`stat42-${Math.random()}`}) RETURNING id`;
+  return r.id;
+};
+
+test('L42-1: a win today on a send from 10 days ago is not a send this week', async () => {
+  await upsertProgram(programFixture({ id: 'l42-old-send', max_award_usd: 5000 }), 'file', NOW);
+  const i = await statInstall();
+  const before = await readStats(NOW);
+  assert.equal((await record(`i:${i}`, 'l42-old-send', 'applied', { installationId: i, now: ago(10) })).ok, true);
+  assert.equal((await record(`i:${i}`, 'l42-old-send', 'won', { installationId: i, amount_usd: 100, now: NOW })).ok, true);
+  const now = await readStats(NOW);
+  assert.equal(now.applications_7d - before.applications_7d, 0, 'the send was 10 days ago; the win today does not move it');
+  assert.equal(now.applications - before.applications, 1);
+});
+
+test('L42-2: an outside win has no send date: not in the week, still sent all time', async () => {
+  await upsertProgram(programFixture({ id: 'l42-outside', max_award_usd: 5000 }), 'file', NOW);
+  const i = await statInstall();
+  const before = await readStats(NOW);
+  const r = await record(`i:${i}`, 'l42-outside', 'won', { installationId: i, amount_usd: 100, outsideWin: true, now: NOW });
+  assert.equal(r.ok && r.outside, true);
+  const now = await readStats(NOW);
+  assert.equal(now.applications_7d - before.applications_7d, 0, 'an outside win has no send date');
+  assert.equal(now.applications - before.applications, 1);
+  const db = sql();
+  const [row] = await db<{ sent_time: Date | null }[]>`WITH s AS (${sendRows(db)}) SELECT sent_time FROM s WHERE program_id = 'l42-outside'`;
+  assert.equal(row.sent_time, null);
+});
+
+test('L42-5: a held program sent by the builder counts as reported, not drafted', async () => {
+  const db = sql();
+  const i = await statInstall();
+  await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${`i:${i}`}, ${i}, 'l42-held', 'held', ${ago(3)})`;
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, submitted_by, at, sent_at) VALUES (${`i:${i}`}, ${i}, 'l42-held', 'applied', 'builder', ${ago(2)}, ${ago(2)})`;
+  await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${`i:${i}`}, ${i}, 'l42-held', 'applied', ${ago(2)})`;
+  const [c] = await db<{ drafted: string; reported: string }[]>`
+    WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s WHERE program_id = 'l42-held'`;
+  assert.deepEqual({ drafted: Number(c.drafted), reported: Number(c.reported) }, { drafted: 0, reported: 1 });
 });

@@ -2,10 +2,13 @@ import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import type { Mailer } from './mail';
-import { getProgram } from './programs';
+import { getProgram, upsertProgram } from './programs';
+import { programFixture } from './fixtures/program';
+import { record } from './ledger';
+import { secretMatches } from './http';
 import { programsListGet, watchCatalogRevalidation } from './programs-read';
 import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
-import { applicationsGet, approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { applicationsGet, parseSince, programsApiOn, approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
@@ -504,21 +507,21 @@ test('L18-5: 404 while the API is off, 401 on a wrong token, 200 with totals and
       {
         // An `i:` owner on a linked installation: the linked builder's login (fix round 1, ruling 3).
         application_id: 'app_l185d', program_id: 'l185-alpha', title: 'Alpha Grants', status: 'applied', submitted_by: 'builder', auto_applied: false,
-        sent_at: '2030-01-05T10:00:00.000Z', at: '2030-01-05T10:00:00.000Z', builder: 'l185-linked', agent: 'Codex', fields_used: 0, amount_usd: null, through_earnkit: false,
+        sent_at: '2030-01-05T10:00:00.000Z', at: '2030-01-05T10:00:00.000Z', builder: 'l185-linked', agent: 'Codex', fields_used: 0, amount_usd: null, through_earnkit: false, reported: true,
       },
       {
         application_id: 'app_l185b', program_id: 'l185-beta', title: 'Beta Prize', status: 'won', submitted_by: 'builder', auto_applied: false,
-        sent_at: '2030-01-03T10:00:00.000Z', at: '2030-01-04T10:00:00.000Z', builder: 'l185-login', agent: 'Cursor', fields_used: 0, amount_usd: 500, through_earnkit: true,
+        sent_at: '2030-01-03T10:00:00.000Z', at: '2030-01-04T10:00:00.000Z', builder: 'l185-login', agent: 'Cursor', fields_used: 0, amount_usd: 500, through_earnkit: true, reported: false,
       },
       {
         // An `i:` owner on an unlinked installation: no builder.
         application_id: 'app_l185a', program_id: 'l185-alpha', title: 'Alpha Grants', status: 'applied', submitted_by: 'agent', auto_applied: true,
-        sent_at: '2030-01-02T10:00:00.000Z', at: '2030-01-02T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 2, amount_usd: null, through_earnkit: true,
+        sent_at: '2030-01-02T10:00:00.000Z', at: '2030-01-02T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 2, amount_usd: null, through_earnkit: true, reported: false,
       },
       {
-        // Unmarked: the agent's, so through EarnKit; submitted_by stays as stored.
-        application_id: 'app_l185e', program_id: 'l185-delta', title: 'Delta Fund', status: 'applied', submitted_by: null, auto_applied: false,
-        sent_at: '2030-01-01T10:00:00.000Z', at: '2030-01-01T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 0, amount_usd: null, through_earnkit: true,
+        // Unmarked: the agent's (L42-9: listed as 'agent', the stored null stays), so through EarnKit.
+        application_id: 'app_l185e', program_id: 'l185-delta', title: 'Delta Fund', status: 'applied', submitted_by: 'agent', auto_applied: false,
+        sent_at: '2030-01-01T10:00:00.000Z', at: '2030-01-01T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 0, amount_usd: null, through_earnkit: true, reported: false,
       },
     ]);
     // Never an email, a sign-in code or an installation id (the rows' keys are exactly the ones above).
@@ -549,5 +552,77 @@ test('L18-5b: since filters the rows only (totals stay all time), limit caps at 
     assert.equal(APPLICATIONS_MAX, 500);
   } finally {
     await cleanSends();
+  }
+});
+
+// ---- v6.1.19 Task 1 (lane 42): the owner's count tells the truth ----
+
+test('L42-3: a token with a trailing newline turns the API on and accepts the right bearer', async () => {
+  process.env.EARNKIT_PROGRAMS_TOKEN = `${TOKEN}\n`;
+  assert.equal(programsApiOn(), true);
+  assert.equal((await appsReq()).status, 200);
+  assert.equal((await appsReq('', 'Bearer wrong')).status, 401);
+  // 31 characters and a newline is still too short: the length rule reads the trimmed token.
+  process.env.EARNKIT_PROGRAMS_TOKEN = `${'p'.repeat(31)}\n`;
+  assert.equal(programsApiOn(), false);
+});
+
+test('L42-3: secretMatches trims the secret and reads its length trimmed', () => {
+  const secret = 'c'.repeat(40);
+  assert.equal(secretMatches(secret, `${secret}\n`), true);
+  assert.equal(secretMatches(secret, `  ${secret} \r\n`), true);
+  assert.equal(secretMatches('c'.repeat(31), `${'c'.repeat(31)}\n`), false);
+  assert.equal(secretMatches('wrong', `${secret}\n`), false);
+});
+
+test('L42-4, L42-8: parseSince', () => {
+  assert.equal(parseSince('2026-02-30'), null);
+  assert.equal(parseSince('2026-11-12T24:00'), null);
+  assert.equal(parseSince('2026-11-12T10:60'), null);
+  assert.equal(parseSince('2026-13-01'), null);
+  assert.equal(parseSince('yesterday'), null);
+  assert.equal(parseSince('2026-11-12T10:00')!.toISOString(), '2026-11-12T10:00:00.000Z');
+  assert.equal(parseSince('2026-11-12T10:00+05:30')!.toISOString(), '2026-11-12T04:30:00.000Z');
+  assert.equal(parseSince('2026-11-12')!.toISOString(), '2026-11-12T00:00:00.000Z');
+  assert.equal(parseSince('2026-11-12T10:00:30.250Z')!.toISOString(), '2026-11-12T10:00:30.250Z');
+  assert.equal(parseSince('2024-02-29')!.toISOString(), '2024-02-29T00:00:00.000Z');
+});
+
+test('L42-4: since=2026-02-30 is 400 "since: an ISO date"', async () => {
+  const bad = await appsReq('?since=2026-02-30');
+  assert.equal(bad.status, 400);
+  assert.deepEqual(await bad.json(), { ok: false, error: 'since: an ISO date' });
+});
+
+test('L42-6, L42-2: agent is the installation that recorded the send, not the one that recorded its result; an outside win is undated, reported and listed last', async () => {
+  const db = sql();
+  const at = new Date('2030-02-01T10:00:00Z');
+  await upsertProgram(programFixture({ id: 'l42-send', title: 'L42 Send', max_award_usd: 5000 }), 'file', at);
+  await upsertProgram(programFixture({ id: 'l42-outside', title: 'L42 Outside', max_award_usd: 5000 }), 'file', at);
+  const [b] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918420, 'l42-login') RETURNING id`;
+  const [ia] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('l42-a', 'Claude Code', ${b.id}) RETURNING id`;
+  const [ib] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('l42-b', 'Cursor', ${b.id}) RETURNING id`;
+  const owner = `b:${b.id}`;
+  try {
+    assert.equal((await record(owner, 'l42-send', 'applied', { installationId: ia.id, submitted_by: 'agent', now: at })).ok, true);
+    assert.equal((await record(owner, 'l42-send', 'won', { installationId: ib.id, amount_usd: 100, now: new Date('2030-02-03T10:00:00Z') })).ok, true);
+    // The outside win is recorded after the send, so a sort by `at` alone would list it first.
+    const out = await record(owner, 'l42-outside', 'won', { installationId: ib.id, amount_usd: 100, outsideWin: true, now: new Date('2030-02-05T10:00:00Z') });
+    assert.equal(out.ok && out.outside, true);
+    const res = (await (await appsReq('?since=2030-02-01T00:00:00Z')).json()) as AppsOut;
+    const rows = res.rows.filter((r) => String(r.program_id).startsWith('l42-'));
+    assert.deepEqual(rows.map((r) => [r.program_id, r.agent, r.sent_at, r.reported, r.submitted_by]), [
+      ['l42-send', 'Claude Code', '2030-02-01T10:00:00.000Z', false, 'agent'],
+      ['l42-outside', 'Cursor', null, true, 'builder'],
+    ]);
+    assert.equal(res.rows.at(-1)!.program_id, 'l42-outside', 'an undated row is listed last');
+    // since: an undated row is kept by its `at` (it has no other date); a dated one by its send time.
+    const later = (await (await appsReq('?since=2030-02-02T00:00:00Z')).json()) as AppsOut;
+    assert.deepEqual(later.rows.map((r) => r.program_id), ['l42-outside']);
+  } finally {
+    await db`DELETE FROM application_history WHERE program_id LIKE 'l42-%'`;
+    await db`DELETE FROM applications WHERE program_id LIKE 'l42-%'`;
+    await db`DELETE FROM installations WHERE token_hash IN ('l42-a', 'l42-b')`;
+    await db`DELETE FROM builders WHERE github_id = 918420`;
   }
 });

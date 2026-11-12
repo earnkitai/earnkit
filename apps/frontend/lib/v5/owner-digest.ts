@@ -4,7 +4,7 @@
  * made. Nothing happened, nothing sent; mail not set up (RESEND_API_KEY unset), 'mail off'. The idempotency key is the
  * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again. v6.1.17 Task 3:
  * first, a gap of over GAP_HOURS since the last daily run that finished (L30-14); and the programs the walk could not
- * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the previous UTC day's sends, by agents, drafted here, reported.
+ * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the previous UTC day's sends, by agents, drafted here, from outside (v6.1.19 L42-7: one line).
  * v6.1.18 (L39-5): a submission page that answers but says it is closed, in the failing block as
  * `{title}: the form says it is closed ({url})`.
  */
@@ -32,8 +32,8 @@ export type DigestHealth = {
 };
 
 /**
- * v6.1.18 Task 5 (L18-5, L36-3): the previous UTC day's sends (`sent`: by agents, drafted here and sent by builders,
- * reported from outside), every send before the digest's day, and each program with sends that day.
+ * v6.1.18 Task 5 (L18-5, L36-3): the previous UTC day's sends (`sent`: by agents, drafted here and sent by builders, from
+ * outside), every dated send before the digest's day, and each program with sends that day.
  */
 export type DigestApplications = {
   sent: number; agent: number; drafted: number; reported: number; total: number;
@@ -69,10 +69,11 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
     blocks.push(`No daily run finished for ${health.gap.hours} hours before this one; the last was ${at} UTC.`);
   }
   // L18-5 (v6.1.18 Task 5): the previous UTC day's sends, most sent program first; a day with none adds nothing.
+  // L42-7, L42-10 (v6.1.19): one line, the day first; `total` is every dated send through the end of yesterday.
   if (apps && apps.sent > 0) {
     const programs = [...apps.byProgram].sort((a, b) => b.sent - a.sent || a.id.localeCompare(b.id));
     blocks.push([
-      `Applications: ${apps.sent} sent (${apps.agent} by agents, ${apps.drafted} drafted here and sent by builders, ${apps.reported} reported from outside); ${apps.total} all time.`,
+      `${apps.sent} sent yesterday: ${apps.agent} by agents, ${apps.drafted} drafted here, ${apps.reported} from outside. ${apps.total} to date.`,
       ...programs.map((p) => `- ${oneLine(p.title)} (${p.id}): ${p.sent}`),
     ].join('\n'));
   }
@@ -125,8 +126,10 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>): Prom
 }
 
 /**
- * L18-5 (v6.1.18 Task 5, fix round 1): the sends of the UTC day before `dayStart` (send time `sent_at`, else `at`), and
+ * L18-5 (v6.1.18 Task 5, fix round 1): the sends of the UTC day before `dayStart` (by `sendTime`, stats.ts), and
  * every send before `dayStart`, so the block never changes within the digest's day (a same-day rerun builds the same body).
+ * v6.1.19 (L42-1, L42-2): a result on an older send is not a send that day; an undated send (outside EarnKit) counts in
+ * neither number.
  */
 async function digestApplications(dayStart: Date): Promise<DigestApplications> {
   const db = sql();

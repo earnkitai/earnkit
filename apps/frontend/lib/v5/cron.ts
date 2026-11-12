@@ -131,7 +131,9 @@ export async function lastRunAt(): Promise<Date | null> {
 }
 
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
+  // L42-3 (v6.1.19): read trimmed, as secretMatches does, so a secret pasted with a newline works and its length rule
+  // reads the same value.
+  const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return json({ error: 'cron is not set up' }, 503);
   // L13-11 (v6.1.14): a secret under 32 characters never matches (secretMatches), so the job is not set up: 503 and
   // one ops line, never a 401 that reads like a wrong secret. The length is in the log only.

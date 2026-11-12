@@ -288,6 +288,9 @@ UPDATE applications a SET sent_at = COALESCE(
   (SELECT max(h.at) FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.status = 'applied'),
   CASE WHEN a.status = 'applied' THEN a.at END)
 WHERE a.sent_at IS NULL AND a.auto_applied;
+-- v6.1.19 Task 1 (L42-6): the installation that recorded the send; a result, a skip or a correction moves
+-- installation_id (the last toucher), never this. Filled once at the end of this file (it reads application_history.project_id).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_by_installation_id bigint;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (
@@ -485,3 +488,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program_identity ON applica
 -- v6.1.16.1 Task 2 (L35-5): a client ID metadata document read good, so a fresh process or another instance serves it
 -- without a fetch (the in-process cache stays the fast path).
 CREATE TABLE IF NOT EXISTS cimd_documents (url text PRIMARY KEY, document jsonb NOT NULL, fetched_at timestamptz NOT NULL);
+-- v6.1.19 Task 1 (L42-6, L42-1): the one-time fills, idempotent (only NULLs). The send's installation is the newest
+-- applied history row's for the same owner, program and project. A sent row with no send time takes the newest applied
+-- history row's time, unless that row is a send made outside EarnKit (an outside win keeps no send date).
+UPDATE applications a SET sent_by_installation_id = (
+  SELECT h.installation_id FROM application_history h
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+  ORDER BY h.at DESC, h.id DESC LIMIT 1)
+WHERE a.sent_by_installation_id IS NULL;
+UPDATE applications a SET sent_at = (
+  SELECT h.at FROM application_history h
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+  ORDER BY h.at DESC, h.id DESC LIMIT 1)
+WHERE a.sent_at IS NULL AND a.status IN ('applied', 'won', 'rejected', 'no_result')
+  AND COALESCE((
+    SELECT h.note FROM application_history h
+    WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+    ORDER BY h.at DESC, h.id DESC LIMIT 1), '') <> 'sent by the builder outside EarnKit';

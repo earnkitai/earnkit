@@ -76,11 +76,13 @@ export async function readBody(
 
 /**
  * Whether `given` equals `secret`, in constant time (both hashed first, so lengths don't leak). An
- * unset secret, or one under 32 characters, never matches. Pure.
+ * unset secret, or one under 32 characters, never matches. v6.1.19 (L42-3): the secret is read trimmed (a value pasted
+ * with a newline), its length rule too. Pure.
  */
 export function secretMatches(given: string | null | undefined, secret: string | undefined): boolean {
-  if (!secret || secret.length < 32 || !given) return false;
-  return timingSafeEqual(createHash('sha256').update(given).digest(), createHash('sha256').update(secret).digest());
+  const s = secret?.trim();
+  if (!s || s.length < 32 || !given) return false;
+  return timingSafeEqual(createHash('sha256').update(given).digest(), createHash('sha256').update(s).digest());
 }
 
 /** "Authorization: Bearer <secret>". Pure. */

@@ -59,6 +59,20 @@ test('cronPost: 401 without or with a wrong secret, 503 when CRON_SECRET is unse
   assert.equal((await cronPost(req(`Bearer ${SECRET}`), deps)).status, 503);
 });
 
+test('L42-3: a CRON_SECRET with a trailing newline accepts the right bearer; 31 characters and a newline is still not set up', async () => {
+  process.env.CRON_SECRET = `${SECRET}\n`;
+  assert.equal((await cronPost(req('Bearer nope'), deps)).status, 401);
+  assert.equal((await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: quietHealth, workQueue: idleQueue })).status, 200);
+  process.env.CRON_SECRET = `${'c'.repeat(31)}\n`;
+  const was = console.error;
+  console.error = () => {};
+  try {
+    assert.equal((await cronPost(req(`Bearer ${'c'.repeat(31)}`), deps)).status, 503);
+  } finally {
+    console.error = was;
+  }
+});
+
 test('cronPost: runs every step and answers the counts, the swept counts per table and an empty failed list (L30-13: the shape is pinned)', async () => {
   const res = await cronPost(req(`Bearer ${SECRET}`), deps);
   assert.equal(res.status, 200);

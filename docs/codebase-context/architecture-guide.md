@@ -422,9 +422,10 @@ before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a
 `EARNKIT_CRON_PAUSED` is `true` (v6.1.17 Task 3, L30-14); the next run retries. The owner's digest
 (`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
 change to live programs since the last digest, with revert links; nothing happened, nothing sent; v6.1.18 Task 5,
-L18-5: when the previous UTC day had sends, an `Applications: {n} sent ({a} by agents, {d} drafted here and sent by
-builders, {r} reported from outside); {total} all time.` block with one `- {title} ({id}): {k}` line per program, most
-first; a day with none adds nothing) answers `sent`,
+L18-5, v6.1.19 L42-7: when the previous UTC day had sends, a `{n} sent yesterday: {a} by agents, {d} drafted here,
+{r} from outside. {total} to date.` line (`total` the dated sends through the end of yesterday) with one
+`- {title} ({id}): {k}` line per program, most first; a day with none adds nothing; a send is dated by `sendTime` in
+`stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) answers `sent`,
 `none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
 day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
@@ -444,7 +445,7 @@ JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minu
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17) and `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
-| `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`; never an email, a sign-in code, the owner key or an installation id |
+| `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |

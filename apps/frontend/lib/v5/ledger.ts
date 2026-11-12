@@ -576,9 +576,10 @@ export async function record(
     if (outside) {
       // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
       // fix round 1 (N4): its send date is not known, so none is kept (the line names the result alone).
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo, identity)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
-        ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL, identity = COALESCE(applications.identity, EXCLUDED.identity),
+      // L42-6 (v6.1.19): the installation that recorded this send keeps it as the send's (a later result never moves it).
+      await tx`INSERT INTO applications (owner, installation_id, sent_by_installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo, identity)
+        VALUES (${owner}, ${installationId}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
+        ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, sent_by_installation_id = EXCLUDED.sent_by_installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL, identity = COALESCE(applications.identity, EXCLUDED.identity),
           submitted_by = 'builder', title = EXCLUDED.title, held_at = NULL, claimed_at = NULL, claimed_by = NULL,
           application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
           repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id)`;
@@ -616,10 +617,11 @@ export async function record(
       // sent_at is the send time: a result later moves `at`, never this (v6.1.9 N2).
       // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
       await takeOverNow();
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo, identity)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
+      // L42-6 (v6.1.19): sent_by_installation_id is the sending installation; no result, skip or correction writes it.
+      await tx`INSERT INTO applications (owner, installation_id, sent_by_installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo, identity)
+        VALUES (${owner}, ${installationId}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
-          SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
+          SET installation_id = EXCLUDED.installation_id, sent_by_installation_id = EXCLUDED.sent_by_installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title, held_at = NULL,
               repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id),
