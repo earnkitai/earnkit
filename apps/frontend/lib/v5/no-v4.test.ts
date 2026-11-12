@@ -37,6 +37,8 @@ const APP_DIRS = new Set([
   '.well-known/oauth-protected-resource/[[...path]]',
   'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
   'api/stats', 'api/cron',
+  // v6.1.17 Task 4: the header's signed-in check, and the page a guide goes to when its ids cannot be read.
+  'api/me', 'api/me/signed-in', 'guide-unavailable',
   'link', 'link/[code]', 'link/[code]/confirm', 'auth', 'auth/github', 'auth/github/callback',
   'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link',
 ]);
