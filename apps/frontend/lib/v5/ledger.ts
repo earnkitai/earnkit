@@ -4,7 +4,9 @@
  * summary `track` and `find` show. One application and one result per program: a second `applied` is refused and
  * changes nothing. A won or rejected over a different result (L16-1, L16-2 v6.1.16: won and rejected either way, a
  * win with another amount, from the program's screen or the builder's own track) is a correction that replaces it,
- * its history row marked `corrected`, so the ledger holds the latest result; `no_result` over a result is refused. A
+ * its history row marked `corrected`, so the ledger holds the latest result; `no_result` over a result is refused.
+ * L45-2 (v6.1.19): a result never erases a win: the builder's rejected or no result over it is refused (`WIN_KEPT`),
+ * a screen's rejection is kept beside it as a history row. A
  * win marked a further payment (`payment.key`, kept in the history; a repeated key changes nothing) adds to a win's
  * total under the cap (L15-17, T8-F1 v6.1.14) and is refused over a result that is not a win. A win's money is kept by
  * currency (`applications.amounts`, cents kept, never converted; L22-1 to L22-3 v6.1.16) with its US dollar part in
@@ -22,9 +24,23 @@ import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '
 import { identityFor, projectKeyOf, type Project } from './project-input';
 import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
-import { UNKNOWN_CURRENCY_NOTE, amountsOverCap, comparable, overCap } from './amount';
+import { amountsOverCap, overCap } from './amount';
 import { quoteName } from './controls';
 
+/**
+ * The items a program's gap_done takes: its eligibility items, the unknown-users gap ('users') only when it has a users
+ * item (v6.1.7, C27); T3-R1 (v6.1.13): the code-in-a-repo step ('repo'), re-checked by the read; fix round 1 (T7-F2,
+ * v6.1.14): for any program, as the bar's code step (L12-7) shows on programs that do not require a repo too; L38-27
+ * (v6.1.18 Task 11): a license rule's license file gap is its own item. Pure.
+ */
+export function gapItems(program: ProgramRow): string[] {
+  const items = eligibilityOf(program.file);
+  return [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo', ...(items.some((x) => x.check === 'license') ? [LICENSE_FILE.item] : [])])];
+}
+/** L45-10 (v6.1.19): an item as compared: hidden characters gone, ends trimmed, any case. Pure. */
+const itemFold = (s: string): string => s.replace(/[^\P{C}]/gu, '').trim().toLowerCase();
+/** L45-10 (v6.1.19): the program's own item an agent's copy names (trimmed, cleaned, any case), else null. Pure. */
+export const gapItemOf = (program: ProgramRow, item: string): string | null => gapItems(program).find((k) => itemFold(k) === itemFold(item)) ?? null;
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
 
@@ -95,6 +111,9 @@ export const OVER_CAP_FOR = (capUsd: number, ref: string, at: string): string =>
 export const FURTHER_PAYMENT_REFUSED = (status: string) =>
   // Fix round 1b: no result yet is said in words, never as the status `none`.
   status === 'none' ? 'Further payment refused: no result yet; post a win first.' : `Further payment refused: the current result is ${status}; post a win first.`;
+/** L45-2 (v6.1.19): the builder's rejected or no result over a win: nothing is written. */
+export const WIN_KEPT = (title: string, amounts: Amounts | null): string =>
+  `${title} already has a win recorded here${amounts ? ` (${amountsText(amounts)})` : ''}. Say won again to change it.`;
 /** A win with no amount above 0 (L22-6, v6.1.16: cents are kept, so a win is no longer whole dollars only). */
 export const WHOLE_DOLLARS = 'Tell me how much you won.';
 const DAY = 86_400_000;
@@ -389,11 +408,7 @@ export async function record(
     return { ok: false, note: WHOLE_DOLLARS };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
-    const items = eligibilityOf(program.file);
-    // T3-R1 (v6.1.13): the code-in-a-repo step ('repo') is taken, re-checked by the read; fix round 1 (T7-F2, v6.1.14):
-    // for any program, as the bar's code step (L12-7) shows on programs that do not require a repo too.
-    // L38-27 (v6.1.18 Task 11): a license rule's license file gap is its own item.
-    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo', ...(items.some((x) => x.check === 'license') ? [LICENSE_FILE.item] : [])])];
+    const keys = gapItems(program);
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
     if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }
@@ -423,8 +438,8 @@ export async function record(
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
     if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
-    const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null }[]>`
-      SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null; title: string | null }[]>`
+      SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity, a.title FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     // L28-4 (v6.1.16 Task 14): this project's row; a result, a hold or an unskip takes the owner's one row for the program.
     // Fix round 2 (C3): a send or hold keyed by a repo takes only that key's own row, never a keyless one (the ownership
@@ -518,7 +533,8 @@ export async function record(
     const currency = given?.currency ?? (keptCodes.length === 1 && keptCodes[0] !== 'USD' ? keptCodes[0] : 'USD');
     const money: Amounts | null = value === null ? null : { [currency]: value };
     // L22-4, L22-5 (v6.1.16): the given amount against the cap, before any rounding; another currency converted for the check only.
-    const overNote = { ok: false, note: OVER_CAP(cap), ...(!comparable(currency) && { agent_note: UNKNOWN_CURRENCY_NOTE }) } as const;
+    // L45-4 (v6.1.19): a currency with no rate is never weighed (recorded uncapped), so an over-cap amount is always comparable.
+    const overNote = { ok: false, note: OVER_CAP(cap) } as const;
     if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;
@@ -537,6 +553,16 @@ export async function record(
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
       return { ok: false, note: OTHER_AGENT_HOLDS } as const;
     const hasResult = row !== undefined && RESULTS.includes(row.status);
+    // L45-2 (v6.1.19): a result never erases a win. The builder's rejected or no result over it changes nothing and
+    // says so; a program's screen outcome is recorded beside it (a history row), the win kept.
+    if (row?.status === 'won' && (status === 'rejected' || status === 'no_result')) {
+      if (!o.fromScreen) return { ok: false, note: WIN_KEPT(program?.file.title ?? row.title ?? programId, kept) } as const;
+      const [last] = await tx<{ status: string }[]>`SELECT status FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk} ORDER BY id DESC LIMIT 1`;
+      if (last?.status === status) return { ok: false, note: 'Already tracked.' } as const;
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, corrected, source, project_id)
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${note}, ${now}, false, ${source}, ${rk || null})`;
+      return { ok: true, beside: true } as const;
+    }
     // L16-1, L16-2 (v6.1.16): a further payment needs a win to add to; over another result, or over a send with no
     // result yet (fix round 1, M1: `none`, as the screen says), nothing is written.
     if (paymentKey !== null && row !== undefined && (row.status === 'applied' || (hasResult && row.status !== 'won'))) {
@@ -681,7 +707,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; own_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; beside?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; own_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true; taken?: { day: string; login: string | null } };
 
 /**

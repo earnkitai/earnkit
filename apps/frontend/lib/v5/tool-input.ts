@@ -10,6 +10,15 @@
  */
 import { z } from 'zod';
 import { tooDeep } from './secrets';
+import { cleanText } from './controls';
+
+/**
+ * L45-19 (v6.1.19): a further payment's key as compared: hidden and control characters removed and the ends trimmed, so
+ * `k1` and `k1` with a zero-width space are one key; a key empty after that is refused. Track's and the screen's.
+ */
+export const PaymentKeyInput = z
+  .object({ key: z.string().transform((x) => cleanText(x, Infinity)).pipe(z.string().min(1, 'empty after removing hidden characters').max(80)) })
+  .strict();
 
 export const TOO_DEEP_NOTE = 'The arguments were nested too deep.';
 export const NOT_OBJECT_NOTE = 'Send the arguments as an object.';
