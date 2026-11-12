@@ -3748,7 +3748,8 @@ test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago 
     // Once an hour has passed: asked on the next find, and not offered as a draft while the ask is open.
     const at = new Date(NOW.getTime() + H);
     const r = await find(at);
-    assert.deepEqual(r.ask_sent, [{ program_id: 'tt-sent', title: 'Kiroween 2026', started_at: new Date(NOW.getTime() - 0.5 * H).toISOString() }]);
+    assert.deepEqual(r.ask_sent, [{ program_id: 'tt-sent', title: 'Kiroween 2026', started_at: new Date(NOW.getTime() - 0.5 * H).toISOString(), project_id: (r.ask_sent as { project_id: string }[])[0].project_id }]);
+    assert.match((r.ask_sent as { project_id: string }[])[0].project_id, /earnkit/);
     assert.match(r.show_to_builder as string, /Did you send Kiroween 2026\?/);
     assert.match(r.agent_note as string, /The reply asks whether each was sent: Kiroween 2026\. "sent" is track applied with submitted_by builder; "not yet" needs no call\./);
     const full = await find(at, true);
@@ -3774,5 +3775,75 @@ test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago 
     assert.deepEqual(after.released, []);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'tt-sent'`;
+  }
+});
+
+test('L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked on its own project only, marked only when the builder text shows it; the open list asks every one', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { claim } = await import('../v6/claims');
+  await upsertProgram(programFixture({ id: 'tt-sent2', title: 'Kiroween Two', submit: 'builder' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const OTHER = { name: 'Other App', description: 'Grants for builders.', live_url: 'https://other.example.com', chains: [{ chain: 'base', mainnet: true }] };
+    const find = async (now: Date, project: unknown, all = false) => (await mcpCall({ ...ctx(id, now), builderId, evidence: LIVE }, 'find', { ...(project ? { project } : {}), ...(all ? { filter: { all: true } } : {}) })).reply!;
+    const st = await mcpCall({ ...ctx(id, NOW), builderId }, 'track', { program_id: 'tt-sent2', status: 'started', project: PROJECT });
+    assert.equal(st.isError, false, st.text);
+    // A stale claim of an agent-sent program: its started line takes the reply's one Say.
+    await claim(`b:${builderId}`, 'alliance-all19', null, id, new Date(NOW.getTime() - 25 * H));
+    const at = new Date(NOW.getTime() + 2 * H);
+    // Another project: still listed there, never asked.
+    const b = await find(at, OTHER, true);
+    assert.ok(ids(allReady(b)).includes('tt-sent2'), JSON.stringify(ids(allReady(b))));
+    assert.deepEqual(b.ask_sent, []);
+    assert.doesNotMatch(seen(b), /Did you send Kiroween Two|whether each was sent/);
+    // Its own project, full view: only the started line's Say shows, so the question is not asked, named or marked.
+    await claim(`b:${builderId}`, 'alliance-all19', null, id, new Date(NOW.getTime() - 25 * H));
+    const full = await find(at, PROJECT, true);
+    assert.doesNotMatch(full.show_to_builder as string, /Did you send Kiroween Two/);
+    assert.deepEqual(full.ask_sent, []);
+    assert.doesNotMatch(full.agent_note as string, /whether each was sent/);
+    assert.ok(!ids(allReady(full)).includes('tt-sent2'));
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM sent_asks WHERE installation_id = ${id}`)[0].n, 0);
+    // The default view next: shown, named and marked; then not again.
+    const def = await find(at, PROJECT);
+    assert.match(def.show_to_builder as string, /Did you send Kiroween Two\? Say sent and I note it\.$/);
+    assert.match(def.agent_note as string, /The reply asks whether each was sent: Kiroween Two\./);
+    assert.deepEqual((await find(at, PROJECT)).ask_sent, []);
+    // The open list (no project) asks every open one, before its ask; a week on it asks again.
+    const week = new Date(NOW.getTime() + 8 * 24 * H);
+    const list = await find(week, null);
+    const lines = (list.show_to_builder as string).split('\n');
+    assert.equal(lines.at(-2), 'Did you send Kiroween Two?');
+    assert.ok(lines.length <= 10);
+    assert.match(list.agent_note as string, /The reply asks whether each was sent: Kiroween Two\. .* Pass the project each was started for\./);
+    assert.deepEqual((await find(week, null)).ask_sent, []);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-sent2'`;
+  }
+});
+
+test('L18-4 fix round 1 (v6.1.18 Task 4): a sent question the 10-line cap drops is not marked and comes back', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { claim } = await import('../v6/claims');
+  await upsertProgram(programFixture({ id: 'tt-sent3', title: 'Kiroween Three', submit: 'builder' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const st = await mcpCall({ ...ctx(id, NOW), builderId }, 'track', { program_id: 'tt-sent3', status: 'started', project: PROJECT });
+    assert.equal(st.isError, false, st.text);
+    const at = new Date(NOW.getTime() + 2 * H);
+    // Five stale agent-sent claims: three started lines, the count, and the Say fill the room the question needed.
+    for (const p of ['alliance-all19', 'arbitrum-mentorship-cohort-2', 'base-builder-grants', 'z-fellows', 'gitcoin-grants'])
+      await claim(`b:${builderId}`, p, null, id, new Date(NOW.getTime() - 25 * H));
+    const r = (await mcpCall({ ...ctx(id, at), builderId, evidence: LIVE }, 'find', { project: PROJECT })).reply!;
+    const text = r.show_to_builder as string;
+    assert.ok(text.split('\n').length <= 10, text);
+    if (/Did you send Kiroween Three/.test(text)) assert.fail(`the cap kept the question; this test needs a fuller reply:\n${text}`);
+    assert.deepEqual(r.ask_sent, []);
+    assert.doesNotMatch(r.agent_note as string, /Kiroween Three/);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM sent_asks WHERE installation_id = ${id}`)[0].n, 0);
+    // Next find, the started lines gone: the question shows.
+    assert.match((await mcpCall({ ...ctx(id, at), builderId, evidence: LIVE }, 'find', { project: PROJECT })).reply!.show_to_builder as string, /Did you send Kiroween Three\?/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-sent3'`;
   }
 });

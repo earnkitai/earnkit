@@ -722,7 +722,7 @@ export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[]
 /** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
 const SENT_SAY = 'Say sent and I note it.';
 /** L18-4, L36-1 (v6.1.18 Task 4): whether each form the builder sends themselves went out. Pure. */
-export const sentLines = (r: Pick<R, 'ask_sent'>, _now?: Date): string[] =>
+export const sentLines = (r: Pick<R, 'ask_sent'>): string[] =>
   (r.ask_sent ?? []).map((a) => `Did you send ${a.title}? ${SENT_SAY}`);
 /** L18-4 (v6.1.18 Task 4): the agent note for the sent questions (the ask lines and the release lines that ask); null when none. Pure. */
 export function sentNote(r: Pick<R, 'ask_sent' | 'released'>): string | null {
@@ -932,7 +932,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
   const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
   // L18-4 (v6.1.18 Task 4): the sent question after the started lines (ONE_SAY_ORDER).
-  const sent = sentLines(r, now);
+  const sent = sentLines(r);
   const sayers = [notSent, ...started, ...sent, closingOf.text].filter((x): x is string => x !== null);
   const sayLine = sayers.find(carriesSay) ?? closingOf.text;
   const early = sayLine !== closingOf.text;

@@ -177,20 +177,24 @@ export type Released = { program_id: string; title: string; started_at: string; 
  */
 export async function releaseStale(owner: string, now: Date): Promise<Released[]> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
-  const old = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}`;
-  const byId = new Map((await programsById([...new Set(old.map((r) => r.program_id))])).map((p) => [p.id, p]));
-  const keep = [...byId.values()].filter((p) => p.file.submit === 'builder').map((p) => p.id);
-  const rows = await sql()<{ program_id: string; title: string | null; claimed_at: Date | null }[]>`
-    DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
-      AND program_id <> ALL(${keep}::text[]) RETURNING program_id, title, claimed_at`;
-  const kept = keep.length === 0 ? [] : await sql()<{ program_id: string; title: string | null; claimed_at: Date | null }[]>`
-    SELECT program_id, title, claimed_at FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
-      AND program_id = ANY(${keep}::text[]) ORDER BY claimed_at`;
+  type Row = { program_id: string; title: string | null; claimed_at: Date | null };
+  // Fix round 1 (v6.1.18 Task 4): the read, the delete and the kept rows in one transaction, the stale rows locked.
+  const { byId, rows, kept } = await sql().begin(async (tx) => {
+    const old = await tx<{ program_id: string }[]>`
+      SELECT program_id FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale} FOR UPDATE`;
+    const byId = new Map((await programsById([...new Set(old.map((r) => r.program_id))])).map((p) => [p.id, p]));
+    const keep = [...byId.values()].filter((p) => p.file.submit === 'builder').map((p) => p.id);
+    const rows = await tx<Row[]>`
+      DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
+        AND program_id <> ALL(${keep}::text[]) RETURNING program_id, title, claimed_at`;
+    const kept = keep.length === 0 ? [] : await tx<Row[]>`
+      SELECT program_id, title, claimed_at FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
+        AND program_id = ANY(${keep}::text[]) ORDER BY claimed_at`;
+    return { byId, rows: [...rows], kept: [...kept] };
+  });
   const seen = new Set<string>();
   const asked = kept.filter((r) => !seen.has(r.program_id) && seen.add(r.program_id));
-  const of = (r: { program_id: string; title: string | null; claimed_at: Date | null }) =>
-    ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.title ?? r.program_id, started_at: (r.claimed_at ?? now).toISOString() });
+  const of = (r: Row) => ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.title ?? r.program_id, started_at: (r.claimed_at ?? now).toISOString() });
   return [...rows.map(of), ...asked.map((r) => ({ ...of(r), ask: true as const }))]
     .sort((a, b) => (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
 }

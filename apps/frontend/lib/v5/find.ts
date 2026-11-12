@@ -16,7 +16,7 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, askSent, sentAsksDue, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -251,6 +251,8 @@ const MAX_GAPS = 3;
 const MAX_REMEMBERED_GAPS = 60;
 /** Fix round 1 (M4, v6.1.16 Task 15): the open list (no project) names this many programs, then the count. */
 const OPEN_SHOWN = 5;
+/** L18-4 fix round 1 (v6.1.18 Task 4): the most lines the open list's builder text holds (as DEFAULT_LINES). */
+const OPEN_LINES = 10;
 
 /** O1 (v6.1.10): a program closing within this many days is always in the default reply, ahead of the caps. */
 const SOON_DAYS = 7;
@@ -593,16 +595,24 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   // that wait again (C48) and what was sent under standing approval, in the closing block, since this find stamps.
   const report = ctx.builderId === null ? null : await linkedReport(ctx, programs);
   const closing = report ? [sinceLine(report, ctx.now), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
+  const before = [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [link ? signInLine(link) : null, notice])].filter(Boolean) as string[];
+  // L18-4 fix round 1 (v6.1.18 Task 4): a find with no project asks about every open sent question, as plain questions
+  // before the ask (which stays last, L1j-6), within the 10 lines; only the ones shown are marked.
+  const sentAll = await sentAsksOpen(ctx.installationId, await askSent(ownerOf(ctx), programs, ctx.now), ctx.now);
+  const sentShown = sentAll.slice(0, Math.max(0, OPEN_LINES - 1 - before.length));
+  await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => a.program_id), ctx.now);
+  const sentNoteOpen = sentNote({ ask_sent: sentShown, released: [] });
   const reply = {
     // One line each, no blank lines (fix round 1, M4).
     // L1j-6 (v6.1.17 fix round 1 I3): the ask is last; the sign-in, the notice or the report before it.
-    show_to_builder: [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [link ? signInLine(link) : null, notice]), action].filter(Boolean).join('\n'),
+    show_to_builder: [...before, ...sentShown.map((a) => `Did you send ${a.title}?`), action].join('\n'),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
+      ...(sentNoteOpen ? [`${sentNoteOpen} Pass the project each was started for.`] : []),
     ].join('\n'),
     since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
-    ready: [], gaps: [], ledger, applications, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
+    ready: [], gaps: [], ledger, applications, ask_outcome: [], ask_sent: sentShown, as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
     ...(report ? { applied_overnight: report.applied_overnight, ...(report.approvals_again ? { approvals_again: report.approvals_again } : {}) } : {}),
     ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}), linked_notice: notice,
   };
@@ -1038,15 +1048,17 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
   // L23-7, L23-19 (v6.1.16): stale claims are released on every project find, linked or not, and said by title.
   const releasedAll = await releaseStale(owner, ctx.now);
-  // L18-4, L36-1 (v6.1.18 Task 4): a program the builder sends themselves, started over an hour ago with nothing
-  // recorded, is asked about (once per installation every 7 days) and, while the ask is open, never listed to draft again.
-  const sentOpen = await askSent(owner, open, ctx.now);
-  const sentAsked = await sentAsksDue(ctx.installationId, owner, sentOpen, ctx.now);
+  // L18-4, L36-1 (v6.1.18 Task 4): a program the builder sends themselves, started on this project (or on none) over an
+  // hour ago with nothing recorded, is asked about (once per installation every 7 days, marked only when the builder
+  // text shows it: fix round 1) and, while the ask is open, never listed to draft again on this project.
+  const sentHere = (p: string) => p === key || p === i.project_id || p === side?.projectId;
+  const sentOpen = await askSent(owner, open, ctx.now, sentHere);
+  const sentDue = await sentAsksOpen(ctx.installationId, sentOpen, ctx.now);
   const sentIds = new Set(sentOpen.map((a) => a.program_id));
-  const askedIds = new Set(sentAsked.map((a) => a.program_id));
+  const dueIds = new Set(sentDue.map((a) => a.program_id));
   // L36-2: a kept claim's release line is its ask; said only when the ask is due, and then not asked twice.
-  const released = releasedAll.filter((p) => !p.ask || askedIds.has(p.program_id));
-  const askSentNow = sentAsked.filter((a) => !released.some((p) => p.program_id === a.program_id));
+  const released = releasedAll.filter((p) => !p.ask || dueIds.has(p.program_id));
+  const askSentNow = sentDue.filter((a) => !released.some((p) => p.program_id === a.program_id));
   // L28-4 (v6.1.16 Task 14): a send leaves only its own project's list (`here`, below).
   const skip = await excluded(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
   const all = i.filter?.all === true;
@@ -1220,11 +1232,19 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
   const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
   await markOffer(ctx.installationId, said.offer, ctx.now);
+  // L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked only when the builder text shows it; one the full view
+  // or the line cap left out is not marked, not named to the agent, and comes back on the next find.
+  const shownSent = (r.ask_sent ?? []).filter((a) => said.text.includes(`Did you send ${a.title}?`));
+  const shownRel = r.released.filter((p) => p.ask && said.text.includes(`${p.title}: started`));
+  await markSentAsked(ctx.installationId, owner, [...shownSent, ...shownRel].map((x) => x.program_id), ctx.now);
+  const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
+  const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
+  const hiddenOut = said.hidden.filter((l) => !unshown.some((a) => l.startsWith(`Did you send ${a.title}?`) || l.startsWith(`${a.title}: started`)));
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
-    ...jsonLists(r),
+    agent_note: [agentNote(rOut, { more, description, hidden: hiddenOut, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    ...jsonLists(rOut),
     more: more > 0 || said.hidden.length > 0,
   };
   await markFind(ctx.installationId, ctx.now, remembered, key);

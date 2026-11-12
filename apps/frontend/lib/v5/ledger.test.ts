@@ -767,7 +767,7 @@ test('L18-4: askSent lists a builder-submit program started 2 days ago with no s
   assert.equal(SENT_ASK_AFTER_HOURS, 1);
   assert.deepEqual(await claim(o(i), 'l-sent-new', 'p1', i, new Date(NOW.getTime() - 0.5 * H)), { ok: true });
   const all = [own, fresh, agent, done, held];
-  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString() }]);
+  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString(), project_id: 'p1' }]);
   assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent', 'l-sent-new']);
   // The builder says sent: the ask ends.
   await record(o(i), 'l-sent', 'applied', { now: NOW, submitted_by: 'builder', projectKey: 'p1', project_id: 'p1' });
@@ -777,7 +777,7 @@ test('L18-4: askSent lists a builder-submit program started 2 days ago with no s
 test('L18-4b: sentAsksDue asks once, then not for 7 days, then again', async () => {
   const i = await install();
   const j = await install();
-  const due = [{ program_id: 'l-sa', title: 'T', started_at: NOW.toISOString() }];
+  const due = [{ program_id: 'l-sa', title: 'T', started_at: NOW.toISOString(), project_id: null }];
   assert.equal(SENT_ASK_EVERY_DAYS, 7);
   assert.deepEqual(await sentAsksDue(i, o(i), due, NOW), due);
   assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 3_600_000)), []);
@@ -787,4 +787,23 @@ test('L18-4b: sentAsksDue asks once, then not for 7 days, then again', async () 
   assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 7 * DAY)), due);
   assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 8 * DAY)), []);
   assert.deepEqual(await sentAsksDue(i, o(i), [], NOW), []);
+});
+
+test('L18-4 fix round 1: askSent with a project lists that project\'s started rows and those with none; sentAsksOpen marks nothing', async () => {
+  const { sentAsksOpen, markSentAsked } = await import('./ledger');
+  const i = await install();
+  const a = await prog('l-sp-a', { submit: 'builder' });
+  const none = await prog('l-sp-none', { submit: 'builder' });
+  const back = new Date(NOW.getTime() - 2 * DAY);
+  assert.deepEqual(await claim(o(i), 'l-sp-a', 'proj-a', i, back), { ok: true });
+  assert.deepEqual(await claim(o(i), 'l-sp-none', null, i, back), { ok: true });
+  const ids = (xs: { program_id: string }[]) => xs.map((x) => x.program_id).sort();
+  assert.deepEqual(ids(await askSent(o(i), [a, none], NOW, (p) => p === 'proj-a')), ['l-sp-a', 'l-sp-none']);
+  assert.deepEqual(ids(await askSent(o(i), [a, none], NOW, (p) => p === 'proj-b')), ['l-sp-none']);
+  assert.deepEqual(ids(await askSent(o(i), [a, none], NOW)), ['l-sp-a', 'l-sp-none']);
+  const due = await askSent(o(i), [a, none], NOW);
+  assert.equal((await sentAsksOpen(i, due, NOW)).length, 2);
+  assert.equal((await sentAsksOpen(i, due, NOW)).length, 2);
+  await markSentAsked(i, o(i), ['l-sp-a'], NOW);
+  assert.deepEqual(ids(await sentAsksOpen(i, due, NOW)), ['l-sp-none']);
 });
