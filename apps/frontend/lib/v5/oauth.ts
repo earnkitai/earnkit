@@ -7,6 +7,7 @@
  * fetched through the SSRF-safe JSON fetch and cached in process.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { CONFUSABLES } from './confusables-table';
 import { sql } from './db';
 import { RateLimitError, enforce } from './rate-limit';
 import { type Resolver, type Transport, TransportError, safeFetchJson } from './safe-fetch';
@@ -109,6 +110,8 @@ const LOOKALIKES: Record<string, string> = {
   օ: 'o', ո: 'n', ս: 'u', հ: 'h', ց: 'g', զ: 'q', Օ: 'o', Ս: 'u',
   ᴀ: 'a', ʙ: 'b', ᴄ: 'c', ᴅ: 'd', ᴇ: 'e', ꜰ: 'f', ɢ: 'g', ʜ: 'h', ɪ: 'i', ᴊ: 'j', ᴋ: 'k', ʟ: 'l', ᴍ: 'm', ɴ: 'n',
   ᴏ: 'o', ᴘ: 'p', ʀ: 'r', ꜱ: 's', ᴛ: 't', ᴜ: 'u', ᴠ: 'v', ᴡ: 'w', ʏ: 'y', ᴢ: 'z',
+  // L40-B1 (v6.1.18): the k shapes Unicode's confusables table leaves out (kra, k with hook, turned k).
+  ĸ: 'k', ƙ: 'k', ʞ: 'k',
 };
 
 /**
@@ -129,10 +132,13 @@ export function reservedClientName(v: unknown): boolean {
 const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', l: 'i' };
 const leet = (folded: string): string => folded.replace(/[013457l]/g, (ch) => LEET[ch]).replace(/[^\p{L}]/gu, '');
 
-/** NFKC, NFKD with marks dropped, look-alikes to Latin, lower case, letters and digits only. */
-function fold(v: string): string {
+/**
+ * NFKC, NFKD with marks dropped, look-alikes to Latin (`LOOKALIKES`, then Unicode's `CONFUSABLES`, L40-B1 v6.1.18),
+ * lower case, letters and digits only. Also folds the repro pack's host names (`scripts/repro/target.ts`). Pure.
+ */
+export function fold(v: string): string {
   const bare = v.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '');
-  const latin = [...bare].map((ch) => LOOKALIKES[ch] ?? ch).join('');
+  const latin = [...bare].map((ch) => LOOKALIKES[ch] ?? CONFUSABLES.get(ch) ?? ch).join('');
   return latin.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
@@ -186,10 +192,10 @@ export const clientKeyOf = (clientId: string) => createHash('sha256').update(cli
 /**
  * What a new installation counts against besides its IP: its own registration, or for a client ID metadata document
  * the document's host (`client:host:{host}`; tokenPost adds the caller's address block, so no ceiling is shared by
- * every user of one document). Pure.
+ * every user of one document; the host as `cimdHost` reads it, L40-C1). Pure.
  */
 export const registrationLimitKey = (clientId: string) =>
-  isCimdClientId(clientId) ? `client:host:${new URL(clientId).host}` : `client:${clientKeyOf(clientId)}`;
+  isCimdClientId(clientId) ? `client:host:${cimdHost(new URL(clientId).host)}` : `client:${clientKeyOf(clientId)}`;
 
 /** The register ceiling's key: the hosted service every redirect is on, else the registration when given, else none. Pure. */
 export function clientLimitKey(uris: readonly string[], clientId?: string): string | null {
@@ -303,7 +309,10 @@ function remember(url: string, entry: CimdEntry) {
 }
 
 /** L35-5 (v6.1.16.1 Task 2): the window the uncached-fetch cap counts in: per document host and caller address block. */
-export const CIMD_FETCH_KEY = (host: string, block: string) => `cimdFetch:${host}:${block}`;
+export const CIMD_FETCH_KEY = (host: string, block: string) => `cimdFetch:${cimdHost(host)}:${block}`;
+/** L40-C1 (v6.1.18): a document host as the fetch caps count it: lower case, trailing dots removed (before any port), so
+ *  `host.` and `HOST` are the one host. Pure. */
+export const cimdHost = (host: string) => host.toLowerCase().replace(/\.+(?=:\d+$|$)/, '');
 /** The block a caller with no address is counted under. */
 const NO_BLOCK = 'none';
 
@@ -316,12 +325,12 @@ const NO_BLOCK = 'none';
  * hour per host across every block, so many blocks never multiply the fetches.
  */
 const cimdFetchLimit = async (host: string, block: string) => {
-  await enforce('cimdFetch', `${host}:${block}`, 'Too many client document reads for this host.');
+  await enforce('cimdFetch', `${cimdHost(host)}:${block}`, 'Too many client document reads for this host.');
   // Controller ruling: a total per host beside it; both must pass before a fetch.
-  await enforce('cimdFetchHost', host, 'Too many client document reads for this host.');
+  await enforce('cimdFetchHost', cimdHost(host), 'Too many client document reads for this host.');
 };
 /** The window of the total per-host cap (`cimdFetchHost`, 300 an hour). */
-export const CIMD_HOST_KEY = (host: string) => `cimdFetchHost:${host}`;
+export const CIMD_HOST_KEY = (host: string) => `cimdFetchHost:${cimdHost(host)}`;
 
 /** L35-5: the stored good copy of a document URL (its document and when it was read), or null; never a failure. */
 async function storedDocument(url: string): Promise<{ doc: unknown; at: number } | null> {
@@ -395,7 +404,7 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   // with a failed entry counts again, so failed cache-busting URLs cannot be refetched for free every 5 minutes.
   if (!good) {
     try {
-      await (deps.fetchLimit ?? cimdFetchLimit)(new URL(url).host, deps.block ?? NO_BLOCK);
+      await (deps.fetchLimit ?? cimdFetchLimit)(cimdHost(new URL(url).host), deps.block ?? NO_BLOCK);
     } catch (err) {
       if (!(err instanceof RateLimitError)) throw err;
       // Over the cap: no fetch, and nothing cached (a cap is not the document's fault).

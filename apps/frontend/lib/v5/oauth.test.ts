@@ -510,6 +510,49 @@ test('L16-10 (v6.1.16): digits and l that read as letters fold before the reserv
     assert.equal(reservedClientName(name), false, name);
 });
 
+test('L40-B1 (v6.1.18): letters Unicode lists as confusable (Lisu, Cherokee) and the k shapes ĸ ƙ ʞ fold before the reserved-name check', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['ꓰꓮꓣꓠꓗꓲꓔ', 'EarnᏦit', 'Earnĸit', 'Earnƙit', 'Earnʞit', 'ꓰarnkit bot'])
+    assert.equal(reservedClientName(name), true, name);
+  for (const name of ['Claude Code', 'Cursor', 'Ёлка', 'Ελληνικά', 'Հայերեն', 'ꓰꓮꓣꓠ', 'Ꮶit', 'Claude Code (ꓰꓮꓣꓠꓗꓲꓔ)'])
+    assert.equal(reservedClientName(name), false, name);
+  const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.40.1.1' },
+    body: JSON.stringify({ redirect_uris: [redirect], client_name: 'EarnᏦit' }),
+  }));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+});
+
+test('L40-C2 (v6.1.18): a name whose stored form (clientNameOf: the 40-character cut, look-alike brackets made plain) is reserved is refused at registration, as at the token step', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  const { clientNameOf } = await import('./oauth');
+  const cut = 'Claude Code (earnkit' + 'x'.repeat(30) + ')';
+  const brackets = 'Claude Code (earnkit⁾ x⁽bot)';
+  for (const name of [cut, brackets]) {
+    // The name as sent passes the check; the name as stored does not.
+    assert.equal(reservedClientName(name), false, name);
+    assert.equal(reservedClientName(clientNameOf(name)), true, name);
+  }
+  let n = 0;
+  for (const client_name of [cut, brackets]) {
+    const before = (await sql()`SELECT count(*)::int AS n FROM oauth_clients`)[0].n as number;
+    const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': `10.40.2.${++n}` },
+      body: JSON.stringify({ redirect_uris: [redirect], client_name }),
+    }));
+    assert.equal(r.status, 400, client_name);
+    assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM oauth_clients`)[0].n, before);
+  }
+  // Still registers: the builder's server label on a plain name.
+  const ok = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.40.2.9' },
+    body: JSON.stringify({ redirect_uris: [redirect], client_name: 'Claude Code (earnkit)' }),
+  }));
+  assert.equal(ok.status, 201);
+});
+
 // v6.1.16 Task 5 (lane 19): OAuth edges.
 const tokenReq = (form: URLSearchParams, ip = `10.19.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`) =>
   tokenPost(new Request('https://earnkit.test/oauth/token', {
