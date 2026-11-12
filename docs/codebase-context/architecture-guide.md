@@ -366,7 +366,8 @@ never moves the stored time, which stays the original result's (fix round 1, I1)
 retry reaches the ledger at the kept outcome's own time, never its arrival, so it never overwrites a builder's later
 correction (the reviewer hears "Already recorded; nothing new."). An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
 needs its mark, and payment keys share one space per application (track and screen send them unprefixed;
-`paymentKeyOf` reads a stored `s:`/`t:` key as the bare key, alias until v6.1.17). A send refused because its agent was
+`paymentKeyOf` reads a stored `s:`/`t:` key as the bare key; v6.1.17 Task 2: `storedPaymentKeys` also reads a
+legacy `t:s:x` as `x`, so a resent key never adds twice). A send refused because its agent was
 unlinked meanwhile tells the agent the form went out with no record. The screen queue takes one lock per program and
 never queues an applicant an unread row of the program's live screens holds by identity (EarnKit id and repo key; for
 applicants with neither, the same reviewer's ref and site); the reviewer hears which row holds it. find lists held
@@ -629,7 +630,8 @@ before v6.1.15 is reworded on read (`currentBuilderLine`, a small table of the o
 mainnet. A screen row read before v6.1.15 reads on a results page with the rule `self_funded_users` and the head
 `flagged (self-funded users)` (`currentReviewerLine`; alias until v6.1.16); the markdown report's flag lines use `ruleWords`. The farmed-wallet flag's rule id is `self_funded_users` (read "self-funded users"; a row stored as
 `unfunded` reads the same, `RULE_WORDS`); the threshold names are unchanged. The CSV and the results rows show the
-count as `outside_senders_90d`, with `funded_senders_90d` beside it as an alias until v6.1.16.
+count as `outside_senders_90d` only (v6.1.17 Task 2, L35-23: the `funded_senders_90d` alias ended; the evidence
+row inside keeps its internal key).
 
 **The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
 <json>]` (`scripts/screen.mts` over `lib/v6/screen.ts`). `applicants.ts` parses the CSV (columns by name; a bad
@@ -1205,6 +1207,24 @@ means what the last `Say` offered.
   with `brief`, are input errors; a page past the end adds `There are {n} pages of {kind}.` to the agent note. In-person
   sends carry no `fields_used` note. find's `filter.all` description: every program that fits or nearly fits; for all of
   them, find with no project. TRACK_DESCRIPTION lists won last, with its amount clause as one sentence.
+- **Readers, keys and checks (v6.1.17 Task 2).** Lengths are characters as people count them, code points: zod 4's
+  string max counts code points (pinned in `record.test.ts`), so 1,996 emoji fit a 2,000-character answer, and
+  `record get`'s per-kind `length` is `Array.from(text).length` (L35-15). `readAmount` never calls an amount starting
+  `0.` ambiguous (`0.001` is 0.001; `1.234` still is). Initials stand for a program only through `initialsWord` (two
+  letters or more, never a COMMON_WORDS English word, any case), in find's lookup, its several-words tier and track's
+  strict one: `as`, `am`, `mm` name nothing; `yc`, `YC` name Y Combinator (Task 15 N2). `isOpenAt` reads `starts_at`
+  for an active program too: active before its start is not open, `statusAt` says upcoming, `listOpenPrograms` leaves
+  it out and `listListedPrograms` keeps it, eligibility says `not open` (L35-19); `programProblems` refuses it
+  (`status: active with starts_at {t} in the future; write upcoming`) and refuses an `ends_at` whose offset is not
+  the `tz` zone's at that instant (`ends_at: offset -04:00 is not America/New_York's at that time (-05:00)`, L30-15).
+  A refused MCP call counts on no window: `refusedFor` takes an own-limit refusal back from the agent's window and an
+  address refusal from both (`uncountHit`, L35-25). The screen's day count is taken inside `createJob`'s transaction
+  through its `admit` hook (`countHit(..., tx)`), only when there is something new to queue, so a nothing-new call
+  never holds one of the ten and the eleventh is refused with its job undone (`limited`, Task 12 N2). The
+  nothing-new reply carries the unknown-field and dropped-link notes the queued reply carries (Task 4 N4). A screen
+  outcomes call of repeats only is a success with `recorded: 0` and `Already recorded; nothing new.` (Task 15 N3,
+  pinned since v6.1.16 fix round 1). Solana Incubator need phrases: `Web3 or Solana experience`, `reason for your
+  idea, with proof of need`, `your insight on the competition` (Task 15 N5).
 - **Says and notes (L29-5, L29-6, L29-17, L29-19, L29-27 to L29-29, L29-31, L29-34).** A yes that needs answers names
   them: "Say yes and tell me {needs}, and I apply to ...". No "Or say the numbers to skip." (the note's "A number skips
   that program: call track skipped with its id."). The rule Say ends "and I get it ready."; unlinked, the users question
