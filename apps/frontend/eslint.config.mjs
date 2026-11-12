@@ -15,4 +15,9 @@ export default defineConfig([
       ],
     },
   },
+  // The repro pack (v6.1.17 Task 5) reads untyped MCP and SQL rows by design; it is a local test tool, never imported by the app.
+  {
+    files: ['scripts/repro/**/*.mts'],
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
 ]);
