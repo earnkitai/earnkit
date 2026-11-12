@@ -2623,6 +2623,30 @@ test('fix round 1: a linked find with no project reports the overnight sends and
   assert.doesNotMatch(next.reply!.show_to_builder as string, /Applied under your standing approval|you changed waits? for your approval/);
 });
 
+test('L41-4 (v6.1.19): a demo link given once clears the gap on the next find without it; a record project\'s demo link counts too', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const demoField = { key: 'demo_video', label: 'Demo video', type: 'url', required: true, from: 'builder', kind: 'demo_video', project_field: 'demo_url', todo: 'a demo video link' };
+  await upsertProgram(programFixture({ id: 'l414-demo', title: 'Kept Demo Grant', max_award_usd: 4000, eligibility: [{ kind: 'demo_video' }], submission_requirements: [demoField] as never }), 'file', NOW);
+  try {
+    const c = ctx(await installation());
+    const project = { name: 'L414 App', description: 'An app for builders.' };
+    const one = async (p: Record<string, unknown>) => (await mcpCall(c, 'find', { program_id: 'l414-demo', project: p })).reply!;
+    assert.match((await one(project)).show_to_builder as string, /a demo video link/);
+    const given = await one({ ...project, demo_url: 'https://l414.example/demo' });
+    assert.doesNotMatch(given.show_to_builder as string, /a demo video link/, given.show_to_builder as string);
+    const later = await one(project);
+    assert.doesNotMatch(later.show_to_builder as string, /a demo video link/, later.show_to_builder as string);
+    const field = (later.fields as { key: string; value: string | null; from: string }[]).find((f) => f.key === 'demo_video')!;
+    assert.equal(field.value, 'https://l414.example/demo');
+    // The record's project demo link, with no report yet.
+    const { id, builderId } = await linkedWith({ projects: [{ id: 'l414r', name: 'L414 Rec', demo_url: 'https://l414.example/rec' }] });
+    const rec = await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'l414-demo', project: { name: 'L414 Rec', description: 'An app.' } });
+    assert.doesNotMatch(rec.reply!.show_to_builder as string, /a demo video link/, rec.reply!.show_to_builder as string);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l414-demo'`;
+  }
+});
+
 test('N-5 (v6.1.9): a step marked done that the read still misses is said once per find after its line; the builder\'s word counts done', async () => {
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'n5-live', title: 'Live Link Grant', max_award_usd: 4000, eligibility: [{ kind: 'live_product' }] }), 'file', NOW);
@@ -4217,19 +4241,24 @@ test('L38 big 3 (v6.1.18 Task 10): the full list lists an in-person program with
   }
 });
 
-test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago is asked once, not drafted again, and its claim is kept past 24 hours', async () => {
+test('L36-1, L36-2 (v6.1.18 Task 4), L41-2 (v6.1.19): the caller\'s own fresh draft is not listed as ready; a builder-sent program started an hour ago is asked once, not drafted again, and its claim is kept past 24 hours', async () => {
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'tt-sent', title: 'Kiroween 2026', submit: 'builder' }), 'file', NOW);
   try {
     const { id, builderId } = await linkedWith(OWNER_RECORD);
     const owner = `b:${builderId}`;
     const find = async (now: Date, all = false) => (await mcpCall({ ...ctx(id, now), builderId, evidence: LIVE }, 'find', { project: PROJECT, ...(all ? { filter: { all: true } } : {}) })).reply!;
-    // Before the hour, it is still the builder's draft to send.
+    // Before the hour, it is still the builder's draft to send. L41-2 (v6.1.19): this agent's own draft is out with the
+    // builder, so it leaves the Ready rows and is said as drafted.
     const st = await mcpCall({ ...ctx(id, new Date(NOW.getTime() - 0.5 * H)), builderId }, 'track', { program_id: 'tt-sent', status: 'started', project: PROJECT });
     assert.equal(st.isError, false, st.text);
     const early = await find(NOW, true);
-    assert.ok(ids(allReady(early)).includes('tt-sent'));
+    assert.ok(!ids(allReady(early)).includes('tt-sent'));
     assert.deepEqual(early.ask_sent, []);
+    const earlyDefault = await find(NOW);
+    assert.match(earlyDefault.show_to_builder as string, /^Kiroween 2026: drafted, waiting for you to send\.$/m);
+    assert.doesNotMatch(earlyDefault.show_to_builder as string, /Kiroween 2026 needs|draft Kiroween|\d+\. Kiroween/);
+    assert.ok((earlyDefault.show_to_builder as string).split('\n').length <= 10);
     // Once an hour has passed: asked on the next find, and not offered as a draft while the ask is open.
     const at = new Date(NOW.getTime() + H);
     const r = await find(at);

@@ -848,6 +848,9 @@ export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[]
   return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
 }
 
+/** L41-2 (v6.1.19): a draft this agent started under an hour ago for the builder to send, one line each. Pure. */
+export const draftedLines = (r: Pick<R, 'drafted'>): string[] => (r.drafted ?? []).map((d) => `${d.title}: drafted, waiting for you to send.`);
+
 /** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
 const SENT_SAY = 'Say sent and I note it.';
 /** L41-11 (v6.1.19): the Say of the one question about several forms. */
@@ -1221,6 +1224,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     { lines: apps ? [apps] : [], rank: 3 },
     { lines: [plain(notSent)].filter((x): x is string => !!x), rank: 4 },
     { lines: started.map(plain).filter((x): x is string => !!x), rank: 5 },
+    // L41-2 (v6.1.19): this agent's own fresh draft of a form the builder sends, at the started lines' rank.
+    { lines: draftedLines(r), rank: 5 },
     { lines: [since ?? nothingNew].filter((x): x is string => !!x), rank: 6 },
     // L1i-2 (v6.1.16.1): the results question is asked once a day, so it stays ahead of what moved since.
     { lines: outcomeLines(r, now), rank: 5.8 },

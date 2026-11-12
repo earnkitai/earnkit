@@ -8,7 +8,7 @@ import { cleanText, quoteName } from './controls';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { appliedOvernight, CLAIM_HOURS, releaseStale, type Released } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
-import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
+import { blockersOf, gateFor, notNever, missingFor, pickProject, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
@@ -16,7 +16,7 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, LIST_GONE, listMiss, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -202,6 +202,9 @@ export type FindReply = {
    *  recorded, that this installation has not asked about in the last 7 days; the builder text asks each. Always set by
    *  a project find. */
   ask_sent?: SentAsk[];
+  /** L41-2 (v6.1.19): programs the builder sends that this agent started on this project under an hour ago: drafted,
+   *  waiting for the builder to send (left out of the lists until the sent ask takes over). */
+  drafted?: { program_id: string; title: string }[];
   as_reported: boolean;
   problems?: string[];
   /** What the builder is told about the repo read, one sentence each (v6.1.8, B20 and C59). */
@@ -1139,6 +1142,23 @@ async function joinAgain(ctx: FindContext, fromName: string, toRepo: string, pro
   await joinRows(ownerOf(ctx), fromName, toRepo, await cachedRepoId(toRepo), await cachedRepoParent(toRepo));
 }
 
+/**
+ * L41-4, M3 (v6.1.19): a demo link once given stays with the project: the call's, else the report kept for the project
+ * (its resolved key, or its name key), else the record project's. Read before this find saves its report.
+ */
+async function withDemo(ctx: FindContext, project: Project, projectId: string | undefined): Promise<Project> {
+  if (project.demo_url) return project;
+  const owner = ownerOf(ctx);
+  const keys = [...new Set([await resolvedKey(owner, projectKeyOf(project)), projectKeyOf(project), nameKeyOf(project)].filter(Boolean))];
+  for (const k of keys) {
+    const kept = (await reportOf(owner, k))?.demo_url;
+    if (kept) return { ...project, demo_url: kept };
+  }
+  if (ctx.builderId === null) return project;
+  const stored = pickProject(await getRecord(ctx.builderId), projectId, project.repo_url ?? null, project.name)?.demo_url;
+  return stored ? { ...project, demo_url: stored } : project;
+}
+
 /** Fix round 2 (I3): whether the signed-in builder is tied to the repo by the cached read (no fetch), as `followRename`. */
 async function tiedTo(ctx: FindContext, toRepo: string, project: Project): Promise<boolean> {
   if (ctx.builderId === null) return false;
@@ -1149,7 +1169,7 @@ async function tiedTo(ctx: FindContext, toRepo: string, project: Project): Promi
 
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
-  const project = parsed?.ok ? parsed.project : null;
+  const project = parsed?.ok ? await withDemo(ctx, parsed.project, i.project_id) : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
   // B4 (v6.1.13): the first find that adds the repo to a project found by name moves its steps and claims to the repo key.
   // L28-5 (v6.1.16 Task 14): only when the name holds no send or step; else the builder is asked, and both stay.
@@ -1211,6 +1231,11 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const all = i.filter?.all === true;
   // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
   const listed = side ? notNever(side.record) : () => true;
+  // L41-2 (v6.1.19): this agent's own live start, under the hour, on a program the builder sends: the draft is out with
+  // the builder, so it leaves the Ready rows and the need line and is said as drafted, until the sent ask takes over.
+  const draftedAll = [...(await claimed(owner, (p) => p !== null && sentHere(p)))].filter(([id, h]) => h.by === ctx.installationId && !h.held && h.project !== null && sentHere(h.project)
+    && Date.parse(h.since) > ctx.now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000 && !sentIds.has(id));
+  const draftedIds = new Set(draftedAll.map(([id]) => id).filter((id) => open.find((r) => r.id === id)?.file.submit === 'builder'));
   const programs = open.filter((r) => !skip.has(r.id) && !sentIds.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneOn(owner, key);
@@ -1222,7 +1247,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     .map((r) => evaluate(r, facts, done.of(r.id), ctx.now))
     .map((v) => gate(v, byId.get(v.program_id)!));
 
-  const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
+  // L41-2: a ready program this agent drafted under the hour for the builder to send leaves the Ready rows.
+  const drafted = verdicts.filter((v) => v.status === 'ready' && draftedIds.has(v.program_id)).map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title }));
+  const readyV = rankReady(verdicts.filter((v) => v.status === 'ready' && !draftedIds.has(v.program_id)), byId);
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
   // The project's own chains: the reported ones in order, then the ones the code read found (fix round 3, N-4).
   const projectChains = [...new Set([...(project.chains ?? []).map((c) => c.chain), ...facts.chains.map((c) => c.chain)])];
@@ -1356,6 +1383,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
     ledger, applications: await applicationsOf(owner), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
+    ...(drafted.length > 0 ? { drafted } : {}),
     ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),

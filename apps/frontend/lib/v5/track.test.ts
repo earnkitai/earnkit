@@ -1896,11 +1896,11 @@ test('M1, FR-1 (Task 14 fix round 1): with no evidence the refusal and find say 
     assert.equal(r.show_to_builder, 'Sign in first so I can check the repo is yours.', status);
     assert.equal(r.refused, true);
   }
-  // Evidence against a signed-in builder: said, with the one action to name their repo.
+  // Evidence against a signed-in builder: said; L41-8 (v6.1.19): the apply offer becomes the draft for them to send.
   const n = await signedIn('nobody-m1');
   const fn = await find({ ...n, linkUrl: async () => null }, { program_id: 'l28-m1', project: R });
   assert.equal(fn.show_to_builder.split('\n')[0], 'This repo is not yours; I apply only with repos you commit to.');
-  assert.equal(fn.show_to_builder.split('\n').at(-1), 'Say which repo is yours.');
+  assert.equal(fn.show_to_builder.split('\n').at(-1), 'Say yes and I draft it for you to send.');
 });
 
 test('FR-4 (Task 14 fix round 1): a send over this agent\'s own live claim is recorded even when the repo can no longer be read', async () => {
