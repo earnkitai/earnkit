@@ -116,7 +116,7 @@ test('W3 (v6.1.13 final round), re-pinned by L23-12 (v6.1.16): the 180-day sweep
   await sql()`DELETE FROM project_reports WHERE owner = 'i:1'`;
 });
 
-test('L30-4: a health error is listed and the sweeps, the queue and the digest still run; the error is a code only', async () => {
+test('L30-4: a health error is listed and the sweeps and the queue still run; the error is a code only; v6.1.19 (L44-3): no digest (`no check`)', async () => {
   let queued = 0;
   const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
     ...deps,
@@ -128,7 +128,7 @@ test('L30-4: a health error is listed and the sweeps, the queue and the digest s
   assert.equal(body.health, null);
   assert.deepEqual(body.failed, [{ id: null, step: 'health', error: 'error' }]);
   assert.equal(queued, 1);
-  assert.ok(['sent', 'none'].includes(body.digest!));
+  assert.equal(body.digest, 'no check');
 });
 
 test('L30-4: a sweep error still lets the screen step and the digest run, with failed naming sweep_repo', async () => {
@@ -192,7 +192,9 @@ test('L30-4: 500 only when every step failed', async () => {
     }));
     assert.equal(res.status, 500);
     const body = (await res.json()) as Body;
-    assert.deepEqual(body.failed.map((f) => f.step), ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'sweep_asks', 'screen', 'digest']);
+    // v6.1.19 (L44-3): the failed check holds the digest back, which counts with the failed steps.
+    assert.deepEqual(body.failed.map((f) => f.step), ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'sweep_asks', 'screen']);
+    assert.equal(body.digest, 'no check');
   } finally {
     for (const t of tables) await allowDeletes(t);
   }
@@ -401,7 +403,8 @@ test('controller ruling: a database error with a connection string in its messag
     console.error = was;
   }
   const text = await res.text();
-  assert.deepEqual((JSON.parse(text) as Body).failed, [{ id: null, step: 'health', error: 'db' }, { id: null, step: 'digest', error: 'timeout' }]);
+  // v6.1.19 (L44-3): a failed check runs no digest.
+  assert.deepEqual((JSON.parse(text) as Body).failed, [{ id: null, step: 'health', error: 'db' }]);
   for (const bit of ['hunter2', '10.1.2.3', 'postgresql', 'admin']) assert.ok(!text.includes(bit), bit);
   assert.ok(logged.some((l) => l.startsWith('[cron] health failed: PostgresError: connect failed')));
 });
@@ -541,6 +544,9 @@ test('L30-14, L30-18 (Review Focus 5): after 27 hours with no run, the run\'s di
   await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${old})`;
   assert.equal((await readStats(deps.now)).last_run_at, old.toISOString());
   const walk = async () => ({ ...(await quietHealth()), unreadable: [{ id: 'cr-bad', fix: 'its saved entry no longer reads, so it is not checked; correct the entry.' }] });
+  // v6.1.19 (L44-20): the digest reads the unreadable row from the programs table, not from the walk.
+  await upsertProgram(programFixture({ id: 'cr-bad' }), 'file', deps.now);
+  await sql()`UPDATE programs SET file = jsonb_set(file, '{title}', '7'::jsonb) WHERE id = 'cr-bad'`;
   const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: walk, workQueue: idleQueue });
   const body = (await res.json()) as Body;
   assert.equal(res.status, 200);
@@ -551,6 +557,7 @@ test('L30-14, L30-18 (Review Focus 5): after 27 hours with no run, the run\'s di
   assert.ok(text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 03:15 UTC.'), text);
   assert.ok(text.includes('Programs the run could not read\n- cr-bad: its saved entry no longer reads, so it is not checked; correct the entry.'), text);
   assert.equal((await readStats(deps.now)).last_run_at, deps.now.toISOString());
+  await sql()`DELETE FROM programs WHERE id = 'cr-bad'`;
   await sql()`DELETE FROM cron_state`;
   await sql()`DELETE FROM owner_digests`;
 });
@@ -559,18 +566,93 @@ test('fix round 1 (M2): two runs on a day after a gap send one email: the second
   const H = 3_600_000;
   await sql()`DELETE FROM cron_state`;
   await sql()`DELETE FROM owner_digests`;
-  // 27 h 55 min before the first run: measured from now, the second run 10 minutes later would read 28 hours.
-  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${new Date(deps.now.getTime() - 27 * H - 55 * 60_000)})`;
+  // 27 h 25 min before the first run: 27 hours (v6.1.19 L44-12: the true hours, rounded to the nearest); measured from
+  // now, the second run 10 minutes later would read 28.
+  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${new Date(deps.now.getTime() - 27 * H - 25 * 60_000)})`;
   const run = (now: Date) => cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue });
   const first = (await (await run(deps.now)).json()) as Body;
   const second = (await (await run(new Date(deps.now.getTime() + 10 * 60_000))).json()) as Body;
   assert.deepEqual([first.digest, second.digest], ['sent', 'none']);
   assert.equal(sent.length, 1);
-  assert.ok(sent[0].text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 02:20 UTC.'), sent[0].text);
+  assert.ok(sent[0].text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 02:50 UTC.'), sent[0].text);
   // The next day, with its run on time, there is no gap.
   const next = (await (await run(new Date(deps.now.getTime() + 24 * H))).json()) as Body;
   assert.notEqual(next.digest, 'sent');
   assert.equal(sent.length, 1);
   await sql()`DELETE FROM cron_state`;
   await sql()`DELETE FROM owner_digests`;
+});
+
+// v6.1.19 Task 6 (lane 44): a run whose link check failed.
+test('L44-3: a same-day rerun whose link check fails mails nothing and moves no day; the next good run mails once, so A, fail, A is one email', async () => {
+  const db = sql();
+  await db`DELETE FROM cron_state`;
+  await db`DELETE FROM owner_digests`;
+  await upsertProgram(programFixture({ id: 'cr-l44a', title: 'Down Grants', source_url: 'https://down.example/a', submission_url: 'https://down.example/form' }), 'file', deps.now);
+  await upsertProgram(programFixture({ id: 'cr-l44b' }), 'file', deps.now);
+  await db`UPDATE programs SET file = jsonb_set(file, '{title}', '7'::jsonb) WHERE id = 'cr-l44b'`;
+  const H = 3_600_000;
+  const link = async (u: string) => (u.startsWith('https://down.') ? { ok: false as const, why: '4xx' as const } : { ok: true as const, page: '<p>x</p>' });
+  const run = (now: Date, broken = false) => quietLog(async () => (await cronPost(req(`Bearer ${SECRET}`), {
+    ...deps, now, link, workQueue: idleQueue, ...(broken && { runHealth: async () => { throw new Error('walk'); } }),
+  })).json() as Promise<Body>);
+  try {
+    const g1 = await run(deps.now);
+    assert.equal(g1.digest, 'sent');
+    assert.match(sent[0].text, /Programs the run could not read\n- cr-l44b:/);
+    assert.match(sent[0].text, /- Down Grants: down since today \(https:\/\/down\.example\/a\)/);
+    const [s1] = await db`SELECT last_run_at, day_first_at, last_check_failed_at FROM cron_state`;
+    const g2 = await run(new Date(deps.now.getTime() + H), true);
+    assert.deepEqual([g2.digest, g2.failed], ['no check', [{ id: null, step: 'health', error: 'error' }]]);
+    const [s2] = await db`SELECT last_run_at, day_first_at, last_check_failed_at FROM cron_state`;
+    assert.deepEqual([s2.last_run_at, s2.day_first_at, s2.last_check_failed_at], [s1.last_run_at, s1.day_first_at, new Date(deps.now.getTime() + H)]);
+    const g3 = await run(new Date(deps.now.getTime() + 2 * H));
+    assert.equal(g3.digest, 'none');
+    assert.equal(sent.length, 1);
+    // The next day's first run fails: no mail and no day; the good run after it starts the day and mails once.
+    const d2 = new Date(deps.now.getTime() + 24 * H);
+    assert.equal((await run(d2, true)).digest, 'no check');
+    assert.equal((await db`SELECT day_first_at FROM cron_state`)[0].day_first_at.getTime(), deps.now.getTime());
+    assert.equal((await run(new Date(d2.getTime() + H))).digest, 'sent');
+    assert.equal((await db`SELECT day_first_at FROM cron_state`)[0].day_first_at.getTime(), d2.getTime() + H);
+    assert.equal(sent.length, 2);
+    assert.doesNotMatch(sent[1].text, /link check failed/);
+  } finally {
+    await db`DELETE FROM programs WHERE id IN ('cr-l44a', 'cr-l44b')`;
+    await db`DELETE FROM cron_state`;
+    await db`DELETE FROM owner_digests`;
+  }
+});
+
+test('L44-10: a day whose only run failed its check: /api/stats says last_check_ok false and keeps last_run_at; the next day\'s digest opens with it', async () => {
+  const { readStats } = await import('./stats');
+  const db = sql();
+  await db`DELETE FROM cron_state`;
+  await db`DELETE FROM owner_digests`;
+  const H = 3_600_000;
+  const run = (now: Date, broken = false) => quietLog(async () => (await cronPost(req(`Bearer ${SECRET}`), {
+    ...deps, now, workQueue: idleQueue, runHealth: broken ? async () => { throw new Error('walk'); } : quietHealth,
+  })).json() as Promise<Body>);
+  try {
+    // A first run ever that fails its check stores only the failure.
+    const d0 = new Date(deps.now.getTime() - 48 * H);
+    assert.equal((await run(d0, true)).digest, 'no check');
+    assert.deepEqual([(await readStats(d0)).last_run_at, (await readStats(d0)).last_check_ok], [null, false]);
+    // Nov 2 good (mails, the gap line needs a run before it: none), Nov 3 fails, Nov 4 good.
+    const nov2 = new Date(deps.now.getTime() - 48 * H + H);
+    await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-02', ${nov2})`;
+    await run(nov2);
+    assert.equal((await readStats(nov2)).last_check_ok, true);
+    const nov3 = new Date(deps.now.getTime() - 24 * H);
+    await run(nov3, true);
+    const st = await readStats(nov3);
+    assert.deepEqual([st.last_run_at, st.last_check_ok], [nov2.toISOString(), false]);
+    const nov4 = await run(deps.now);
+    assert.equal(nov4.digest, 'sent');
+    assert.equal(sent.at(-1)!.text.split('\n\n')[1], 'The link check failed on Nov 3; this digest covers two days.');
+    assert.equal((await readStats(deps.now)).last_check_ok, true);
+  } finally {
+    await db`DELETE FROM cron_state`;
+    await db`DELETE FROM owner_digests`;
+  }
 });

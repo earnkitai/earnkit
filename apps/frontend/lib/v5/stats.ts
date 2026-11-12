@@ -9,7 +9,7 @@ import { listOpenPrograms, type ProgramRow } from './programs';
 
 export const STATS_KEYS = [
   'programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit',
-  'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'read_at',
+  'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at',
 ] as const;
 /**
  * L22-1 (v6.1.16): `won_usd` is the US dollar part of the wins only; `won_other` sums each other currency (never
@@ -24,9 +24,14 @@ export const STATS_KEYS = [
  * a builder's that an EarnKit start preceded, `throughEarnkit`), all time; `read_at` is the read's `now` (the clock
  * passed in; the route caches the read for 10 minutes).
  */
-export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other' | 'last_run_at' | 'read_at'>, number> & {
+/**
+ * v6.1.19 (L44-10): `last_check_ok` is false when the latest run's link check failed (after the last run that finished
+ * it); `last_run_at` stays the last run that finished its check.
+ */
+export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other' | 'last_run_at' | 'last_check_ok' | 'read_at'>, number> & {
   won_other: { currency: string; amount: number }[];
   last_run_at: string | null;
+  last_check_ok: boolean;
   read_at: string;
 };
 
@@ -112,7 +117,8 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
       SELECT count(*) FILTER (WHERE COALESCE(submitted_by, 'agent') = 'agent' OR (submitted_by = 'builder' AND through)) AS via,
              count(*) FILTER (WHERE sent_time >= ${week}) AS sent_week FROM s`,
   ]);
-  const [run] = await db<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
+  const [run] = await db<{ last_run_at: Date | null; last_check_failed_at: Date | null }[]>`SELECT last_run_at, last_check_failed_at FROM cron_state WHERE id`;
+  const failedAt = run?.last_check_failed_at ?? null;
   const other = await db<{ currency: string; amount: string }[]>`
     WITH w AS (${wonOnce(db)})
     SELECT e.key AS currency, sum(e.value::numeric) AS amount FROM w a, jsonb_each_text(a.amounts) e
@@ -130,7 +136,8 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     won_usd: Number(a.won_usd ?? 0),
     won_other: other.map((r) => ({ currency: r.currency, amount: Number(r.amount) })),
     won_without_amount: Number(a.won_none),
-    last_run_at: run?.last_run_at.toISOString() ?? null,
+    last_run_at: run?.last_run_at?.toISOString() ?? null,
+    last_check_ok: !failedAt || (run?.last_run_at != null && run.last_run_at > failedAt),
     read_at: now.toISOString(),
   };
 }

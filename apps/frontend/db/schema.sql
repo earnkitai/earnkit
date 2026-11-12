@@ -104,6 +104,11 @@ CREATE TABLE IF NOT EXISTS cron_state (
 -- Fix round 1 (M2): the gap belongs to the UTC day. When a run crosses into a new day, `prev_run_at` keeps the last
 -- run before it and `day_first_at` this day's first run, so a second run that day measures the same gap.
 ALTER TABLE cron_state ADD COLUMN IF NOT EXISTS prev_run_at timestamptz, ADD COLUMN IF NOT EXISTS day_first_at timestamptz;
+-- v6.1.19 (L44-3, L44-10): a run whose link check failed mails nothing and stores only `last_check_failed_at`
+-- (/api/stats `last_check_ok`, the next digest's opening line); `last_run_at` stays the last run that finished its check,
+-- so it is null while every run so far failed its check.
+ALTER TABLE cron_state ADD COLUMN IF NOT EXISTS last_check_failed_at timestamptz;
+ALTER TABLE cron_state ALTER COLUMN last_run_at DROP NOT NULL;
 
 -- One row per installed agent (its bearer token's hash).
 CREATE TABLE IF NOT EXISTS installations (
