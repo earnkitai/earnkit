@@ -3,9 +3,11 @@
  * Local only: a base URL whose host is not localhost, 127.0.0.1 or ::1 is refused unless REPRO_ALLOW_REMOTE=1, and
  * earnkit.com (or any subdomain) and the Railway app domain (`*.up.railway.app`) are refused always. Hosts are compared
  * with trailing dots removed, and earnkit.com in look-alike letters too (each label through `fold`, L40-B2 v6.1.18).
+ * An IP address that is not loopback (127/8, ::1) is refused always (fix round 1).
  * The database must be a local Postgres named by its host (not empty, no `hostaddr=`, L40-C3). The default secrets
  * are the throwaway values of the local server; they sign nothing outside it. Pure.
  */
+import { isIP } from 'node:net';
 import { domainToUnicode } from 'node:url';
 import { fold } from '../../lib/v5/oauth';
 export type ReproTarget = { base: string; database: string; authSecret: string; cronSecret: string };
@@ -37,6 +39,8 @@ export function reproTarget(env: Record<string, string | undefined> = process.en
   const { u, host } = hostOf(pick('REPRO_BASE_URL'), 'REPRO_BASE_URL');
   if (isUnder(host, 'earnkit.com') || isUnder(readAs(host), 'earnkit.com')) throw new Error('local only: the repro pack never runs against earnkit.com');
   if (isUnder(host, 'up.railway.app')) throw new Error('local only: the repro pack never runs against a Railway app domain');
+  // Fix round 1: an address names no domain to refuse, so even with REPRO_ALLOW_REMOTE=1 only a loopback one is taken.
+  if (isIP(host) && !(host === '::1' || /^127\./.test(host))) throw new Error(`local only: ${host} is an address that is not this machine`);
   if (!['http:', 'https:'].includes(u.protocol)) throw new Error('local only: REPRO_BASE_URL must be http or https');
   if (!LOCAL.includes(host) && env.REPRO_ALLOW_REMOTE !== '1') throw new Error(`local only: ${host} is not this machine (set REPRO_ALLOW_REMOTE=1 to allow it)`);
   const database = pick('REPRO_DATABASE_URL');

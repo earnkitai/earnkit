@@ -4,6 +4,7 @@ import { sql } from './db';
 import type { Mailer } from './mail';
 import { dailyOwnerText, digestKey, sendOwnerDigest } from './owner-digest';
 import { runHealth, type LinkCheck } from './health';
+import { cimdFixture } from './fixtures/cimd';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
 
@@ -270,4 +271,16 @@ test('L39-5: the daily run reads the closed phrase on a submission page that ans
   const text = sent[0]!.text;
   assert.match(text, /- Shut Form Grants: the form says it is closed \(https:\/\/shut\.example\/form\)/);
   assert.doesNotMatch(text, /Open Form Grants/);
+});
+
+test('L39-5 fix round 1: a forms.gle-style link that redirects to a closed form on another host is in the failing block', async () => {
+  await sql()`DELETE FROM programs`;
+  await upsertProgram(programFixture({ id: 'od-gle', title: 'Gle Form Grants', source_url: 'https://gle.example/about', submission_url: 'https://forms.gle/xyz' }), 'file', NOW);
+  const site = cimdFixture((u) => (u.hostname === 'forms.gle'
+    ? { status: 302, location: 'https://docs.google.com/forms/d/e/y/viewform', body: '' }
+    : { status: 200, contentType: 'text/html', body: u.hostname === 'docs.google.com' ? CLOSED_FORM : '<p>About the grants.</p>' }));
+  const run = await runHealth(NOW, { resolve: site.resolve, transport: site.transport });
+  assert.deepEqual([run.stale, run.failed], [[], []]);
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.match(sent[0]!.text, /Links that did not load\n- Gle Form Grants: the form says it is closed \(https:\/\/forms\.gle\/xyz\)/);
 });

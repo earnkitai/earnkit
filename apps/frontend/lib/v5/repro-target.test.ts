@@ -55,3 +55,13 @@ test('reproTarget (L40-C3): the database check refuses an empty host and a hosta
   assert.equal(reproTarget({ REPRO_DATABASE_URL: 'postgresql://127.0.0.1:5432/x' }).database, 'postgresql://127.0.0.1:5432/x');
   assert.equal(reproTarget({ REPRO_DATABASE_URL: 'postgresql://localhost/x?host=/tmp' }).database, 'postgresql://localhost/x?host=/tmp');
 });
+
+test('reproTarget (fix round 1): an IP literal that is not loopback is refused even with REPRO_ALLOW_REMOTE=1', () => {
+  for (const url of ['http://93.184.216.34', 'https://104.18.0.1:443', 'http://[2606:4700::6810:1]', 'http://10.0.0.5:4600', 'http://0x5db8d822', 'http://[::ffff:93.184.216.34]']) {
+    assert.throws(() => reproTarget({ REPRO_BASE_URL: url }), /local only/, url);
+    assert.throws(() => reproTarget({ REPRO_BASE_URL: url, REPRO_ALLOW_REMOTE: '1' }), /local only/, url);
+  }
+  assert.equal(reproTarget({ REPRO_BASE_URL: 'http://127.0.0.2:4600', REPRO_ALLOW_REMOTE: '1' }).base, 'http://127.0.0.2:4600');
+  assert.equal(reproTarget({ REPRO_BASE_URL: 'http://0x7f000001:4600' }).base, 'http://127.0.0.1:4600');
+  assert.equal(reproTarget({ REPRO_BASE_URL: 'http://[::1]:4600' }).base, 'http://[::1]:4600');
+});

@@ -14,13 +14,14 @@ import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { ProgramFile, type Program } from './program-file';
 import { dateStatus, upsertProgram } from './programs';
-import { probeLink, SafeFetchError, visibleText, type ProbeResult, type Resolver, type Transport } from './safe-fetch';
+import { landingPage, probeLink, SafeFetchError, visibleText, type ProbeResult, type Resolver, type Transport } from './safe-fetch';
 
 /** One link's check (default: probeLink over the real resolver and transport). */
 export type LinkCheck = (url: string, timeoutMs: number) => Promise<ProbeResult>;
 export type Health = {
   source_ok: boolean; submit_ok: boolean; body_hash: string | null; body_text: string | null; changed: boolean;
-  /** L39-5 (v6.1.18): the submission page was read and its text says it is closed (`formSaysClosed`). */
+  /** L39-5 (v6.1.18): the page the submission link lands on says it is closed (`formSaysClosed`); read directly, or
+   *  after a redirect elsewhere by its own guarded read (`landingPage`, fix round 1). Never changes `submit_ok`. */
   submit_closed: boolean;
   /** The other hosts the links redirected to (never requested). */
   redirects: string[];
@@ -35,6 +36,9 @@ export type HealthDeps = {
   prevText?: string | null;
   /** Per link (default PROBE_MS). */
   probeMs?: number;
+  /** v6.1.18 fix round 1 (L39-5): reads the page a link finally lands on, for the closed-form check only (tests);
+   *  else landingPage with `resolve` and `transport`, or none when only `link` is injected. */
+  landing?: (url: string, timeoutMs: number) => Promise<string | null>;
 };
 export type Failed = { id: string | null; step: string; error: ErrorCode };
 
@@ -112,6 +116,19 @@ export function pageChanged(prev: string, next: string): boolean {
   return shared < SAME_WORDS * Math.max(a.size, b.size);
 }
 
+/** The visible text of the page `url` lands on, bounded to one link's time; null when unread. */
+async function landedText(url: string, deps: HealthDeps): Promise<string | null> {
+  const ms = deps.probeMs ?? PROBE_MS;
+  const read = deps.landing ?? (deps.link ? null : (u: string, t: number) => landingPage(u, { resolve: deps.resolve, transport: deps.transport, timeoutMs: t }));
+  if (!read) return null;
+  try {
+    const page = await bounded(read(url, ms), ms);
+    return page ? textOf(page) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Probes the source and submission links, one GET each (one for both when they are the same link); the source's page is that GET's. */
 export async function probeProgram(p: Program | { file: Program }, deps: HealthDeps): Promise<Health> {
   const file = 'file' in p ? p.file : p;
@@ -119,8 +136,10 @@ export async function probeProgram(p: Program | { file: Program }, deps: HealthD
   const [source, submit] = await Promise.all([check(file.source_url, deps), same ? null : check(file.submission_url, deps)]);
   const sub = submit ?? source;
   const body_text = source.ok && source.page ? textOf(source.page) : null;
-  // L39-5: a form that answers but says it is closed; a redirect elsewhere is never read, so it never says so.
-  const submit_text = sub.ok && sub.page ? (sub === source ? body_text : textOf(sub.page)) : null;
+  // L39-5: a form that answers but says it is closed. A redirect to another host is followed by its own read (fix
+  // round 1: forms.gle to docs.google.com), never by the link check, so the status and `redirects` stay as they were.
+  const submit_text = sub.ok && sub.page ? (sub === source ? body_text : textOf(sub.page))
+    : sub.ok && sub.redirect ? await landedText(file.submission_url, deps) : null;
   const prev = deps.prevText ?? null;
   const redirects = [...new Set([source, sub].flatMap((r) => (r.ok && r.redirect ? [r.redirect] : [])))];
   return {

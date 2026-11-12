@@ -213,13 +213,16 @@ test('L30-2: a 302 to another host stays listed and never goes stale over 20 dai
       const r = await runHealth(new Date(D1.getTime() + day * DAY), { resolve: site.resolve, transport: site.transport });
       assert.deepEqual(r.stale, [], `day ${day + 1}`);
       assert.deepEqual(r.failed, []);
-      // One request to each link, none to the redirect's target.
-      assert.deepEqual(site.requests.slice(before).sort(), ['https://redir.example/apply', 'https://redir.example/grants']);
+      // The link check: one request to each link, none to the redirect's target. Fix round 1 (L39-5): the closed-form
+      // read then follows the submission link on its own (the link again, then the target).
+      const day_ = site.requests.slice(before);
+      assert.deepEqual(day_.slice(0, 2).sort(), ['https://redir.example/apply', 'https://redir.example/grants']);
+      assert.deepEqual(day_.slice(2), ['https://redir.example/apply', 'https://docs.google.com/forms/d/e/x/viewform?usp=sf_link']);
     }
   } finally {
     console.log = was;
   }
-  assert.ok(site.requests.every((u) => !u.includes('docs.google.com')));
+  assert.equal((await row('h-302')).submit_closed, false);
   assert.equal((await row('h-302')).fail_days, 0);
   assert.equal(await stale('h-302'), null);
   assert.ok((await listOpenPrograms(new Date(D1.getTime() + 20 * DAY))).some((x) => x.id === 'h-302'));
@@ -427,8 +430,12 @@ test('L39-5 (v6.1.18): formSaysClosed reads the four closed phrases in any case;
   // One link for both: its page is the form.
   const same = programFixture({ id: 'h-shut1', source_url: 'https://shut.example/form', submission_url: 'https://shut.example/form' });
   assert.equal((await probeProgram(same, { link: async (u) => ({ ok: true, page: page(u) }), now: D1 })).submit_closed, true);
-  // A redirect elsewhere is never read, so it never says closed.
-  assert.equal((await probeProgram(p, { link: async () => ({ ok: true, redirect: 'docs.google.com' }), now: D1 })).submit_closed, false);
+  // Fix round 1: a redirect elsewhere is read by its own path (`landing`) and judged on the page it lands on.
+  const away = { link: async (): Promise<ProbeResult> => ({ ok: true, redirect: 'docs.google.com' }), now: D1 };
+  const landed = await probeProgram(p, { ...away, landing: async () => '<div>Round 2 is now closed.</div>' });
+  assert.deepEqual([landed.submit_ok, landed.submit_closed, landed.redirects], [true, true, ['docs.google.com']]);
+  assert.equal((await probeProgram(p, { ...away, landing: async () => '<p>Apply here.</p>' })).submit_closed, false);
+  assert.equal((await probeProgram(p, { ...away, landing: async () => null })).submit_closed, false);
   // Stored by the walk, never stale.
   await upsertProgram(p, 'file', D1);
   await only('h-shut');
@@ -437,4 +444,42 @@ test('L39-5 (v6.1.18): formSaysClosed reads the four closed phrases in any case;
   assert.equal((await row('h-shut')).submit_closed, true);
   await runHealth(D2, { link: ok });
   assert.equal((await row('h-shut')).submit_closed, false);
+});
+
+// v6.1.18 fix round 1 (L39-5): the closed-form read follows up to 3 https redirects on any host, each hop guarded.
+const FORM_CLOSED = '<html><div>Round 2 of Builder Grant Program is now closed. Please look out on X.</div></html>';
+/** forms.gle-style hops: `hops` maps a URL to its Location; anything else answers `page`. Hosts in `inside` resolve private. */
+function hopSite(hops: Record<string, string>, page: string, inside: string[] = []) {
+  const site = cimdFixture((u) => (hops[u.href] ? { status: 302, location: hops[u.href], body: '' } : { status: 200, contentType: 'text/html', body: page }));
+  const resolve: typeof site.resolve = async (host, signal) => (inside.includes(host) ? [{ address: '10.0.0.5', family: 4 }] : site.resolve(host, signal));
+  return { ...site, resolve };
+}
+const formProgram = (id: string, submission_url: string) => programFixture({ id, source_url: 'https://about.example/grants', submission_url });
+
+test('L39-5 fix round 1: a forms.gle-style redirect to another host whose page says now closed is submit_closed; the link stays ok with its redirect', async () => {
+  const site = hopSite({ 'https://forms.gle/abc': 'https://docs.google.com/forms/d/e/x/viewform' }, FORM_CLOSED);
+  const h = await probeProgram(formProgram('h-gle', 'https://forms.gle/abc'), { resolve: site.resolve, transport: site.transport, now: D1 });
+  assert.deepEqual([h.submit_ok, h.submit_closed, h.redirects], [true, true, ['docs.google.com']]);
+  // The same chain to an open form is not flagged.
+  const open = hopSite({ 'https://forms.gle/abc': 'https://docs.google.com/forms/d/e/x/viewform' }, '<p>Apply here.</p>');
+  assert.equal((await probeProgram(formProgram('h-gle2', 'https://forms.gle/abc'), { resolve: open.resolve, transport: open.transport, now: D1 })).submit_closed, false);
+});
+
+test('L39-5 fix round 1: an http hop, a 4th redirect and a private address are not read; 3 redirects are', async () => {
+  const run = async (hops: Record<string, string>, inside: string[] = []) => {
+    const site = hopSite(hops, FORM_CLOSED, inside);
+    const h = await probeProgram(formProgram('h-hops', 'https://a.example/1'), { resolve: site.resolve, transport: site.transport, now: D1 });
+    return { h, site };
+  };
+  const http = await run({ 'https://a.example/1': 'http://b.example/form' });
+  assert.deepEqual([http.h.submit_ok, http.h.submit_closed], [true, false]);
+  assert.ok(!http.site.requests.some((u) => u.startsWith('http:')));
+  const three = await run({ 'https://a.example/1': 'https://b.example/2', 'https://b.example/2': 'https://c.example/3', 'https://c.example/3': 'https://d.example/form' });
+  assert.equal(three.h.submit_closed, true);
+  const four = await run({ 'https://a.example/1': 'https://b.example/2', 'https://b.example/2': 'https://c.example/3', 'https://c.example/3': 'https://d.example/4', 'https://d.example/4': 'https://e.example/form' });
+  assert.equal(four.h.submit_closed, false);
+  assert.ok(!four.site.requests.includes('https://e.example/form'));
+  const priv = await run({ 'https://a.example/1': 'https://inside.example/form' }, ['inside.example']);
+  assert.deepEqual([priv.h.submit_ok, priv.h.submit_closed], [true, false]);
+  assert.ok(!priv.site.requests.includes('https://inside.example/form'));
 });
