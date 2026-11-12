@@ -78,7 +78,7 @@ export type Repo = {
   size?: number;
   /** The repo's topics, lower-case (v6.1.10). */
   topics?: string[];
-  parent?: { full_name: string; default_branch: string };
+  parent?: { full_name: string; default_branch: string; id?: number };
   /** GitHub's repo id: the same through a rename or a transfer (L28-6, v6.1.16 Task 14). */
   id?: number;
   owner?: { login?: string; type?: string };

@@ -148,7 +148,9 @@ export async function findAutoWas(id: number): Promise<boolean> {
  * Another project than the last drops the last gaps in the same statement: they were that project's (final round).
  */
 export async function rememberProject(id: number, projectKey: string): Promise<void> {
+  // Fix round 1 (I3, v6.1.16.1): another project's list numbers are not this one's.
   await sql()`UPDATE installations SET last_gaps = CASE WHEN last_project_key IS DISTINCT FROM ${projectKey} THEN NULL ELSE last_gaps END,
+    last_list = CASE WHEN last_project_key IS DISTINCT FROM ${projectKey} THEN NULL ELSE last_list END,
     last_project_key = ${projectKey} WHERE id = ${id}`;
 }
 
@@ -225,6 +227,21 @@ export async function markList(id: number, hash: string, now: Date, ids?: string
 export async function lastListIds(id: number): Promise<string[]> {
   const [row] = await sql()<{ l: unknown }[]>`SELECT last_list AS l FROM installations WHERE id = ${id}`;
   return Array.isArray(row?.l) ? (row.l as unknown[]).map((x) => (typeof x === 'string' ? x : '')) : [];
+}
+
+/**
+ * L1i-5 (v6.1.16.1): the stable list numbers of a session: a program the last list (`prev`, ids by number) of the same
+ * project held keeps its number; any other in `order` is numbered on after the last one, in that order. Pure.
+ */
+export function stableNumbers(prev: string[], order: string[]): Map<string, number> {
+  const want = new Set(order);
+  const out = new Map<string, number>();
+  prev.forEach((id, i) => {
+    if (id && want.has(id) && !out.has(id)) out.set(id, i + 1);
+  });
+  let next = prev.length;
+  for (const id of order) if (!out.has(id)) out.set(id, ++next);
+  return out;
 }
 
 /** L24-2 (v6.1.16 Task 11): the kind of the last `Say` this installation's find offered, or null. */

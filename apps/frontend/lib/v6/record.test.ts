@@ -321,3 +321,9 @@ test('L28-6, L28-8 (v6.1.16 Task 14): a project keeps its repo id; a team member
   assert.deepEqual(m.problems, []);
   assert.deepEqual(m.record.team, [{ name: 'Uma Lane', full_time: true, link: 'https://linkedin.com/in/uma' }]);
 });
+
+test('L35-1 (v6.1.16.1 Task 2): a project\'s join answer is EarnKit\'s own, never a patch\'s', () => {
+  const r = mergeRecord(EMPTY_RECORD, { projects: [{ id: 'clock', name: 'Clock', join: 'joined' }] }, 'agent', new Date('2026-11-04T12:00:00Z'));
+  assert.ok(r.problems.some((p) => /join/.test(p) && /EarnKit only/.test(p)), r.problems.join('; '));
+  assert.equal(r.record.projects[0]?.join, undefined);
+});

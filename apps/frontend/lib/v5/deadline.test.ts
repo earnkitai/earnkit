@@ -37,3 +37,27 @@ test("closeDay: the day in the program's zone, null when rolling", () => {
   assert.equal(closeDay({ summary: 'Up to $5K · rolling', ends_at: '2026-12-01T00:00:00Z' }), null);
   assert.equal(closeDay({ summary: 'Up to $5K', ends_at: null }), null);
 });
+
+test('L1i-7 (v6.1.16.1): Meta VR and Alliance count calendar days in their own zone, and the reply, the tile and the guide agree', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { programZone } = await import('./deadline');
+  const { landingTiles } = await import('./landing');
+  const { closesSentence } = await import('./guide');
+  const read = (id: string) => JSON.parse(readFileSync(new URL(`../../../../programs/${id}.json`, import.meta.url), 'utf8'));
+  // The lane's clock: 00:10 UTC on Nov 12, still Nov 11 in Pacific time.
+  const at = new Date('2026-11-12T00:10:00Z');
+  for (const [id, zone, words] of [
+    // Ends 12:00 PT (20:00 UTC) on Nov 18: seven Pacific days from Nov 11.
+    ['meta-vr-start-competition-2026', 'America/Los_Angeles', 'closes in 7 days'],
+    // Ends 23:59 UTC on Nov 18: six UTC days from Nov 12.
+    ['alliance-all19', 'UTC', 'closes in 6 days'],
+  ] as const) {
+    const p = read(id);
+    assert.equal(programZone(p), zone, id);
+    const w = closesWords(p.ends_at, at, programZone(p));
+    assert.equal(w, words, id);
+    const lead = `${w.charAt(0).toUpperCase()}${w.slice(1)}`;
+    assert.equal(landingTiles([{ id, file: p } as never], at)[0].when, lead, id);
+    assert.equal(closesSentence(p, at), `${lead}.`, id);
+  }
+});

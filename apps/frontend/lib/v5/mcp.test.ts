@@ -68,11 +68,12 @@ test('L25-5 (v6.1.16): tools/list gives every tool a title; find alone is read-o
   assert.equal(note.description, 'What you want remembered about this send.');
 });
 
-test('find strips unknown keys; track refuses them with its one line, the detail in the agent note (C35, C21)', async () => {
+test('find and track refuse unknown keys: no builder text, the keys named in the agent note (C35, C21; L1i-1, v6.1.16.1)', async () => {
   const c = await ctx();
   const f = await mcpCall(c, 'find', { project: { name: 'X', description: 'An app.' }, wallet: '0xabc', github_user: 'someone' });
-  assert.equal(f.isError, false, f.text);
-  assert.ok(typeof f.reply!.show_to_builder === 'string');
+  assert.equal(f.isError, true, f.text);
+  assert.equal(f.reply!.show_to_builder, '');
+  assert.equal(f.reply!.agent_note, 'wallet, github_user: not a find argument (find takes project, program_id, project_id, ask and filter); fix it and call again.');
   // L29-9, L29-10 (v6.1.16 Task 15): an input error is isError true, with no builder text and the fix in the note.
   const t = await mcpCall(c, 'track', { program_id: 'alliance-all19', status: 'skipped', extra: 1 });
   assert.equal(t.isError, true, t.text);
@@ -207,7 +208,7 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   const c = await ctx();
   await seed(`mcp:${c.installationId}`, 119);
   const ok = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(ok.reply!.show_to_builder, 'Which program do you mean?', ok.text);
+  assert.equal(ok.reply!.show_to_builder, 'Which program do you mean? Say its name.', ok.text);
   const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
   assert.equal(busy.text, OWN_LIMIT);
@@ -218,7 +219,7 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   assert.equal(later.text, "Your agent has used this hour's limit. Try again in about 12 minutes.");
   assert.deepEqual(later.structured, { retry_after_seconds: 720 });
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(next.reply!.show_to_builder, 'Which program do you mean?', next.text);
+  assert.equal(next.reply!.show_to_builder, 'Which program do you mean? Say its name.', next.text);
 });
 
 test('the per-IP floor: the 601st call from one address in an hour is the address line, whatever the installation', async () => {
@@ -229,7 +230,7 @@ test('the per-IP floor: the 601st call from one address in an hour is the addres
   assert.equal(busy.text, ADDRESS_LIMIT);
   assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(other.reply!.show_to_builder, 'Which program do you mean?', other.text);
+  assert.equal(other.reply!.show_to_builder, 'Which program do you mean? Say its name.', other.text);
 });
 
 test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refuses never count on the address, and a colleague is served', async () => {
@@ -255,7 +256,7 @@ test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refus
   assert.equal(refused.text, OWN_LIMIT);
   assert.deepEqual(refused.structured, { retry_after_seconds: 3_600 });
   const mate = await mcpCall({ ...b, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(mate.reply!.show_to_builder, 'Which program do you mean?', mate.text);
+  assert.equal(mate.reply!.show_to_builder, 'Which program do you mean? Say its name.', mate.text);
   const [w2] = await sql()`SELECT count FROM rate_windows WHERE key = ${'mcpIp:' + ip} AND window_start = ${windowStart(NOW, 3_600_000)}`;
   assert.equal(w2.count, 121);
 });
@@ -301,6 +302,18 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   // L29-13 (v6.1.16 Task 15): the ruled problems line.
   assert.match(cat.reply!.agent_note as string, /(^|\n| )category "money" was not read: use grant, hackathon, investment or bounty\./);
   assert.doesNotMatch(cat.reply!.agent_note as string, /not read: category/);
+  // L1i-1 (v6.1.16.1): with no project too, the bad category's problems line reaches the agent note, and it is no error.
+  const loan = await mcpCall(c, 'find', { filter: { category: 'loan' } });
+  plain(loan);
+  assert.match(loan.reply!.agent_note as string, /(^|\n| )category "loan" was not read: use grant, hackathon, investment or bounty\./);
+  // L1i-1: a project with no name and an unknown top-level key are input errors: no builder text, the field named.
+  for (const [args, field] of [[{ project: { description: 'x' } }, 'project.name'], [{ bogus: 1 }, 'bogus'], [{ project: { name: 7, description: 'x' } }, 'project.name']] as const) {
+    const r = await mcpCall(c, 'find', args);
+    plain(r, true);
+    assert.equal(r.reply!.show_to_builder, '', JSON.stringify(args));
+    assert.ok((r.reply!.agent_note as string).startsWith(`${field}: `), r.reply!.agent_note as string);
+    assert.match(r.reply!.agent_note as string, /fix it and call again\.$/);
+  }
   // track with a null project: the done step goes under the last find's project.
   const done = await mcpCall(c, 'track', { program_id: 'l134-users', status: 'gap_done', item: 'users', project: null });
   plain(done);

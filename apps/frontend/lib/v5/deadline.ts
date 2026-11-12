@@ -67,6 +67,8 @@ function daysApart(d: Date, now: Date, zone: string): number {
  * hour" under an hour left; "closes today" on the same day in `tz`; "closes tomorrow"; "closes in {n} days" within 14
  * calendar days; else "closes {dayWords}"; "closed" once passed. A line that starts with it capitalises it. Pure.
  */
+/* L1i-7 (v6.1.16.1): days are calendar days in the program's own zone (`tz`, `programZone`), never hours, on every
+ * surface: two programs ending the same UTC evening may read a day apart when their zones differ. */
 export function closesWords(endsAt: string, now: Date, tz: string): string {
   const end = new Date(endsAt);
   const left = end.getTime() - now.getTime();

@@ -241,7 +241,7 @@ test('started for an unknown program refuses and records nothing', async () => {
   const c = await ctx();
   const r = await track(c, { program_id: 'nope-started', status: 'started' });
   assert.equal(r.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  assert.equal(r.show_to_builder, 'Which program do you mean?');
+  assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.');
   const bad = await track(c, { program_id: 't6-a', status: 'applied', submitted_by: 'robot' });
   // L29-10 (v6.1.16 Task 15): an input error has no builder text; the note says what to fix.
   assert.equal(bad.show_to_builder, '');
@@ -983,8 +983,8 @@ test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program 
   // Fix round 1b: in any case; an English word never names a program.
   assert.match((await track(c, { program_id: 'YC', status: 'skipped' })).agent_note, /^Matched y-combinator\. /);
   await sql()`DELETE FROM applications WHERE program_id = 'y-combinator'`;
-  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, 'Which program do you mean?', w);
-  assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean?');
+  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.', w);
+  assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.');
   const started = await track(c, { program_id: 'Y Combinator Winter 2027 Batch', status: 'started' });
   assert.equal(started.show_to_builder, '');
   assert.match(started.agent_note, /^Matched y-combinator\. /);
@@ -992,9 +992,9 @@ test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program 
   const skipped = await track(c, { program_id: 'Thiel Fellowship', status: 'skipped' });
   assert.equal(skipped.show_to_builder, 'Skipped Thiel Fellowship for good. Say bring it back and I list it again.');
   const several = await track(c, { program_id: 'uniswap', status: 'applied', submitted_by: 'builder' });
-  assert.equal(several.show_to_builder, "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
+  assert.equal(several.show_to_builder, "Which program do you mean: Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
   assert.equal(several.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, 'Which program do you mean?');
+  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 2);
 });
 
@@ -1017,7 +1017,7 @@ test('final fix (v6.1.12, I2), re-pinned by L24-3 (v6.1.16 Task 11): loose names
   const count = async () => (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
   // A parent organizer in brackets, two letters, the start of a title: no program, nothing written.
   for (const name of ['aws', 'fi', 'kiro'])
-    assert.equal((await track(c, { program_id: name, status: 'applied', submitted_by: 'builder' })).show_to_builder, 'Which program do you mean?', name);
+    assert.equal((await track(c, { program_id: name, status: 'applied', submitted_by: 'builder' })).show_to_builder, 'Which program do you mean? Say its name.', name);
   assert.equal(await count(), 0);
   // A whole title word that is one program resolves, and the line names it.
   const sent = await track(c, { program_id: 'kiroween', status: 'applied', submitted_by: 'builder' });
@@ -1523,7 +1523,7 @@ test('L24-3: next, build, start and first name no program on any status; nothing
   for (const word of ['next', 'build', 'start', 'first'])
     for (const status of ['applied', 'won', 'rejected', 'started']) {
       const r = await track(c, { program_id: word, status, ...(status === 'won' ? { amount_usd: 100 } : {}), project: { name: 'Neutral Tool' } });
-      assert.equal(r.show_to_builder, 'Which program do you mean?', `${word} ${status}`);
+      assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.', `${word} ${status}`);
     }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 0);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n, 0);
@@ -1638,7 +1638,7 @@ test('L29-15, L29-21, L29-23, L29-32: a list number, any case, agent by default;
   assert.equal(row.submitted_by, 'agent');
   // A number past the list asks which; started has no builder text, its note names it.
   const far = await track(c, { program_id: '9', status: 'started' });
-  assert.equal(far.show_to_builder, 'Which program do you mean?');
+  assert.equal(far.show_to_builder, 'Which program do you mean? Say its name.');
   const s = await track(c, { program_id: '1', status: 'STARTED', submitted_by: 'Agent' });
   assert.equal(s.show_to_builder, '');
   assert.match(s.agent_note, /^Matched list number 1 to l2915-a\. Started Number One Grant\. /);
@@ -1856,6 +1856,11 @@ test('M2 (Task 14 fix round 1): one application per repo id: a co-founder sendin
   assert.equal(Number((await rowsOf(al.owner, 'l28-m2'))[0].repo_key === 'https://github.com/org/oldr'), 1);
   await seedRead('org/newr', ['al-m2', 'bo-m2'], 778899);
   const bo = await signedIn('bo-m2');
+  // L35-20 (v6.1.16.1 Task 2): matched by the id alone, the other builder's login is not said.
+  const byId = await send(bo, 'l28-m2', { name: 'R', description: 'R.', repo_url: 'https://github.com/org/newr' });
+  assert.equal(byId.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
+  // A real rename: the old link's read now answers with the new one, so the match is this repo's own.
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{html_url}', '"https://github.com/org/newr"'::jsonb) WHERE repo = 'org/oldr'`;
   const r = await send(bo, 'l28-m2', { name: 'R', description: 'R.', repo_url: 'https://github.com/org/newr' });
   assert.equal(r.show_to_builder, 'Already sent for this repo on Nov 4 by "al-m2".');
   assert.equal((await rowsOf(bo.owner, 'l28-m2')).length, 0);
@@ -1904,7 +1909,9 @@ test('N1 (Task 14 fix round 1): a join onto a repo another builder already sent 
   const jn = await signedIn('jn-n1');
   assert.equal((await send(jn, 'l28-n1', { name: 'App', description: 'An app.' }, 'builder')).show_to_builder, 'Sent Join Grant.');
   const joined = await track(jn, { program_id: 'join', status: 'gap_done', item: 'join:App', project: APP });
-  assert.equal(joined.show_to_builder, 'Joined "App" with github.com/jn-n1/app.');
+  // L35-1 (v6.1.16.1 Task 2): nothing moves, and the builder hears why (never "Joined").
+  assert.equal(joined.show_to_builder, 'Already sent for this repo by another builder on Nov 4; your send stays under "App".');
+  assert.equal(joined.refused, true);
   assert.deepEqual((await rowsOf(jn.owner, 'l28-n1')).map((r) => [r.project_id, r.repo_key, r.off_repo]), [['name:app', null, 'https://github.com/jn-n1/app']]);
 });
 
@@ -1969,7 +1976,8 @@ test('M4 (Task 14 fix round 3): once the tie is shown, the owner\'s own keyless 
   assert.equal((await track(o4, { program_id: 'l28-m4a', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] })).show_to_builder, 'Sent M4 Sent.');
   const again = await send(o4, 'l28-m4a', R);
   assert.equal(again.show_to_builder, 'Already sent on Nov 4.');
-  assert.deepEqual(await all('l28-m4a'), [['applied', 'https://github.com/own4/app', 'https://github.com/own4/app']]);
+  // L35-7 (v6.1.16.1 Task 2): a refused call writes nothing: the keyless send stays as it was.
+  assert.deepEqual(await all('l28-m4a'), [['applied', null, null]]);
   for (const first of ['started', 'held'] as const) {
     const id = `l28-m4-${first}`;
     await upsertProgram(programFixture({ id, title: `M4 ${first}` }), 'file', NOW);
@@ -1988,4 +1996,357 @@ test('N5a (Task 14 fix round 3): a signed-out find of a ready program ends on th
   assert.equal(r.show_to_builder.split('\n').at(-1), 'Sign in once at https://earnkit.test/link/n5a and I check the repo is yours; then say yes.');
   assert.equal((r as { sign_in?: string }).sign_in, 'https://earnkit.test/link/n5a');
   assert.equal(r.show_to_builder.match(/Sign in once/g)!.length, 1);
+});
+
+// ---- v6.1.16.1 Task 2: ownership, identity and list numbers (lane 35) ----
+
+const HOUR = 3_600_000;
+/** A complete cached read with extra facts (a fork's parent, a full name), as lane 35's seeded rows. */
+async function seedFacts(key: string, extra: Record<string, unknown>) {
+  const facts = {
+    chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_lead: 'It keeps time.', full_name: key, ...extra,
+  };
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
+    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at`;
+}
+const at = <T extends { now: Date }>(c: T, hours: number): T => ({ ...c, now: new Date(NOW.getTime() + hours * HOUR) });
+const fullRows = async (owner: string, programId: string) =>
+  sql()`SELECT to_jsonb(a) - 'ctid' AS r FROM applications a WHERE owner = ${owner} AND program_id = ${programId} ORDER BY at`;
+
+test('L35-1 (v6.1.16.1 Task 2, Review Focus 5): a tied builder\'s join yes when another builder holds the repo keeps the send under its name, said once; with none, the rows move with the repo\'s identity', async () => {
+  const { find } = await import('./find');
+  const { JOIN_QUESTION } = await import('./find');
+  await seedRead('lane35/m-app', ['alice-m35', 'bob-m35'], 351001);
+  await upsertProgram(programFixture({ id: 'l35-m-g', title: 'L35 Join 1' }), 'file', NOW);
+  const alice = await signedIn('alice-m35');
+  const bob = await signedIn('bob-m35');
+  const APP = { name: 'App', description: 'An app.', repo_url: 'https://github.com/lane35/m-app' };
+  assert.equal((await send(alice, 'l35-m-g', APP)).show_to_builder, 'Sent L35 Join 1.');
+  const kept = await send(at(bob, 1), 'l35-m-g', APP, 'builder');
+  assert.equal(kept.show_to_builder, 'Sent L35 Join 1.');
+  assert.deepEqual((await rowsOf(bob.owner, 'l35-m-g')).map((r) => [r.project_id, r.off_repo]), [['name:app', 'https://github.com/lane35/m-app']]);
+  const f = (input: Record<string, unknown>, h: number) => find({ ...at(bob, h), linkUrl: async () => null }, input);
+  const asked = await f({ project: APP }, 2);
+  assert.equal(asked.show_to_builder, JOIN_QUESTION('App', 'github.com/lane35/m-app'));
+  const yes = await track(at(bob, 3), { program_id: 'join', status: 'gap_done', item: 'join:App', project: APP });
+  assert.equal(yes.show_to_builder, 'Already sent for this repo by another builder on Nov 4; your send stays under "App".');
+  assert.equal(yes.refused, true);
+  for (const [input, h] of [[{ project: APP }, 4], [{ project: APP, filter: { all: true } }, 5], [{ program_id: 'l35-m-g', project: APP }, 6]] as const) {
+    const again = await f(input as Record<string, unknown>, h);
+    assert.ok(!again.show_to_builder.includes('the same as'), again.show_to_builder);
+  }
+  assert.deepEqual((await rowsOf(bob.owner, 'l35-m-g')).map((r) => [r.project_id, r.off_repo]), [['name:app', 'https://github.com/lane35/m-app']]);
+
+  // With no other builder on the repo, the yes moves the name's rows onto the repo key, its identity the repo id.
+  await seedRead('carol-m35/clock', [], 351002);
+  await upsertProgram(programFixture({ id: 'l35-m-g2', title: 'L35 Join 2' }), 'file', NOW);
+  const carol = await signedIn('carol-m35');
+  const CLOCK = { name: 'Clock', description: 'A clock.', repo_url: 'https://github.com/carol-m35/clock' };
+  assert.equal((await send(carol, 'l35-m-g2', { name: 'Clock', description: 'A clock.' }, 'builder')).show_to_builder, 'Sent L35 Join 2.');
+  const q = await find({ ...at(carol, 1), linkUrl: async () => null }, { project: CLOCK });
+  assert.equal(q.show_to_builder, JOIN_QUESTION('Clock', 'github.com/carol-m35/clock'));
+  const joined = await track(at(carol, 2), { program_id: 'join', status: 'gap_done', item: 'join:Clock', project: CLOCK });
+  assert.equal(joined.show_to_builder, 'Joined "Clock" with github.com/carol-m35/clock.');
+  const [row] = await sql()`SELECT project_id, repo_key, identity, off_repo FROM applications WHERE owner = ${carol.owner} AND program_id = 'l35-m-g2'`;
+  assert.deepEqual([row.project_id, row.repo_key, row.identity, row.off_repo], ['https://github.com/carol-m35/clock', 'https://github.com/carol-m35/clock', 'gh:351002', null]);
+  const after = await find({ ...at(carol, 3), linkUrl: async () => null }, { project: CLOCK });
+  assert.ok(!after.show_to_builder.includes('the same as'), after.show_to_builder);
+  // Joined is said only when something moved.
+  const twice = await track(at(carol, 4), { program_id: 'join', status: 'gap_done', item: 'join:Clock', project: CLOCK });
+  assert.equal(twice.show_to_builder, '"Clock" and github.com/carol-m35/clock are already one project.');
+});
+
+test('L35-2 (v6.1.16.1 Task 2, Review Focus 6): one application per project per program across a dropped repo, no project and a second agent; the former-builder guard holds with no project', async () => {
+  const { unlinkInstallation, linkInstallation } = await import('../v6/builders');
+  await seedRead('lane35/b-clock', ['alice-b35'], 352001);
+  await upsertProgram(programFixture({ id: 'l35-b-g', title: 'L35 Join 1b' }), 'file', NOW);
+  const alice = await signedIn('alice-b35');
+  const CLOCK = { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/lane35/b-clock' };
+  assert.equal((await send(alice, 'l35-b-g', CLOCK)).show_to_builder, 'Sent L35 Join 1b.');
+  const tries = [
+    await send(at(alice, 1), 'l35-b-g', { name: 'Clock', description: 'Tells time.' }),
+    await track(at(alice, 2), { program_id: 'l35-b-g', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] }),
+  ];
+  const [second] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'l35-b2-' + Math.random()}, 'Cursor') RETURNING id`;
+  await linkInstallation(second.id as number, alice.builderId!, NOW);
+  tries.push(await track({ installationId: second.id as number, builderId: alice.builderId, now: at(alice, 3).now }, { program_id: 'l35-b-g', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] }));
+  for (const r of tries) {
+    assert.equal(r.show_to_builder, 'Already sent on Nov 4.');
+    assert.equal(r.refused, true);
+  }
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-b-g'`)[0].n, 1);
+
+  // The unlinked agent, with no project, after the former builder sent it: L28-10's line, nothing written.
+  await upsertProgram(programFixture({ id: 'l35-b-g2', title: 'L35 Gate 1' }), 'file', NOW);
+  const eve = await signedIn('eve-b35');
+  assert.equal((await send(eve, 'l35-b-g2', { name: 'Eve A', description: 'A.' })).show_to_builder, 'Sent L35 Gate 1.');
+  assert.equal((await send(eve, 'l35-b-g2', { name: 'Eve B', description: 'B.' })).show_to_builder, 'Sent L35 Gate 1.');
+  assert.equal(await unlinkInstallation(eve.installationId, eve.builderId!, NOW), true);
+  const laptop = { installationId: eve.installationId, builderId: null, now: at(eve, 1).now };
+  const r = await track(laptop, { program_id: 'l35-b-g2', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
+  assert.equal(r.show_to_builder, 'Already sent from your account; nothing recorded. Sign in again to see it.');
+  assert.equal(r.refused, true);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'i:' + eve.installationId}`)[0].n, 0);
+});
+
+test('L35-3 (v6.1.16.1 Task 2, Review Focus 7): a fork never takes a second application for its parent; with the parent unsent the fork owner\'s send is recorded', async () => {
+  await seedRead('lane35/a-timer', ['alice-a35'], 353001);
+  await seedFacts('str-a35/a-timer-fork', { fork: true, contributors: ['str-a35', 'alice-a35'], repo_id: 353002, parent_repo_id: 353001, parent_full_name: 'lane35/a-timer' });
+  await upsertProgram(programFixture({ id: 'l35-a-g', title: 'L35 Gate Fork' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l35-a-g2', title: 'L35 Gate Fork 2' }), 'file', NOW);
+  const alice = await signedIn('alice-a35');
+  const stranger = await signedIn('str-a35');
+  assert.equal((await send(alice, 'l35-a-g', { name: 'Timer', description: 'Keeps time.', repo_url: 'https://github.com/lane35/a-timer' })).show_to_builder, 'Sent L35 Gate Fork.');
+  const FORK = { name: 'Timer', description: 'Keeps time.', repo_url: 'https://github.com/str-a35/a-timer-fork' };
+  const started = await track(at(stranger, 1), { program_id: 'l35-a-g', status: 'started', project: FORK });
+  assert.equal(started.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
+  assert.equal(started.refused, true);
+  const sent = await send(at(stranger, 2), 'l35-a-g', FORK);
+  assert.equal(sent.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
+  assert.equal(sent.refused, true);
+  assert.equal((await rowsOf(stranger.owner, 'l35-a-g')).length, 0);
+  assert.equal((await send(at(stranger, 3), 'l35-a-g2', FORK)).show_to_builder, 'Sent L35 Gate Fork 2.');
+  const [row] = await sql()`SELECT project_id, identity FROM applications WHERE owner = ${stranger.owner} AND program_id = 'l35-a-g2'`;
+  assert.deepEqual([row.project_id, row.identity], ['https://github.com/str-a35/a-timer-fork', 'gh:353002']);
+});
+
+test('L35-4 (v6.1.16.1 Task 2, Review Focus 8): a co-founder\'s second started is refused and writes nothing; a real send over the other\'s live claim is recorded and clears it', async () => {
+  await seedRead('lane35/a-team', ['ali-a4', 'bob-a4'], 354001);
+  await upsertProgram(programFixture({ id: 'l35-c-g', title: 'L35 Claim 1' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l35-c-g2', title: 'L35 Claim 2' }), 'file', NOW);
+  const alice = await signedIn('ali-a4');
+  const bob = await signedIn('bob-a4');
+  const T = { name: 'Team', description: 'A team app.', repo_url: 'https://github.com/lane35/a-team' };
+  assert.equal((await track(alice, { program_id: 'l35-c-g', status: 'started', project: T })).show_to_builder, '');
+  const second = await track(at(bob, 1), { program_id: 'l35-c-g', status: 'started', project: T });
+  assert.equal(second.show_to_builder, "Your co-founder's agent started this one on Nov 4.");
+  assert.equal(second.refused, true);
+  assert.equal((await rowsOf(bob.owner, 'l35-c-g')).length, 0);
+
+  // Bob's claim first; alice's send over it is recorded and clears it; bob's form went out too, and is recorded.
+  assert.equal((await track(bob, { program_id: 'l35-c-g2', status: 'started', project: T })).show_to_builder, '');
+  const a = await send(at(alice, 1), 'l35-c-g2', T);
+  assert.equal(a.show_to_builder, 'Sent L35 Claim 2.');
+  assert.match(a.agent_note, /^Recorded\. A co-founder's agent had started this one too; its claim is cleared\./);
+  const b = await send(at(bob, 2), 'l35-c-g2', T);
+  assert.equal(b.show_to_builder, 'Sent L35 Claim 2.');
+  assert.match(b.agent_note, /^Recorded\. A co-founder sent this repo to the program after this agent started it/);
+  assert.deepEqual((await rowsOf(alice.owner, 'l35-c-g2')).map((r) => r.status), ['applied']);
+  assert.deepEqual((await rowsOf(bob.owner, 'l35-c-g2')).map((r) => r.status), ['applied']);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-c-g2' AND claimed_at IS NOT NULL AND status = 'started'`)[0].n, 0);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${bob.owner} AND program_id = 'l35-c-g2' AND claimed_at IS NOT NULL`)[0].n, 0);
+});
+
+test('L35-6 (v6.1.16.1 Task 2, Review Focus 10): #3, 3., No. 3, three and 3 mean list number 3; two is number 2, never a title with Two; a token that is no list number writes nothing', async () => {
+  const c = await ctx();
+  for (const n of [1, 2, 3]) await upsertProgram(programFixture({ id: `l35-num-${n}`, title: `L35 Num ${n}` }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l35-err-two', title: 'L35 Err Two' }), 'file', NOW);
+  const { markList } = await import('./installations');
+  await markList(c.installationId, 'h', NOW, ['l35-num-1', 'l35-num-2', 'l35-num-3']);
+  for (const ref of ['#3', '3.', 'No. 3', 'three', '3']) {
+    const r = await track(c, { program_id: ref, status: 'started' });
+    assert.equal(r.refused, undefined, ref);
+    assert.match(r.agent_note, /^Matched list number .* to l35-num-3\. Started L35 Num 3\./, ref);
+  }
+  const two = await track(c, { program_id: 'two', status: 'skipped' });
+  assert.equal(two.show_to_builder, 'Skipped L35 Num 2 for good. Say bring it back and I list it again.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-err-two'`)[0].n, 0);
+  for (const ref of ['twenty-one', '#99']) {
+    const r = await track(c, { program_id: ref, status: 'skipped' });
+    assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.', ref);
+    assert.equal(r.refused, true, ref);
+  }
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId} AND status = 'skipped'`)[0].n, 1);
+});
+
+test('L35-7 (v6.1.16.1 Task 2, Review Focus 11): a refused send leaves the stored application byte-identical', async () => {
+  const c = await signedIn('own-b13');
+  await upsertProgram(programFixture({ id: 'l35-b13', title: 'L35 Refused' }), 'file', NOW);
+  assert.equal((await track(c, { program_id: 'l35-b13', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] })).show_to_builder, 'Sent L35 Refused.');
+  const before = await fullRows(c.owner, 'l35-b13');
+  const r = await send(at(c, 1), 'l35-b13', { name: 'Clock App', description: 'A clock.' });
+  assert.equal(r.show_to_builder, 'Already sent on Nov 4.');
+  assert.equal(r.agent_note, 'Nothing was recorded.');
+  assert.deepEqual(await fullRows(c.owner, 'l35-b13'), before);
+});
+
+test('L35-10 (v6.1.16.1 Task 2, lifted): a one-program find for a repo another builder sent says so and offers no yes', async () => {
+  const { find } = await import('./find');
+  await seedRead('lane35/a19', ['ali-a19', 'bob-a19'], 355001);
+  await upsertProgram(programFixture({ id: 'l35-a19', title: 'L35 Gate 19' }), 'file', NOW);
+  const alice = await signedIn('ali-a19');
+  const bob = await signedIn('bob-a19');
+  const R = { name: 'Nineteen', description: 'An app.', repo_url: 'https://github.com/lane35/a19' };
+  assert.equal((await send(alice, 'l35-a19', R)).show_to_builder, 'Sent L35 Gate 19.');
+  const r = await find({ ...at(bob, 1), linkUrl: async () => null }, { program_id: 'l35-a19', project: R });
+  const lines = r.show_to_builder.split('\n');
+  assert.equal(lines.at(-1), 'Already sent for this repo on Nov 4 by "ali-a19".');
+  assert.ok(!/\bSay\b/.test(r.show_to_builder), r.show_to_builder);
+});
+
+test('L35-11 (v6.1.16.1 Task 2, lifted; controller ruling): a GitLab link EarnKit cannot check never blocks another builder; the note says could not confirm, and the second agent hears of the first send', async () => {
+  await upsertProgram(programFixture({ id: 'l35-gl', title: 'L35 GitLab' }), 'file', NOW);
+  const alice = await signedIn('ali-gl');
+  const bob = await signedIn('bob-gl');
+  const GL = { name: 'GL', description: 'On GitLab.', repo_url: 'https://gitlab.com/lane35/a-gl' };
+  const a = await send(alice, 'l35-gl', GL, 'builder');
+  assert.equal(a.show_to_builder, 'Sent L35 GitLab.');
+  assert.match(a.agent_note, /^I could not confirm this repo is yours; recorded under the project name only\. /);
+  assert.ok(!a.agent_note.includes('Another builder recorded'), a.agent_note);
+  const b = await send(at(bob, 1), 'l35-gl', { ...GL, name: 'GL2' }, 'builder');
+  assert.equal(b.show_to_builder, 'Sent L35 GitLab.');
+  assert.equal(b.refused, undefined);
+  assert.match(b.agent_note, /^I could not confirm this repo is yours; recorded under the project name only\. Another builder recorded a send with this link; it could not be checked\./);
+  assert.ok(!JSON.stringify(b).includes('ali-gl'));
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-gl'`)[0].n, 2);
+});
+
+test('Controller ruling (v6.1.16.1 Task 2): a join yes onto a fork whose parent another builder sent keeps the send under its name', async () => {
+  await seedRead('lane35/j-parent', ['ali-jf'], 358001);
+  await seedFacts('dan-jf/j-fork', { fork: true, contributors: ['dan-jf'], repo_id: 358002, parent_repo_id: 358001, parent_full_name: 'lane35/j-parent' });
+  await upsertProgram(programFixture({ id: 'l35-jf', title: 'L35 Join Fork' }), 'file', NOW);
+  const alice = await signedIn('ali-jf');
+  const dan = await signedIn('dan-jf');
+  assert.equal((await send(alice, 'l35-jf', { name: 'P', description: 'P.', repo_url: 'https://github.com/lane35/j-parent' })).show_to_builder, 'Sent L35 Join Fork.');
+  assert.equal((await send(at(dan, 1), 'l35-jf', { name: 'Forky', description: 'F.' }, 'builder')).show_to_builder, 'Sent L35 Join Fork.');
+  const yes = await track(at(dan, 2), { program_id: 'join', status: 'gap_done', item: 'join:Forky', project: { name: 'Forky', description: 'F.', repo_url: 'https://github.com/dan-jf/j-fork' } });
+  assert.equal(yes.show_to_builder, 'Already sent for this repo by another builder on Nov 4; your send stays under "Forky".');
+  assert.deepEqual((await rowsOf(dan.owner, 'l35-jf')).map((r) => [r.project_id, r.repo_key]), [['name:forky', null]]);
+});
+
+test('L35-13 (v6.1.16.1 Task 2, lifted): a hold on a program already sent for this repo writes nothing', async () => {
+  await seedRead('lane35/b-hold', ['ali-b32', 'bob-b32'], 356001);
+  await upsertProgram(programFixture({ id: 'l35-b32', title: 'L35 Hold' }), 'file', NOW);
+  const alice = await signedIn('ali-b32');
+  const bob = await signedIn('bob-b32');
+  const R = { name: 'Hold', description: 'An app.', repo_url: 'https://github.com/lane35/b-hold' };
+  assert.equal((await track(alice, { program_id: 'l35-b32', status: 'held', project: R })).show_to_builder, 'Held L35 Hold. Say go when you want it sent.');
+  assert.equal((await send(at(bob, 1), 'l35-b32', R)).show_to_builder, 'Sent L35 Hold.');
+  const before = await fullRows(alice.owner, 'l35-b32');
+  const again = await track(at(alice, 2), { program_id: 'l35-b32', status: 'held', project: R });
+  assert.equal(again.show_to_builder, 'That one was already sent for this repo; nothing to hold.');
+  assert.equal(again.refused, true);
+  assert.deepEqual(await fullRows(alice.owner, 'l35-b32'), before);
+});
+
+test('L35-20 (v6.1.16.1 Task 2, lifted): an unrelated repo whose cached read carries another builder\'s repo id never shows that login', async () => {
+  await seedRead('lane35/b26', ['ali-b26'], 357001);
+  await seedRead('carol-b26/unrelated', ['carol-b26'], 357001);
+  await upsertProgram(programFixture({ id: 'l35-b26', title: 'L35 Stale Id' }), 'file', NOW);
+  const alice = await signedIn('ali-b26');
+  const carol = await signedIn('carol-b26');
+  assert.equal((await send(alice, 'l35-b26', { name: 'Clock', description: 'A.', repo_url: 'https://github.com/lane35/b26' })).show_to_builder, 'Sent L35 Stale Id.');
+  const r = await send(at(carol, 1), 'l35-b26', { name: 'U', description: 'U.', repo_url: 'https://github.com/carol-b26/unrelated' });
+  assert.equal(r.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
+  assert.ok(!JSON.stringify(r).includes('ali-b26'));
+});
+
+// ---- v6.1.16.1 Task 2 fix round 1 ----
+
+test('X1, I1 (Task 2 fix round 1): a join answer is per repo; a joined name never moves sends onto a repo its builder is not tied to; the victim\'s own sends go through', async () => {
+  const { find, JOIN_QUESTION } = await import('./find');
+  await seedRead('xmal/app', ['xmal'], 359101);
+  await seedRead('vic-x1/app', ['vic-x1'], 359102);
+  for (const id of ['x1-g1', 'x1-g2', 'x1-g3']) await upsertProgram(programFixture({ id, title: `X1 ${id}` }), 'file', NOW);
+  const mal = await signedIn('xmal');
+  const OWN = { name: 'App', description: 'An app.', repo_url: 'https://github.com/xmal/app' };
+  const VIC = { name: 'App', description: 'An app.', repo_url: 'https://github.com/vic-x1/app' };
+  assert.equal((await track(mal, { program_id: 'join', status: 'gap_done', item: 'join:App', project: OWN })).show_to_builder, '"App" and github.com/xmal/app are already one project.');
+  assert.equal((await send(at(mal, 1), 'x1-g1', { name: 'App', description: 'An app.' }, 'builder')).show_to_builder, 'Sent X1 x1-g1.');
+  assert.equal((await send(at(mal, 2), 'x1-g2', VIC, 'builder')).show_to_builder, 'Sent X1 x1-g2.');
+  const before = async () => (await sql()`SELECT program_id, project_id, repo_key, off_repo FROM applications WHERE owner = ${mal.owner} ORDER BY program_id`).map((r) => [r.program_id, r.project_id, r.repo_key, r.off_repo]);
+  const kept = await before();
+  assert.deepEqual(kept, [['x1-g1', 'name:app', null, null], ['x1-g2', 'name:app', null, 'https://github.com/vic-x1/app']]);
+  // The answer for his own repo is no answer for the victim's: the question, and nothing moves.
+  const r = await find({ ...at(mal, 3), linkUrl: async () => null }, { project: VIC });
+  assert.notEqual(r.show_to_builder, JOIN_QUESTION('App', 'github.com/vic-x1/app'));
+  assert.deepEqual(await before(), kept);
+  const yes = await track(at(mal, 4), { program_id: 'join', status: 'gap_done', item: 'join:App', project: VIC });
+  assert.equal(yes.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.');
+  assert.deepEqual(await before(), kept);
+  const vic = await signedIn('vic-x1');
+  for (const id of ['x1-g1', 'x1-g2']) assert.equal((await send(at(vic, 5), id, VIC)).show_to_builder, `Sent X1 ${id}.`);
+  // His own repo, answered joined: a later name-only send moves onto it only through the tie gate (he owns it).
+  assert.equal((await send(at(mal, 6), 'x1-g3', { name: 'App', description: 'An app.' }, 'builder')).show_to_builder, 'Sent X1 x1-g3.');
+  await find({ ...at(mal, 7), linkUrl: async () => null }, { project: OWN });
+  assert.deepEqual((await rowsOf(mal.owner, 'x1-g3')).map((x) => [x.project_id, x.repo_key]), [['https://github.com/xmal/app', 'https://github.com/xmal/app']]);
+  assert.deepEqual((await rowsOf(mal.owner, 'x1-g2')).map((x) => [x.project_id, x.off_repo]), [['name:app', 'https://github.com/vic-x1/app']]);
+});
+
+test('X2, I2 (Task 2 fix round 1): a fork owner\'s claim taken before the parent\'s owner sent does not let the fork send; no co-founder note', async () => {
+  await seedRead('px2/t', ['px2'], 359201);
+  await seedFacts('fo-x2/t-fork', { fork: true, contributors: ['fo-x2'], repo_id: 359202, parent_repo_id: 359201, parent_full_name: 'px2/t' });
+  await upsertProgram(programFixture({ id: 'x2-g', title: 'X2 Grant' }), 'file', NOW);
+  const fo = await signedIn('fo-x2');
+  const px = await signedIn('px2');
+  const FORK = { name: 'T', description: 'A fork.', repo_url: 'https://github.com/fo-x2/t-fork' };
+  assert.equal((await track(fo, { program_id: 'x2-g', status: 'started', project: FORK })).show_to_builder, '');
+  assert.equal((await send(at(px, 1), 'x2-g', { name: 'T', description: 'The original.', repo_url: 'https://github.com/px2/t' })).show_to_builder, 'Sent X2 Grant.');
+  const before = await fullRows(fo.owner, 'x2-g');
+  const r = await send(at(fo, 2), 'x2-g', FORK);
+  assert.equal(r.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
+  assert.equal(r.refused, true);
+  assert.ok(!/co-founder/i.test(r.agent_note), r.agent_note);
+  assert.deepEqual(await fullRows(fo.owner, 'x2-g'), before);
+});
+
+test('X3, M1 (Task 2 fix round 1): after a GitHub rename with no find since, the name alone and no project are the same application', async () => {
+  await seedRead('xr3/old', ['al-x3'], 359301);
+  await upsertProgram(programFixture({ id: 'x3-g', title: 'X3 Grant' }), 'file', NOW);
+  const al = await signedIn('al-x3');
+  assert.equal((await send(al, 'x3-g', { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/xr3/old' })).show_to_builder, 'Sent X3 Grant.');
+  // GitHub renamed it: the same id, and the old link's read answers the new one.
+  await seedRead('xr3/new', ['al-x3'], 359301);
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{html_url}', '"https://github.com/xr3/new"'::jsonb) WHERE repo = 'xr3/old'`;
+  const tries = [
+    await send(at(al, 1), 'x3-g', { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/xr3/new' }),
+    await send(at(al, 2), 'x3-g', { name: 'Clock', description: 'Tells time.' }),
+    await track(at(al, 3), { program_id: 'x3-g', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] }),
+  ];
+  for (const r of tries) assert.equal(r.show_to_builder, 'Already sent on Nov 4.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'x3-g'`)[0].n, 1);
+});
+
+// ---- v6.1.16.1 Task 2 fix round 2 ----
+
+test('I3 (Task 2 fix round 2): a find with the victim\'s repo racing a builder send and a started by name never lands the stranger\'s rows on the victim\'s repo; the victim\'s sends go through', async () => {
+  const { find } = await import('./find');
+  await seedRead('rvs/app', ['rvs'], 359401);
+  const VIC = { name: 'App', description: 'An app.', repo_url: 'https://github.com/rvs/app' };
+  const NAME = { name: 'App', description: 'An app.' };
+  const vic = await signedIn('rvs');
+  for (let k = 0; k < 10; k++) {
+    const sentId = `i3-s${k}`;
+    const startId = `i3-c${k}`;
+    await upsertProgram(programFixture({ id: sentId, title: `I3 Sent ${k}` }), 'file', NOW);
+    await upsertProgram(programFixture({ id: startId, title: `I3 Start ${k}` }), 'file', NOW);
+    const s = await signedIn(`rms-${k}`);
+    await Promise.all([
+      find({ ...s, linkUrl: async () => null }, { project: VIC }),
+      send(s, sentId, NAME, 'builder'),
+      track(s, { program_id: startId, status: 'started', project: NAME }),
+    ]);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${s.owner} AND (repo_key IS NOT NULL OR project_id LIKE 'https://%')`)[0].n, 0, `round ${k}`);
+    for (const id of [sentId, startId]) assert.equal((await send(at(vic, 1), id, VIC)).show_to_builder, `Sent I3 ${id === sentId ? 'Sent' : 'Start'} ${k}.`, `round ${k}`);
+  }
+});
+
+test('M3 (Task 2 fix round 2): a join answer for one name on a repo never covers another name on that repo', async () => {
+  const { find, JOIN_QUESTION } = await import('./find');
+  await seedRead('m3j/x', ['m3j'], 359501);
+  await upsertProgram(programFixture({ id: 'm3-g1', title: 'M3 One' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'm3-g2', title: 'M3 Two' }), 'file', NOW);
+  const b = await signedIn('m3j');
+  const { getRecord, saveRecord } = await import('../v6/builders');
+  const rec = await getRecord(b.builderId!);
+  await saveRecord(b.builderId!, { ...rec, projects: [{ id: 'foo', name: 'Foo', repo_url: 'https://github.com/m3j/x', answers: {} }] }, NOW);
+  assert.equal((await send(b, 'm3-g1', { name: 'Foo', description: 'F.' }, 'builder')).show_to_builder, 'Sent M3 One.');
+  assert.equal((await track(at(b, 1), { program_id: 'join', status: 'gap_done', item: 'join:Foo', project: { name: 'Foo', description: 'F.', repo_url: 'https://github.com/m3j/x' } })).show_to_builder, 'Joined "Foo" with github.com/m3j/x.');
+  assert.equal((await getRecord(b.builderId!)).projects[0].join, 'joined');
+  assert.equal((await send(at(b, 2), 'm3-g2', { name: 'Bar', description: 'B.' }, 'builder')).show_to_builder, 'Sent M3 Two.');
+  const r = await find({ ...at(b, 3), linkUrl: async () => null }, { project: { name: 'Bar', description: 'B.', repo_url: 'https://github.com/m3j/x' } });
+  assert.equal(r.show_to_builder, JOIN_QUESTION('Bar', 'github.com/m3j/x'));
+  assert.deepEqual((await rowsOf(b.owner, 'm3-g2')).map((x) => x.project_id), ['name:bar']);
 });

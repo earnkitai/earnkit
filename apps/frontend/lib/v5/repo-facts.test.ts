@@ -611,3 +611,25 @@ test('L28-3 (v6.1.16 Task 14, controller ruling): repoTie is evidence only and f
   assert.equal(await ownsRepo('mem', facts(['x'], 'Organization'), { gh, noFetch: true }), false);
   assert.ok(reads.some((u) => u.endsWith('/orgs/org/public_members/mem')));
 });
+
+test('L35-3, L35-20 (v6.1.16.1 Task 2): a fork\'s read keeps its parent; the cached id counts only when the read\'s name agrees with the link', async () => {
+  const { cachedRepoId, cachedRepoParent, readAgrees } = await import('./repo-facts');
+  const rec = replayFetch('earnkit', (url, body) => {
+    if (!new RegExp(`/repos/${rec.repo}$`, 'i').test(url)) return body;
+    const repo = JSON.parse(body);
+    return JSON.stringify({ ...repo, fork: true, parent: { id: 424242, full_name: 'Upstream/Original', default_branch: 'main' } });
+  });
+  await sql()`DELETE FROM repo_cache WHERE repo = ${rec.repo.toLowerCase()}`;
+  await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: rec.fetch, now: NOW });
+  assert.deepEqual(await cachedRepoParent(`https://github.com/${rec.repo}`), { id: 424242, key: 'https://github.com/upstream/original' });
+  // A read that is no fork has no parent.
+  const facts = { html_url: 'https://github.com/l35/plain', pushed_at: NOW.toISOString(), fork: false, archived: false, repo_id: 9191 };
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES ('l35/plain', ${sql().json(facts)}, ${NOW}, ${NOW}) ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts`;
+  assert.equal(await cachedRepoParent('https://github.com/l35/plain'), null);
+  assert.equal(await cachedRepoId('https://github.com/l35/plain'), 9191);
+  // The name moved on (a rename, or a deleted and recreated name): its id is not this link's.
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{html_url}', '"https://github.com/l35/renamed"'::jsonb) WHERE repo = 'l35/plain'`;
+  assert.equal(await cachedRepoId('https://github.com/l35/plain'), null);
+  assert.equal(readAgrees({ html_url: 'https://github.com/x/y', full_name: 'X/Y' }, 'x/y'), true);
+  assert.equal(readAgrees({ html_url: 'https://github.com/x/y', full_name: 'x/z' }, 'x/y'), false);
+});

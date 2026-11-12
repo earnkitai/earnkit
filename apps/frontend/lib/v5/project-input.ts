@@ -378,3 +378,37 @@ export function nameKeyOf(project: { name?: unknown } | null | undefined): strin
   const name = nameFold(text(project?.name).slice(0, MAX.name).trim()).trim();
   return name ? `name:${name}` : '';
 }
+
+/** A GitHub repo id as an identity, or null for anything that is not a safe positive integer. Pure. */
+const ghId = (v: unknown): string | null => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? `gh:${v}` : null);
+
+/**
+ * L35-2 (v6.1.16.1 Task 2): the identity an application of this project is kept under, one per owner and program:
+ * `gh:{repo_id}` when GitHub's repo id is known, from the record project (matched by its repo key, else by its folded
+ * name, so a rename or a dropped repo keeps it) or from the cached read of the repo (only when that read's name agrees
+ * with the key, L35-20: `cached.agrees`); else the canonical repo key; else `name:{folded}`; '' for no project (the
+ * caller passes the installation's last project then). Pure.
+ */
+export function identityOf(
+  project: { name?: unknown; repo_url?: unknown } | null | undefined,
+  record: { projects: { name?: string; repo_url?: string | null; repo_id?: number }[] } | null | undefined,
+  cached: { repo_id?: number | null; agrees?: boolean } | null | undefined,
+): string {
+  const key = projectKeyOf(project);
+  const repo = key.startsWith('https://') ? key : null;
+  const name = nameKeyOf(project);
+  const projects = record?.projects ?? [];
+  const byRepo = repo ? projects.find((p) => p.repo_url && projectKeyOf({ repo_url: p.repo_url }) === repo) : undefined;
+  // A record project matched by name counts only when no repo was given, or it names the same repo.
+  const byName = !byRepo && name ? projects.find((p) => nameKeyOf(p) === name && (!repo || !p.repo_url)) : undefined;
+  const kept = ghId((byRepo ?? byName)?.repo_id);
+  if (kept) return kept;
+  const read = repo && cached?.agrees !== false ? ghId(cached?.repo_id ?? undefined) : null;
+  if (read) return read;
+  return key;
+}
+
+/** The identity `record` keeps when its caller passes none: `gh:{id}` for a repo key with its id, else the key, else
+ *  null (no project). Pure. */
+export const identityFor = (key: string, repoId: number | null | undefined): string | null =>
+  key.startsWith('https://') && ghId(repoId) ? ghId(repoId) : key || null;

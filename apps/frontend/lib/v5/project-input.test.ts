@@ -430,3 +430,19 @@ test('L24-23 (v6.1.16 Task 11): a link carrying a password is dropped with its p
   const plain = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://example.com/a', repo_url: 'https://github.com/a/b' });
   assert.ok(plain.ok && plain.project.live_url === 'https://example.com/a' && plain.project.repo_url && plain.problems.length === 0);
 });
+
+test('L35-2, L35-20 (v6.1.16.1 Task 2): identityOf: the record project\'s repo id through a rename or a dropped repo, else the agreeing read\'s, else the key', async () => {
+  const { identityOf, identityFor } = await import('./project-input');
+  const record = { projects: [{ name: 'Clock', repo_url: 'https://github.com/a/clock', repo_id: 77 }] };
+  assert.equal(identityOf({ name: 'Clock', repo_url: 'https://github.com/a/clock' }, record, null), 'gh:77');
+  assert.equal(identityOf({ name: 'clock' }, record, null), 'gh:77');
+  assert.equal(identityOf({ name: 'Clock', repo_url: 'https://github.com/a/other' }, record, null), 'https://github.com/a/other');
+  assert.equal(identityOf({ name: 'Clock', repo_url: 'https://github.com/a/other' }, record, { repo_id: 88 }), 'gh:88');
+  assert.equal(identityOf({ name: 'X', repo_url: 'https://github.com/a/x' }, null, { repo_id: 88, agrees: false }), 'https://github.com/a/x');
+  assert.equal(identityOf({ name: 'X', repo_url: 'https://gitlab.com/a/x' }, null, null), 'https://gitlab.com/a/x');
+  assert.equal(identityOf({ name: 'Solo' }, null, null), 'name:solo');
+  assert.equal(identityOf(null, record, null), '');
+  assert.equal(identityFor('https://github.com/a/x', 5), 'gh:5');
+  assert.equal(identityFor('name:x', 5), 'name:x');
+  assert.equal(identityFor('', null), null);
+});

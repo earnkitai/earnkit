@@ -30,7 +30,7 @@ const CLOSINGS = [
   // L29-17, L29-27 (v6.1.16 Task 15): no second action; a yes that needs answers names them.
   /Say yes and (?:tell me [^\n]+, and )?I apply to all \d+( ready)?\.$/,
   /Say yes and tell me [^\n]+, and I (?:apply to|draft) [^\n]+\.$/,
-  /Nothing is ready yet\. Do real people use it\? Say yes, sign in once, and I check\.$/,
+  /Nothing is ready yet\. Do real people use it\? Say yes, sign in once( at \S+)?, and I check\.$/,
   // L16-11 (v6.1.16): one ready program is named.
   // L24-8, L24-10 (v6.1.16 Task 11): the do offer and the drafts fold into this one.
   /Say yes and I apply to (?!all \d+( ready)?\. )[^\n]+\.$/,
@@ -181,8 +181,8 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   const z = (allReady(first) as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.deepEqual((await zFields(t1)).find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
   assert.ok(z.from_record >= 2);
-  // L29-26 (v6.1.16 Task 15): the full view is names and money; the counts are in the JSON.
-  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000.');
+  // L29-26 (v6.1.16 Task 15): the full view is names and money; the counts are in the JSON. L1i-6 (v6.1.16.1): and the close.
+  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 3 days.');
 
   const topReady = (allReady(first) as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
   const top = topReady.program_id;

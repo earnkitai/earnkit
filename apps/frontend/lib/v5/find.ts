@@ -12,20 +12,21 @@ import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjec
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
-import { closesWords, dayWords, programZone } from './deadline';
+import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
+import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
-import { readLoosely, refuse, type LooseRules } from './tool-input';
+import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
-import { cachedRepoFacts, cachedRepoId, cachedRepoLink, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { sql } from './db';
+import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -55,8 +56,18 @@ const FIND_LOOSE: LooseRules = {
 };
 
 /** The arguments as find reads them: FIND_LOOSE, then any field FindInput still refuses dropped and named. Pure. */
-export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unread: string[] } {
+export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unread: string[]; error?: string } {
   const raw = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+  // L1i-1 (v6.1.16.1, L29-12, L29-14): an unknown top-level key, or a project with no name, is an input error: no builder
+  // text, isError true, the note naming the field. A project fact passed beside project stays a problems line (below).
+  const unknown = Object.keys(raw).filter((k) => !Object.hasOwn(FindArgs.shape, k) && !Object.hasOwn(ProjectArg.shape, k));
+  if (unknown.length > 0)
+    return { i: {}, unread: [], error: `${unknown.map((k) => cleanText(k, 40)).join(', ')}: not a find argument (find takes project, program_id, project_id, ask and filter)` };
+  const p = raw.project;
+  if (p && typeof p === 'object' && !Array.isArray(p)) {
+    const named = parseProject(p);
+    if (!named.ok && named.problem.startsWith('name: ')) return { i: {}, unread: [], error: `project.name: ${named.problem.slice('name: '.length)} (the project name is required)` };
+  }
   const read = readLoosely(input, FIND_LOOSE);
   const { args } = read;
   // L29-13 (v6.1.16 Task 15): an unknown category is named with the four it can be.
@@ -386,7 +397,10 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string, given: string[] = []): Promise<ProgramReply> {
   // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
-  // organizer too, and several are asked about.
+  // organizer too, and several are asked about. L35-6 (v6.1.16.1 Task 2): a list reference ("#3", "3.", "No. 3",
+  // "three") is the last list's program; any other reference falls to the name lookup.
+  const ref = (await getProgram(id)) ? null : listRef(id, await lastListIds(ctx.installationId));
+  if (ref) id = ref;
   const { row, suggest } = await programByName(id, ctx.now);
   // L24-2 (v6.1.16 Task 11): the last offer this installation showed, read before this reply replaces it.
   const lastOffer = await lastOfferOf(ctx.installationId);
@@ -530,14 +544,25 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   };
 }
 
+/** L1i-6 (v6.1.16.1): a names-and-money line: "{title}, {money}, closes Dec 6, in person." (the close only when it has
+ *  one, `closesWords`). Pure. */
+export const openLine = (p: Program, now: Date): string => {
+  const closes = closesIn(p, now) && closeDay(p, now) ? closesWords(p.ends_at!, now, programZone(p)) : null;
+  return `${p.title}, ${moneyOf(p)}${closes ? `, ${closes}` : ''}${p.in_person ? ', in person' : ''}.`;
+};
+
+/** L1i-5 (v6.1.16.1): the agent line beside the full list's number ask. */
+export const FULL_NUMBER_NOTE = "When the builder says a number from the full list, call find with that item's program_id.";
 /** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
  *  be read still gave, so the closing asks for what it does by that name. */
-async function openList(ctx: FindContext, problem: string | null, name: string | null = null): Promise<FindReply> {
+async function openList(ctx: FindContext, problem: string | null, name: string | null = null, all = false): Promise<FindReply> {
   const programs = await listOpenPrograms(ctx.now);
-  // Fix round 1 (M4, L29-26 v6.1.16 Task 15): within the 10-line budget: names and money, the first OPEN_SHOWN, then
-  // the count (template row 12, v6.1.15: its own sentence).
-  const lines = programs.slice(0, OPEN_SHOWN).map((r) => `${r.file.title}, ${moneyOf(r.file)}.`);
-  if (programs.length > OPEN_SHOWN) lines.push(`And ${programs.length - OPEN_SHOWN} more.`);
+  // Fix round 1 (M4, L29-26 v6.1.16 Task 15): within the 10-line budget: the first OPEN_SHOWN, then the count (template
+  // row 12, v6.1.15: its own sentence). L1i-4 (v6.1.16.1): filter.all lists every open program, no cap. L1i-6: each line
+  // keeps its close and in person.
+  const shown = all ? programs : programs.slice(0, OPEN_SHOWN);
+  const lines = shown.map((r) => openLine(r.file, ctx.now));
+  if (programs.length > shown.length) lines.push(`And ${programs.length - shown.length} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   // L29-1, L29-2 (v6.1.16 Task 15): the applications by name whenever there are any, project or not; then the ask for
   // the project is one line, in place of the open list.
@@ -729,7 +754,8 @@ async function followRename(ctx: FindContext, project: Project | null): Promise<
 }
 
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
-  const { i, unread } = findInputOf(input);
+  const { i, unread, error } = findInputOf(input);
+  if (error) return inputError(error) as unknown as FindReply;
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const given = parsed?.ok ? parsed.project : null;
   await followRename(ctx, given);
@@ -890,7 +916,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // track judge the same evidence.
   const { tie, against } = await repoEvidence(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) });
   if (pre.join && tie !== null) return ask(pre.join, JOIN_NOTE(project!.name));
-  if (tie !== null) return r;
+  if (tie !== null) return sentByAnother(ctx, key, tie, r);
   // Not shown to be theirs: no apply yes. Evidence against them says so; none says it could not confirm, never "not yours".
   if (!against && !offersApply(r.show_to_builder)) return r;
   await markOffer(ctx.installationId, null, ctx.now);
@@ -902,6 +928,57 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   };
 }
 
+/**
+ * L35-10 (v6.1.16.1 Task 2): a one-program reply for a repo another builder already sent to that program (and this
+ * builder has not): L28-1's line in place of everything after the program's first line, and no apply offer. The login
+ * only on a strong tie and a match by this repo's key (L35-20). Any other reply is unchanged.
+ */
+async function sentByAnother<T extends FindReply | ProgramReply>(ctx: FindContext, key: string, tie: NonNullable<Awaited<ReturnType<typeof repoTie>>>, r: T): Promise<T> {
+  const id = 'program' in r ? (r.program as { id?: string } | null)?.id : undefined;
+  if (!id) return r;
+  const owner = ownerOf(ctx);
+  if ((await sentOf(owner, id, key)) || (await resultOf(owner, id, key))) return r;
+  const other = await sentForRepo(sql(), id, key, owner, await cachedRepoId(key), await cachedRepoParent(key));
+  if (!other) return r;
+  await markOffer(ctx.installationId, null, ctx.now);
+  const login = (tie === 'owner' || tie === 'committer') && other.by === 'key' ? other.login : null;
+  return {
+    ...r,
+    show_to_builder: [r.show_to_builder.split('\n')[0], ALREADY_SENT_REPO(dayWords(other.at, ctx.now), login)].join('\n'),
+    agent_note: ['Do not submit this one: another EarnKit account already sent this repo to the program.', r.agent_note].filter(Boolean).join('\n'),
+  };
+}
+
+/** L35-1 (v6.1.16.1 Task 2): the builder's answer to the join question for this name and this repo: the one kept with
+ *  the name's report, else the record project with this repo's; null while undecided. Fix round 1 (I1): an answer
+ *  given for another repo is no answer here. */
+async function joinDecided(ctx: FindContext, fromName: string, toRepo: string): Promise<'joined' | 'kept_apart' | null> {
+  const kept = await joinDecision(ownerOf(ctx), fromName, toRepo);
+  if (kept || ctx.builderId === null) return kept;
+  // Fix round 2 (M3): the record project with this repo and this name.
+  const p = (await getRecord(ctx.builderId)).projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === toRepo && nameKeyOf(x) === fromName);
+  return p?.join ?? null;
+}
+
+/**
+ * Fix round 1 (I1): after a joined answer for this repo, new rows under the name move onto it only through the gate a
+ * send takes: the signed-in builder's tie to the repo (cache only, as `followRename`), then `joinRows` with its locks
+ * and the cross-builder check. Not tied, nothing is read or written. When another builder already sent the repo, no row
+ * moves and `joinRows` marks the builder's own name sends kept off that repo (`off_repo`); nothing is said (no login).
+ */
+async function joinAgain(ctx: FindContext, fromName: string, toRepo: string, project: Project): Promise<void> {
+  if (!(await tiedTo(ctx, toRepo, project))) return;
+  await joinRows(ownerOf(ctx), fromName, toRepo, await cachedRepoId(toRepo), await cachedRepoParent(toRepo));
+}
+
+/** Fix round 2 (I3): whether the signed-in builder is tied to the repo by the cached read (no fetch), as `followRename`. */
+async function tiedTo(ctx: FindContext, toRepo: string, project: Project): Promise<boolean> {
+  if (ctx.builderId === null) return false;
+  const login = (await getBuilder(ctx.builderId))?.login ?? null;
+  const facts = (await cachedRepoFacts(project)) ?? { repo_url: toRepo };
+  return (await repoTie(login, facts, { repoUrl: toRepo, noFetch: true })) !== null;
+}
+
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const project = parsed?.ok ? parsed.project : null;
@@ -910,9 +987,19 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L28-5 (v6.1.16 Task 14): only when the name holds no send or step; else the builder is asked, and both stay.
   const fromName = project ? nameKeyOf(project) : '';
   const toRepo = project ? projectKeyOf(project) : '';
+  // L35-1 (v6.1.16.1 Task 2): asked only while the builder has not answered; kept apart, nothing moves.
   if (project?.repo_url && fromName && toRepo !== fromName) {
-    if (await heldUnder(ownerOf(ctx), fromName)) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
-    else await rekeyProject(ownerOf(ctx), fromName, toRepo);
+    const decided = await joinDecided(ctx, fromName, toRepo);
+    const held = await heldUnder(ownerOf(ctx), fromName);
+    if (decided === 'kept_apart') {
+      // The builder said yes and another builder holds the repo: the name keeps its sends.
+    } else if (decided === 'joined') {
+      // Fix round 1 (I1): rows under the name since the yes move only through the send's tie gate.
+      if (held) await joinAgain(ctx, fromName, toRepo, project);
+    } else if (held) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
+    // The name holds nothing: the B4 silent re-key, only behind the builder's tie and under the owner's locks, the name
+    // read again there (fix round 2, I3: `quietRekey`).
+    else if (await tiedTo(ctx, toRepo, project)) await quietRekey(ownerOf(ctx), fromName, toRepo);
   }
   // W2 (final round): a project by name alone whose report names a repo is read under that repo's key (steps, claims, report).
   const key = project ? await resolvedKey(ownerOf(ctx), projectKeyOf(project)) : '';
@@ -927,7 +1014,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key, problems);
   // L24-2 (v6.1.16 Task 11): the open list offers no yes.
   if (!project) await markOffer(ctx.installationId, null, ctx.now);
-  if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null, rawName(i.project));
+  if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null, rawName(i.project), i.filter?.all === true);
 
   const facts = await factsOf(project, ctx, key);
   problems.push(...(facts.problems ?? []));
@@ -976,28 +1063,37 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const pinned = (v: Verdict) => acted.has(v.program_id);
   // Remote and in-person ready programs are capped apart, each in rank order (acted-on first), so the default list
   // always leads with something the builder can apply to now.
-  const readyOrder = all ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
   // O1 (v6.1.10): a program closing within 7 days that the project fits is always listed, ahead of the caps.
   const soon = (v: Verdict) => closingSoon(byId.get(v.program_id)!.file, ctx.now);
   const attending = (v: Verdict) => byId.get(v.program_id)!.file.in_person;
-  const shownReady = shownReadyOf(readyOrder, all, attending, soon);
   // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
+  const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
+  /** What the list shows, by default or (`every`) in the full list: one function for both (fix round 1, M1). */
+  const selectionOf = (every: boolean) => {
+    const readyOrder = every ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
+    const shownReady = shownReadyOf(readyOrder, every, attending, soon);
   // Acted-on programs first, then those closing soon, then real changes and at most one rule-bearing program by default
   // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
   // the last slot only (N-2); a keyword hit takes its own slot in rank order (N1, v6.1.12). In-person programs are
   // never in the default step list (R18d, R18f); `more` counts them.
   // L12-7 (v6.1.14): a project with a chain never sees a deploy on another chain by default; filter.all shows it.
-  const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned,
-    { unlikely: unlikelyV, soon, hit, offChain: (v) => offChain(v, byId, projectChains) });
-  // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
-  // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
-  const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
-  const attendV = gapV.filter((v) => attendRule(v) && (all || !unlikelyV(v)));
-  const attendShown = all ? attendV : cappedOf(attendV, Math.max(0, MAX_IN_PERSON - shownReady.filter(attending).length), soon);
-  const shownGaps = [...stepGaps.filter((v) => !attendRule(v)), ...attendShown];
+    const stepGaps = shownGapsOf(gapV, every, MAX_GAPS, attending, projectChains,
+      (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned,
+      { unlikely: unlikelyV, soon, hit, offChain: (v) => offChain(v, byId, projectChains) });
+    // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
+    // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
+    const attendV = gapV.filter((v) => attendRule(v) && (every || !unlikelyV(v)));
+    const attendShown = every ? attendV : cappedOf(attendV, Math.max(0, MAX_IN_PERSON - shownReady.filter(attending).length), soon);
+    return { shownReady, shownGaps: [...stepGaps.filter((v) => !attendRule(v)), ...attendShown] };
+  };
+  const { shownReady, shownGaps } = selectionOf(all);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
+  /** L1i-5 (v6.1.16.1): the programs the default view lists (for the full list's closing Say). */
+  const defaultIdsOf = (): Set<string> => {
+    const d = selectionOf(false);
+    return new Set([...d.shownReady, ...d.shownGaps].map((v) => v.program_id));
+  };
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send. A claim on another
   // project marks it too, by that project's name (C1, v6.1.13), never pinning it (L1d-1); a claim with no project holds
@@ -1060,7 +1156,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const hash = listHash(shownIds);
   const prevList = await lastList(ctx.installationId);
 
-  const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
+  const r0: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
     ledger, applications: await applicationsOf(owner), ask_outcome: ask, as_reported: facts.as_reported,
@@ -1075,6 +1171,23 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     ...(notSent.length > 0 ? { not_sent: { programs: notSent, since: promise!.at.toISOString() } } : {}),
     ...(prevList && prevList.hash === hash ? { nothing_new_since: prevList.at.toISOString() } : {}),
   };
+  // L1i-2, L1i-5 (v6.1.16.1); fix round 1 (I4 ruling): the numbers the builder sees are the numbers the JSON and track
+  // read. The default view numbers its shown rows 1, 2, 3 (the rest after them). The full list keeps the numbers the
+  // last reply of this project gave (`last_list`, cleared when another project is found) and numbers new ones on.
+  // Passes: `laid` lays the default view out once for its shown order; `defaultSay` (full list only) writes the
+  // default view's Say; `said` writes the reply from the final numbers.
+  const lastOffer = await lastOfferOf(ctx.installationId);
+  const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
+  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer).shown;
+  const prevIds = all && (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
+  const stable = stableNumbers(prevIds, [...laid, ...byN.filter((id) => !laid.includes(id))]);
+  const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
+  const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = { ...r0, ready: r0.ready.map(renum), gaps: r0.gaps.map(renum) };
+  // L1i-5: the full list closes on the default view's Say, from the programs the default view lists.
+  const defaultSay = all ? (() => {
+    const ids = defaultIdsOf();
+    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true }).say;
+  })() : undefined;
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
   const remembered = i.filter?.category === undefined
@@ -1083,19 +1196,21 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';
   // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
-  const said = replyParts(r, last === null, ctx.now, await lastOfferOf(ctx.installationId), { all });
+  // L1i-6 (v6.1.16.1): the full list says every close, beyond the gap lines' own window (the JSON keeps closes_at).
+  const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
+  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
     more: more > 0 || said.hidden.length > 0,
   };
   await markFind(ctx.installationId, ctx.now, remembered, key);
   // L29-15 (v6.1.16 Task 15): the numbers the builder sees, so track takes "3" for the program numbered 3.
   const byNumber: string[] = [];
-  for (const p of [...ready, ...gaps]) byNumber[p.n - 1] = p.program_id;
+  for (const p of [...r.ready, ...r.gaps]) byNumber[p.n - 1] = p.program_id;
   await markList(ctx.installationId, hash, ctx.now, Array.from(byNumber, (x) => x ?? ''));
   // L29-11 (v6.1.16 Task 15): what the next send needs from the builder, for record's note (an unfiltered linked find).
   if (side && i.filter?.category === undefined) await markNextNeeds(ctx.installationId, (sendableOf(r)[0]?.need_you ?? []));

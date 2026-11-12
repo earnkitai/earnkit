@@ -35,8 +35,12 @@ export const LIMITS = {
   repoMiss: { limit: 20, windowSeconds: 86_400 },
   /** GET /link/<code> and the GitHub sign-in callback, per client IP, one window for both. */
   linkGet: { limit: 60, windowSeconds: 3_600 },
-  /** Uncached OAuth client document fetches, per document host (v6.1.15 Task 14 fix round 1, M1). */
+  /** Uncached OAuth client document fetches, per document host (v6.1.15 Task 14 fix round 1, M1) and, L35-5 (v6.1.16.1
+   *  Task 2), the caller's address block. */
   cimdFetch: { limit: 30, windowSeconds: 3_600 },
+  /** L35-5 controller ruling (v6.1.16.1 Task 2): every block's uncached client document fetches for one host, an hour,
+   *  so many blocks cannot multiply the fetches EarnKit makes of a site. */
+  cimdFetchHost: { limit: 300, windowSeconds: 3_600 },
   /** screen jobs, per reviewer ('b:<builder>'), per UTC day: counted once the call passed every other refusal. */
   screenJobs: { limit: 10, windowSeconds: 86_400 },
 } as const;

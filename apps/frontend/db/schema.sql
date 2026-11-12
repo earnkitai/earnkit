@@ -449,3 +449,22 @@ UPDATE application_history h SET project_id = a.project_id
 FROM applications a
 WHERE h.project_id IS NULL AND a.project_id IS NOT NULL AND a.owner = h.owner AND a.program_id = h.program_id
   AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = a.owner AND b.program_id = a.program_id AND b.ctid <> a.ctid);
+-- v6.1.16.1 Task 2 (L35-2): an application's project identity: GitHub's repo id when known ('gh:{id}'), else the repo
+-- key, else the folded name key; one row per owner, program and identity. Backfilled from repo_id, repo_key, else
+-- project_id. Of two rows of one owner and program that would share an identity, only the one that went furthest
+-- (a result, then a send, then the earliest) takes it; the other keeps NULL. A rerun changes nothing. The old
+-- (owner, program, project key) index stays for one release.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS identity text;
+UPDATE applications a SET identity = k.identity
+FROM (
+  SELECT ctid AS row_id, owner, program_id, COALESCE('gh:' || repo_id::text, repo_key, project_id) AS identity,
+    row_number() OVER (PARTITION BY owner, program_id, COALESCE('gh:' || repo_id::text, repo_key, project_id)
+      ORDER BY (CASE status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END) DESC, at) AS n
+  FROM applications WHERE identity IS NULL AND COALESCE('gh:' || repo_id::text, repo_key, project_id) IS NOT NULL
+) k
+WHERE a.ctid = k.row_id AND k.n = 1
+  AND NOT EXISTS (SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND c.identity = k.identity);
+CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program_identity ON applications (owner, program_id, identity) WHERE identity IS NOT NULL;
+-- v6.1.16.1 Task 2 (L35-5): a client ID metadata document read good, so a fresh process or another instance serves it
+-- without a fetch (the in-process cache stays the fast path).
+CREATE TABLE IF NOT EXISTS cimd_documents (url text PRIMARY KEY, document jsonb NOT NULL, fetched_at timestamptz NOT NULL);

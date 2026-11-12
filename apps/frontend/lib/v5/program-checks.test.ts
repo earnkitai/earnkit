@@ -124,3 +124,18 @@ test('L1h-8 (v6.1.16 Task 15): a required field\'s need (or the todo standing in
     for (const r of file.submission_requirements.filter((x) => x.required)) assert.doesNotMatch(r.need ?? r.todo ?? '', / and /, `${f} ${r.key}`);
   }
 });
+
+test('L1i-10 (v6.1.16.1): a figure beside "million" or "billion" is refused in any field; FLOSS/fund and HeroDevs read full figures', async () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const msg = (path: string) => `${path}: money must be in full figures ("$1,000,000", never "$1 million")`;
+  assert.deepEqual(programProblems(programFixture({ id: 'p-w', description: 'A fund for open source, $1 million a year.' }), NOW), [msg('description')]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-w2', rules: ['A fresh $1.5 Billion was planned.'] }), NOW), [msg('rules.0')]);
+  // Words with no figure beside them are not money ("billion-dollar companies").
+  assert.deepEqual(programProblems(programFixture({ id: 'p-w3', description: 'Founders of billion-dollar companies mentor you.' }), NOW), []);
+  const { readFileSync } = await import('node:fs');
+  const read = (id: string) => JSON.parse(readFileSync(new URL(`../../../../programs/${id}.json`, import.meta.url), 'utf8')) as { description: string; rules: string[] };
+  const floss = read('floss-fund-zerodha');
+  assert.ok(floss.description.startsWith("Zerodha's fund for Free and Open Source projects, $1,000,000 a year."), floss.description);
+  assert.ok(floss.rules.some((r) => r.endsWith('A fresh $1,000,000 was planned for 2026.')));
+  assert.ok(read('herodevs-sustainability-fund').description.startsWith("HeroDevs' $20,000,000 fund for maintainers of open source developer tools "));
+});

@@ -2,7 +2,7 @@
   "id": "floss-fund-zerodha",
   "organizer": "FLOSS/fund (Zerodha)",
   "title": "FLOSS/fund",
-  "description": "Zerodha's fund for Free and Open Source projects, $1 million a year. Individuals, projects, communities and organisations apply by publishing a funding.json manifest and submitting its URL to the public directory. Focus is on existing, widely used and impactful projects; very new projects or projects with minimal usage are not considered for now.",
+  "description": "Zerodha's fund for Free and Open Source projects, $1,000,000 a year. Individuals, projects, communities and organisations apply by publishing a funding.json manifest and submitting its URL to the public directory. Focus is on existing, widely used and impactful projects; very new projects or projects with minimal usage are not considered for now.",
   "source_url": "https://floss.fund/faq/",
   "submission_url": "https://dir.floss.fund/submit",
   "official_url": "https://floss.fund/",
@@ -28,7 +28,7 @@
   ],
   "each_time": [],
   "rules": [
-    "Applications stay open all year; the committee evaluates applications at the end of every quarter and sends decisions by email. A fresh $1 million was planned for 2026.",
+    "Applications stay open all year; the committee evaluates applications at the end of every quarter and sends decisions by email. A fresh $1,000,000 was planned for 2026.",
     "Individuals, projects, groups, communities or organisations can apply, for one project or for an entity representing many.",
     "Focus is on existing, widely used and impactful projects and their sustainability. Very new projects or projects with minimal usage are not considered for the time being.",
     "Request up to $100,000 in one year, as a minimum of $10,000 and multiples of $25,000 thereafter.",

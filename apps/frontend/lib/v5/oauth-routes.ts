@@ -56,7 +56,8 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
   try {
     const params = await readParams(request, MAX_OAUTH_BODY);
     if (params === null) return tooLarge();
-    const { token, limitKey, hostedHost, clientName, nonce, audience } = await exchangeCode(params, deps.client, publicOrigin(request));
+    // L35-5 (v6.1.16.1 Task 2): a client document fetch counts on its host and the caller's address block.
+    const { token, limitKey, hostedHost, clientName, nonce, audience } = await exchangeCode(params, callerClient(request, deps.client), publicOrigin(request));
     // T6-F2 (v6.1.14): a client id signed before the check may carry a reserved name; it never installs (saveInstallation
     // refuses too). Checked before the limits, so a refusal spends none.
     if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
@@ -91,6 +92,9 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
   }
 }
 
+/** L35-5 (v6.1.16.1 Task 2): the client deps with the caller's address block (an injected block stays). */
+const callerClient = (request: Request, client: ClientDeps | undefined): ClientDeps => ({ block: blockOf(clientIp(request.headers)), ...client });
+
 type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps };
 const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
 
@@ -98,9 +102,10 @@ const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
     await (deps.limit ?? authorizeLimit)(request);
-    const checked = await checkAuthorize(new URL(request.url).searchParams, deps.client, publicOrigin(request));
+    const client = callerClient(request, deps.client);
+    const checked = await checkAuthorize(new URL(request.url).searchParams, client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
-    return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), deps.client), 302);
+    return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });
     // Unknown client or redirect URI: shown here, never redirected to an unverified URI.

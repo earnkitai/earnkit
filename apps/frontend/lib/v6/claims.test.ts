@@ -136,22 +136,53 @@ test('L25-1 (v6.1.16): a claim held by "Claude Code (earnkit)" names it "Claude 
   assert.equal((await sql()`SELECT client_name FROM installations WHERE id = ${a}`)[0].client_name, 'Claude Code (earnkit)');
 });
 
-test('Task 14 fix round 3b: two builders taking over their keyless sends onto one repo at once: one holds it, the other hears it was sent', async () => {
+test('Task 14 fix round 3b, L35-7 and L35-4 (v6.1.16.1 Task 2): two builders taking over their keyless rows onto one repo at once: a refusal moves nothing, and one claim holds the repo', async () => {
   await upsertProgram(programFixture({ id: 'cl-3b', title: 'Takeover Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'cl-3c', title: 'Takeover Claim Grant' }), 'file', NOW);
   const repo = 'https://github.com/org/takeover';
+  const PAST = new Date(NOW.getTime() - 30 * 3_600_000);
   const each = await Promise.all([0, 1].map(async () => {
     const b = await upsertBuilder({ github_id: ++gh, login: 'tk' + gh, name: null, avatar_url: null }, NOW);
     const i = await installation('Claude Code');
     await linkInstallation(i, b.id, NOW);
     const owner = ownerKey(i, b.id);
     assert.deepEqual(await record(owner, 'cl-3b', 'applied', { installationId: i, now: NOW }), { ok: true });
+    assert.deepEqual(await claim(owner, 'cl-3c', null, i, PAST), { ok: true });
     return { owner, i };
   }));
   for (let k = 0; k < 10; k++) {
-    await sql()`UPDATE applications SET project_id = NULL, repo_key = NULL WHERE program_id = 'cl-3b'`;
+    // Both rows were sent already, so both answer "already sent"; a refusal writes nothing, so neither takes the repo.
     const r = await Promise.all(each.map((e) => claim(e.owner, 'cl-3b', repo, e.i, NOW, null, { tied: true })));
-    // Both rows were sent already, so both answer "already sent"; only one takes the repo.
     assert.deepEqual(r.map((x) => !x.ok && 'already' in x && x.already.sent), [true, true]);
-    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'cl-3b' AND repo_key = ${repo}`)[0].n, 1, `round ${k}`);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'cl-3b' AND project_id IS NOT NULL`)[0].n, 0, `round ${k}`);
+    // Two stale keyless claims: one takes the repo; the other hears its co-founder started it.
+    await sql()`UPDATE applications SET project_id = NULL, repo_key = NULL, identity = NULL, claimed_at = ${PAST} WHERE program_id = 'cl-3c'`;
+    const c = await Promise.all(each.map((e) => claim(e.owner, 'cl-3c', repo, e.i, NOW, null, { tied: true })));
+    assert.deepEqual(c.map((x) => x.ok || 'cofounder' in x).sort(), [true, true], `round ${k}`);
+    assert.equal(c.filter((x) => x.ok).length, 1, `round ${k}`);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'cl-3c' AND repo_key = ${repo}`)[0].n, 1, `round ${k}`);
   }
+});
+
+test('L35-4, L35-3, L35-2 (v6.1.16.1 Task 2): a co-founder\'s live claim on the repo refuses a claim and writes nothing; a fork\'s claim reads the parent\'s send; a claim keeps its identity', async () => {
+  await upsertProgram(programFixture({ id: 'cl-35', title: 'Co-founder Grant' }), 'file', NOW);
+  const repo = 'https://github.com/org/cl35';
+  const a = await builderWithTwoAgents();
+  const b = await builderWithTwoAgents();
+  assert.deepEqual(await claim(a.owner, 'cl-35', repo, a.a, NOW, null, { repoId: 35350, tied: true }), { ok: true });
+  const [mine] = await sql()`SELECT identity FROM applications WHERE owner = ${a.owner} AND program_id = 'cl-35'`;
+  assert.equal(mine.identity, 'gh:35350');
+  assert.deepEqual(await claim(b.owner, 'cl-35', repo, b.a, new Date(NOW.getTime() + H), null, { repoId: 35350, tied: true }), { ok: false, cofounder: { at: NOW } });
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${b.owner}`)[0].n, 0);
+  // The same repo by its id alone (a renamed link) is the same claim.
+  assert.deepEqual(await claim(b.owner, 'cl-35', 'https://github.com/org/cl35-renamed', b.a, new Date(NOW.getTime() + H), null, { repoId: 35350, tied: true }), { ok: false, cofounder: { at: NOW } });
+  // A claim past 24 hours is not live: the co-founder may claim.
+  assert.deepEqual(await claim(b.owner, 'cl-35', repo, b.a, new Date(NOW.getTime() + 25 * H), null, { repoId: 35350, tied: true }), { ok: true });
+
+  // A fork's claim after the parent was sent: refused, with no login (the match is by the parent).
+  await upsertProgram(programFixture({ id: 'cl-35f', title: 'Fork Grant' }), 'file', NOW);
+  assert.deepEqual(await record(a.owner, 'cl-35f', 'applied', { installationId: a.a, now: NOW, project_id: repo, repoId: 35350, tied: true }), { ok: true });
+  const fork = await claim(b.owner, 'cl-35f', 'https://github.com/someone/cl35-fork', b.a, NOW, null, { repoId: 35351, tied: true, parentRepo: { id: 35350, key: repo } });
+  assert.ok(!fork.ok && 'repo' in fork && fork.repo.login === null, JSON.stringify(fork));
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${b.owner} AND program_id = 'cl-35f'`)[0].n, 0);
 });
