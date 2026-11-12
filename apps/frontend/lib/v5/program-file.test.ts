@@ -284,3 +284,13 @@ test('L28-8 (v6.1.16 Task 14): teamKindOf reads the one fact a team label asks; 
     for (const r of JSON.parse(readFileSync(join(dir, f), 'utf8')).submission_requirements ?? [])
       if (r.kind === 'team') assert.equal(teamKindOf(r.label), null, `${f} ${r.key}`);
 });
+
+test('v6.1.16 Task 15 N5 (v6.1.17): the Solana Incubator need phrases are one need each, as ruled', async () => {
+  const { needOf } = await import('./prefill');
+  const p = ProgramFile.parse(read('solana-incubator-cohort-6.json'));
+  const need = (key: string) => needOf(p.submission_requirements.find((r) => r.key === key)!);
+  assert.equal(need('web3_experience'), 'Web3 or Solana experience');
+  assert.equal(need('why_idea'), 'reason for your idea, with proof of need');
+  assert.equal(need('competition'), 'your insight on the competition');
+  for (const key of ['web3_experience', 'why_idea', 'competition']) assert.doesNotMatch(need(key), / and /, key);
+});
