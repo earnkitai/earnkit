@@ -1120,7 +1120,9 @@ not keep, and every open or closed decision is read from the clock at request ti
   after the started lines). While the ask is open the program is left out of the list (never offered as a draft
   again). `releaseStale` never deletes such a claim: it comes back with `ask: true`, said only when its ask is due, as
   `{title}: started {date}; did you send it? Say sent and I note it.`. A program that closed since the start is still
-  asked about for `SENT_ASK_AFTER_CLOSE_DAYS` (7) after its `ends_at`, then neither line is said (v6.1.18.1, L41-10). The agent note: `"sent" is track applied with
+  asked about for `SENT_ASK_AFTER_CLOSE_DAYS` (7) after its `ends_at`, then neither line is said (v6.1.18.1, L41-10);
+  one closed by status with no `ends_at` (no close time on record) for `SENT_ASK_CLOSED_NO_DATE_DAYS` (14) after the
+  start. The agent note: `"sent" is track applied with
   submitted_by builder; "not yet" needs no call.` Prefill: a how-you-heard field (`heardFrom`) says `EarnKit
   (earnkit.com)`, or picks the referral (else other) option with the other-box `note`; partner, alumni and
   more-than-the-source fields are left as they are.
@@ -1505,10 +1507,15 @@ means what the last `Say` offered.
   `LICENSE_FILE` (`feature:license`, minutes, agent_can, `do: 'add an MIT license file'`, closing `Say "do" and I add
   an MIT license file first.`; track gap_done accepts the item on these programs); an unknown or other license, a repo
   not read, or an archived repo keeps the rule question. The do offer reads a gap's `do` before its `what`.
-  v6.1.18.1: a cached row with no `license` key (read before v6.1.18) is incomplete (`complete()`) and re-read, so it
-  never keeps the rule on a licensed repo; `license: null` is a read (no license file). `track started` (`openRules`)
-  confirms a license-check rule from the cached read (`cachedRepoFacts`, no fetch) when it is an OSI license on a live
-  repo, as `evaluate` does (L41-1).
+  v6.1.18.1: a cached row with no `license` key (read before v6.1.18) is `usable` (fork and archived) but not
+  `complete`, so it is re-read when the day's reads allow; `license: null` is a read, and every read since carries
+  `license_read: true` (a body without the key stays complete). Until re-read, a usable row under 7 days answers when
+  reads are paused, a slow re-read answers with it and never overwrites it with a miss, and `cachedRepoFacts` serves it
+  with the license unknown (review fix round, I1 to I3). `track` asks a license-check rule only as `evaluate` would
+  (`licenseRule` in track.ts, L41-1 and review M4): on the report kept for the project key and the repo's cached read
+  under 7 days (`cachedRepoFacts(project, { now, ms })`, M1; a `{ miss: 'private' }` row reads as private,
+  `cachedRepoMiss`), a repo step (`repoGaps`, shared with `evaluate`) hides it, an OSI license confirms it, no license
+  file leaves it to the license file step, and anything else (no read, an archived repo, an unknown license) asks it.
 - **Funding manifest (L38-1).** FLOSS/fund's form takes `funding_json_url` and its file has no setup step any more.
   `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
   projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,

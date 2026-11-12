@@ -2,7 +2,7 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { REPO_NOTE } from './reply';
 import { sql } from './db';
-import { detectCode, repoFacts, sweepRepoCache } from './repo-facts';
+import { cachedRepoFacts, detectCode, repoFacts, sweepRepoCache } from './repo-facts';
 import { parseProject } from './project-input';
 import { replayFetch } from './fixtures/github';
 
@@ -393,8 +393,8 @@ test('v6.1.18.1: a cache row saved before v6.1.18 (no license field) is re-read,
   const first = replayFetch('saber-distributor');
   const p = project({ repo_url: `https://github.com/${first.repo}` });
   assert.equal((await repoFacts(p, { gh: first.fetch, now: NOW })).license, 'GPL-3.0');
-  // The row as the pre-v6.1.18 cache wrote it: fork and archived, no license key.
-  await sql()`UPDATE repo_cache SET facts = facts - 'license'`;
+  // The row as the pre-v6.1.18 cache wrote it: fork and archived, no license key (and no read marker).
+  await sql()`UPDATE repo_cache SET facts = facts - 'license' - 'license_read'`;
   const [old] = await sql()`SELECT facts FROM repo_cache`;
   assert.ok('fork' in old.facts && 'archived' in old.facts && !('license' in old.facts));
   // Within the hour a complete row is never re-read; this one is, since it lacks the license.
@@ -414,6 +414,58 @@ test('v6.1.18.1: a cache row saved before v6.1.18 (no license field) is re-read,
   const hit = replayFetch('nextjs-dashboard');
   assert.equal((await repoFacts(q, { gh: hit.fetch, now: new Date(NOW.getTime() + 60_000) })).license, null);
   assert.equal(hit.calls.length, 0);
+});
+
+test('v6.1.18.1 review I1, I2, I3: a usable row from before v6.1.18 answers when reads are paused or GitHub is slow, keeps its facts, and is read by the cache-only readers', async () => {
+  const { hit, LIMITS } = await import('./rate-limit');
+  const { GitHubSlow } = await import('./github');
+  const id = 941_000 + Math.floor(Math.random() * 1000);
+  await sql()`DELETE FROM repo_cache`;
+  const rec = replayFetch('nextjs-dashboard');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  const first = await repoFacts(p, { gh: rec.fetch, now: NOW });
+  assert.equal(first.public, true);
+  // The row as the v6.1.17 cache wrote it: no license key, and a repo id and contributors to keep.
+  const strip = () => sql()`UPDATE repo_cache SET facts = (facts - 'license' - 'license_read') || ${sql().json({ repo_id: 4242, contributors: ['ada'] })}::jsonb`;
+  await strip();
+  // I3: the cache-only readers still see it, the license unknown; with an age bound, only a fresh enough row.
+  const viaCache = await cachedRepoFacts(p);
+  assert.ok(viaCache);
+  assert.equal('license' in viaCache, false);
+  assert.equal(await cachedRepoFacts(p, { now: new Date(NOW.getTime() + 8 * DAY), ms: 7 * DAY }), null);
+  assert.ok(await cachedRepoFacts(p, { now: new Date(NOW.getTime() + DAY), ms: 7 * DAY }));
+  // I1: the day's reads spent, two days on: the old row answers (no call, not paused), its license unknown.
+  for (let n = 0; n < LIMITS.repoRead.limit; n++) await hit(`repoRead:${id}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, new Date(NOW.getTime() + 2 * DAY));
+  const none = replayFetch('nextjs-dashboard');
+  const paused = await repoFacts(p, { gh: none.fetch, now: new Date(NOW.getTime() + 2 * DAY), installationId: id });
+  assert.equal(none.calls.length, 0);
+  assert.deepEqual([paused.public, paused.notes, paused.problems, 'license' in paused], [true, [], undefined, false]);
+  // Over 7 days old, the row is not used: paused as before.
+  const at8 = new Date(NOW.getTime() + 8 * DAY);
+  for (let n = 0; n < LIMITS.repoRead.limit; n++) await hit(`repoRead:${id}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, at8);
+  assert.deepEqual((await repoFacts(p, { gh: none.fetch, now: at8, installationId: id })).notes, ['paused']);
+  await sql()`DELETE FROM repo_cache`;
+  await repoFacts(p, { gh: replayFetch('nextjs-dashboard').fetch, now: NOW });
+  await strip();
+  // I2: a slow re-read of the old row answers with it and never overwrites it with a miss.
+  const slow = (async () => { throw new GitHubSlow(); }) as unknown as typeof fetch;
+  const s = await repoFacts(p, { gh: slow, now: new Date(NOW.getTime() + 3 * 3_600_000) });
+  assert.equal(s.public, true);
+  const [row] = await sql()`SELECT facts FROM repo_cache`;
+  assert.equal('miss' in row.facts, false);
+  assert.deepEqual([row.facts.repo_id, row.facts.contributors], [4242, ['ada']]);
+});
+
+test('v6.1.18.1 review M2: every read is marked, so a body without a license key is still a complete row', async () => {
+  await sql()`DELETE FROM repo_cache`;
+  const noKey = replayFetch('nextjs-dashboard', (u, b) => (/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace('"license":null,', '') : b));
+  const p = project({ repo_url: `https://github.com/${noKey.repo}` });
+  assert.equal('license' in (await repoFacts(p, { gh: noKey.fetch, now: NOW })), false);
+  const [row] = await sql()`SELECT facts FROM repo_cache`;
+  assert.equal(row.facts.license_read, true);
+  const again = replayFetch('nextjs-dashboard');
+  await repoFacts(p, { gh: again.fetch, now: new Date(NOW.getTime() + 60_000) });
+  assert.equal(again.calls.length, 0);
 });
 
 test('L1c-4 (v6.1.10): an empty repo (its tree read fails) is cached like any other: the next read is free and makes one call', async () => {

@@ -789,6 +789,15 @@ test('L41-10 (v6.1.18.1): a builder-submits program started, then closed an hour
   assert.deepEqual(await askSent(o(i), [], new Date(close.getTime() + 7 * 24 * H + H)), []);
 });
 
+test('v6.1.18.1 review M3: a program closed with no ends_at is asked about for 14 days after the start, then not', async () => {
+  const i = await install();
+  await prog('l-sent-nodate', { title: 'Undated Hackathon', submit: 'builder', status: 'closed', ends_at: null });
+  const started = new Date(NOW.getTime() - 10 * DAY);
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, project_id, status, at, claimed_at) VALUES (${o(i)}, ${i}, 'l-sent-nodate', 'p1', 'started', ${started}, ${started})`;
+  assert.deepEqual((await askSent(o(i), [], NOW)).map((x) => x.program_id), ['l-sent-nodate']);
+  assert.deepEqual(await askSent(o(i), [], new Date(started.getTime() + 15 * DAY)), []);
+});
+
 test('L18-4b: sentAsksDue asks once, then not for 7 days, then again', async () => {
   const i = await install();
   const j = await install();

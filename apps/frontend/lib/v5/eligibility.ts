@@ -154,6 +154,24 @@ const prizes = (p: ProgramRow['file']) => p.pool_usd != null || /\bprizes?\b/i.t
 /** L1e-6 (v6.1.13): a program that funds code already written: existing work allowed, not a hackathon, not in person. Pure. */
 export const forExistingCode = (p: ProgramRow['file']): boolean => p.existing_work === 'allowed' && categoryOf(p) !== 'hackathon' && !p.in_person;
 
+/**
+ * The repo steps a program asks of these facts, in order (v6.1.18.1: one source for `evaluate` and track's `openRules`).
+ * L1e-6 / L16-8 / L18-2: code in a repo (public for an open source program) for a project with no repo link, or a repo
+ * the read found empty on a grant for existing code. L1f-1 (v6.1.14): an open source program is never ready for a
+ * private repo (reported private, or a link not read for being private): its step is making the repo public. L1f-3
+ * (v6.1.14): an archived repo, for a program that wants the code or its users: the archive is the gap, and the users
+ * question waits for the live repo. Pure.
+ */
+export function repoGaps(p: ProgramRow['file'], facts: RepoFacts): Gap[] {
+  const notes = facts.notes ?? [];
+  const out: Gap[] = [];
+  if (p.needs_repo && !facts.private && !facts.repo_url) out.push(p.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
+  else if (p.needs_repo && forExistingCode(p) && !facts.private && notes.includes('empty')) out.push(NEEDS_CODE);
+  if (p.open_source && (facts.private || notes.includes('private'))) out.push(PUBLIC_REPO);
+  if (notes.includes('archived') && (p.needs_repo === true || p.min_tier === 'used' || eligibilityOf(p).some((i) => i.kind === 'users'))) out.push(ARCHIVED_REPO);
+  return out;
+}
+
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
   const p = program.file;
@@ -188,15 +206,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // step is making it public (L1f-1), and the read settles the code then.
   // L18-2 (v6.1.18): a program that needs a repo (any category) and a project with no repo link: the code is the step,
   // in a public repo when the program is open source (never also a rule to confirm). The empty-repo rule keeps its test.
-  if (p.needs_repo && !facts.private && !facts.repo_url) gaps.push(p.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
-  else if (p.needs_repo && forExistingCode(p) && !facts.private && (facts.notes ?? []).includes('empty')) gaps.push(NEEDS_CODE);
-  // L1f-1 (v6.1.14): an open source program is never ready for a private repo (reported private, or a link not read
-  // for being private): its step is making the repo public.
-  if (p.open_source && (facts.private || (facts.notes ?? []).includes('private'))) gaps.push(PUBLIC_REPO);
-  // L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the archive is the gap, and the
-  // users question waits for the live repo.
-  const archived = (facts.notes ?? []).includes('archived') && (p.needs_repo === true || p.min_tier === 'used' || own.some((i) => i.kind === 'users'));
-  if (archived) gaps.push(ARCHIVED_REPO);
+  gaps.push(...repoGaps(p, facts));
+  const archived = gaps.includes(ARCHIVED_REPO);
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));

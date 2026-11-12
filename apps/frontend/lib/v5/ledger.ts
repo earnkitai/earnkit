@@ -1149,6 +1149,8 @@ export const SENT_ASK_AFTER_HOURS = 1;
 export const SENT_ASK_EVERY_DAYS = 7;
 /** L41-10 (v6.1.18.1): days after a program closes that a start on it is still asked about (a last-hour send). */
 export const SENT_ASK_AFTER_CLOSE_DAYS = 7;
+/** v6.1.18.1 (review M3): days after the start that a program closed with no ends_at is still asked about. */
+export const SENT_ASK_CLOSED_NO_DATE_DAYS = 14;
 
 /** A program the builder sends themselves, started and not yet sent (L18-4): its title, when it was started and the
  *  project key its started row carries (null for a row with none). */
@@ -1176,8 +1178,12 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
   return [...first]
     .map(([id, x]) => ({ p: byId.get(id), ...x }))
     .filter((x): x is { p: ProgramRow; at: Date; project: string | null } => x.p?.file.submit === 'builder')
-    // L41-10 (v6.1.18.1): a program closed since the start is still asked about, for SENT_ASK_AFTER_CLOSE_DAYS after.
-    .filter(({ p }) => !p.file.ends_at || Date.parse(p.file.ends_at) > now.getTime() - SENT_ASK_AFTER_CLOSE_DAYS * 86_400_000)
+    // L41-10 (v6.1.18.1): a program closed since the start is still asked about, for SENT_ASK_AFTER_CLOSE_DAYS after its
+    // ends_at. Review M3: a program closed by status with no ends_at has no close time on record, so its ask is bound by
+    // the started row's age instead, SENT_ASK_CLOSED_NO_DATE_DAYS (14); an open program is asked as before.
+    .filter(({ p, at }) => p.file.ends_at
+      ? Date.parse(p.file.ends_at) > now.getTime() - SENT_ASK_AFTER_CLOSE_DAYS * 86_400_000
+      : p.file.status !== 'closed' || at.getTime() > now.getTime() - SENT_ASK_CLOSED_NO_DATE_DAYS * 86_400_000)
     .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project }));
 }
 

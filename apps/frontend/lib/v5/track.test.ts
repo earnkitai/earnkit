@@ -406,21 +406,39 @@ test('L41-1 (v6.1.18.1): a license rule the repo read settles is never asked at 
     readme_excerpt: 'A tool.', homepage: null, topics: [], html_url: `https://github.com/${repo}`, pushed_at: '2026-11-01T00:00:00.000Z',
     fork: false, archived: false, empty: false, readme_lead: 'A tool.', license,
   });
-  const start = async (repo: string, license: string | null) => {
+  const start = async (repo: string, license: string | null, fetched = NOW, gap?: { what: string; kind: string; item: string }) => {
     await sql()`DELETE FROM repo_cache WHERE repo = ${repo}`;
-    await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${repo}, ${sql().json(cached(repo, license))}, ${NOW}, ${new Date('2026-11-01T00:00:00.000Z')})`;
+    await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${repo}, ${sql().json(cached(repo, license))}, ${fetched}, ${new Date('2026-11-01T00:00:00.000Z')})`;
     const project = { name: repo, description: 'A tool.', repo_url: `https://github.com/${repo}` };
     await track(me, { program_id: file.id, status: 'gap_done', item: ruleItem(REGION), project });
+    if (gap) await markFind(c.installationId, NOW, { [file.id]: gap }, `https://github.com/${repo}`);
     return track(me, { program_id: file.id, status: 'started', project });
   };
   // MIT: find lists it ready once the region rule is confirmed, and started agrees: no rule question.
   const mit = await start('lic41/mit-tool', 'MIT');
   assert.equal(mit.refused, undefined, mit.show_to_builder);
   assert.match(mit.agent_note, /^Started GitHub Secure Open Source Fund\. /);
-  // No license file: the rule is still asked.
-  const none = await start('lic41/bare-tool', null);
-  assert.equal(none.show_to_builder, `Confirm the rule first: ${LICENSE}. Say yes if that is you.`);
-  assert.equal(none.refused, true);
+  // Review M4: no license file: as find, the license file step, never the rule question (a yes would confirm a rule
+  // the read says is false).
+  const none = await start('lic41/bare-tool', null, NOW, { what: 'a license file', kind: 'feature', item: 'feature:license' });
+  assert.equal(none.refused, undefined, none.show_to_builder);
+  assert.match(none.agent_note, /^Started GitHub Secure Open Source Fund\. When EarnKit last looked it was still one change away: a license file\./);
+  // Review M1: an MIT read over 7 days old is not trusted: the rule is asked.
+  const old = await start('lic41/old-tool', 'MIT', new Date(NOW.getTime() - 8 * 86_400_000));
+  assert.equal(old.show_to_builder, `Confirm the rule first: ${LICENSE}. Say yes if that is you.`);
+  assert.equal(old.refused, true);
+  // No read at all: the rule is asked.
+  await sql()`DELETE FROM repo_cache WHERE repo = 'lic41/unread-tool'`;
+  const unreadProject = { name: 'Unread', description: 'A tool.', repo_url: 'https://github.com/lic41/unread-tool' };
+  await track(me, { program_id: file.id, status: 'gap_done', item: ruleItem(REGION), project: unreadProject });
+  assert.equal((await track(me, { program_id: file.id, status: 'started', project: unreadProject })).show_to_builder, `Confirm the rule first: ${LICENSE}. Say yes if that is you.`);
+  // Review M4: a repo the read found private: the public repo step hides the license rule, so started never asks it.
+  await sql()`DELETE FROM repo_cache WHERE repo = 'lic41/hidden-tool'`;
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES ('lic41/hidden-tool', ${sql().json({ miss: 'private' })}, ${NOW}, NULL)`;
+  const hidden = { name: 'Hidden', description: 'A tool.', repo_url: 'https://github.com/lic41/hidden-tool' };
+  await track(me, { program_id: file.id, status: 'gap_done', item: ruleItem(REGION), project: hidden });
+  const priv = await track(me, { program_id: file.id, status: 'started', project: hidden });
+  assert.doesNotMatch(priv.show_to_builder, /Confirm the rule first: a clear open source license/);
 });
 
 test('a legacy last_gaps string reads as kind other and keeps the change line (v6.1.7, m2)', async () => {

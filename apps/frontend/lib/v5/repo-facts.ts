@@ -89,6 +89,9 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   parent_full_name?: string;
   /** L38-27 (v6.1.18 Task 11): the detected license's SPDX id, null for none; a row cached before has none (unknown). */
   license?: string | null;
+  /** v6.1.18.1 (review M2): set on every read since v6.1.18.1, so a read whose body had no license key (unknown) is
+   *  still a complete row and is not re-read on every find. */
+  license_read?: true;
   /** L38-1 (v6.1.18 Task 11): a funding.json at the repo root. */
   funding_json?: boolean;
 };
@@ -257,8 +260,11 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     // L35-3 (v6.1.16.1 Task 2): a fork keeps its parent, so the one-per-repo rule reads the parent's repo too.
     ...(r.repo.fork === true && typeof r.repo.parent?.id === 'number' ? { parent_repo_id: r.repo.parent.id } : {}),
     ...(r.repo.fork === true && typeof r.repo.parent?.full_name === 'string' ? { parent_full_name: r.repo.parent.full_name } : {}),
-    // Fix round 1 (I4): a repo body with no license key says nothing about the license (unknown, left out).
+    // Fix round 1 (I4): a repo body with no license key says nothing about the license (unknown, left out). GitHub's
+    // /repos body always carries the key (null or an object); v6.1.18.1 (review M2): `license_read` marks the read
+    // either way, so a body without it never makes the row incomplete.
     ...('license' in r.repo ? { license: r.repo.license === null ? null : licenseOf(r.repo.license) } : {}),
+    license_read: true,
     // Fix round 1 (M7): found at the root, the file is there; not found in a truncated tree, it is unknown (left out),
     // so the step is still offered and nothing is claimed done. The read lists the tree through the API and never
     // fetches the raw URL, which can lag a push by a few minutes: the agent sends it only after it pushed.
@@ -306,6 +312,14 @@ export const SLOW_KEEP_MS = 10 * 60_000;
 type Miss = { miss: 'gone' | 'private' | 'slow' };
 const isMiss = (f: unknown): f is Miss => typeof f === 'object' && f !== null && 'miss' in f;
 
+/** v6.1.18.1 (review M4): the miss a repo's cache row keeps (gone, private, slow), or null; never a fetch. */
+export async function cachedRepoMiss(url: string | undefined): Promise<'gone' | 'private' | 'slow' | null> {
+  const key = repoKey(url);
+  if (!key) return null;
+  const [row] = await sql()<{ facts: unknown }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  return row && isMiss(row.facts) ? row.facts.miss : null;
+}
+
 /** Deletes repo_cache rows read over 30 days ago; the count deleted. */
 export async function sweepRepoCache(now: Date): Promise<number> {
   const rows = await sql()`DELETE FROM repo_cache WHERE fetched_at < ${new Date(now.getTime() - 30 * DAY_MS)} RETURNING repo`;
@@ -315,10 +329,12 @@ export async function sweepRepoCache(now: Date): Promise<number> {
 /** A cached row from before integrations were read has none. Pure. */
 const withIntegrations = (f: CodeFacts): CodeFacts => ({ ...f, integrations: f.integrations ?? [] });
 
-/** N-6 (v6.1.9): a row saved before v6.1.8 lacks the fork and archived fields, so it is stale whatever its age.
- *  v6.1.18.1: a row saved before v6.1.18 lacks the license field (null, no license file, is a read), so it is stale too.
+/** N-6 (v6.1.9): a row saved before v6.1.8 lacks the fork and archived fields, so it is not usable whatever its age.
  *  Pure. */
-const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f && 'license' in f;
+const usable = (f: CodeFacts) => !isMiss(f) && 'fork' in f && 'archived' in f;
+/** v6.1.18.1: a usable row saved before v6.1.18 lacks the license (null, no license file, is a read): not complete, so
+ *  it is re-read when the day's reads allow, and meanwhile answers with its license unknown (review I1 to I3). Pure. */
+const complete = (f: CodeFacts) => usable(f) && ('license' in f || f.license_read === true);
 
 /**
  * The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read.
@@ -373,7 +389,14 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
       }
     }
   }
-  await countRead(installationId, now);
+  try {
+    await countRead(installationId, now);
+  } catch (err) {
+    // v6.1.18.1 (review I1): reads paused, an old but usable row under 7 days answers (license unknown), as before.
+    const age = row ? now.getTime() - row.fetched_at.getTime() : -1;
+    if (err instanceof ReadsPaused && row && usable(row.facts) && age >= 0 && age < 7 * DAY_MS) return withIntegrations(row.facts);
+    throw err;
+  }
   let read: RepoRead;
   try {
     read = await readRepo(key, { fetch: f, signal: budget });
@@ -381,7 +404,8 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
     // L26-8, L26-9: a timed-out read and a missing or private repo never count against the day's reads; the miss is kept.
     const miss: Miss['miss'] | null = err instanceof GitHubSlow ? 'slow' : err instanceof RepoPrivateError ? 'private' : err instanceof GitHubError && err.status === 404 ? 'gone' : null;
     // N1 (fix round 1): a slow read over a complete cached row answers with that row, kept, and counts no read.
-    if (miss === 'slow' && row && complete(row.facts)) {
+    // v6.1.18.1 (review I2): any usable row, so a slow re-read of an old row never overwrites it with a miss.
+    if (miss === 'slow' && row && usable(row.facts)) {
       if (installationId !== undefined) await uncountHit(`repoRead:${installationId}`, LIMITS.repoRead.windowSeconds, now);
       return withIntegrations(row.facts);
     }
@@ -432,11 +456,15 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
  * with the report exactly as repoFacts merges them; null when the repo has no complete cached row (v6.1.10 final, I3:
  * track's send check sees the same contracts and chains find vouched for).
  */
-export async function cachedRepoFacts(project: Project): Promise<RepoFacts | null> {
+export async function cachedRepoFacts(project: Project, fresh?: { now: Date; ms: number }): Promise<RepoFacts | null> {
   const key = project.private ? null : repoKey(project.repo_url);
   if (!key) return null;
-  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
-  return row && complete(row.facts) ? mergedFacts(project, withIntegrations(row.facts), false) : null;
+  const [row] = await sql()<{ facts: CodeFacts; fetched_at: Date }[]>`SELECT facts, fetched_at FROM repo_cache WHERE repo = ${key}`;
+  // v6.1.18.1 (review I3): a usable row from before v6.1.18 merges with its license unknown. Review M1: with `fresh`,
+  // only a row read within `ms` of `now`.
+  if (!row || !usable(row.facts)) return null;
+  if (fresh && !(fresh.now.getTime() - row.fetched_at.getTime() < fresh.ms)) return null;
+  return mergedFacts(project, withIntegrations(row.facts), false);
 }
 
 /** The agent's report alone as facts, merged as find merges a report with no repo read (v6.1.13, Task 1 review I2). Pure. */
