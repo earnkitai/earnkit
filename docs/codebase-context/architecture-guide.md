@@ -1048,7 +1048,8 @@ means what the last `Say` offered.
   (`caseFolded`); `submitted_by` defaults to agent; an applied with no `fields_used` is accepted with "Pass
   fields_used next time; nothing was checked against your record." A number is the program numbered so by the last
   project find (`installations.last_list`, `markList(..., ids)`, `lastListIds`); an unknown program reads "Which
-  program do you mean?" with the note "program_id takes the id or the name; a list number maps to the id in the
+  program do you mean? Say its name." (v6.1.16.1, L1i-8: with candidates, up to three, "Which program do you mean: A,
+  B or C?") with the note "program_id takes the id or the name; a list number maps to the id in the
   JSON." (`unknownProgramLine` with no suggestion, find too). The strict lookup takes a title's or id's initials as a
   title word ("yc"), common words still name nothing. A started, or an agent's applied, on a program whose rule is not
   confirmed for the project (the last find's when none is passed) is refused "Confirm the rule first: {rule}. Say yes
@@ -1079,6 +1080,29 @@ means what the last `Say` offered.
   then the Say. An unknown `filter.category` and a top-level project key are named in the problems line. The project
   schema advertises a type on every field, `required: ["name"]` and "A project needs a description when it has no
   repo_url".
+- **Find after the 10-line cap (v6.1.16.1, lane 1i).** The step block shows as many rows as the budget allows, at least
+  one (`defaultRows`; the row the closing speaks to first); its heading keeps the true count and, when rows are left
+  out, it ends on `And {n} more in the full list.` (`moreInFull`). `fit` takes the step block's first row and more line
+  at rank 2 and its other rows at rank 7.5: after the applications, the results question (3.5), Task 9's lines, the
+  Before line (7.4) and the sign-in (7.45), ahead of the repo notes, the linked notice and the rest. Shown rows are
+  numbered 1, 2, 3 in display order: `replyParts` lays the view out once (`asShown`), renumbers the shown ids first and
+  the rest after, and writes the reply (and its Say's "yes n" / "do n") from those numbers; it returns `shown` and
+  `say`. Find keeps stable numbers per session (`stableNumbers` over `installations.last_list` when
+  `last_project_key` is this project's): the first find numbers the default's shown rows first, so the text and the
+  JSON `n` agree; later finds of the project keep each listed program's number and number new ones on after them;
+  when the shown numbers are not the stable ones the agent note says which is which (`shownNumbersNote`). The full
+  view lists every program the list holds as `{n}. {title}, {money}, closes {when}, in person.` (closes from
+  `closesWords` beyond the gap lines' own window, passed as `closes`), closes on the default view's Say (`defaultSay`,
+  from the programs the default view lists), and never asks a rule it does not show: a rule Say becomes `Say a number
+  and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
+  closes and in person per line (`openLine`); with `filter.all` it lists every open program, for no project and a
+  name-only project. One sign-in sentence per reply: when the closing's Say is the unlinked users question, the link
+  goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and the proof line reads `I read
+  your repo for proof once you sign in.` (`SIGN_IN_PROOF`, only when there is a link). `findInputOf` returns an input
+  error (isError, no builder text, the field named) for an unknown top-level key and a project with no name; an
+  unknown category stays a problems line in the agent note, project or not. `closesWords` counts calendar days in the
+  program's zone on every surface (reply, tile, guide). `programs:check` also refuses a figure beside "million" or
+  "billion" (`MONEY_WORDS`).
 - **Says and notes (L29-5, L29-6, L29-17, L29-19, L29-27 to L29-29, L29-31, L29-34).** A yes that needs answers names
   them: "Say yes and tell me {needs}, and I apply to ...". No "Or say the numbers to skip." (the note's "A number skips
   that program: call track skipped with its id."). The rule Say ends "and I get it ready."; unlinked, the users question
