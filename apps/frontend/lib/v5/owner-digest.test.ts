@@ -218,16 +218,18 @@ test("L18-5c: the digest's applications block counts the previous UTC day's send
     db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, title, application_id)
       VALUES (${owner}, ${inst}, ${program}, ${status}, ${at}, ${sentAt}, ${by}, ${title}, ${id})`;
   try {
-    // Yesterday (2026-12-19 UTC): an agent send, a drafted builder send (a start before it), a reported one; a claim is not a send.
+    // Yesterday (2026-12-19 UTC): an agent send, an unmarked one (the agent's), a drafted builder send (a start before it), a reported one; a claim is not a send.
     await ins(`i:${ia.id}`, ia.id, 'od-a', 'applied', y(1), y(1), 'agent', 'Alpha Grants', 'app_od1');
     await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${`b:${b.id}`}, ${ib.id}, 'od-a', 'started', ${y(1)})`;
     await ins(`b:${b.id}`, ib.id, 'od-a', 'won', y(20), y(2), 'builder', 'Alpha Grants', 'app_od2');
     await ins(`i:${ib.id}`, ib.id, 'od-b', 'applied', y(23), y(23), 'builder', 'Beta Prize', 'app_od3');
+    // Unmarked (submitted_by null): the agent's (L29-23).
+    await ins(`i:${ia.id}`, ia.id, 'od-d', 'applied', y(5), y(5), null, 'Delta Fund', 'app_od7');
     await ins(`i:${ia.id}`, ia.id, 'od-b', 'started', y(4), null, null, 'Beta Prize', 'app_od4');
     // An older send counts all time only.
     await ins(`i:${ia.id}`, ia.id, 'od-c', 'applied', new Date('2026-11-01T00:00:00Z'), new Date('2026-11-01T00:00:00Z'), 'agent', 'Old', 'app_od5');
     const day = new Date('2026-12-20T06:15:00Z');
-    const want = 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (1 by agents, 1 drafted here and sent by builders, 1 reported from outside); 4 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n';
+    const want = 'EarnKit programs: 2026-12-20\n\nApplications: 4 sent (2 by agents, 1 drafted here and sent by builders, 1 reported from outside); 5 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n- Delta Fund (od-d): 1\n';
     assert.equal(await sendOwnerDigest(day, mailer), 'sent');
     assert.equal(sent[0].text, want);
     // A send today changes neither yesterday's block nor the all-time number: the same-day rerun builds the same hash.

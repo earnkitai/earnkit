@@ -465,6 +465,10 @@ const seedSends = async () => {
     VALUES (${'i:' + ic.id}, ${ic.id}, 'l185-alpha', 'applied', ${t3}, ${t3}, 'builder', 'Alpha Grants', 'app_l185d')`;
   await db`INSERT INTO applications (owner, installation_id, program_id, status, at, title, application_id)
     VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-gamma', 'started', ${t2}, 'Gamma', 'app_l185c')`;
+  // An unmarked send (submitted_by null) is the agent's (L29-23).
+  const t0 = new Date('2030-01-01T10:00:00Z');
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, title, application_id)
+    VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-delta', 'applied', ${t0}, ${t0}, 'Delta Fund', 'app_l185e')`;
   return { ia: ia.id, ib: ib.id, ic: ic.id };
 };
 const cleanSends = async () => {
@@ -488,9 +492,14 @@ test('L18-5: 404 while the API is off, 401 on a wrong token, 200 with totals and
     const out = JSON.parse(raw) as AppsOut;
     assert.equal(out.ok, true);
     assert.deepEqual(out.totals, {
-      all: 3, agent: 1, drafted: 1, reported: 1, auto: 1,
-      by_program: [{ program_id: 'l185-alpha', title: 'Alpha Grants', sent: 2 }, { program_id: 'l185-beta', title: 'Beta Prize', sent: 1 }],
+      all: 4, agent: 2, drafted: 1, reported: 1, auto: 1,
+      by_program: [
+        { program_id: 'l185-alpha', title: 'Alpha Grants', sent: 2 },
+        { program_id: 'l185-beta', title: 'Beta Prize', sent: 1 },
+        { program_id: 'l185-delta', title: 'Delta Fund', sent: 1 },
+      ],
     });
+    assert.equal(out.totals.agent + out.totals.drafted + out.totals.reported, out.totals.all);
     assert.deepEqual(out.rows, [
       {
         // An `i:` owner on a linked installation: the linked builder's login (fix round 1, ruling 3).
@@ -505,6 +514,11 @@ test('L18-5: 404 while the API is off, 401 on a wrong token, 200 with totals and
         // An `i:` owner on an unlinked installation: no builder.
         application_id: 'app_l185a', program_id: 'l185-alpha', title: 'Alpha Grants', status: 'applied', submitted_by: 'agent', auto_applied: true,
         sent_at: '2030-01-02T10:00:00.000Z', at: '2030-01-02T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 2, amount_usd: null, through_earnkit: true,
+      },
+      {
+        // Unmarked: the agent's, so through EarnKit; submitted_by stays as stored.
+        application_id: 'app_l185e', program_id: 'l185-delta', title: 'Delta Fund', status: 'applied', submitted_by: null, auto_applied: false,
+        sent_at: '2030-01-01T10:00:00.000Z', at: '2030-01-01T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 0, amount_usd: null, through_earnkit: true,
       },
     ]);
     // Never an email, a sign-in code or an installation id (the rows' keys are exactly the ones above).
@@ -522,7 +536,7 @@ test('L18-5b: since filters the rows only (totals stay all time), limit caps at 
     const later = (await (await appsReq('?since=2030-01-03T00:00:00Z')).json()) as AppsOut;
     assert.deepEqual(later.rows.map((r) => r.application_id), ['app_l185d', 'app_l185b']);
     assert.deepEqual(later.totals, all.totals, 'totals are all time whatever since says');
-    assert.ok(all.totals.all >= 3);
+    assert.ok(all.totals.all >= 4);
     const one = (await (await appsReq('?since=2030-01-01T00:00:00Z&limit=1')).json()) as AppsOut;
     assert.deepEqual(one.rows.map((r) => r.application_id), ['app_l185d']);
     assert.equal(one.totals.all, all.totals.all, 'the totals count every send, not the page');

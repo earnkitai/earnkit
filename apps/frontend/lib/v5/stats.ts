@@ -21,8 +21,8 @@ export const STATS_KEYS = [
  */
 /**
  * v6.1.18 Task 5 (L36-3, L36-4): `applications_via_earnkit` counts the sends EarnKit made or drafted (an agent's, plus
- * a builder's that an EarnKit start preceded, `throughEarnkit`), all time; `read_at` is when the database was read (the
- * route caches the read for 10 minutes).
+ * a builder's that an EarnKit start preceded, `throughEarnkit`), all time; `read_at` is the read's `now` (the clock
+ * passed in; the route caches the read for 10 minutes).
  */
 export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other' | 'last_run_at' | 'read_at'>, number> & {
   won_other: { currency: string; amount: number }[];
@@ -50,10 +50,11 @@ export const SENT = ['applied', 'won', 'rejected', 'no_result'];
 type Sql = ReturnType<typeof sql>;
 
 /**
- * v6.1.18 Task 5 (L36-3): SQL over `applications a`: the send went through EarnKit. An agent sent it, or an EarnKit
+ * v6.1.18 Task 5 (L36-3): SQL over `applications a`: the send went through EarnKit. An agent sent it (`submitted_by`
+ * null is the agent's, as track.ts's L29-23 reads it), or an EarnKit
  * start (a claim or a hold in `application_history`, same owner, program and project) came before its send time.
  */
-export const throughEarnkit = (db: Sql) => db`(a.submitted_by = 'agent' OR EXISTS (
+export const throughEarnkit = (db: Sql) => db`(COALESCE(a.submitted_by, 'agent') = 'agent' OR EXISTS (
   SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id
     AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status IN ('started', 'held') AND h.at < COALESCE(a.sent_at, a.at)))`;
 
@@ -63,12 +64,12 @@ export const sendRows = (db: Sql) => db`
   FROM applications a WHERE a.status = ANY(${SENT})`;
 
 /**
- * The counts over `s` (sendRows): `agent` sent by an agent; `drafted` a builder pressed send on an EarnKit draft;
- * `reported` a send EarnKit had no part in (a builder's or unmarked, no start before it). A fragment for `WITH s AS (sendRows) SELECT ...`.
+ * The counts over `s` (sendRows): `agent` sent by an agent (`submitted_by` 'agent' or null); `drafted` a builder
+ * pressed send on an EarnKit draft; `reported` a builder's send EarnKit had no part in. agent + drafted + reported = all. A fragment for `WITH s AS (sendRows) SELECT ...`.
  */
-export const sendCounts = (db: Sql) => db`count(*) AS all, count(*) FILTER (WHERE submitted_by = 'agent') AS agent,
+export const sendCounts = (db: Sql) => db`count(*) AS all, count(*) FILTER (WHERE COALESCE(submitted_by, 'agent') = 'agent') AS agent,
   count(*) FILTER (WHERE submitted_by = 'builder' AND through) AS drafted,
-  count(*) FILTER (WHERE NOT through AND (submitted_by = 'builder' OR submitted_by IS NULL)) AS reported,
+  count(*) FILTER (WHERE submitted_by = 'builder' AND NOT through) AS reported,
   count(*) FILTER (WHERE auto_applied) AS auto`;
 
 /** L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program. */
@@ -99,9 +100,8 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
       FROM a`,
     db<{ via: string }[]>`
       WITH s AS (${sendRows(db)})
-      SELECT count(*) FILTER (WHERE submitted_by = 'agent' OR (submitted_by = 'builder' AND through)) AS via FROM s`,
+      SELECT count(*) FILTER (WHERE COALESCE(submitted_by, 'agent') = 'agent' OR (submitted_by = 'builder' AND through)) AS via FROM s`,
   ]);
-  const readAt = new Date();
   const [run] = await db<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
   const other = await db<{ currency: string; amount: string }[]>`
     WITH w AS (${wonOnce(db)})
@@ -121,7 +121,7 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     won_other: other.map((r) => ({ currency: r.currency, amount: Number(r.amount) })),
     won_without_amount: Number(a.won_none),
     last_run_at: run?.last_run_at.toISOString() ?? null,
-    read_at: readAt.toISOString(),
+    read_at: now.toISOString(),
   };
 }
 

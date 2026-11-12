@@ -122,7 +122,7 @@ test('L30-14: last_run_at is null before any run, then the last daily run that f
 });
 
 // v6.1.18 Task 5 (L36-3, L36-4).
-test('L36-3, L36-4: applications_via_earnkit counts agent sends and builder sends an EarnKit start preceded; read_at is the read time', async () => {
+test('L36-3, L36-4: applications_via_earnkit counts agent sends (submitted_by null among them) and builder sends an EarnKit start preceded; read_at is the read clock', async () => {
   const db = sql();
   const before = await readStats(NOW);
   const [r] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`stat-${Math.random()}`}) RETURNING id`;
@@ -138,9 +138,8 @@ test('L36-3, L36-4: applications_via_earnkit counts agent sends and builder send
   await start('via-late', ago(1));
   await send('via-late', 'builder', ago(2));
   await send('via-unmarked', null, ago(2));
-  const t0 = Date.now();
   const now = await readStats(NOW);
   assert.equal(now.applications - before.applications, 5);
-  assert.equal(now.applications_via_earnkit - before.applications_via_earnkit, 2, 'the agent send and the drafted one; a start after the send counts nothing');
-  assert.ok(Date.parse(now.read_at) >= t0 && Date.parse(now.read_at) <= Date.now(), now.read_at);
+  assert.equal(now.applications_via_earnkit - before.applications_via_earnkit, 3, 'the agent send, the unmarked (an agent\'s, L29-23) and the drafted one; a start after the send counts nothing');
+  assert.equal(now.read_at, NOW.toISOString());
 });
