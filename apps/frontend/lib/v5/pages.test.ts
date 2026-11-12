@@ -538,24 +538,30 @@ test('L35-24 (v6.1.17 Task 4): /me collapses each answer to its first line, one 
     const data = await meData(b, now, 'sess');
     const closed = html(MeView({ data, problem: null }));
     assert.equal((closed.match(/<details[^>]*name="answers"/g) ?? []).length, 154);
-    assert.equal((closed.match(/<details[^>]*name="approvals"/g) ?? []).length, 154);
     assert.ok(!/<details[^>]* open=""/.test(closed), 'none open');
     assert.ok(!closed.includes('Second line'), 'collapsed to the first line');
+    // Waiting for you counts the 154 and links the first; each is marked where it sits.
+    assert.ok(textOf(closed).includes('154 answers wait for you below. Open the first one'));
+    assert.ok(closed.includes('href="/me?open=answers.one_liner#a-answers.one_liner"'));
+    assert.equal(closed.split('Waiting for you.').length - 1, 154);
+    // The page in a browser carries the React payload too, about one and a half times this again (lane 35 measured the
+    // whole response: 755 KB before the count replaced the repeated rows, under 500 KB after).
     const size = Buffer.byteLength(closed);
-    assert.ok(size < 500 * 1024, `${Math.round(size / 1024)} KB`);
-    // One open: its field (the edit box and Approve) in full, here and in Waiting for you; every other stays one line.
+    assert.ok(size < 200 * 1024, `${Math.round(size / 1024)} KB`);
+    // One open: its field (the edit box and Approve) in full; every other stays one line.
     const opened = html(MeView({ data, problem: null, open: 'projects.p3.answers.risks' }));
-    assert.equal((opened.match(/<details[^>]* open=""/g) ?? []).length, 2);
-    assert.equal(opened.split('Second line risks.').length - 1, 2);
+    assert.equal((opened.match(/<details[^>]* open=""/g) ?? []).length, 1);
+    assert.equal(opened.split('Second line risks.').length - 1, 1);
+    assert.match(opened, /name="path" value="projects\.p3\.answers\.risks"\/><input type="hidden" name="action" value="approve"\/>/);
     assert.ok(opened.includes('name="projects.p3.answers.risks"'));
     assert.ok(/<input type="hidden" name="open" value="projects\.p3\.answers\.risks"\/>/.test(opened), 'the open answer stays open after Save');
-    assert.ok(Buffer.byteLength(opened) < 500 * 1024);
+    assert.ok(Buffer.byteLength(opened) < 200 * 1024);
     assert.ok(closed.includes(`href="/me?open=answers.problem#a-answers.problem"`));
   }
   // The first line: cut at a word with an ellipsis, by characters.
   assert.equal(firstLineOf('\n  First one.\nSecond.'), 'First one.');
-  assert.equal(firstLineOf(`${'word '.repeat(40)}`), `${'word '.repeat(16).trim()}…`);
-  assert.equal(Array.from(firstLineOf('\u{1F600}'.repeat(300))).length, 81);
+  assert.equal(firstLineOf(`${'word '.repeat(40)}`), `${'word '.repeat(12).trim()}…`);
+  assert.equal(Array.from(firstLineOf('\u{1F600}'.repeat(300))).length, 61);
 });
 
 test('v6.1.16 Task 13 N2 (v6.1.17 Task 4): /link pages send form-action self and GitHub, after the site-wide CSP so theirs wins, frame-ancestors kept', async () => {

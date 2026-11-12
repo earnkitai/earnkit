@@ -8,6 +8,14 @@ import { notFound } from 'next/navigation';
 
 export const revalidate = 600;
 
+/**
+ * No guide is built ahead (v6.1.17 Task 4): each renders on its first request and is then kept as ISR for 10 minutes,
+ * so the route is static, not rendered per request. A failed read renders dynamic and is never kept (landing-cache N3).
+ */
+export async function generateStaticParams(): Promise<{ id: string }[]> {
+  return [];
+}
+
 type Props = { params: Promise<{ id: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

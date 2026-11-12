@@ -2,7 +2,7 @@ import { CARD_NAVY, CARD_PANEL, CARD_RUST, H1_SITE, PAGE_COL, PILL_WHITE } from 
 import {
   ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
   ME_ANSWER_OPEN, ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
-  ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SAVED, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
+  ME_PENDING_ANSWERS, ME_PENDING_FIRST, ME_PENDING_LINE, ME_PENDING_TITLE, ME_WAITING, ME_POLICY_LINE, ME_SAVE, ME_SAVED, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
 } from '../../lib/v5/site-copy';
 import { approvalPathOf, firstLineOf, isAnswerPath, type MeData, type MeField } from '../../lib/v6/me-view';
 
@@ -114,30 +114,34 @@ function Field({ f, csrf, form }: { f: MeField; csrf: string; form: string }) {
 
 /** The link that opens one answer (L35-24, v6.1.17 Task 4): the page again with only that one open, at its anchor. */
 const openHref = (path: string, anchor: string) => `/me?open=${encodeURIComponent(path)}#${anchor}`;
-/** Kept short: a 154-answer record repeats these 308 times. */
-const SUMMARY = 'cursor-pointer py-3 text-[15px]';
 const OPEN_LINK = 'inline-flex min-h-11 items-center underline';
+/**
+ * The answer rows' look, set once on their container (L35-24, v6.1.17 Task 4): a 154-answer record repeats each row,
+ * so the rows carry no classes of their own.
+ */
+const ANSWER_ROWS = [
+  '[&>details]:border-t [&>details]:border-s-line [&>details:first-child]:border-t-0',
+  '[&_summary]:cursor-pointer [&_summary]:py-3 [&_summary]:text-[15px] [&_summary>span]:block [&_summary>span]:break-words',
+  '[&_summary>span+span]:text-s-muted [&_summary>strong]:block [&_summary>strong]:text-[13px] [&_summary>strong]:text-s-text',
+  `[&_summary+a]:inline-flex [&_summary+a]:min-h-11 [&_summary+a]:items-center [&_summary+a]:underline`,
+].join(' ');
 
 /**
- * An answer (L35-24, v6.1.17 Task 4): a `<details>` collapsed to its label and first line. The one named by `?open=` is
+ * An answer (L35-24, v6.1.17 Task 4): a `<details>` collapsed to its label and first line (styled by ANSWER_ROWS on its
+ * container). The one named by `?open=` is
  * open with its field; any other holds only the link that opens it, so a record of 154 answers stays a small page and
  * only one is open at a time, with no script.
  */
 function AnswerRow({ f, csrf, form, open }: { f: MeField; csrf: string; form: string; open: boolean }) {
   const id = `a-${f.path}`;
   return (
-    <details id={id} name="answers" open={open} className="border-t border-s-line first:border-t-0">
-      <summary className={SUMMARY}>
-        <span className="block">{f.label}</span>
-        <span className="block break-words text-s-muted">{f.value ? firstLineOf(f.value) : `${ME_NOT_SET}.`}</span>
+    <details id={id} name="answers" open={open}>
+      <summary>
+        <span>{f.label}</span>
+        <span>{f.value ? firstLineOf(f.value) : `${ME_NOT_SET}.`}</span>
+        {f.approvable && f.value !== '' && !f.approved_on && <strong>{ME_WAITING}</strong>}
       </summary>
-      {open ? (
-        <Field f={f} csrf={csrf} form={form} />
-      ) : (
-        <a href={openHref(f.path, id)} className={OPEN_LINK}>
-          {ME_ANSWER_OPEN}
-        </a>
-      )}
+      {open ? <Field f={f} csrf={csrf} form={form} /> : <a href={openHref(f.path, id)}>{ME_ANSWER_OPEN}</a>}
     </details>
   );
 }
@@ -198,7 +202,7 @@ function Projects({ fields, seen, csrf, open }: { fields: MeField[]; seen: MeDat
   return (
     <div className="flex flex-col gap-3">
       {[...byId.entries()].map(([id, fs]) => (
-        <div key={id} className="rounded-[24px] bg-s-panel-inner px-4 py-2 md:px-6">
+        <div key={id} className={`rounded-[24px] bg-s-panel-inner px-4 py-2 md:px-6 ${ANSWER_ROWS}`}>
           <h3 className="ek-serif pt-3 text-[24px] leading-none">{fs.find((f) => f.path.endsWith('.name'))?.value || id}</h3>
           {fs.map((f) => (
             <Row key={f.path} f={f} csrf={csrf} form="form-projects" open={open} />
@@ -288,7 +292,8 @@ function Policy({ fields, csrf, saved, problem, status }: { fields: MeField[]; c
  * beside that section's Save, not as a banner. `at`: the section a refusal is about (L27-9: the delete card for a
  * failed delete); the line shows inside that card, else above the record. With a linked agent the page carries
  * `data-me-linked`, so the header hides its install pill (L21-22, v6.1.16). `open`: the one answer shown in full
- * (L35-24, v6.1.17 Task 4: `?open={path}`); every other answer, here and in Waiting for you, is its first line.
+ * (L35-24, v6.1.17 Task 4: `?open={path}`); every other answer is its first line, and Waiting for you counts the
+ * answers that wait (each is marked in its section) instead of repeating them.
  */
 export default function MeView({ data, problem, note = null, saved = null, at = null, open = null }: { data: MeData; problem: string | null; note?: string | null; saved?: string | null; at?: string | null; open?: string | null }) {
   const { csrf } = data;
@@ -296,6 +301,7 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
   const placed = new Set([...data.blocks.map((b) => b.key), 'delete']);
   const problemIn = (key: string) => (problem && at === key ? problem : null);
   const topProblem = problem && !(at && placed.has(at)) ? problem : null;
+  const waiting = data.pending_approvals.map((p) => p.path).filter(isAnswerPath);
   return (
     <div {...(data.installations.length > 0 ? { 'data-me-linked': '' } : {})} className={`${PAGE_COL} flex flex-col gap-4 pb-10 pt-6 md:pt-10`}>
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -356,39 +362,27 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
       {data.pending_approvals.length > 0 && (
         <Card id="approvals" title={ME_PENDING_TITLE} card={CARD_NAVY}>
           <p className="text-[15px] text-s-on-navy-soft">{ME_PENDING_LINE}</p>
-          <ul className="flex flex-col gap-2.5">
-            {data.pending_approvals.map((p) =>
-              isAnswerPath(p.path) ? (
-                // L35-24 (v6.1.17 Task 4): an answer waits collapsed to its first line; opened, it is read in full and approved here.
-                <li key={p.path} className="rounded-[24px] bg-s-navy-inner px-4 md:px-5">
-                  <details id={`p-${p.path}`} name="approvals" open={open === p.path}>
-                    <summary className={SUMMARY}>
-                      <span className="block text-[13px] text-s-on-navy">{p.label}</span>
-                      <span className="block break-words">{firstLineOf(p.text)}</span>
-                    </summary>
-                    {open === p.path ? (
-                      <div className="flex flex-col gap-2 pb-4 md:pb-5">
-                        <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
-                        <Short text={p.short} tone="text-[13px] text-s-on-navy" />
-                        <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
-                      </div>
-                    ) : (
-                      <a href={openHref(p.path, `p-${p.path}`)} className={OPEN_LINK}>
-                        {ME_ANSWER_OPEN}
-                      </a>
-                    )}
-                  </details>
-                </li>
-              ) : (
+          {/* L35-24 (v6.1.17 Task 4): the answers are counted here; each waits collapsed in its section, Approve inside. */}
+          {waiting.length > 0 && (
+            <p className="flex flex-wrap items-center gap-x-4 text-[15px]">
+              {ME_PENDING_ANSWERS(waiting.length)}
+              <a href={openHref(waiting[0], `a-${waiting[0]}`)} className={OPEN_LINK}>
+                {ME_PENDING_FIRST}
+              </a>
+            </p>
+          )}
+          {data.pending_approvals.length > waiting.length && (
+            <ul className="flex flex-col gap-2.5">
+              {data.pending_approvals.filter((p) => !isAnswerPath(p.path)).map((p) => (
                 <li key={p.path} className="flex flex-col gap-2 rounded-[24px] bg-s-navy-inner p-4 md:p-5">
                   <span className="text-[13px] text-s-on-navy">{p.label}</span>
                   <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
                   <Short text={p.short} tone="text-[13px] text-s-on-navy" />
                   <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
                 </li>
-              ),
-            )}
-          </ul>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
 
@@ -399,7 +393,7 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
           ) : b.key === 'policy' ? (
             <Policy fields={b.fields} csrf={csrf} saved={saved === 'policy'} problem={problemIn('policy')} status={data.policy_status ?? []} />
           ) : (
-            <div>
+            <div className={b.key === 'answers' ? ANSWER_ROWS : undefined}>
               {b.fields.map((f) => (
                 <Row key={f.path} f={f} csrf={csrf} form={`form-${b.key}`} open={open} />
               ))}

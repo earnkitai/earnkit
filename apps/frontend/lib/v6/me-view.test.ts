@@ -192,11 +192,15 @@ test('B16 and B19: each answer shows its short form, pending and approved; the t
     ['team.1.name', 'Member 2', 'Hidden Partner', 'agent'], ['team.1.role', 'Member 2 role', 'CFO', 'agent'],
     ['team.2.name', 'Add a member', '', null],
   ]);
-  // L35-24 (v6.1.17 Task 4): opened (`?open=`), the answer shows its short form pending and under the answer; closed, neither.
+  // L35-24 (v6.1.17 Task 4): opened (`?open=`), the waiting answer shows its short form once, under it, with its
+  // Approve; Waiting for you counts it instead of repeating it; closed, the answer is its first line.
   const html = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null, open: 'answers.problem' }));
-  assert.equal(html.split('Short form, for fields under 300 characters.').length, 3, 'once pending, once under the answer');
+  assert.equal(html.split('Short form, for fields under 300 characters.').length, 2, 'once, under the open answer');
+  assert.ok(html.includes('1 answer waits for you below.'));
+  assert.match(html, /name="path" value="answers\.problem"\/><input type="hidden" name="action" value="approve"\/>/);
   const closed = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null }));
   assert.equal(closed.split('Short form, for fields under 300 characters.').length, 1, 'collapsed: first line only');
+  assert.ok(closed.includes('Waiting for you.'), 'the waiting answer is marked in its section');
   assert.ok(html.includes('5,000 paying customers'));
   assert.ok(html.includes('Hidden Partner'));
   assert.ok(html.indexOf('Your team') > html.indexOf('About you') && html.indexOf('Your team') < html.indexOf('Your projects'));

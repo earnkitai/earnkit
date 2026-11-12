@@ -217,7 +217,7 @@ export const isAnswerPath = (path: string): boolean => /^(?:projects\.[a-z0-9]+(
  * An answer collapsed to its first line (L35-24, v6.1.17 Task 4): the first line with text, cut at a word to `max`
  * characters (code points) with an ellipsis. Pure.
  */
-export function firstLineOf(text: string, max = 80): string {
+export function firstLineOf(text: string, max = 60): string {
   const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   const chars = Array.from(line);
   if (chars.length <= max) return line;

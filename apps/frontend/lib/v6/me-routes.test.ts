@@ -687,3 +687,12 @@ test('L35-24 (v6.1.17 Task 4): the open answer stays open after its section save
   const refused = await editPost(post('/me/edit', { csrf, section: 'answers', open: 'answers.risks', 'answers.risks': 'x'.repeat(2001) }, { cookie }), deps);
   assert.match(refused.headers.get('location') ?? '', /&open=answers\.risks&at=answers#answers$/);
 });
+
+test('L35-24 (v6.1.17 Task 4): approving an answer opens the next one waiting; the last goes back to Waiting for you', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { problem: { text: 'Builders miss grants.' }, risks: { text: 'Few programs.' } } }, 'agent', NOW).record, NOW);
+  const approve = async (path: string) =>
+    (await approvePost(post('/me/approve', { csrf, path, action: 'approve', seen: seenOf(await getRecord(b.id), path) }, { cookie }), deps)).headers.get('location');
+  assert.equal(await approve('answers.problem'), '/me?open=answers.risks#a-answers.risks');
+  assert.equal(await approve('answers.risks'), '/me#approvals');
+});

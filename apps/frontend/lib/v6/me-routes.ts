@@ -15,7 +15,7 @@ import {
 } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
-import { type MeField, agentList, authSecret, isAnswerPath, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
+import { type MeField, agentList, authSecret, isAnswerPath, pendingApprovals, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
 import { clearCookies, currentName, endSession, sessionBuilder, sessionToken } from './sessions';
 
@@ -346,6 +346,11 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
   });
   if (out.broken) return problemAt(g, ME_ERRORS.broken);
   if (!out.result) return problemAt(g, ME_ERRORS.changed);
+  // L35-24 (v6.1.17 Task 4): an approved answer opens the next one waiting, so they are read one at a time.
+  if (action === 'approve' && isAnswerPath(path)) {
+    const next = pendingApprovals(await getRecord(g.builder.id)).find((p) => isAnswerPath(p.path))?.path;
+    if (next) return back(`/me?open=${encodeURIComponent(next)}#a-${next}`);
+  }
   return back('/me#approvals');
 }
 
