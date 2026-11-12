@@ -377,20 +377,30 @@ export function listRef(raw: string, lastList: string[]): string | null {
 }
 
 /** Fix round 1 (M4, v6.1.18 Task 8): a list reference's number, from 1 to `length` (digits or a number word), else
- *  null; the one parse `listRef` and `listHole` share. Pure. */
+ *  null; the one parse `listRef` and `listMiss` share. Pure. */
 function listNumber(raw: string, length: number): number | null {
+  const n = refNumber(raw);
+  return n !== null && n <= length ? n : null;
+}
+/** M4 (v6.1.19): the number a list-shaped reference reads as (1 to 9999, digits or a number word, a compound like
+ *  `twenty-one` too), with no list bound; else null. Pure. */
+function refNumber(raw: string): number | null {
+  if (!looksLikeListRef(raw)) return null;
   const b = refBody(raw);
-  const n = /^\d{1,4}$/.test(b) ? Number(b) : NUMBER_WORDS.indexOf(b) + 1;
-  return Number.isInteger(n) && n >= 1 && n <= length ? n : null;
+  if (/^\d{1,4}$/.test(b)) return Number(b) >= 1 ? Number(b) : null;
+  if (NUMBER_WORDS.includes(b)) return NUMBER_WORDS.indexOf(b) + 1;
+  const [t, u] = b.split(/[-\s]+/);
+  return (TENS.indexOf(t) + 2) * 10 + (u === undefined ? 0 : NUMBER_WORDS.indexOf(u) + 1);
 }
 
 /**
- * L36-10 (v6.1.18): a list number whose slot in the last list is empty (that program left the list, as an already-sent
- * one does): its number, else null. Pure.
+ * M4 (v6.1.19, was L36-10 `listHole`): a list-shaped number the last list does not hold (past its end, or a slot that
+ * is empty because its program left the list, as an already-sent one does): its number, else null. So a bare number is
+ * never answered with the unknown-program line. Pure.
  */
-export function listHole(raw: string, lastList: string[]): number | null {
-  const n = listNumber(raw, lastList.length);
-  return n !== null && !lastList[n - 1] ? n : null;
+export function listMiss(raw: string, lastList: string[]): number | null {
+  const n = refNumber(raw);
+  return n !== null && !listRef(raw, lastList) ? n : null;
 }
-/** L36-10 (v6.1.18): the line for a list number no longer in the list. */
-export const LIST_GONE = (n: number): string => `Number ${n} is not in the list now (already sent). Say a number from the last list.`;
+/** M4 (v6.1.19): the line for a list number the last list does not hold. */
+export const LIST_GONE = (n: number): string => `Number ${n} is not in the list now. Say a number from the last list.`;

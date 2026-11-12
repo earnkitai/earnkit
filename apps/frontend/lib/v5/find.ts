@@ -19,7 +19,7 @@ import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastL
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
+import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, LIST_GONE, listMiss, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
@@ -470,9 +470,12 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
   // organizer too, and several are asked about. L35-6 (v6.1.16.1 Task 2): a list reference ("#3", "3.", "No. 3",
   // "three") is the last list's program; any other reference falls to the name lookup.
-  const ref = (await getProgram(id)) ? null : listRef(id, await lastListIds(ctx.installationId));
+  const lastList = await lastListIds(ctx.installationId);
+  const ref = (await getProgram(id)) ? null : listRef(id, lastList);
   if (ref) id = ref;
   const { row, suggest } = await programByName(id, ctx.now);
+  // M4 (v6.1.19): a bare number the last list does not hold says so, never the unknown-program line.
+  const miss = row ? null : listMiss(id, lastList);
   // L24-2 (v6.1.16 Task 11): the last offer this installation showed, read before this reply replaces it.
   const lastOffer = await lastOfferOf(ctx.installationId);
   await markOffer(ctx.installationId, null, ctx.now);
@@ -480,7 +483,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   if (!row)
     return refuse({
       // L1j-2 (v6.1.17): with no program to offer, the name the builder gave.
-      show_to_builder: unknownProgramLine(suggest, id),
+      show_to_builder: miss !== null ? LIST_GONE(miss) : unknownProgramLine(suggest, id),
       agent_note: 'program_id takes the id or the name; a list number maps to the id in the JSON. Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [], linked: ctx.builderId !== null,
     });
   // Final fix (v6.1.12, I2): matched by another name, the first line names the program (every line here leads with it).

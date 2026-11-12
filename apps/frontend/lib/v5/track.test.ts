@@ -1694,9 +1694,9 @@ test('L29-15, L29-21, L29-23, L29-32: a list number, any case, agent by default;
   assert.match(r.agent_note, /Pass fields_used next time; nothing was checked against your record\./);
   const [row] = await sql()`SELECT submitted_by FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l2915-b'`;
   assert.equal(row.submitted_by, 'agent');
-  // A number past the list asks which; started has no builder text, its note names it.
+  // A number past the list: M4 (v6.1.19) says it is not in the list now.
   const far = await track(c, { program_id: '9', status: 'started' });
-  assert.equal(far.show_to_builder, 'I do not know a program called "9". Say its full name.');
+  assert.equal(far.show_to_builder, 'Number 9 is not in the list now. Say a number from the last list.');
   const s = await track(c, { program_id: '1', status: 'STARTED', submitted_by: 'Agent' });
   assert.equal(s.show_to_builder, '');
   assert.match(s.agent_note, /^Matched list number 1 to l2915-a\. Started Number One Grant\. /);
@@ -2218,9 +2218,10 @@ test('L35-6 (v6.1.16.1 Task 2, Review Focus 10): #3, 3., No. 3, three and 3 mean
   const two = await track(c, { program_id: 'two', status: 'skipped' });
   assert.equal(two.show_to_builder, 'Skipped L35 Num 2 for good. Say bring it back and I list it again.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-err-two'`)[0].n, 0);
-  for (const ref of ['twenty-one', '#99']) {
+  // M4 (v6.1.19): a number the list does not hold says so, never the unknown line.
+  for (const [ref, n] of [['twenty-one', 21], ['#99', 99]] as const) {
     const r = await track(c, { program_id: ref, status: 'skipped' });
-    assert.equal(r.show_to_builder, `I do not know a program called "${ref}". Say its full name.`, ref);
+    assert.equal(r.show_to_builder, `Number ${n} is not in the list now. Say a number from the last list.`, ref);
     assert.equal(r.refused, true, ref);
   }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId} AND status = 'skipped'`)[0].n, 1);
@@ -2531,12 +2532,36 @@ test('L36-10 (v6.1.18): a list number whose program left the list says so', asyn
     const { markList } = await import('./installations');
     await markList(c.installationId, 'h', NOW, ['l3610-a', '', 'l3610-a']);
     const r = await track(c, { program_id: '2', status: 'applied' });
-    assert.equal(r.show_to_builder, 'Number 2 is not in the list now (already sent). Say a number from the last list.');
+    // M4 (v6.1.19): the line names no reason.
+    assert.equal(r.show_to_builder, 'Number 2 is not in the list now. Say a number from the last list.');
     assert.equal(r.refused, true);
-    // A number past the list is still the unknown line.
-    assert.equal((await track(c, { program_id: '9', status: 'applied' })).show_to_builder, 'I do not know a program called "9". Say its full name.');
+    // M4 (v6.1.19): a number past the list says the same, never the unknown line.
+    assert.equal((await track(c, { program_id: '9', status: 'applied' })).show_to_builder, 'Number 9 is not in the list now. Say a number from the last list.');
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'l3610-a'`;
+  }
+});
+
+test('M4 (v6.1.19): "yes 7" on a 5-row list says "Number 7 is not in the list now. Say a number from the last list."', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'm4-a', title: 'Row Grant' }), 'file', NOW);
+  try {
+    const { markList } = await import('./installations');
+    await markList(c.installationId, 'h', NOW, ['m4-a', 'm4-a', 'm4-a', 'm4-a', 'm4-a']);
+    for (const ref of ['7', '#7', 'seven', 'No. 7']) {
+      const r = await track(c, { program_id: ref, status: 'started' });
+      assert.equal(r.show_to_builder, 'Number 7 is not in the list now. Say a number from the last list.', ref);
+      assert.equal(r.refused, true);
+    }
+    assert.equal((await track(c, { program_id: 'twenty-one', status: 'started' })).show_to_builder, 'Number 21 is not in the list now. Say a number from the last list.');
+    // find with the number says the same.
+    const { mcpCall } = await import('./fixtures/mcp-call');
+    const f = await mcpCall({ installationId: c.installationId, builderId: null, now: NOW }, 'find', { program_id: '7' });
+    assert.equal(f.reply!.show_to_builder, 'Number 7 is not in the list now. Say a number from the last list.');
+    // A word that is not a number keeps the unknown line.
+    assert.equal((await track(c, { program_id: 'zzqx', status: 'started' })).show_to_builder, 'I do not know a program called "zzqx". Say its full name.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'm4-a'`;
   }
 });
 

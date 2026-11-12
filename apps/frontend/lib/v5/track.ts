@@ -12,7 +12,7 @@ import { wantsManifest } from './funding-manifest';
 import { cachedRepoFacts, cachedRepoMiss, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
-import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listHole, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
+import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, unreadNote } from './reply';
@@ -416,8 +416,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
-  // L36-10 (v6.1.18): a number whose program left the last list says so.
-  const hole = !row && !sentRow && numberish ? listHole(raw, await lastListIds(ctx.installationId)) : null;
+  // L36-10 (v6.1.18), M4 (v6.1.19): a number the last list does not hold (left it, or past its end) says so.
+  const hole = !row && !sentRow && numberish ? listMiss(raw, await lastListIds(ctx.installationId)) : null;
   const acted = !row && !sentRow
     ? await refuse(hole !== null ? LIST_GONE(hole) : unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
     : await act(ctx, owner, programs, refuse, known ? data : rest);
