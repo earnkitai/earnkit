@@ -18,7 +18,8 @@ import { codeChecked, itemKey } from './eligibility';
 import { getProgram, isOpenAt, programsById, type ProgramRow } from './programs';
 import { dayWords } from './deadline';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
-import { projectKeyOf, type Project } from './project-input';
+import { identityFor, projectKeyOf, type Project } from './project-input';
+import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
 import { UNKNOWN_CURRENCY_NOTE, amountsOverCap, comparable, overCap } from './amount';
 import { quoteName } from './controls';
@@ -155,6 +156,20 @@ export const CANT_CONFIRM_REPO = 'I could not confirm this repo is yours; tell m
 export const NAME_ONLY_NOTE = 'The repo is not yours; recorded under the project name only.';
 /** L28-1: the agent note when a builder-submitted send of a repo another account sent is kept under the name only. */
 export const NAME_ONLY_SENT_NOTE = 'Another account already sent this repo; recorded under the project name only.';
+/** L35-1 (v6.1.16.1 Task 2): a tied builder's yes to the join question when another builder already sent the repo:
+ *  nothing moves, and the question is not asked again. */
+export const KEPT_APART = (date: string, name: string): string => `Already sent for this repo by another builder on ${date}; your send stays under ${quoteName(name)}.`;
+/** L35-4 (v6.1.16.1 Task 2): a started on a repo another builder tied to it holds a live claim on; nothing is written. */
+export const COFOUNDER_STARTED = (date: string): string => `Your co-founder's agent started this one on ${date}.`;
+/** L35-13 (v6.1.16.1 Task 2): a hold on a program another builder already sent for this repo; nothing is written. */
+export const NOTHING_TO_HOLD_REPO = 'That one was already sent for this repo; nothing to hold.';
+/** L35-11 (v6.1.16.1 Task 2): the agent note when a builder-submitted send of a repo EarnKit cannot read is kept under
+ *  the name only (no evidence either way, never "not yours"). */
+export const CANT_CONFIRM_NAME_NOTE = 'I could not confirm this repo is yours; recorded under the project name only.';
+/** L35-4 (v6.1.16.1 Task 2): the agent note when a send lands over a co-founder's live claim on the repo. */
+export const COFOUNDER_CLAIM_NOTE = "Recorded. A co-founder's agent had started this one too; its claim is cleared. Tell the builder so it is not sent twice.";
+/** L35-4: the agent note when this agent's own claim was taken before a co-founder's send: the form went out twice. */
+export const COFOUNDER_SENT_NOTE = 'Recorded. A co-founder sent this repo to the program after this agent started it, so it went out twice. Tell the builder.';
 /** L28-4 (v6.1.16 Task 14): the already-sent line names the project. */
 export const ALREADY_SENT_PROJECT = (title: string, project: string): string => `${title} was already sent for ${project}.`;
 /** L28-10 (v6.1.16 Task 14): a send of what this builder already sent (from any agent, linked now or before). */
@@ -184,19 +199,56 @@ export function pickRow<T extends { project_id: string | null; off_repo?: string
   return fit.length === 1 ? fit[0] : undefined;
 }
 
+/** Another owner's sent application of a repo (`sentForRepo`). `by`: 'key' when it was sent under this repo key (or a
+ *  verified rename of it), 'id' when only GitHub's repo id (or the parent's) ties the two (L35-20: no login then). */
+export type SentRepo = { owner: string; login: string | null; at: Date; status: string; by: 'key' | 'id' };
+/** L35-3 (v6.1.16.1 Task 2): a fork's parent, by GitHub's repo id and its canonical repo key. */
+export type ParentRepo = { id: number | null; key: string | null };
+
 /**
  * L28-1 (v6.1.16 Task 14): another owner's application of this repo to the program (sent: applied or a result), the
  * earliest, with that owner's GitHub login (null for an unlinked installation's) and its send time; null when none.
- * Read under the repo's lock (`repoLock`), taken in `record` and `claim` before any write.
+ * Read under the repo's lock (`repoLock`), taken in `record` and `claim` before any write. L35-3, L35-11, L35-20
+ * (v6.1.16.1 Task 2): also by the fork's parent (its repo id or key); a repo off GitHub also by a send kept off it
+ * (`off_repo`, as every send of such a repo is); a match by id alone is `by: 'id'`.
  */
-export async function sentForRepo(tx: Db, programId: string, repoKey: string, ownerExcept: string, repoId: number | null = null): Promise<{ owner: string; login: string | null; at: Date; status: string } | null> {
+export async function sentForRepo(tx: Db, programId: string, repoKey: string, ownerExcept: string, repoId: number | null = null, parent: ParentRepo | null = null): Promise<SentRepo | null> {
   // Fix round 1 (M2): by GitHub's repo id when known (a rename keeps it), the link as the fallback.
-  const [r] = await tx<{ owner: string; login: string | null; at: Date; status: string }[]>`
-    SELECT a.owner, b.login, COALESCE(a.sent_at, a.at) AS at, a.status FROM applications a
+  const offHost = !repoKey.startsWith('https://github.com/');
+  const parentId = parent?.id ?? null;
+  const parentKey = parent?.key ?? null;
+  const [r] = await tx<{ owner: string; login: string | null; at: Date; status: string; repo_key: string | null; by_key: boolean }[]>`
+    SELECT a.owner, b.login, COALESCE(a.sent_at, a.at) AS at, a.status, a.repo_key,
+      (a.repo_key = ${repoKey} OR (${offHost} AND a.off_repo = ${repoKey})) AS by_key FROM applications a
       LEFT JOIN builders b ON a.owner = 'b:' || b.id
-    WHERE a.program_id = ${programId} AND (a.repo_key = ${repoKey} OR (${repoId}::bigint IS NOT NULL AND a.repo_id = ${repoId}::bigint))
+    WHERE a.program_id = ${programId}
+      AND (a.repo_key = ${repoKey} OR (${offHost} AND a.off_repo = ${repoKey})
+        OR (${repoId}::bigint IS NOT NULL AND a.repo_id = ${repoId}::bigint)
+        OR (${parentId}::bigint IS NOT NULL AND a.repo_id = ${parentId}::bigint)
+        OR (${parentKey}::text IS NOT NULL AND a.repo_key = ${parentKey}::text))
       AND a.owner <> ${ownerExcept} AND a.status = ANY(${['applied', ...RESULTS]})
     ORDER BY COALESCE(a.sent_at, a.at), a.owner LIMIT 1`;
+  if (!r) return null;
+  // L35-20: an id match counts as this repo's own only when the other send's repo now reads as this one (a rename).
+  let byKey = r.by_key;
+  const here = repoPathOf(repoKey);
+  const there = r.repo_key ? repoPathOf(r.repo_key) : null;
+  if (!byKey && here && there) {
+    const [c] = await tx<{ facts: { html_url: string; full_name?: unknown } }[]>`SELECT facts FROM repo_cache WHERE repo = ${there}`;
+    byKey = c !== undefined && typeof c.facts?.html_url === 'string' && readAgrees(c.facts, here);
+  }
+  return { owner: r.owner, login: r.login, at: r.at, status: r.status, by: byKey ? 'key' : 'id' };
+}
+
+/** L35-4 (v6.1.16.1 Task 2): the earliest live claim (under 24 hours, not a hold) another owner holds on this repo for
+ *  the program, or null. Read under the repo's lock. */
+export async function claimedForRepo(tx: Db, programId: string, repoKey: string, ownerExcept: string, repoId: number | null, now: Date): Promise<{ owner: string; at: Date } | null> {
+  const stale = new Date(now.getTime() - CLAIM_HOURS * 3_600_000);
+  const [r] = await tx<{ owner: string; at: Date }[]>`
+    SELECT owner, claimed_at AS at FROM applications
+    WHERE program_id = ${programId} AND (repo_key = ${repoKey} OR (${repoId}::bigint IS NOT NULL AND repo_id = ${repoId}::bigint))
+      AND owner <> ${ownerExcept} AND status = 'started' AND held_at IS NULL AND claimed_at > ${stale}
+    ORDER BY claimed_at, owner LIMIT 1`;
   return r ?? null;
 }
 
@@ -217,8 +269,9 @@ export async function formerSentAt(tx: Db, owner: string, programId: string, key
   if (!i?.former_builder_id) return null;
   const rows = await tx<{ project_id: string | null; at: Date }[]>`
     SELECT project_id, COALESCE(sent_at, at) AS at FROM applications
-    WHERE owner = ${'b:' + i.former_builder_id} AND program_id = ${programId} AND status = ANY(${['applied', ...RESULTS]})`;
-  return pickRow(rows, key)?.at ?? null;
+    WHERE owner = ${'b:' + i.former_builder_id} AND program_id = ${programId} AND status = ANY(${['applied', ...RESULTS]}) ORDER BY COALESCE(sent_at, at)`;
+  // L35-2 (v6.1.16.1 Task 2): with no project key, any send of the former builder for this program counts.
+  return (key === '' ? rows[0] : pickRow(rows, key))?.at ?? null;
 }
 
 /** The program's title: the catalog's, else the one stored when it was sent, else the id. */
@@ -253,6 +306,10 @@ export async function record(
     submitted_by?: 'agent' | 'builder'; fields_used?: string[]; project_id?: string;
     /** L28-6 (v6.1.16 Task 14): GitHub's id of the application's repo, kept with its repo key. */
     repoId?: number | null;
+    /** L35-2 (v6.1.16.1 Task 2): the application's identity (`identityOf`); left out, `identityFor` the key and repo id. */
+    identity?: string | null;
+    /** L35-3 (v6.1.16.1 Task 2): the repo's parent when it is a fork: the one-per-repo rule reads it too. */
+    parentRepo?: ParentRepo | null;
     /** L28-1 (controller ruling): the caller's tie to the repo is strong, so a refusal may name the other builder. */
     showLogin?: boolean;
     /** Fix round 3 (M4): the caller showed the builder's tie to this repo key, so the owner's own keyless row for the
@@ -314,6 +371,8 @@ export async function record(
   const source = o.fromScreen ? 'screen' : 'builder';
   // L28-4 (v6.1.16 Task 14): the application's project key; the row is (owner, program, key).
   const key = o.project_id ?? o.projectKey ?? '';
+  // L35-2 (v6.1.16.1 Task 2): one row per owner, program and identity.
+  const identity = o.identity !== undefined ? o.identity || null : identityFor(key, o.repoId);
 
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
@@ -321,27 +380,42 @@ export async function record(
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
     if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
-    const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null }[]>`
-      SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null }[]>`
+      SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     // L28-4 (v6.1.16 Task 14): this project's row; a result, a hold or an unskip takes the owner's one row for the program.
     // Fix round 2 (C3): a send or hold keyed by a repo takes only that key's own row, never a keyless one (the ownership
     // gate ran for this key, not for the row it would rewrite).
     const exactOnly = repoKeyOf(key) !== null && (status === 'applied' || status === 'held');
     // Fix round 3 (M4): once the tie is shown, the owner's own keyless row is this project's.
-    const row = exactOnly
+    // L35-2 (v6.1.16.1 Task 2): the row with this project's identity first (a rename, a dropped repo), then by its key.
+    const row = (identity ? rows.find((r) => r.identity === identity) : undefined) ?? (exactOnly
       ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined)
-      : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip');
+      : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip'));
     if (!program && !row) return unknown;
     // The key every write below uses: the row's own when one was picked, else this project's.
     let rk = row ? (row.project_id ?? '') : key;
     const repoKey = repoKeyOf(rk || key);
     // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, decided under the repo's lock.
-    if (repoKey && (status === 'applied' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || row.status === 'started' || row.status === 'skipped')) {
-      await repoLock(tx, repoKey, programId, o.repoId ?? null);
-      const other = await sentForRepo(tx, programId, repoKey, owner, o.repoId ?? null);
-      // Controller ruling: never the other builder's result; their login only on the caller's strong tie.
-      if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin ? other.login : null), repo_taken: true } as const;
+    // L35-11 (v6.1.16.1 Task 2): a builder's send of a repo off GitHub, kept under its name, is held to it as well.
+    // L35-13: a hold too.
+    const offHost = o.offRepo && !o.offRepo.startsWith('https://github.com/') ? o.offRepo : null;
+    const checkKey = repoKey ?? (status === 'applied' ? offHost : null);
+    let cofounderSent = false;
+    let cofounderClaim = false;
+    if (checkKey && (status === 'applied' || status === 'held' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || row.status === 'started' || row.status === 'skipped')) {
+      await repoLock(tx, checkKey, programId, repoKey ? o.repoId ?? null : null);
+      // L35-3: a fork's parent is locked too (a parent's send never locks its forks, so the order cannot cross).
+      if (repoKey && o.parentRepo?.key) await repoLock(tx, o.parentRepo.key, programId, o.parentRepo.id);
+      const other = await sentForRepo(tx, programId, checkKey, owner, repoKey ? o.repoId ?? null : null, repoKey ? o.parentRepo ?? null : null);
+      // L35-4 (v6.1.16.1 Task 2): this agent's own claim, taken before the co-founder's send: the form went out; recorded.
+      if (other && status === 'applied' && o.tied === true && row?.status === 'started' && row.at.getTime() < other.at.getTime()) cofounderSent = true;
+      else if (other && status === 'held') return { ok: false, note: NOTHING_TO_HOLD_REPO } as const;
+      // Controller ruling: never the other builder's result; their login only on the caller's strong tie, and (L35-20)
+      // only when the match is by this repo's key.
+      else if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin && other.by === 'key' ? other.login : null), repo_taken: true } as const;
+      // L35-4: a send over a co-founder's live claim is recorded and clears it (below, on the recording path).
+      if (status === 'applied' && repoKey) cofounderClaim = (await claimedForRepo(tx, programId, repoKey, owner, o.repoId ?? null, now)) !== null;
     }
     // L28-10 (v6.1.16 Task 14): an unlinked agent never sends again what the builder it was linked to sent.
     if (status === 'applied' && (!row || row.status === 'started' || row.status === 'skipped')) {
@@ -349,15 +423,18 @@ export async function record(
     }
     // A send for this project over a row from before projects were kept (no key) takes the row as this project's.
     // Fix round 3 (M4): a repo key takes the row over only on the caller's shown tie, and only when no other owner holds
-    // that repo (the row then keeps its key); it carries the repo key.
+    // that repo (the row then keeps its key); it carries the repo key. L35-7 (v6.1.16.1 Task 2): decided here, written
+    // only on the recording path (`takeOverNow`), after every refusal: a refused call writes nothing.
     const takeOver = row && rk === '' && key !== '' && (status === 'applied' || (status === 'held' && o.tied === true))
       && (!repoKeyOf(key) || (o.tied === true && !(await repoLock(tx, key, programId, o.repoId ?? null).then(() => sentForRepo(tx, programId, key, owner, o.repoId ?? null)))));
-    if (takeOver) {
-      await tx`UPDATE applications SET project_id = ${key}, repo_key = COALESCE(${repoKeyOf(key)}, repo_key), repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id)
+    let pk = rk || null;
+    const takeOverNow = async () => {
+      if (!takeOver) return;
+      await tx`UPDATE applications SET project_id = ${key}, repo_key = COALESCE(${repoKeyOf(key)}, repo_key), repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id), identity = COALESCE(identity, ${identity})
         WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
       rk = key;
-    }
-    const pk = rk || null;
+      pk = key;
+    };
     // L24-4 (v6.1.16 Task 11): the builder's hold. On a claim (any installation's, live or not) it sets held_at; with no
     // row it writes a claim for this installation, held, so a program the standing-approval line named can be held
     // before any agent started it. A program sent, with a result or skipped has nothing to hold.
@@ -365,10 +442,11 @@ export async function record(
       if (row?.status === 'skipped') return { ok: false, note: 'You skipped that one; nothing to hold.' } as const;
       if (row && row.status !== 'started') return { ok: false, note: NOTHING_TO_HOLD } as const;
       if (row?.held_at) return { ok: true, repeated: true } as const;
+      await takeOverNow();
       if (row) await tx`UPDATE applications SET held_at = ${now} WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
       else
-        await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, project_id, claimed_at, claimed_by, application_id, held_at, repo_key, repo_id)
-          VALUES (${owner}, ${installationId}, ${programId}, 'started', ${note}, ${now}, ${pk}, ${now}, ${installationId}, ${newApplicationId()}, ${now}, ${repoKey}, ${o.repoId ?? null})`;
+        await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, project_id, claimed_at, claimed_by, application_id, held_at, repo_key, repo_id, identity)
+          VALUES (${owner}, ${installationId}, ${programId}, 'started', ${note}, ${now}, ${pk}, ${now}, ${installationId}, ${newApplicationId()}, ${now}, ${repoKey}, ${o.repoId ?? null}, ${identity})`;
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, source, project_id)
         VALUES (${owner}, ${installationId}, ${programId}, 'held', ${note}, ${now}, ${source}, ${pk})`;
       return { ok: true } as const;
@@ -441,9 +519,9 @@ export async function record(
     if (outside) {
       // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
       // fix round 1 (N4): its send date is not known, so none is kept (the line says when it was recorded).
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null})
-        ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL,
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo, identity)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${identity})
+        ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL, identity = COALESCE(applications.identity, EXCLUDED.identity),
           submitted_by = 'builder', title = EXCLUDED.title, held_at = NULL, claimed_at = NULL, claimed_by = NULL,
           application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
           repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id)`;
@@ -480,15 +558,21 @@ export async function record(
       // The title is kept, so a result still reads once the program leaves the catalog.
       // sent_at is the send time: a result later moves `at`, never this (v6.1.9 N2).
       // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null})
+      await takeOverNow();
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo, identity)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${identity})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title, held_at = NULL,
               repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id),
-              off_repo = COALESCE(EXCLUDED.off_repo, applications.off_repo)`;
-      if (otherClaim) await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
+              off_repo = COALESCE(EXCLUDED.off_repo, applications.off_repo), identity = COALESCE(applications.identity, EXCLUDED.identity)`;
+      // L35-4: this agent's own claim over a co-founder's send is spent with the send.
+      if (otherClaim || cofounderSent) await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
+      // L35-4 (v6.1.16.1 Task 2): a co-founder's live claim on this repo is cleared; its agent hears it on its own send.
+      if (cofounderClaim)
+        await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE program_id = ${programId} AND owner <> ${owner} AND status = 'started' AND held_at IS NULL
+          AND (repo_key = ${repoKey} OR (${o.repoId ?? null}::bigint IS NOT NULL AND repo_id = ${o.repoId ?? null}::bigint))`;
     } else if (status === 'skipped' && row?.status === 'started') {
       // A skip over a claim replaces it: the claim is gone, the skip stays.
       await tx`UPDATE applications SET installation_id = ${installationId}, status = 'skipped', note = ${note}, at = ${now},
@@ -502,20 +586,24 @@ export async function record(
         note = ${note}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, project_id)
-        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${money?.USD ?? null}, ${money ? tx.json(money) : null}, ${note}, ${now}, ${pk})
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, project_id, identity)
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${money?.USD ?? null}, ${money ? tx.json(money) : null}, ${note}, ${now}, ${pk}, ${row ? null : identity})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
-          SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, amounts = EXCLUDED.amounts, note = EXCLUDED.note, at = EXCLUDED.at`;
+          SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, amounts = EXCLUDED.amounts, note = EXCLUDED.note, at = EXCLUDED.at,
+            identity = COALESCE(applications.identity, EXCLUDED.identity)`;
     }
     // L17-1 (v6.1.16): a history row only when the ledger changed (a repeated gap_done changed nothing).
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source, project_id)
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source}, ${status === 'gap_done' ? null : rk || null})`;
     const other = otherClaim ? ({ other_claim: true } as const) : heldSend ? ({ held: true } as const) : {};
-    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other } as const) : closed ? ({ ok: true, closed: true, ...other } as const)
+    // L35-4 (v6.1.16.1 Task 2): what the agent tells the builder about a co-founder on this repo.
+    const cofounder = cofounderSent ? ({ cofounder_sent: true } as const) : cofounderClaim ? ({ cofounder_claim: true } as const) : {};
+    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other, ...cofounder } as const) : closed ? ({ ok: true, closed: true, ...other, ...cofounder } as const)
       : outside ? ({ ok: true, outside: true } as const)
-      : otherClaim ? ({ ok: true, other_claim: true } as const)
-      : heldSend ? ({ ok: true, held: true } as const)
+      : otherClaim ? ({ ok: true, other_claim: true, ...cofounder } as const)
+      : heldSend ? ({ ok: true, held: true, ...cofounder } as const)
+      : cofounderSent || cofounderClaim ? ({ ok: true, ...cofounder } as const)
       : total !== null ? ({ ok: true, total } as const)
       : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced: replacedFrom }) } as const)
       : ({ ok: true } as const);
@@ -527,7 +615,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true };
 
 /**
@@ -727,44 +815,100 @@ export async function doneItems(owner: string, programId: string, projectKey: st
  */
 export async function rekeyProject(owner: string, from: string, to: string): Promise<void> {
   if (!from || !to || from === to) return;
-  await sql().begin(async (tx) => {
-    // W4 (final round): copied with ON CONFLICT, so a step marked under `to` at this moment never breaks the unique
-    // index; the newer time (and its installation) wins. Then the `from` rows go.
-    await tx`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
-      SELECT owner, installation_id, ${to}, program_id, item, at FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}
-      ON CONFLICT (owner, project_key, program_id, item) DO UPDATE
-        SET installation_id = CASE WHEN EXCLUDED.at > gaps_done.at THEN EXCLUDED.installation_id ELSE gaps_done.installation_id END,
-            at = GREATEST(gaps_done.at, EXCLUDED.at)`;
-    await tx`DELETE FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}`;
-    // FR-5 (fix round 1): the history follows its application.
-    await tx`UPDATE application_history h SET project_id = ${to} WHERE h.owner = ${owner} AND h.project_id = ${from}
-      AND EXISTS (SELECT 1 FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.project_id = ${from})
-      AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = h.owner AND b.program_id = h.program_id AND COALESCE(b.project_id, '') = ${to})`;
-    // L28-4 (v6.1.16 Task 14): one row per owner, program and project: a row moves unless `to` already holds that
-    // program (then both stay, each under its own key). It carries the new key's repo (L28-6: a renamed repo).
-    // Fix round 1 (N1): a send moved onto a repo key passes the cross-builder check under the repo's lock; one another
-    // owner already holds stays under its own key, kept off that repo (`off_repo`).
-    const toRepo = repoKeyOf(to);
-    if (toRepo) {
-      const sent = await tx<{ program_id: string; repo_id: string | null }[]>`SELECT program_id, repo_id FROM applications
-        WHERE owner = ${owner} AND project_id = ${from} AND status = ANY(${['applied', ...RESULTS]}) ORDER BY program_id`;
-      for (const r of sent) {
-        const id = r.repo_id === null ? null : Number(r.repo_id);
-        await repoLock(tx, toRepo, r.program_id, id);
-        if (await sentForRepo(tx, r.program_id, toRepo, owner, id))
-          await tx`UPDATE applications SET off_repo = ${toRepo}, repo_key = NULL WHERE owner = ${owner} AND project_id = ${from} AND program_id = ${r.program_id}`;
-      }
+  await sql().begin((tx) => rekeyIn(tx, owner, from, to));
+}
+
+/**
+ * The moves of `rekeyProject` inside the caller's transaction; the application rows moved. L35-1, L35-2 (v6.1.16.1
+ * Task 2): each moved row takes the new key's identity (`gh:{id}` with its repo id, else the key), never one another of
+ * the owner's rows of that program holds. `join` (the builder's yes, `joinRows`): the cross-builder check already passed
+ * under the locks, so rows kept off the repo move too and are no longer kept off it, and the repo id is `repoId`.
+ */
+async function rekeyIn(tx: Db, owner: string, from: string, to: string, o: { join?: boolean; repoId?: number | null } = {}): Promise<number> {
+  // W4 (final round): copied with ON CONFLICT, so a step marked under `to` at this moment never breaks the unique
+  // index; the newer time (and its installation) wins. Then the `from` rows go.
+  await tx`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
+    SELECT owner, installation_id, ${to}, program_id, item, at FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}
+    ON CONFLICT (owner, project_key, program_id, item) DO UPDATE
+      SET installation_id = CASE WHEN EXCLUDED.at > gaps_done.at THEN EXCLUDED.installation_id ELSE gaps_done.installation_id END,
+          at = GREATEST(gaps_done.at, EXCLUDED.at)`;
+  await tx`DELETE FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}`;
+  // FR-5 (fix round 1): the history follows its application.
+  await tx`UPDATE application_history h SET project_id = ${to} WHERE h.owner = ${owner} AND h.project_id = ${from}
+    AND EXISTS (SELECT 1 FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.project_id = ${from} AND (${o.join === true} OR a.off_repo IS NULL OR a.off_repo <> ${to}))
+    AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = h.owner AND b.program_id = h.program_id AND COALESCE(b.project_id, '') = ${to})`;
+  // L28-4 (v6.1.16 Task 14): one row per owner, program and project: a row moves unless `to` already holds that
+  // program (then both stay, each under its own key). It carries the new key's repo (L28-6: a renamed repo).
+  // Fix round 1 (N1): a send moved onto a repo key passes the cross-builder check under the repo's lock; one another
+  // owner already holds stays under its own key, kept off that repo (`off_repo`).
+  const toRepo = repoKeyOf(to);
+  if (toRepo && !o.join) {
+    const sent = await tx<{ program_id: string; repo_id: string | null }[]>`SELECT program_id, repo_id FROM applications
+      WHERE owner = ${owner} AND project_id = ${from} AND status = ANY(${['applied', ...RESULTS]}) ORDER BY program_id`;
+    for (const r of sent) {
+      const id = r.repo_id === null ? null : Number(r.repo_id);
+      await repoLock(tx, toRepo, r.program_id, id);
+      if (await sentForRepo(tx, r.program_id, toRepo, owner, id))
+        await tx`UPDATE applications SET off_repo = ${toRepo}, repo_key = NULL WHERE owner = ${owner} AND project_id = ${from} AND program_id = ${r.program_id}`;
     }
-    await tx`UPDATE applications a SET project_id = ${to}, repo_key = ${toRepo}
-      WHERE a.owner = ${owner} AND a.project_id = ${from} AND (a.off_repo IS NULL OR a.off_repo <> ${to})
-        AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = a.owner AND b.program_id = a.program_id AND COALESCE(b.project_id, '') = ${to})`;
-    await tx`INSERT INTO project_reports (owner, project_key, report, at)
-      SELECT owner, ${to}, report, at FROM project_reports WHERE owner = ${owner} AND project_key = ${from}
-      ON CONFLICT (owner, project_key) DO UPDATE
-        SET report = CASE WHEN EXCLUDED.at > project_reports.at THEN EXCLUDED.report ELSE project_reports.report END,
-            at = GREATEST(project_reports.at, EXCLUDED.at)`;
-    await tx`DELETE FROM project_reports WHERE owner = ${owner} AND project_key = ${from}`;
-  });
+  }
+  const joinId = o.join ? o.repoId ?? null : null;
+  const moved = await tx`UPDATE applications a SET project_id = ${to}, repo_key = ${toRepo},
+      repo_id = COALESCE(a.repo_id, ${joinId}::bigint),
+      identity = CASE WHEN ${toRepo}::text IS NOT NULL AND COALESCE(a.repo_id, ${joinId}::bigint) IS NOT NULL THEN 'gh:' || COALESCE(a.repo_id, ${joinId}::bigint)::text ELSE ${to} END,
+      off_repo = CASE WHEN ${o.join === true} THEN NULL ELSE a.off_repo END
+    WHERE a.owner = ${owner} AND a.project_id = ${from} AND (${o.join === true} OR a.off_repo IS NULL OR a.off_repo <> ${to})
+      AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = a.owner AND b.program_id = a.program_id AND COALESCE(b.project_id, '') = ${to})
+      AND NOT EXISTS (SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND c.ctid <> a.ctid
+        AND c.identity = CASE WHEN ${toRepo}::text IS NOT NULL AND COALESCE(a.repo_id, ${joinId}::bigint) IS NOT NULL THEN 'gh:' || COALESCE(a.repo_id, ${joinId}::bigint)::text ELSE ${to} END)`;
+  await tx`INSERT INTO project_reports (owner, project_key, report, at)
+    SELECT owner, ${to}, report, at FROM project_reports WHERE owner = ${owner} AND project_key = ${from}
+    ON CONFLICT (owner, project_key) DO UPDATE
+      SET report = CASE WHEN EXCLUDED.at > project_reports.at THEN EXCLUDED.report ELSE project_reports.report END,
+          at = GREATEST(project_reports.at, EXCLUDED.at)`;
+  await tx`DELETE FROM project_reports WHERE owner = ${owner} AND project_key = ${from}`;
+  return moved.count;
+}
+
+/**
+ * L35-1 (v6.1.16.1 Task 2): a tied builder's yes to the join question, in one transaction under the owner's lock for
+ * each program the name holds and the repo's: when another owner already sent the repo to any of those programs,
+ * nothing moves (`taken`, that send's time; its sends are marked kept off the repo); else every row under the name moves onto the repo key (kept off it or
+ * not), with the repo's identity, and its steps and report follow (`moved`, the application rows moved).
+ */
+export async function joinRows(owner: string, from: string, to: string, repoId: number | null): Promise<{ moved: number } | { taken: Date }> {
+  if (!from || !repoKeyOf(to) || from === to) return { moved: 0 };
+  return sql().begin(async (tx) => {
+    const programs = (await tx<{ program_id: string }[]>`SELECT DISTINCT program_id FROM applications WHERE owner = ${owner} AND project_id = ${from} ORDER BY program_id`).map((r) => r.program_id);
+    for (const p of programs) await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + p}))`;
+    let taken: Date | null = null;
+    for (const p of programs) {
+      await repoLock(tx, to, p, repoId);
+      const other = await sentForRepo(tx, p, to, owner, repoId);
+      if (other && (taken === null || other.at < taken)) taken = other.at;
+    }
+    // Nothing moves; the name's sends are marked kept off the repo (N1, Task 14 fix round 1), as a re-key would.
+    if (taken) {
+      await tx`UPDATE applications SET off_repo = ${to} WHERE owner = ${owner} AND project_id = ${from} AND off_repo IS NULL AND status = ANY(${['applied', ...RESULTS]})`;
+      return { taken };
+    }
+    return { moved: await rekeyIn(tx, owner, from, to, { join: true, repoId }) };
+  }) as Promise<{ moved: number } | { taken: Date }>;
+}
+
+/** L35-1 (v6.1.16.1 Task 2): the builder's answer to the join question for a name key, kept with EarnKit's copy of
+ *  the project (its report), or null while it is not decided. */
+export async function joinDecision(owner: string, nameKey: string): Promise<'joined' | 'kept_apart' | null> {
+  if (!nameKey) return null;
+  const [r] = await sql()<{ j: string | null }[]>`SELECT report->>'join' AS j FROM project_reports WHERE owner = ${owner} AND project_key = ${nameKey}`;
+  return r?.j === 'joined' || r?.j === 'kept_apart' ? r.j : null;
+}
+
+/** L35-1: keeps the answer to the join question on the name key's report (a report with only the name when none). */
+export async function saveJoinDecision(owner: string, nameKey: string, name: string, decision: 'joined' | 'kept_apart', now: Date): Promise<void> {
+  if (!nameKey) return;
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${nameKey}, ${sql().json({ name, description: '', join: decision } as never)}, ${now})
+    ON CONFLICT (owner, project_key) DO UPDATE SET report = project_reports.report || ${sql().json({ join: decision } as never)}`;
 }
 
 /**
@@ -808,8 +952,9 @@ export async function rekeyByRepoId(owner: string, repoId: number, to: string, a
 /** Keeps the project as the agent reported it at this find (parsed, v6.1.13 Task 1 review I1), per owner and project key. */
 export async function saveReport(owner: string, projectKey: string, report: Project, now: Date): Promise<void> {
   if (!projectKey) return;
+  // L35-1 (v6.1.16.1 Task 2): the answer to the join question stays with the report.
   await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${projectKey}, ${sql().json(report as never)}, ${now})
-    ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report, at = EXCLUDED.at`;
+    ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report || (CASE WHEN project_reports.report ? 'join' THEN jsonb_build_object('join', project_reports.report->'join') ELSE '{}'::jsonb END), at = EXCLUDED.at`;
 }
 
 /** Days cached evidence stays (W3, final round; L23-12 v6.1.16: the evidence only, never the report). */
@@ -841,8 +986,11 @@ export async function resolvedKey(owner: string, key: string): Promise<string> {
 /** The project as reported at the owner's last find on this project key, or null. */
 export async function reportOf(owner: string, projectKey: string): Promise<Project | null> {
   if (!projectKey) return null;
-  const [r] = await sql()<{ report: Project }[]>`SELECT report FROM project_reports WHERE owner = ${owner} AND project_key = ${projectKey}`;
-  return r?.report ?? null;
+  const [r] = await sql()<{ report: Project & { join?: unknown } }[]>`SELECT report FROM project_reports WHERE owner = ${owner} AND project_key = ${projectKey}`;
+  if (!r) return null;
+  // L35-1: the join answer is EarnKit's own, never part of the project.
+  const { join: _join, ...report } = r.report;
+  return report as Project;
 }
 
 /** When the owner last marked a code-checked step done on this project (v6.1.9 S4), or null: a repo read cached before it is stale. */

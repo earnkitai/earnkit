@@ -79,6 +79,9 @@ const Project = z.object({
   last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional(), repo_url: line(300).optional() }).strip().optional(),
   /** L28-6 (v6.1.16 Task 14): GitHub's id of the repo, kept with its link by find's read, so a rename keeps the project. */
   repo_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  /** L35-1 (v6.1.16.1 Task 2): EarnKit only: the builder's answer to the join question for this project's name and
+   *  repo ('joined', or 'kept_apart' when another builder holds the repo), so it is never asked again. */
+  join: z.enum(['joined', 'kept_apart']).optional(),
 }).strip();
 export type Project = z.infer<typeof Project>;
 const Docs = z.object({
@@ -148,7 +151,7 @@ const issue = (path: string, err: z.ZodError) => {
   return bad(i.path.length ? `${path}.${i.path.join('.')}` : path, i.message);
 };
 // Fix round 2 (C2): a project's GitHub repo id is EarnKit's own (find's read), never a patch's.
-const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier', 'repo_id']);
+const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier', 'repo_id', 'join']);
 /**
  * L24-5 (v6.1.16 Task 11): whether `key` is one of `obj`'s own keys, never an inherited name (__proto__, constructor,
  * toString): every record reader and word lookup goes through it. Pure.

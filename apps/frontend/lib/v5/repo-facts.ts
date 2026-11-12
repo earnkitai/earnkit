@@ -78,6 +78,9 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   contributors?: string[];
   owner_type?: string;
   members?: Record<string, boolean>;
+  /** L35-3 (v6.1.16.1 Task 2): a fork's parent, GitHub's repo id and full name, from the read's `parent`. */
+  parent_repo_id?: number;
+  parent_full_name?: string;
 };
 type Fetch = typeof fetch;
 
@@ -241,6 +244,9 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     ...(typeof r.repo.id === 'number' ? { repo_id: r.repo.id } : {}),
     ...(r.contributors ? { contributors: r.contributors } : {}),
     ...(r.repo.owner?.type ? { owner_type: r.repo.owner.type } : {}),
+    // L35-3 (v6.1.16.1 Task 2): a fork keeps its parent, so the one-per-repo rule reads the parent's repo too.
+    ...(r.repo.fork === true && typeof r.repo.parent?.id === 'number' ? { parent_repo_id: r.repo.parent.id } : {}),
+    ...(r.repo.fork === true && typeof r.repo.parent?.full_name === 'string' ? { parent_full_name: r.repo.parent.full_name } : {}),
   };
 }
 
@@ -484,12 +490,39 @@ const repoIdIn = (f: Pick<CodeFacts, 'repo_id' | 'id'>): number | null => {
   return typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null;
 };
 
-/** L28-6 (v6.1.16 Task 14): the repo id the cached read of this repo link holds, or null (never a fetch). */
+/**
+ * Whether a cached read answers for this repo key (L35-20, v6.1.16.1 Task 2): its `full_name`, else its `html_url`,
+ * names the same repo (case aside). A read whose name moved on (a rename, a deleted and recreated name) does not. Pure.
+ */
+export function readAgrees(f: Pick<CodeFacts, 'html_url'> & { full_name?: unknown }, key: string): boolean {
+  const named = typeof f.full_name === 'string' ? f.full_name : typeof f.html_url === 'string' ? (repoKey(f.html_url) ?? '') : '';
+  return named.toLowerCase() === key.toLowerCase();
+}
+
+/**
+ * L28-6 (v6.1.16 Task 14): the repo id the cached read of this repo link holds, or null (never a fetch). L35-20
+ * (v6.1.16.1 Task 2): only when the read's name agrees with the link (`readAgrees`).
+ */
 export async function cachedRepoId(repoUrl: string | null | undefined): Promise<number | null> {
   const key = repoKey(repoUrl ?? undefined);
   if (!key) return null;
   const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
-  return row && !isMiss(row.facts) ? repoIdIn(row.facts) : null;
+  return row && !isMiss(row.facts) && readAgrees(row.facts, key) ? repoIdIn(row.facts) : null;
+}
+
+/**
+ * L35-3 (v6.1.16.1 Task 2): a fork's parent from the cached read of this repo link (never a fetch): GitHub's repo id
+ * of the parent and its canonical repo key (either may be null); null when the read is not a fork.
+ */
+export async function cachedRepoParent(repoUrl: string | null | undefined): Promise<{ id: number | null; key: string | null } | null> {
+  const key = repoKey(repoUrl ?? undefined);
+  if (!key) return null;
+  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  if (!row || isMiss(row.facts) || row.facts.fork !== true) return null;
+  const f = row.facts;
+  const id = typeof f.parent_repo_id === 'number' && Number.isSafeInteger(f.parent_repo_id) && f.parent_repo_id > 0 ? f.parent_repo_id : null;
+  const parent = typeof f.parent_full_name === 'string' ? canonicalRepoLink(`https://github.com/${f.parent_full_name}`) : null;
+  return id === null && parent === null ? null : { id, key: parent };
 }
 
 /** L28-6: the canonical repo link the cached read of this repo link answers with (its html_url after a rename), or null. */

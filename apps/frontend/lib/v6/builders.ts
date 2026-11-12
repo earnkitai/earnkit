@@ -98,20 +98,21 @@ export async function linkInstallation(installationId: number, builderId: number
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
     // T5-F6 (v6.1.14): the dropped row's application id, carried onto the kept row when that one has none.
-    // L28-4 (v6.1.16 Task 14): rows are one per program and project, so only the same project's rows meet.
+    // L28-4 (v6.1.16 Task 14): rows are one per program and project, so only the same project's rows meet. L35-2
+    // (v6.1.16.1 Task 2): the same identity is the same project.
     const both = await tx<{ program_id: string; project_id: string | null; i_id: string | null; b_id: string | null }[]>`
       SELECT i.program_id, i.project_id, i.application_id AS i_id, b.application_id AS b_id FROM applications i JOIN applications b
-        ON b.owner = ${to} AND b.program_id = i.program_id AND COALESCE(b.project_id, '') = COALESCE(i.project_id, '') WHERE i.owner = ${from}`;
+        ON b.owner = ${to} AND b.program_id = i.program_id AND (COALESCE(b.project_id, '') = COALESCE(i.project_id, '') OR b.identity = i.identity) WHERE i.owner = ${from}`;
     // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink); among
     // results, won beats rejected beats no_result whatever the time (v6.1.9 N3): a relink never loses a win.
     await tx`DELETE FROM applications i USING applications b
-      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id AND COALESCE(i.project_id, '') = COALESCE(b.project_id, '')
+      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id AND (COALESCE(i.project_id, '') = COALESCE(b.project_id, '') OR i.identity = b.identity)
         AND ((CASE i.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
           < (CASE b.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
           OR ((CASE i.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
             = (CASE b.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END) AND i.at <= b.at))`;
     await tx`DELETE FROM applications b USING applications i
-      WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id AND COALESCE(i.project_id, '') = COALESCE(b.project_id, '')`;
+      WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id AND (COALESCE(i.project_id, '') = COALESCE(b.project_id, '') OR i.identity = b.identity)`;
     const moved = await tx`UPDATE applications SET owner = ${to} WHERE owner = ${from}`;
     for (const p of both) {
       const id = p.i_id ?? p.b_id;

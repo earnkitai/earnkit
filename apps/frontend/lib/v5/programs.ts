@@ -329,3 +329,35 @@ export async function upsertProgram(
     return 'updated';
   }) as Promise<'created' | 'updated' | 'unchanged'>;
 }
+
+/** L35-6 (v6.1.16.1 Task 2): number words one to twenty, as a list reference reads them. */
+const NUMBER_WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+const TENS = ['twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+/** What a list reference reads after its `#`, `No.` or `no `, and a trailing dot, are stripped, lower case. Pure. */
+const refBody = (raw: string): string => raw.trim().toLowerCase().replace(/^(#|no\.\s*|no\s+|number\s+)/, '').replace(/\.$/, '').trim();
+
+/**
+ * L35-6 (v6.1.16.1 Task 2): whether a program reference is shaped like a list number: digits, a number word (also a
+ * compound like `twenty-one`), with or without a `#`, `No.` or a trailing dot. Such a token is never matched against
+ * titles for a write. Pure.
+ */
+export function looksLikeListRef(raw: string): boolean {
+  const b = refBody(raw);
+  if (/^\d{1,4}$/.test(b)) return true;
+  if (NUMBER_WORDS.includes(b)) return true;
+  const [t, u] = b.split(/[-\s]+/);
+  return TENS.includes(t) && (u === undefined || NUMBER_WORDS.slice(0, 9).includes(u));
+}
+
+/**
+ * L35-6 (v6.1.16.1 Task 2): a list reference ("#3", "3.", "No. 3", "no 3", "three", "3") read as the last list's
+ * stable number: that program's id when the number is from 1 to the list's length (and the slot names one), else
+ * null, so the caller falls to the name lookup. Pure.
+ */
+export function listRef(raw: string, lastList: string[]): string | null {
+  const b = refBody(raw);
+  const n = /^\d{1,4}$/.test(b) ? Number(b) : NUMBER_WORDS.indexOf(b) + 1;
+  if (!Number.isInteger(n) || n < 1 || n > lastList.length) return null;
+  return lastList[n - 1] || null;
+}

@@ -16,15 +16,16 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
-import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, markAsked, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
+import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
-import { cachedRepoFacts, cachedRepoId, cachedRepoLink, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { sql } from './db';
+import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
@@ -396,7 +397,10 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string, given: string[] = []): Promise<ProgramReply> {
   // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
-  // organizer too, and several are asked about.
+  // organizer too, and several are asked about. L35-6 (v6.1.16.1 Task 2): a list reference ("#3", "3.", "No. 3",
+  // "three") is the last list's program; any other reference falls to the name lookup.
+  const ref = (await getProgram(id)) ? null : listRef(id, await lastListIds(ctx.installationId));
+  if (ref) id = ref;
   const { row, suggest } = await programByName(id, ctx.now);
   // L24-2 (v6.1.16 Task 11): the last offer this installation showed, read before this reply replaces it.
   const lastOffer = await lastOfferOf(ctx.installationId);
@@ -916,7 +920,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // track judge the same evidence.
   const { tie, against } = await repoEvidence(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) });
   if (pre.join && tie !== null) return ask(pre.join, JOIN_NOTE(project!.name));
-  if (tie !== null) return r;
+  if (tie !== null) return sentByAnother(ctx, key, tie, r);
   // Not shown to be theirs: no apply yes. Evidence against them says so; none says it could not confirm, never "not yours".
   if (!against && !offersApply(r.show_to_builder)) return r;
   await markOffer(ctx.installationId, null, ctx.now);
@@ -928,6 +932,36 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   };
 }
 
+/**
+ * L35-10 (v6.1.16.1 Task 2): a one-program reply for a repo another builder already sent to that program (and this
+ * builder has not): L28-1's line in place of everything after the program's first line, and no apply offer. The login
+ * only on a strong tie and a match by this repo's key (L35-20). Any other reply is unchanged.
+ */
+async function sentByAnother<T extends FindReply | ProgramReply>(ctx: FindContext, key: string, tie: NonNullable<Awaited<ReturnType<typeof repoTie>>>, r: T): Promise<T> {
+  const id = 'program' in r ? (r.program as { id?: string } | null)?.id : undefined;
+  if (!id) return r;
+  const owner = ownerOf(ctx);
+  if ((await sentOf(owner, id, key)) || (await resultOf(owner, id, key))) return r;
+  const other = await sentForRepo(sql(), id, key, owner, await cachedRepoId(key), await cachedRepoParent(key));
+  if (!other) return r;
+  await markOffer(ctx.installationId, null, ctx.now);
+  const login = (tie === 'owner' || tie === 'committer') && other.by === 'key' ? other.login : null;
+  return {
+    ...r,
+    show_to_builder: [r.show_to_builder.split('\n')[0], ALREADY_SENT_REPO(dayWords(other.at, ctx.now), login)].join('\n'),
+    agent_note: ['Do not submit this one: another EarnKit account already sent this repo to the program.', r.agent_note].filter(Boolean).join('\n'),
+  };
+}
+
+/** L35-1 (v6.1.16.1 Task 2): the builder's answer to the join question for this name and repo: the one kept with the
+ *  project's report, else the record project's (by the repo, else the name); null while undecided. */
+async function joinDecided(ctx: FindContext, fromName: string, toRepo: string): Promise<'joined' | 'kept_apart' | null> {
+  const kept = await joinDecision(ownerOf(ctx), fromName);
+  if (kept || ctx.builderId === null) return kept;
+  const p = (await getRecord(ctx.builderId)).projects.find((x) => (x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === toRepo) || nameKeyOf(x) === fromName);
+  return p?.join ?? null;
+}
+
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const project = parsed?.ok ? parsed.project : null;
@@ -936,8 +970,12 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L28-5 (v6.1.16 Task 14): only when the name holds no send or step; else the builder is asked, and both stay.
   const fromName = project ? nameKeyOf(project) : '';
   const toRepo = project ? projectKeyOf(project) : '';
+  // L35-1 (v6.1.16.1 Task 2): asked only while the builder has not answered; kept apart, nothing moves.
   if (project?.repo_url && fromName && toRepo !== fromName) {
-    if (await heldUnder(ownerOf(ctx), fromName)) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
+    const decided = await joinDecided(ctx, fromName, toRepo);
+    if (decided === 'kept_apart') {
+      // The builder said yes and another builder holds the repo: the name keeps its sends.
+    } else if (!decided && (await heldUnder(ownerOf(ctx), fromName))) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
     else await rekeyProject(ownerOf(ctx), fromName, toRepo);
   }
   // W2 (final round): a project by name alone whose report names a repo is read under that repo's key (steps, claims, report).

@@ -595,9 +595,10 @@ test('L28-4 (v6.1.16 Task 14): the schema run twice turns the old (owner, progra
   await sql().unsafe(schema);
   await sql().unsafe(schema);
   const idx = (await sql()`SELECT indexname FROM pg_indexes WHERE tablename = 'applications' AND indexname LIKE 'applications_owner_program%'`).map((r) => r.indexname);
-  assert.deepEqual(idx, ['applications_owner_program_project']);
-  const [row] = await sql()`SELECT project_id, repo_key FROM applications WHERE program_id = 'l28-idx'`;
-  assert.deepEqual([row.project_id, row.repo_key], ['https://github.com/a/idx', 'https://github.com/a/idx']);
+  // L35-2 (v6.1.16.1 Task 2): the identity index beside it, the old one kept for one release.
+  assert.deepEqual(idx.sort(), ['applications_owner_program_identity', 'applications_owner_program_project']);
+  const [row] = await sql()`SELECT project_id, repo_key, identity FROM applications WHERE program_id = 'l28-idx'`;
+  assert.deepEqual([row.project_id, row.repo_key, row.identity], ['https://github.com/a/idx', 'https://github.com/a/idx', 'https://github.com/a/idx']);
   assert.deepEqual(await record(o(i), 'l28-idx', 'applied', { now: NOW, project_id: 'name:other' }), { ok: true });
 });
 
