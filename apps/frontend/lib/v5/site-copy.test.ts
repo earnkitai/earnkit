@@ -87,21 +87,21 @@ test('the docs say the seven sections and stay short', () => {
   assert.equal(copy.DOCS_RECORD.text, "Sign in once with GitHub from your agent's link, and your agents share one record: facts, links, documents and answers. Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page. Delete it any time.");
   // L25-12 (v6.1.16): no weekly; how long a dead page stays listed.
   assert.equal(copy.DOCS_CHECKED.text, 'EarnKit and a research bot check every program. Links are probed daily; a program whose page stays down leaves the list within about two weeks.');
-  assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
+  assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit sorts it by public evidence into five groups: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
   assert.equal(copy.DOCS_SESSION.text.split(/(?<=[.?])\s+/).length, 3);
 });
 
 test('L15-20 (v6.1.14): the program owners section says the five things, in plain sentences', () => {
   assert.equal(copy.DOCS_PROGRAMS.title, 'For program owners');
   assert.deepEqual([...copy.DOCS_PROGRAMS.items], [
-    'Sign in once with GitHub and ask for reviewer access through the X link below. Your team is marked the same way and shares your screens.',
+    'Sign in once with GitHub and message EarnKit on X (link below) for reviewer access. Your team is marked the same way and shares your screens.',
     "A screen reads only public evidence, never a builder's record or another applicant's text.",
     'Tell your agent who won; results reach builders only through the EarnKit id on their application, never through yours.',
     'Other programs never see your screens, results or decisions.',
     'Results come once a day, within 24 hours, and are kept 180 days with your decisions.',
   ]);
   // L25-10 (v6.1.16): the reviewer line, shared with the screen tool's words.
-  assert.equal(copy.REVIEWER_ACCESS, 'Sign in once with GitHub and ask for reviewer access through the X link below.');
+  assert.equal(copy.REVIEWER_ACCESS, 'Sign in once with GitHub and message EarnKit on X (link below) for reviewer access.');
   assert.ok(copy.DOCS_PROGRAMS.items[0].startsWith(copy.REVIEWER_ACCESS));
   for (const t of copy.DOCS_PROGRAMS.items) {
     assert.match(t, /\.$/, t);
@@ -225,7 +225,9 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).
   assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('needs no account')).length, 0);
   const { CONNECTOR_LINE } = await import('./agents');
-  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. The connect prompt needs no account.');
+  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once, with no account.');
+  // L38-22 (v6.1.18): the prompt says "connect it", never "sign me in".
+  assert.equal(GROK_BOT_PROMPT, 'Add a custom MCP server called EarnKit at https://earnkit.com/mcp, connect it, then ask EarnKit what I can earn.');
   const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
   assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
   assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);
@@ -236,7 +238,7 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   assert.equal(copy.ME_TITLE, 'Your record');
   assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
   // L21-8 (v6.1.16).
-  assert.equal(copy.ME_DELETE_LINE, 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.');
+  assert.equal(copy.ME_DELETE_LINE, 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep what they already screened.');
   // L21-9, L21-19, L21-21, L21-26 (v6.1.16).
   // L27-11 (v6.1.16): the home page says the record is deleted.
   assert.equal(copy.ME_DELETED_LINE, 'Your record is deleted.');

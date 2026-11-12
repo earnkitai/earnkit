@@ -371,7 +371,8 @@ test('a stale API program has no guide; a closed file program says Closed and ha
 test('/docs says it connects once (the intro line) and never asks the builder to approve a page', () => {
   const t = textOf(html(DocsPage()));
   assert.equal(t.split('connects').length - 1, 1, t);
-  assert.ok(t.includes('It connects at once.'));
+  // L38-22 (v6.1.18).
+  assert.ok(t.includes('It connects at once, with no account.'));
   assert.ok(!t.includes('Approve the connection') && !t.includes('Approve it when the page opens'));
 });
 
@@ -449,7 +450,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
-  assert.ok(t.lastIndexOf('Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.') > t.indexOf('Your agents'));
+  assert.ok(t.lastIndexOf('Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep what they already screened.') > t.indexOf('Your agents'));
   for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply without asking, within these limits', 'Press submit for me when I say yes.', 'Ask me first above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');

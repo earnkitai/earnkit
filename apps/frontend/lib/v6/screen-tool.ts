@@ -44,10 +44,11 @@ export const SCREEN_MAX = 200;
 export type ScreenReply = { show_to_builder: string; agent_note: string; refused?: true; job_id?: string; results?: ScreenResults; next_page?: number | null; recorded?: number };
 
 /** How a reviewer asks for access, from the tool (L25-10, v6.1.16): the /docs line, with the page named, not "below". */
-const ASK_ACCESS = 'Ask for reviewer access through the X link on earnkit.com/docs.';
+// L38-23 (v6.1.18): who to message and where.
+const ASK_ACCESS = 'Message EarnKit on X from earnkit.com/docs for reviewer access.';
 
 export const SCREEN_TEXT = {
-  unlinked: (link: string) => `Sign in once at ${link}, then ask for reviewer access through the X link on earnkit.com/docs.`,
+  unlinked: (link: string) => `Sign in once at ${link}, then message EarnKit on X from earnkit.com/docs for reviewer access.`,
   unlinkedNoLink: 'Screening is for program reviewers.',
   notReviewer: `Screening is for program reviewers, and you do not review that program. ${ASK_ACCESS}`,
   noProgram: `You review no program yet. ${ASK_ACCESS}`,
