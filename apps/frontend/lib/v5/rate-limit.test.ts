@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, blockOf, clientIp, countHit, sweepWindows } from './rate-limit';
+import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, blockOf, clientIp, countHit, sweepWindows, uncountHit } from './rate-limit';
 import { BUSY } from './mcp';
 
 after(() => sql().end());
@@ -66,4 +66,17 @@ test('B1 (v6.1.13): the shared hosted ceiling is gone; each address block has a 
   for (const ip of ['::ffff:a0b:54e', '::FFFF:0A0B:054E', '0:0:0:0:0:ffff:a0b:54e', '::ffff:0:a0b:54e'])
     assert.equal(clientIp(new Headers({ 'x-forwarded-for': ip })), '10.11.5.78', ip);
   assert.equal(block('::ffff:a0b:54e'), '10.11.0.0/16');
+});
+
+test('L35-25 (v6.1.17): uncountHit takes one back from the current window only, never below zero', async () => {
+  const key = `uncount:${Math.random()}`;
+  const now = new Date('2026-11-12T10:30:00Z');
+  await countHit(key, 3_600, now);
+  await countHit(key, 3_600, now);
+  await uncountHit(key, 3_600, now);
+  await uncountHit(key, 3_600, new Date('2026-11-12T11:30:00Z'));
+  assert.equal(await countHit(key, 3_600, now), 2);
+  for (let i = 0; i < 4; i++) await uncountHit(key, 3_600, now);
+  assert.equal(await countHit(key, 3_600, now), 1);
+  await sql()`DELETE FROM rate_windows WHERE key = ${key}`;
 });

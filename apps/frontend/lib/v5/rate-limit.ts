@@ -3,7 +3,7 @@
  * atomic upsert per hit; the first hit of a window clears that key's older windows, and now and
  * then the whole table's stale windows.
  */
-import { sql } from './db';
+import { sql, type Db } from './db';
 
 /** The limits. Keys are `<name>:<who>`. */
 export const LIMITS = {
@@ -163,19 +163,25 @@ export async function sweepWindows(now: Date): Promise<number> {
   return (await sql()`DELETE FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)}`).count;
 }
 
-/** Counts one request for `key` in the current `windowSeconds` window; the window's count so far. */
-export async function countHit(key: string, windowSeconds: number, now = new Date()): Promise<number> {
+/**
+ * Counts one request for `key` in the current `windowSeconds` window; the window's count so far. `db` may be a
+ * transaction, so a count taken inside one is undone with it (the screen's day count, v6.1.16 Task 12 N2, v6.1.17).
+ */
+export async function countHit(key: string, windowSeconds: number, now = new Date(), db: Db = sql()): Promise<number> {
   const start = windowStart(now, windowSeconds * 1000);
-  const [row] = await sql()<{ count: number }[]>`
+  const [row] = await db<{ count: number }[]>`
     INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${start}, 1)
     ON CONFLICT (key, window_start) DO UPDATE SET count = rate_windows.count + 1
     RETURNING count`;
   // Keys that never come back (one-off IPs) go in the daily run's sweepWindows.
-  if (row.count === 1) await sql()`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
+  if (row.count === 1) await db`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
   return row.count;
 }
 
-/** Takes back one counted request (a call that turned out to do nothing, v6.1.16 Task 12); never below zero. */
+/**
+ * Takes back one counted request, never below zero: a refused MCP call on both windows (L35-25, v6.1.17). Only the
+ * current window.
+ */
 export async function uncountHit(key: string, windowSeconds: number, now = new Date()): Promise<void> {
   await sql()`UPDATE rate_windows SET count = count - 1 WHERE key = ${key} AND window_start = ${windowStart(now, windowSeconds * 1000)} AND count > 0`;
 }

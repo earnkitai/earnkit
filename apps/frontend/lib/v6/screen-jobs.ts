@@ -8,6 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
+import type postgres from 'postgres';
 import { cleanText } from '../v5/controls';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { CONFIRMED, amountsOf, record, resultWords, winCapOf } from '../v5/ledger';
@@ -287,7 +288,13 @@ export async function createJob(o: {
   applicants: ScreenApplicant[];
   thresholds?: Partial<Thresholds>;
   now: Date;
-}): Promise<{ id: string | null; total: number; already: string[]; cached: number; notes: string[]; dropped: string[] }> {
+  /**
+   * v6.1.16 Task 12 N2 (v6.1.17): called in the queue transaction only when there is something new to queue, before
+   * the job is written; false refuses the job (`limited`) and undoes whatever it wrote, so a call that queues nothing,
+   * or is refused, never counts.
+   */
+  admit?: (tx: postgres.TransactionSql) => Promise<boolean>;
+}): Promise<{ id: string | null; total: number; already: string[]; cached: number; notes: string[]; dropped: string[]; limited?: true }> {
   const id = randomBytes(12).toString('base64url');
   // L24-7 (v6.1.16 Task 11): every applicant-written string is cleaned at queue time, so results and the CSV show the
   // cleaned text: no bidi, zero-width or control character is stored or echoed.
@@ -326,6 +333,7 @@ export async function createJob(o: {
   const already: string[] = [];
   /** Each applicant held, with the row that holds it, for the reviewer's note. */
   const heldBy: string[] = [];
+  const NOT_ADMITTED = Symbol('not admitted');
   const fresh = (await sql().begin(async (tx) => {
     // L17-5 (v6.1.16): one queue decision at a time per program, so parallel calls for one applicant queue it once.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${'screen:' + o.programId}))`;
@@ -364,6 +372,7 @@ export async function createJob(o: {
       } else keep.push(a);
     });
     if (keep.length === 0) return keep;
+    if (o.admit && !(await o.admit(tx))) throw NOT_ADMITTED;
     await tx`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, thresholds, total, expires_at)
       VALUES (${id}, ${o.programId}, ${o.builderId}, ${o.installationId}, ${o.now}, ${o.thresholds ? tx.json(o.thresholds) : null}, ${keep.length}, ${expires})`;
     for (const a of keep) {
@@ -372,7 +381,11 @@ export async function createJob(o: {
           ${a.requeue_job_id}, ${a.requeue_ref})`;
     }
     return keep;
-  })) as typeof list;
+  }).catch((err: unknown) => {
+    if (err === NOT_ADMITTED) return null;
+    throw err;
+  })) as typeof list | null;
+  if (fresh === null) return { id: null, total: 0, already, notes, dropped: [], cached: 0, limited: true };
   const queued = new Set(fresh.map((a) => a.ref));
   const dropped = [...droppedBy].map(([why, refs]) => `${why} (${listWords(refs, 10)})`);
   return {

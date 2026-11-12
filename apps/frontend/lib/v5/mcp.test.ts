@@ -360,3 +360,25 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
   assert.equal(pkg.version, '6.1.16');
 });
+
+test('L35-25 (v6.1.17, L.2, L.3): a call refused by the network window counts on neither window; an own-limit refusal adds nothing either', async () => {
+  const c = await ctx();
+  const ip = `198.51.100.${1 + Math.floor(Math.random() * 200)}`;
+  const at = windowStart(NOW, 3_600_000);
+  const countOf = async (key: string) => (await sql()<{ count: number }[]>`SELECT count FROM rate_windows WHERE key = ${key} AND window_start = ${at}`)[0]?.count ?? 0;
+  await sql()`DELETE FROM rate_windows WHERE key = ${'mcpIp:' + ip}`;
+  await seed(`mcpIp:${ip}`, 600);
+  const own0 = await countOf(`mcp:${c.installationId}`);
+  // L.2: the refusal leaves the address at 600 and the agent's own window where it was.
+  assert.deepEqual(await refusedFor({ ...c, ip }, NOW), { retryAfter: 3_600, who: 'address' });
+  assert.equal(await countOf(`mcpIp:${ip}`), 600);
+  assert.equal(await countOf(`mcp:${c.installationId}`), own0);
+  // L.3: five more refused by the address never burn the agent's own hour.
+  for (let i = 0; i < 5; i++) assert.equal((await refusedFor({ ...c, ip }, NOW))?.who, 'address');
+  assert.equal(await countOf(`mcp:${c.installationId}`), own0);
+  assert.equal(await countOf(`mcpIp:${ip}`), 600);
+  // Off that address the agent still has its whole hour; at its own limit a refusal adds nothing.
+  for (let i = own0; i < 120; i++) assert.equal(await refusedFor(c, NOW), null, `call ${i + 1}`);
+  assert.equal((await refusedFor(c, NOW))?.who, 'installation');
+  assert.equal(await countOf(`mcp:${c.installationId}`), 120);
+});
