@@ -4,8 +4,7 @@
  * write. A create, a change to submission_url, chains, form or pool_source_url (unless every link
  * checks out, programs-pending.ts), or a change to submit, sign_in or min_tier waits for the owner. Audited.
  */
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { revalidatePath } from 'next/cache';
 import type postgres from 'postgres';
@@ -35,6 +34,7 @@ import {
   uncheckedLink,
   type LinkTarget,
 } from './programs-pending';
+import { findProgramsDir } from './programs-dir';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
@@ -116,11 +116,7 @@ export function apiRuleProblems(p: Program, now: Date): string[] {
   return problems;
 }
 
-/** Where programs/*.json are at run time (`next start` runs in apps/frontend), or null. */
-export function findProgramsDir(cwd = process.cwd()): string | null {
-  for (const dir of [join(cwd, '..', '..', 'programs'), join(cwd, 'programs')]) if (existsSync(dir)) return dir;
-  return null;
-}
+export { findProgramsDir } from './programs-dir';
 
 /** The ids of the curated program files. */
 function curatedIds(dir: string | null): Set<string> {

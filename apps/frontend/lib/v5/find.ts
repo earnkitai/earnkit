@@ -15,7 +15,7 @@ import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signIn
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
+import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
@@ -403,6 +403,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
 
 /** L1j-7 (v6.1.17): the one action of an in-person program's own reply. */
 export const IN_PERSON_ONE = 'You apply in person; the guide has the steps.';
+/** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. */
+export const NO_PROJECT_ONE = 'Tell me about your project and I check the fit.';
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string, given: string[] = []): Promise<ProgramReply> {
@@ -506,16 +508,17 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
       : said
         ? said.lines
-        // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too.
-        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, ...(p.in_person ? [IN_PERSON_ONE] : [])];
+        // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too. L1k-4
+        // (v6.1.18): an online one ends on the ask for the project, never on a rules bullet.
+        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, p.in_person ? IN_PERSON_ONE : NO_PROJECT_ONE];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
     if (verdict?.status === 'ready' && !p.in_person) {
       show[show.length - 1] = heldLine;
       offer = null;
-    } else if (show.at(-1) === IN_PERSON_ONE) show.splice(show.length - 1, 0, heldLine);
-    // Fix round 1 (N1, v6.1.17): the in-person action stays last, the held line before it.
+    } else if (show.at(-1) === IN_PERSON_ONE || show.at(-1) === NO_PROJECT_ONE) show.splice(show.length - 1, 0, heldLine);
+    // Fix round 1 (N1, v6.1.17): the in-person action stays last, the held line before it (L1k-4: the project ask too).
     else show.push(heldLine);
   }
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
@@ -1157,8 +1160,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const ledger = await summary(owner, open, ctx.now);
   const hiddenRows = all ? undefined : {
     count: rankCapped.size,
-    closing: ledger.closing_soon.filter((c) => rankCapped.has(c.program_id)).slice(0, 2)
-      .map((c) => ({ title: c.title, closes_at: c.closes_at, closes_in: closesIn(byId.get(c.program_id)!.file, ctx.now) })),
+    // Task 7 (v6.1.18, Task 1 review minor): every one; the more line drops the shown ones by id, then names two.
+    closing: ledger.closing_soon.filter((c) => rankCapped.has(c.program_id))
+      .map((c) => ({ program_id: c.program_id, title: c.title, closes_at: c.closes_at, closes_in: closesIn(byId.get(c.program_id)!.file, ctx.now) })),
   };
   // L23-4 (v6.1.16): every applied program past its results date with no result, asked once a day by each installation.
   const ask = await outcomeAsksDue(ctx.installationId, owner, await askOutcome(owner, open, ctx.now), ctx.now);
@@ -1189,16 +1193,15 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     ...(notSent.length > 0 ? { not_sent: { programs: notSent, since: promise!.at.toISOString() } } : {}),
     ...(prevList && prevList.hash === hash ? { nothing_new_since: prevList.at.toISOString() } : {}),
   };
-  // L1i-2, L1i-5 (v6.1.16.1); fix round 1 (I4 ruling): the numbers the builder sees are the numbers the JSON and track
-  // read. The default view numbers its shown rows 1, 2, 3 (the rest after them). The full list keeps the numbers the
-  // last reply of this project gave (`last_list`, cleared when another project is found) and numbers new ones on.
-  // Passes: `laid` lays the default view out once for its shown order; `defaultSay` (full list only) writes the
-  // default view's Say; `said` writes the reply from the final numbers.
+  // L1i-2 (v6.1.16.1); fix round 1 (I4 ruling): the numbers the builder sees are the numbers the JSON and track read.
+  // The default view numbers its shown rows 1, 2, 3 (the rest after them). L1k-2 (v6.1.18): the full list numbers its
+  // own rows 1..N in the order it shows them (ready, one step, in person), never the default view's numbers under its
+  // other headings. Passes: `laid` lays the view out once for its shown order; `defaultSay` (full list only) writes
+  // the default view's Say; `said` writes the reply from the final numbers.
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
-  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer, { ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
-  const prevIds = all && (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
-  const stable = stableNumbers(prevIds, [...laid, ...byN.filter((id) => !laid.includes(id))]);
+  const laid = replyParts(r0, last === null, ctx.now, lastOffer, all ? { all: true } : { ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
+  const stable = stableNumbers([], [...laid, ...byN.filter((id) => !laid.includes(id))]);
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = { ...r0, ready: r0.ready.map(renum), gaps: r0.gaps.map(renum) };
   // L1i-5: the full list closes on the default view's Say, from the programs the default view lists.

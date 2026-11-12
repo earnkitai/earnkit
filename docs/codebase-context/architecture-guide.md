@@ -1059,6 +1059,11 @@ not keep, and every open or closed decision is read from the clock at request ti
   `guide-ids-v6`, `guide-row-v6.1.16`), but `getLanding` runs `landingAt` and `getGuidePage` runs `guidePageOf` with the
   render's clock, so a tile reads `Closed` and a guide renders its closed page (`Closed on {date}.`, no Apply link,
   never a 404) the moment `ends_at` passes. `listGuideIds` lists every program that reads closed.
+- **Landing without a database (v6.1.18, L1k-1).** When the landing read fails, `getLanding` returns
+  `readLandingFromFiles(now)` (landing.ts: the catalog files under `findProgramsDir()`, parsed with `ProgramFile`,
+  listed as `listListedPrograms` lists them, the chip from `openMoneyUsd` of the open ones) and never calls
+  `connection()`: the build has no database, and that bailout made `/` and `/programs` dynamic for the whole deploy.
+  The pages stay prerendered and ISR (600 s) reads the database again; a failed file read too is null (no live parts).
 - **One date formatter, one closes wording.** `dayWords` (deadline.ts, re-exported by site-copy): `Nov 6`, or
   `Nov 6, 2025` in another year; since, deadline moved, closed on, results due, eligibility dates, /me dates and
   `clock`. `closesWords`: `closes in under an hour`, `closes today`, `closes tomorrow`, `closes in {n} days` (calendar
@@ -1220,11 +1225,12 @@ means what the last `Say` offered.
   lays the view out once (`asShown`), renumbers the shown ids first and the rest after, and writes the reply (and its
   Say's "yes n" / "do n") from those numbers; it returns `shown` and `say`. The numbers the builder sees are the JSON's
   `n` and track's (fix round 1, I4): a default find numbers its shown rows 1..k (the rest after) and stores that as
-  `installations.last_list`; the full list keeps the numbers of the last reply of the same project (`stableNumbers`)
-  and numbers new ones on; `rememberProject` clears `last_list` when another project is found (a one-program lookup
-  too). The default view's selection is one function in find (`selectionOf`), used for the list and for the full
+  `installations.last_list`; v6.1.18 (L1k-2): the full list numbers its own rows 1..N in the order it shows them
+  (ready, one step, in person; `replyParts` with `all` returns them as `shown`) and stores those, so "skip 4" is its
+  fourth row; `rememberProject` clears `last_list` when another project is found (a one-program lookup too). The default view's selection is one function in find (`selectionOf`), used for the list and for the full
   list's closing Say. The full
-  view lists every program the list holds as `{n}. {title}, {money}, closes {when}, in person.` (closes from
+  view lists every program the list holds as `{n}. {title}, {money}, closes {when}, in person.` (v6.1.18 L1k-3: no
+  `, in person` under the `In person (k):` heading; closes from
   `closesWords` beyond the gap lines' own window, passed as `closes`), closes on the default view's Say (`defaultSay`,
   from the programs the default view lists), and never asks a rule it does not show: a rule Say becomes `Say a number
   and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
@@ -1239,13 +1245,16 @@ means what the last `Say` offered.
 - **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35; fix round 1).** The no-project find (open list,
   applications line or bad category) ends on its ask, with the sign-in sentence, the unlink notice or the linked report
   before it (fix round 1 I3). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
-  before it (M1, N1); a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
+  before it (M1, N1); v6.1.18 (L1k-4): an open online lookup with no project ends on `NO_PROJECT_ONE` (`Tell me
+  about your project and I check the fit.`) after the rules; a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
   default view leaves out (in-person and held rows too) is counted once, on
-  `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown)` gives
+  `And {n} more in the full list.` (v6.1.18 L1k-5: on the line right after the numbered blocks, ahead of the repo
+  note and every other line; `fit` returns where the block lines end as `rows`) (`defaultRows(ready, steps, shown)` gives
   `{ readyShown, readyHidden, stepShown, stepHidden }`; `fit` runs again one line shorter when anything is hidden; the
   step block has no more line of its own). v6.1.18 Task 1 (L18-1): the count adds the rows the rank cap left out before
   the budget ran (find passes `ReplyOptions.hidden = { count, closing }`; 0 with filter.all), and the line names at most
-  two of those closing within 7 days (`ledger.closing_soon`, in closing order, none the view shows) with the list
+  two of those closing within 7 days (`ledger.closing_soon`, in closing order, none the view shows: dropped by
+  `program_id`, then cut to two) with the list
   lines' closes words: `And {n} more in the full list; closing this week: {title} ({closes_in}) and {title}
   ({closes_in}).` (`moreInFull(n, closing, now)`). `ReplyParts.more` is that n; find returns it as `more_count` and the
   agent note says `The full list holds {n} more; ...`. Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the

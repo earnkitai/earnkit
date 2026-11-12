@@ -287,7 +287,8 @@ test('find with program_id and no project: the money, the rules list, no link an
   // L26-4 (v6.1.16 Task 12): the builder lines keep every rule; guide.rules carries the first two.
   const every = guideText((await getProgram('base-builder-grants'))!, NOW).rules;
   assert.deepEqual(guide.rules, every.slice(0, 2));
-  assert.equal(r.reply!.show_to_builder, ['Base Builder Grant Program, up to $5,000, rolling.', 'Rules:', ...every.map((x) => `- ${x}`)].join('\n'));
+  // L1k-4 (v6.1.18): it ends on the ask for the project, after the rules.
+  assert.equal(r.reply!.show_to_builder, ['Base Builder Grant Program, up to $5,000, rolling.', 'Rules:', ...every.map((x) => `- ${x}`), 'Tell me about your project and I check the fit.'].join('\n'));
   assert.equal(r.reply!.agent_note, 'Call find with the project for whether you fit.');
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
   assert.equal(none.reply!.guide, null);
@@ -1262,8 +1263,11 @@ const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000.
  *  public already, so its step stays code in a repo. */
 const FUTO_CODE = (empty = false) => `1. FUTO Microgrants, $1,000 to $5,000: code in a${empty ? '' : ' public'} repo. Their rule: open source software from a small or early-stage project.`;
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
-// L18-1 (v6.1.18): the rows the rank cap left out are counted before the Say.
-const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => ['One step away (1):', FUTO_CODE(empty), ...inPersonBlock(2), ...notes, `And ${more} more in the full list.`, codeFirst(empty)].join('\n');
+// L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): on the line after the rows, the repo
+// notes after it.
+// The And-more counts (`more`, here and in every pinned reply) cover the whole fixture catalog, so every program added
+// to it changes them.
+const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => ['One step away (1):', FUTO_CODE(empty), ...inPersonBlock(2), `And ${more} more in the full list.`, ...notes, codeFirst(empty)].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
@@ -1314,7 +1318,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(b.reply!.repo_notes, ['unread']);
   assert.equal(
     b.reply!.show_to_builder,
-    [...FUTO_ONLY, ...inPersonBlock(2), 'I could not read the repo; matched on what you told me.', 'And 19 more in the full list.', THAT_RULE_FIRST].join('\n'),
+    [...FUTO_ONLY, ...inPersonBlock(2), 'And 19 more in the full list.', 'I could not read the repo; matched on what you told me.', THAT_RULE_FIRST].join('\n'),
   );
   // The same repo with reads paused for the day (the daily cap): the repo likely exists, the users question stands.
   const { hit, LIMITS } = await import('./rate-limit');
@@ -1326,7 +1330,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
     paused.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'Repo reads are paused until tomorrow; matched on what you told me.', 'And 24 more in the full list.', USERS_FIRST].join('\n'),
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'And 24 more in the full list.', 'Repo reads are paused until tomorrow; matched on what you told me.', USERS_FIRST].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
@@ -1471,7 +1475,9 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   ];
   for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
-    assert.equal(show, [...head, `And ${more} more in the full list.`, closing].join('\n'), `persona ${id}`);
+    // L1k-5 (v6.1.18): the more line follows the rows; the repo note and the sign-in after it.
+    const rows = head.reduce((a, l, i) => (/^\d+\. /.test(l) ? i + 1 : a), 0);
+    assert.equal(show, [...head.slice(0, rows), `And ${more} more in the full list.`, ...head.slice(rows), closing].join('\n'), `persona ${id}`);
     const lines = show.split('\n');
     // The gap words once, in line 1; no other line but the closing's step speaks of the same gap.
     assert.equal(lines[1].split(gap).length, 2, `persona ${id}`);
@@ -1562,9 +1568,9 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
-      "Private repo: matched on what you told me.",
-      // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+      // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): right after the rows.
       'And 21 more in the full list.',
+      "Private repo: matched on what you told me.",
       "Nothing is ready yet. Tell me when the repo is public and I look again.",
     ].join('\n'),
   );
@@ -3570,7 +3576,7 @@ test('L28-3 (v6.1.16 Task 14): a signed-in builder whose login a read shows is n
   assert.match(told.reply!.agent_note as string, /The signed-in GitHub account is not the repo owner/);
 });
 
-test('L1i-5 (v6.1.16.1): a program keeps its number across the default and the full list of one project; another project starts fresh', async () => {
+test('L1i-5 (v6.1.16.1), L1k-2 (v6.1.18): the default numbers its rows as shown and the full list its own; another project starts fresh', async () => {
   const SOL = { name: 'Solflare Tips', description: 'Tipping for creators on Solana', chains: [{ chain: 'solana', mainnet: true }] };
   const id = await installation();
   const d = await mcpCall(ctx(id), 'find', { project: SOL });
@@ -3581,8 +3587,10 @@ test('L1i-5 (v6.1.16.1): a program keeps its number across the default and the f
   assert.deepEqual(shown, shown.map((_, i) => i + 1));
   const full = await mcpCall(ctx(id), 'find', { project: SOL, filter: { all: true } });
   const fn = (full.reply!.gaps as G[]).find((g) => g.program_id === 'solana-foundation-grants')!.n;
-  assert.equal(fn, dn);
+  // L1k-2 (v6.1.18): the full list numbers its own rows 1..N in display order, and the JSON n is that number.
   assert.match(full.reply!.show_to_builder as string, new RegExp(`^${fn}\\. Solana Foundation Grants, `, 'm'));
+  const fullRows = (full.reply!.show_to_builder as string).split('\n').filter((l) => /^\d+\. /.test(l)).map((l) => Number(l.split('.')[0]));
+  assert.deepEqual(fullRows, fullRows.map((_, i) => i + 1));
   assert.doesNotMatch(full.reply!.show_to_builder as string, /Say "yes/);
   // Every program the default left out is in the full list.
   const listed = new Set(ids(full.reply!.gaps).concat(ids(allReady(full.reply!))));
@@ -3681,7 +3689,9 @@ test('L35-9 (v6.1.17, lane 35 C.5 and C.6, Review Focus 3): after one claim and 
     assert.doesNotMatch(show, /not shown/);
     const head = Number(/^Ready to apply \((\d+)\):$/m.exec(show)![1]);
     assert.equal(head, Number(said[1]), show);
-    assert.ok(show.split('\n').at(-2)!.startsWith('And '), show);
+    // L1k-5 (v6.1.18): the more line is the line after the rows.
+    const rowsEnd = show.split('\n').reduce((a, l, i) => (/^\d+\. /.test(l) ? i : a), -1);
+    assert.ok(show.split('\n')[rowsEnd + 1].startsWith('And '), show);
     // Fix round 1 (I2): the JSON's ready list holds every free ready program the yes covers, each with its fields.
     const listed = (d.reply!.ready as { program_id: string; fields: unknown[]; claimed_since?: string; held?: boolean }[]).filter((p) => !p.claimed_since && !p.held);
     assert.equal(listed.length, Number(said[1]), JSON.stringify(listed.map((p) => p.program_id)));
@@ -3803,4 +3813,56 @@ test('L18-3 (v6.1.18): a builder-sent program with two or more real gaps closes 
   assert.equal(lines[0], 'Kiroween 2026, $100,000 in prizes: a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.', lines.join('\n'));
   assert.equal(lines.at(-1), 'Tell me when that is done and I draft it for you to send.', lines.join('\n'));
   assert.ok(!lines.some((l) => APPLY_OFFER.test(l)), lines.join('\n'));
+});
+
+// ---- v6.1.18 Task 7 (lane 1k) ----
+
+test('L1k-2: the full list numbers 1..N in display order and the JSON n matches', async () => {
+  const c = await dashCtx();
+  const d = await mcpCall(c, 'find', { project: VR });
+  const full = await mcpCall(c, 'find', { project: VR, filter: { all: true } });
+  const show = full.reply!.show_to_builder as string;
+  const rows = show.split('\n').filter((l) => /^\d+\. /.test(l));
+  assert.ok(rows.length > 10, show);
+  // 1, 2, 3 ... down the page, across the Ready, One step and In person blocks.
+  assert.deepEqual(rows.map((l) => Number(l.split('.')[0])), rows.map((_, i) => i + 1), show);
+  const heads = show.split('\n').filter((l) => /^[A-Z][^.]*\(\d+\):$/.test(l));
+  assert.deepEqual(heads.map((h) => h.replace(/ \(\d+\):$/, '')), ['Ready to apply', 'One step away', 'In person'], show);
+  // Every number names the JSON item with that n.
+  const items = [...(full.reply!.gaps as G[]), ...(allReady(full.reply!) as G[])] as unknown as { n: number; title: string; program_id: string }[];
+  assert.equal(items.length, rows.length);
+  for (const l of rows) {
+    const n = Number(l.split('.')[0]);
+    const item = items.find((x) => x.n === n)!;
+    assert.ok(item && l.startsWith(`${n}. ${item.title}, `), `${l} vs ${item?.title}`);
+  }
+  // The In person block follows on from the One step block: its first row is the next number.
+  const at = show.split('\n');
+  const ip = at.indexOf(heads.find((h) => h.startsWith('In person'))!);
+  assert.equal(Number(at[ip + 1].split('.')[0]), Number(at[ip - 1].split('.')[0]) + 1, show);
+  // The default view's numbers are unchanged: its rows read 1, 2, 3 as shown, and its JSON n are those.
+  const dRows = (d.reply!.show_to_builder as string).split('\n').filter((l) => /^\d+\. /.test(l));
+  assert.deepEqual(dRows.map((l) => Number(l.split('.')[0])), dRows.map((_, i) => i + 1));
+  const dItems = [...(d.reply!.gaps as G[]), ...(allReady(d.reply!) as G[])] as unknown as { n: number; title: string }[];
+  for (const l of dRows) assert.ok(l.startsWith(`${l.split('.')[0]}. ${dItems.find((x) => x.n === Number(l.split('.')[0]))!.title}, `), l);
+  // "skip 4" is the fourth row of the full list.
+  const four = rows[3];
+  const t = await mcpCall(c, 'track', { program_id: '4', status: 'skipped', project: VR });
+  assert.equal(t.isError, false, t.text);
+  assert.ok((t.reply!.show_to_builder as string).startsWith(`Skipped ${four.replace(/^4\. /, '').split(', ')[0]} for good.`), `${t.reply!.show_to_builder} / ${four}`);
+});
+
+test('L1k-4: a no-project online lookup ends on "Tell me about your project and I check the fit."', async () => {
+  const online = (await mcpCall(ctx(await installation()), 'find', { program_id: 'base-ecosystem-fund' })).reply!.show_to_builder as string;
+  const lines = online.split('\n');
+  assert.equal(lines.at(-1), 'Tell me about your project and I check the fit.', online);
+  assert.ok(lines.includes('Rules:') && lines.at(-2)!.startsWith('- '), online);
+  assert.equal(online.split('Tell me about your project').length, 2);
+  // The in-person one keeps its own action.
+  const inPerson = (await mcpCall(ctx(await installation()), 'find', { program_id: 'alliance' })).reply!.show_to_builder as string;
+  assert.equal(inPerson.split('\n').at(-1), 'You apply in person; the guide has the steps.', inPerson);
+  assert.doesNotMatch(inPerson, /Tell me about your project/);
+  // With a project, the verdict closes as before.
+  const withProject = (await mcpCall(ctx(await installation()), 'find', { program_id: 'base-ecosystem-fund', project: PROJECT })).reply!.show_to_builder as string;
+  assert.doesNotMatch(withProject, /Tell me about your project/);
 });

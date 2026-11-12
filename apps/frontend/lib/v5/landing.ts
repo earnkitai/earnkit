@@ -3,14 +3,15 @@
  * /programs; the six featured tiles and the listed count for the landing; the hero's money chip.
  * Plain JSON, so it can be cached.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { closeDay, closesLead, programZone } from './deadline';
 import { CLOSED, NOT_OPEN_YET, ROLLING, heroChipText, programKind } from './site-copy';
 import { moneyOf } from './programs-read';
-import type { Program } from './program-file';
+import { ProgramFile, type Program } from './program-file';
+import { findProgramsDir } from './programs-dir';
 import { closedAt, isOpenAt, listListedPrograms, statusAt, type ProgramRow } from './programs';
-import { readStats, type Stats } from './stats';
+import { openMoneyUsd, readStats, type Stats } from './stats';
 
 export type Tile = {
   id: string;
@@ -182,4 +183,31 @@ export function landingFrom(rows: ProgramRow[], stats: Stats, now: Date): Landin
 export async function readLanding(now: Date = new Date()): Promise<Landing> {
   const [rows, stats] = await Promise.all([listListedPrograms(now), readStats(now)]);
   return landingFrom(rows, stats, now);
+}
+
+/**
+ * L1k-1 (v6.1.18): the landing from the catalog files alone, no database: every file under `dir` (default
+ * `findProgramsDir()`) that parses as a `ProgramFile` and is listed (not closed, not past its ends_at), in the list's
+ * order (the close, rolling last, then the id), the chip from the open ones' pools (`openMoneyUsd`). It is what
+ * `getLanding` shows when the database read fails (at build there is no database), so the page stays prerendered.
+ * Null with no catalog directory; a file that does not read or parse is left out.
+ */
+export function readLandingFromFiles(now: Date = new Date(), dir: string | null = findProgramsDir()): Landing | null {
+  if (!dir) return null;
+  const rows: ProgramRow[] = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    } catch {
+      continue;
+    }
+    const parsed = ProgramFile.safeParse(raw);
+    if (!parsed.success || closedAt(parsed.data, now)) continue;
+    rows.push({ id: parsed.data.id, file: parsed.data, source: 'file', created_at: now, updated_at: now, verified_at: null, stale_since: null });
+  }
+  const at = (p: Program) => (p.ends_at ? Date.parse(p.ends_at) : Infinity);
+  rows.sort((a, b) => at(a.file) - at(b.file) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const open = rows.filter((r) => isOpenAt(r.file, now));
+  return { chip: heroChipText(openMoneyUsd(open)), tiles: landingTiles(rows, now), featured: featuredTiles(rows, now), total: rows.length };
 }

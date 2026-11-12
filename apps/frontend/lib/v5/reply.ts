@@ -739,7 +739,7 @@ const READY_SHOWN = 3;
  */
 export type ReplyParts = Closing & { hidden: string[]; shown: string[]; say: string; more: number };
 /** L18-1 (v6.1.18): a program closing this week that the default view leaves out; `closes_in` as find words it. */
-export type ClosingHidden = { title: string; closes_at: string; closes_in?: string | null };
+export type ClosingHidden = { program_id: string; title: string; closes_at: string; closes_in?: string | null };
 /**
  * `all`: the full view. `asShown` (L1i-2): the numbers are already the shown ones, so the default view is not
  * renumbered. `defaultSay` (L1i-5): the default view's Say, which the full view closes on.
@@ -950,9 +950,11 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     const say = fullSay(o.defaultSay ?? sayLine);
     const blocks: [string, (ReadyProgram | GapProgram)[]][] = [
       ['Ready to apply', free], ['Being handled by your other agent', heldReady], ['On hold until you say go', onHold],
-      ['One step away', steps], ['In person', [...inPerson, ...attendRules]],
+      ['One step away', steps], [IN_PERSON_HEAD, [...inPerson, ...attendRules]],
     ];
-    return { text: fullView(blocks, after, say, o.closes), offer, hidden: [], shown: [], say, more: 0 };
+    // L1k-2 (v6.1.18): `shown` is the full view's rows in display order, which find numbers 1..N.
+    const shown = blocks.flatMap(([, ps]) => [...ps].sort((a, b) => a.n - b.n).map((p) => p.program_id));
+    return { text: fullView(blocks, after, say, o.closes), offer, hidden: [], shown, say, more: 0 };
   }
 
   // L29-26 (v6.1.16 Task 15): the default view: the slots in display order, each with its priority (lower stays first
@@ -1051,11 +1053,13 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const capHidden = Math.max(0, o.hidden?.count ?? 0);
   const room = DEFAULT_LINES - 1 - tail.length;
   const once = fit(slots, room);
-  const { kept, hidden, shown } = hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
+  const { kept, hidden, shown, rows } = hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
   const left = hiddenOf(shown) + capHidden;
-  const shownTitles = new Set([...r.ready, ...r.gaps].filter((x) => shown.includes(x.program_id)).map((x) => x.title));
-  const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shownTitles.has(c.title));
-  return { text: [...kept, ...(left > 0 ? [moreInFull(left, closingHidden, now)] : []), sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine, more: left };
+  // Task 7 (v6.1.18): by id, never by title (two programs may share one); `moreInFull` names two of what is left.
+  const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shown.includes(c.program_id));
+  // L1k-5 (v6.1.18): the more line follows the numbered blocks directly, ahead of the repo note and the rest.
+  const moreLine = left > 0 ? [moreInFull(left, closingHidden, now)] : [];
+  return { text: [...kept.slice(0, rows), ...moreLine, ...kept.slice(rows), sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine, more: left };
 }
 
 /** L29-26: a slot of the default view: plain lines, or (L1i-2) a numbered block, with its rank and, for the step block,
@@ -1067,7 +1071,7 @@ type Slot = { lines: string[]; rank: number; block?: Block | null; min?: number;
  * (v6.1.16.1): a block shows whole rows under its heading, numbered 1, 2, 3 in display order across the blocks; `shown`
  * is the ids those numbers name. Pure.
  */
-function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; shown: string[] } {
+function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; shown: string[]; rows: number } {
   const take = new Map<number, number>();
   let left = room;
   const steps = slots.flatMap((s, i) => [{ i, rank: s.rank, grow: false }, ...(s.grow !== undefined ? [{ i, rank: s.grow, grow: true }] : [])]);
@@ -1094,6 +1098,8 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
   const kept: string[] = [];
   const hidden: string[] = [];
   const shown: string[] = [];
+  // L1k-5 (v6.1.18): where the numbered blocks' lines end (just past the last block line kept).
+  let rows = 0;
   slots.forEach((s, i) => {
     const k = take.get(i) ?? 0;
     if (s.block !== undefined) {
@@ -1106,6 +1112,7 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
       if (n > 0) {
         kept.push(b.head, ...idx.filter((j) => on.has(j)).map((j) => b.line(j)));
         shown.push(...idx.filter((j) => on.has(j)).map((j) => b.ids[j]));
+        rows = kept.length;
       }
       hidden.push(...idx.filter((j) => !on.has(j)).map((j) => b.line(j)));
       return;
@@ -1113,8 +1120,11 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
     kept.push(...s.lines.slice(0, k));
     hidden.push(...s.lines.slice(k).filter((x) => !/:$/.test(x)));
   });
-  return { kept, hidden, shown };
+  return { kept, hidden, shown, rows: shown.length > 0 ? rows : kept.length };
 }
+
+/** The full view's in-person block heading (without its count). */
+const IN_PERSON_HEAD = 'In person';
 
 /** L1i-5 (v6.1.16.1): the full view's Say: the default view's, unless that asks about a rule the full view does not
  *  show; then the agent shows that program's rules on its number. Pure. */
@@ -1126,16 +1136,17 @@ const fullSay = (say: string): string => {
 
 /**
  * L29-26 (v6.1.16 Task 15): the full view ("say more", filter.all): each listed program as its number, name, money and
- * (L1i-6, v6.1.16.1) close and in person, one per line, then what the repo read was and the link notice (`after`), then
+ * (L1i-6, v6.1.16.1) close and, outside the In person block (L1k-3, v6.1.18), in person, one per line, then what the repo read was and the link notice (`after`), then
  * the Say. No rule is asked here (L1i-5). L35-9 (v6.1.17): the rows sit under the default view's block headings
  * (`Ready to apply (6):`), each with its true count, in number order within a block; an empty block is left out. Pure.
  */
 export function fullView(blocks: [string, (ReadyProgram | GapProgram)[]][], after: string[], say: string, closes?: Map<string, string>): string {
-  const line = (p: ReadyProgram | GapProgram) => {
+  // L1k-3 (v6.1.18): a row under the In person heading leaves out ", in person"; the heading says it.
+  const line = (p: ReadyProgram | GapProgram, underInPerson: boolean) => {
     const when = closes?.get(p.program_id) || p.closes_in;
-    return `${p.n}. ${p.title}, ${p.money}${when ? `, closes ${when}` : ''}${p.in_person ? ', in person' : ''}.`;
+    return `${p.n}. ${p.title}, ${p.money}${when ? `, closes ${when}` : ''}${p.in_person && !underInPerson ? ', in person' : ''}.`;
   };
-  const rows = blocks.filter(([, ps]) => ps.length > 0).flatMap(([head, ps]) => [`${head} (${ps.length}):`, ...[...ps].sort((a, b) => a.n - b.n).map(line)]);
+  const rows = blocks.filter(([, ps]) => ps.length > 0).flatMap(([head, ps]) => [`${head} (${ps.length}):`, ...[...ps].sort((a, b) => a.n - b.n).map((p) => line(p, head === IN_PERSON_HEAD))]);
   return [...rows, ...after, say].join('\n');
 }
 

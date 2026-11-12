@@ -1,7 +1,11 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { featuredTiles, landingFrom, landingTiles, logoOf, orgKey, readLanding } from './landing';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { featuredTiles, landingFrom, landingTiles, logoOf, orgKey, readLanding, readLandingFromFiles } from './landing';
+import { heroChipText } from './site-copy';
 import { programFixture } from './fixtures/program';
 import { upsertProgram, type ProgramRow } from './programs';
 import type { Stats } from './stats';
@@ -188,4 +192,43 @@ test('lane 22 (v6.1.15): a lone full figure is big, "Up to" draws small above it
   // Fix round 2: the summary's phrase leads; a phrase longer than a figure is a small tile.
   const [phrase] = landingTiles([rowOf({ id: 'b-4', summary: '$1,000,000 per team · rolling', max_award_usd: 1_000_000, ends_at: null })], NOW);
   assert.deepEqual([phrase.money, phrase.big], ['$1,000,000 per team', false]);
+});
+
+test('L1k-1: readLandingFromFiles lists the catalog\'s listed programs with the chip from their pools', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ek-landing-'));
+  const put = (over: Parameters<typeof programFixture>[0]) => writeFileSync(join(dir, `${over.id}.json`), JSON.stringify(programFixture(over)));
+  put({ id: 'f-open-pool', ends_at: '2027-01-01T00:00:00Z', pool_usd: 50_000, max_award_usd: 5_000 });
+  put({ id: 'f-open-award', ends_at: null, max_award_usd: 20_000 });
+  put({ id: 'f-invest', ends_at: null, investment: true, max_award_usd: 500_000 });
+  put({ id: 'f-upcoming', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [], ends_at: null, max_award_usd: 90_000 });
+  put({ id: 'f-closed', status: 'closed', max_award_usd: 70_000 });
+  put({ id: 'f-past', ends_at: '2026-11-01T00:00:00Z', max_award_usd: 80_000 });
+  writeFileSync(join(dir, 'f-broken.json'), '{ not json');
+  writeFileSync(join(dir, 'f-bad.json'), JSON.stringify({ id: 'f-bad' }));
+  const l = readLandingFromFiles(NOW, dir)!;
+  assert.deepEqual(l.tiles.map((t) => t.id).sort(), ['f-invest', 'f-open-award', 'f-open-pool', 'f-upcoming']);
+  assert.equal(l.total, 4);
+  // The chip sums the open non-investment programs only: the pool when set, else the max award.
+  assert.equal(l.chip, heroChipText(70_000));
+  assert.ok(l.featured.every((t) => t.status === 'active'));
+  // No catalog directory: no landing.
+  assert.equal(readLandingFromFiles(NOW, null), null);
+  // The real catalog: every listed file, no database read.
+  const real = readLandingFromFiles(NOW);
+  assert.ok(real !== null && real.tiles.length > 0 && real.chip !== null);
+});
+
+test('L1k-1b: a failed read returns the file landing and does not call connection', async () => {
+  const { getLanding } = await import('../../app/lib/landing-cache');
+  const files = readLandingFromFiles(NOW);
+  const l = await getLanding(async () => { throw new Error('db down'); }, () => files);
+  // Outside a request, connection() rejects; the fallback never reaches it, so the page stays prerendered.
+  assert.ok(l !== null);
+  assert.deepEqual(l.tiles.map((t) => t.id), files!.tiles.map((t) => t.id));
+  assert.equal(l.chip, files!.chip);
+  // A failed file read too is null, as before.
+  assert.equal(await getLanding(async () => { throw new Error('db down'); }, () => { throw new Error('no files'); }), null);
+  assert.equal(await getLanding(async () => { throw new Error('db down'); }, () => null), null);
+  const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
+  assert.doesNotMatch(src, /await connection\(\)|import \{[^}]*\bconnection\b/);
 });

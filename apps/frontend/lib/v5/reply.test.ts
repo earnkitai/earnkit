@@ -215,8 +215,9 @@ test('in person: its own block, with the setup, never in the count to apply to; 
   assert.deepEqual(parts.hidden, ['4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. First: apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.']);
   assert.match(agentNote(r, { more: 0, hidden: parts.hidden }), /^Not shown to the builder:\n4\. ETHGlobal Mumbai/m);
   assert.equal(replyText(r, false, new Date(), null, { all: true }).split('\n').slice(0, 7).join('\n'),
-    // L1i-6 (v6.1.16.1): the full view keeps the close and in person. L35-9 (v6.1.17): under the default's headings.
-    ['Ready to apply (2):', '1. Alliance ALL19, $400K at admission, closes in 14 days.', '2. Arc Builders Fund, investment from Circle Ventures.', 'One step away (1):', '3. Circle Developer Grants, $5,000 to $100,000 USDC grants.', 'In person (1):', '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days, in person.'].join('\n'));
+    // L1i-6 (v6.1.16.1): the full view keeps the close. L35-9 (v6.1.17): under the default's headings. L1k-3 (v6.1.18):
+    // the In person heading says in person, so its rows do not.
+    ['Ready to apply (2):', '1. Alliance ALL19, $400K at admission, closes in 14 days.', '2. Arc Builders Fund, investment from Circle Ventures.', 'One step away (1):', '3. Circle Developer Grants, $5,000 to $100,000 USDC grants.', 'In person (1):', '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days.'].join('\n'));
   const only = replyText(base({ ready: [mumbai] }), false);
   assert.ok(only.startsWith('In person (1):\n1. ETHGlobal Mumbai'), only);
   assert.doesNotMatch(only, /Say yes to apply/);
@@ -348,13 +349,14 @@ test('the "Before applying" line groups the sign-ins, names the clicks and the f
   );
   const lines = text.split('\n');
   assert.ok(lines.length <= 10, text);
-  // L1j-3 (v6.1.17): the row left out is counted before the Say.
-  assert.deepEqual(lines.slice(-4), [
+  // L1j-3 (v6.1.17): the row left out is counted once. L1k-5 (v6.1.18): on the line after the rows.
+  assert.deepEqual(lines.slice(-3), [
     before,
     'Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4.',
-    'And 1 more in the full list.',
     'Say yes and I apply to 3 and draft Click Grant for you to send.',
   ]);
+  const moreAt = lines.indexOf('And 1 more in the full list.');
+  assert.ok(moreAt > 0 && /^\d+\. /.test(lines[moreAt - 1]), text);
   assert.doesNotMatch(text.replace(/Click Grant/g, ''), /click/i);
   assert.doesNotMatch(text, /Before I send/);
   // Standing approval with nothing an agent can send alone (every program blocked): no standing line.
@@ -1470,7 +1472,8 @@ test('L35-8 (v6.1.17 fix round 1 I1): a capped ready block draft-only says the c
     blockers: ['a', 'b', 'c', 'd', 'e'].map((id) => ({ program_id: id, sign_in: null, needs_click: true, needs: [] })),
   });
   const p = replyParts(r, true, new Date('2026-11-12T08:00:00Z'));
-  assert.deepEqual(p.text.split('\n').slice(-2), ['And 2 more in the full list.', 'Say yes and I draft all 5 for you to send.']);
+  // L1k-5 (v6.1.18): the more line follows the rows; the Before line follows it.
+  assert.deepEqual(p.text.split('\n').slice(-4), ['3. C, $1K.', 'And 2 more in the full list.', 'Before applying: you press submit yourself on A, B, C, D and E.', 'Say yes and I draft all 5 for you to send.']);
   assert.doesNotMatch(p.text, /not shown/);
 });
 
@@ -1533,8 +1536,8 @@ const l18Rows = () => {
   const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
   return base({ ready: [yc, alliance], gaps: ['One', 'Two', 'Three'].map((t) => gap({ title: `${t} Grant` })) });
 };
-const UGREEN = { title: 'UGREEN Hackathon 2026 on AI NAS', closes_at: plusDays(L18_NOW, 3) };
-const META_VR = { title: 'Meta VR Start Developer Competition 2026', closes_at: plusDays(L18_NOW, 6) };
+const UGREEN = { program_id: 'ugreen-hackathon-2026-on-ai-nas', title: 'UGREEN Hackathon 2026 on AI NAS', closes_at: plusDays(L18_NOW, 3) };
+const META_VR = { program_id: 'meta-vr-start-developer-competition-2026', title: 'Meta VR Start Developer Competition 2026', closes_at: plusDays(L18_NOW, 6) };
 
 test('L18-1: the more line counts the rows the rank cap hid and names what closes this week', () => {
   const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [UGREEN, META_VR] } });
@@ -1544,7 +1547,7 @@ test('L18-1: the more line counts the rows the rank cap hid and names what close
   assert.equal(lines.at(-2)!.startsWith('And 18 more'), true, text);
   assert.ok(/^(Nothing is ready yet\.|Say |Tell me )/.test(lines.at(-1)!), text);
   // The closing order is the closes_at order, whatever order they came in; never more than two are named.
-  const third = { title: 'Third Grant', closes_at: plusDays(L18_NOW, 1) };
+  const third = { program_id: 'third-grant', title: 'Third Grant', closes_at: plusDays(L18_NOW, 1) };
   assert.equal(moreInFull(5, [META_VR, UGREEN, third], L18_NOW), 'And 5 more in the full list; closing this week: Third Grant (tomorrow) and UGREEN Hackathon 2026 on AI NAS (3 days).');
   assert.equal(moreInFull(5, [UGREEN], L18_NOW), 'And 5 more in the full list; closing this week: UGREEN Hackathon 2026 on AI NAS (3 days).');
   // Words given by find (in the program's own zone) are used as given.
@@ -1617,4 +1620,48 @@ test('L18-3: Kiroween (builder submits) with three real gaps closes "Tell me whe
 test('L18-3b: the same gaps on an agent-sent program still close "Tell me when that is done and I apply."', () => {
   assert.equal(gapAction(KIRO_GAPS()), 'Tell me when that is done and I apply.');
   assert.equal(gapAction(KIRO_GAPS(), null, false), 'Tell me when that is done and I apply.');
+});
+
+// ---- v6.1.18 Task 7 (lane 1k) ----
+
+test('L1k-3: an in-person row under its heading has no in-person suffix', () => {
+  const summit = ready({ title: 'Bare Summit', money: '$5K', in_person: true, closes_in: 'in 3 days' });
+  const residency = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
+  // An in-person program one real step away sits under One step away, where only the suffix says in person.
+  const camp = gap({ title: 'Build Camp', money: '$2K', in_person: true });
+  const text = replyText(base({ ready: [MONDAY.ready[0], summit], gaps: [camp, residency] }), false, new Date(), null, { all: true });
+  const lines = text.split('\n');
+  const ip = lines.indexOf('In person (2):');
+  assert.ok(ip > 0, text);
+  assert.equal(lines[ip + 1], '3. Bare Summit, $5K, closes in 3 days.', text);
+  assert.equal(lines[ip + 2], '4. Residency, $1M.', text);
+  assert.ok(lines.includes('2. Build Camp, $2K, in person.'), text);
+  for (const l of lines.slice(ip + 1).filter((x) => /^\d+\. /.test(x))) assert.doesNotMatch(l, /in person/, l);
+});
+
+test('L1k-5: the And-more line is the line after its block; the repo note follows it', () => {
+  const rs = Array.from({ length: 5 }, (_, k) => ready({ title: `Fund ${k + 1}` }));
+  const r = base({ ready: rs, gaps: [gap({ title: 'Circle Developer Grants' })], repo_notes: ['other_host'] });
+  const lines = replyText(r, false).split('\n');
+  const more = lines.findIndex((l) => l.startsWith('And '));
+  assert.ok(more > 0, lines.join('\n'));
+  // The line before it is the last numbered row; the repo note comes after it, then the Say.
+  assert.match(lines[more - 1], /^\d+\. /, lines.join('\n'));
+  assert.equal(lines[more + 1], 'I read GitHub repos only; matched on what you told me.', lines.join('\n'));
+  assert.ok(lines.length <= 10);
+  // With hidden rank-capped rows and an applications line, the more line still follows the rows.
+  const apps = base({ ready: rs.slice(0, 1), repo_notes: ['other_host'], applications: [{ program_id: 'a', title: 'A', status: 'waiting', sent_at: '2026-11-03T10:00:00.000Z', result_at: null, amount: null }] });
+  const t = replyParts(apps, false, MON, null, { hidden: { count: 3, closing: [] } }).text.split('\n');
+  assert.deepEqual(t.slice(0, 4), ['Ready to apply (1):', t[1], 'And 3 more in the full list.', 'Your applications: A (sent Nov 3, waiting).'], t.join('\n'));
+  assert.ok(/^1\. Fund 1, /.test(t[1]), t.join('\n'));
+});
+
+test('Task 7 (Task 1 review minors): the more line drops a shown program by id, not title, and names two of what is left', () => {
+  const shown = gap({ title: 'Twin Grant', program_id: 'twin-a', closes_at: plusDays(L18_NOW, 1), closes_in: 'tomorrow' });
+  const r = base({ gaps: [shown, gap({ title: 'Two Grant' })] });
+  // A hidden program with the shown one's title but another id is still named; the shown one (by id) is not. The cut
+  // to two comes after that filter, so the shown one never takes a slot.
+  const twin = { program_id: 'twin-b', title: 'Twin Grant', closes_at: plusDays(L18_NOW, 2) };
+  const text = renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [{ program_id: 'twin-a', title: 'Twin Grant', closes_at: plusDays(L18_NOW, 1) }, twin, UGREEN, META_VR] } });
+  assert.ok(text.split('\n').includes('And 4 more in the full list; closing this week: Twin Grant (2 days) and UGREEN Hackathon 2026 on AI NAS (3 days).'), text);
 });
