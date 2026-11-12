@@ -10,7 +10,9 @@
  * sweeps and the digest always run. Every failure is in `failed: [{ id, step, error }]` (a program's id, or null for a
  * whole step; `error` one of db, fetch, timeout, budget, catalog, error by the error's class, the message only
  * in the server log); the answer is 200 with the list, 500 only when every step failed. A JSON body { job_id } is the
- * owner's trigger: that job's queue only. Bearer CRON_SECRET only (503 while it is unset).
+ * owner's trigger: that job's queue only. Bearer CRON_SECRET only (503 while it is unset). v6.1.19 (L44-3, L44-10): a
+ * run whose link check failed (it threw, or past the budget) builds no digest (`digest: 'no check'`) and stores only
+ * `cron_state.last_check_failed_at`; the next run that finishes its check mails, once.
  */
 import { sweepEvidence } from '../v6/evidence';
 import { sweepScreens } from '../v6/screen-jobs';
@@ -119,21 +121,33 @@ async function sweepAsks(now: Date): Promise<{ outcome_asks: number; sent_asks: 
  */
 async function storeLastRun(now: Date): Promise<void> {
   const dayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  // v6.1.19 (L44-3): a row with no finished run yet (only failed checks) starts its day here too.
   await sql()`INSERT INTO cron_state (id, last_run_at, day_first_at) VALUES (true, ${now}, ${now})
     ON CONFLICT (id) DO UPDATE SET
-      prev_run_at = CASE WHEN cron_state.last_run_at < ${dayStart} THEN cron_state.last_run_at ELSE cron_state.prev_run_at END,
-      day_first_at = CASE WHEN cron_state.last_run_at < ${dayStart} THEN EXCLUDED.last_run_at ELSE cron_state.day_first_at END,
+      prev_run_at = CASE WHEN COALESCE(cron_state.last_run_at < ${dayStart}, true) THEN cron_state.last_run_at ELSE cron_state.prev_run_at END,
+      day_first_at = CASE WHEN COALESCE(cron_state.last_run_at < ${dayStart}, true) THEN EXCLUDED.last_run_at ELSE cron_state.day_first_at END,
       last_run_at = GREATEST(cron_state.last_run_at, EXCLUDED.last_run_at)`;
+}
+
+/**
+ * v6.1.19 (L44-3, L44-10): a run whose link check failed stores only this time (never moved back): no `last_run_at`,
+ * no `day_first_at`, so the next run that finishes its check measures the day and mails once.
+ */
+async function storeCheckFailed(now: Date): Promise<void> {
+  await sql()`INSERT INTO cron_state (id, last_check_failed_at) VALUES (true, ${now})
+    ON CONFLICT (id) DO UPDATE SET last_check_failed_at = GREATEST(cron_state.last_check_failed_at, EXCLUDED.last_check_failed_at)`;
 }
 
 /** The last daily run that answered 200, or null before the first. */
 export async function lastRunAt(): Promise<Date | null> {
-  const [r] = await sql()<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
+  const [r] = await sql()<{ last_run_at: Date | null }[]>`SELECT last_run_at FROM cron_state WHERE id`;
   return r?.last_run_at ?? null;
 }
 
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
+  // L42-3 (v6.1.19): read trimmed, as secretMatches does, so a secret pasted with a newline works and its length rule
+  // reads the same value.
+  const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return json({ error: 'cron is not set up' }, 503);
   // L13-11 (v6.1.14): a secret under 32 characters never matches (secretMatches), so the job is not set up: 503 and
   // one ops line, never a 401 that reads like a wrong secret. The length is in the log only.
@@ -206,17 +220,22 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     }))
     : null;
 
-  // The digest names the rows the walk could not read (L30-18) and, from the stored time, a gap since the last run.
-  const digest = await step('digest', () => (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer, { unreadable: health?.unreadable ?? [] }));
+  // v6.1.19 (L44-3, L44-20): the digest is built only by a run that finished its link check, from the stored rows (the
+  // unreadable list too); a run whose check failed (it threw, or had no time to start) mails nothing and says `no check`.
+  const checked = health !== null;
+  if (!checked) console.error('[cron] the link check did not finish, so no digest; the next run that finishes it mails');
+  const digest = checked ? await step('digest', () => (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer)) : 'no check';
 
   const whole = new Set(fails.filter((f) => f.id === null).map((f) => f.step));
+  // A digest a failed check held back counts with the failed steps for the 500 rule.
+  if (!checked) whole.add('digest');
   const status = STEPS.every((s) => whole.has(s)) ? 500 : 200;
-  if (status === 200) await step('last_run', () => storeLastRun(now));
+  if (status === 200) await step('last_run', () => (checked ? storeLastRun(now) : storeCheckFailed(now)));
   // v6.1.17 L30-13: the answer says what the run did; its shape is pinned in cron.test.ts.
   return json({
     health: health && {
       checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length,
-      opened: health.opened.length, unreadable: health.unreadable.length,
+      opened: health.opened.length, unreadable: health.unreadable.length, form_unread: health.form_unread.length,
     },
     swept, screen, digest, failed: fails,
   }, status);

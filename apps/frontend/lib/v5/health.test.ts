@@ -213,11 +213,11 @@ test('L30-2: a 302 to another host stays listed and never goes stale over 20 dai
       const r = await runHealth(new Date(D1.getTime() + day * DAY), { resolve: site.resolve, transport: site.transport });
       assert.deepEqual(r.stale, [], `day ${day + 1}`);
       assert.deepEqual(r.failed, []);
-      // The link check: one request to each link, none to the redirect's target. Fix round 1 (L39-5): the closed-form
-      // read then follows the submission link on its own (the link again, then the target).
+      // The link check: one request to each link, none to the redirect's target. Fix round 1 (L39-5): the landing read
+      // then follows the submission link; v6.1.19 (L44-15) from its Location, so the link is not fetched again.
       const day_ = site.requests.slice(before);
       assert.deepEqual(day_.slice(0, 2).sort(), ['https://redir.example/apply', 'https://redir.example/grants']);
-      assert.deepEqual(day_.slice(2), ['https://redir.example/apply', 'https://docs.google.com/forms/d/e/x/viewform?usp=sf_link']);
+      assert.deepEqual(day_.slice(2), ['https://docs.google.com/forms/d/e/x/viewform?usp=sf_link']);
     }
   } finally {
     console.log = was;
@@ -413,7 +413,7 @@ test('L30-18, L35-18: a stored row whose file no longer parses, and an upcoming 
   assert.ok(logged.includes('[health] h-cat unreadable: opens today but has no submission requirements'));
 });
 
-test('L39-5 (v6.1.18): formSaysClosed reads the four closed phrases in any case; a submission page saying one is alive but submit_closed', async () => {
+test('L39-5 (v6.1.18): formSaysClosed reads the closed phrases in any case; a submission page saying one is alive but submit_closed; v6.1.19 (L44-19): a source page saying one too', async () => {
   const { formSaysClosed } = await import('./health');
   for (const t of ['Round 2 of Builder Grant Program is now closed.', 'APPLICATIONS ARE CLOSED', 'We are no longer accepting responses', 'This hackathon is Closed for Submissions.'])
     assert.equal(formSaysClosed(t), true, t);
@@ -424,17 +424,19 @@ test('L39-5 (v6.1.18): formSaysClosed reads the four closed phrases in any case;
   const h = await probeProgram(p, { link: async (u) => ({ ok: true, page: page(u) }), now: D1 });
   assert.equal(h.submit_ok, true);
   assert.equal(h.submit_closed, true);
-  // The source page saying it does not count when the form is its own link.
+  // v6.1.19 (L44-19): the source page saying it counts too when the form is its own link, and says which page.
   const h2 = await probeProgram(p, { link: async (u) => ({ ok: true, page: u.endsWith('/form') ? '<p>Apply</p>' : '<p>Round 1 is now closed.</p>' }), now: D1 });
-  assert.equal(h2.submit_closed, false);
+  assert.deepEqual([h2.submit_closed, h2.closed_on], [true, 'source']);
+  assert.equal(h.closed_on, 'form');
   // One link for both: its page is the form.
   const same = programFixture({ id: 'h-shut1', source_url: 'https://shut.example/form', submission_url: 'https://shut.example/form' });
   assert.equal((await probeProgram(same, { link: async (u) => ({ ok: true, page: page(u) }), now: D1 })).submit_closed, true);
   // Fix round 1: a redirect elsewhere is read by its own path (`landing`) and judged on the page it lands on.
   const away = { link: async (): Promise<ProbeResult> => ({ ok: true, redirect: 'docs.google.com' }), now: D1 };
-  const landed = await probeProgram(p, { ...away, landing: async () => '<div>Round 2 is now closed.</div>' });
+  const at = (page: string) => async (url: string) => ({ ok: true as const, page, url });
+  const landed = await probeProgram(p, { ...away, landing: at('<div>Round 2 is now closed.</div>') });
   assert.deepEqual([landed.submit_ok, landed.submit_closed, landed.redirects], [true, true, ['docs.google.com']]);
-  assert.equal((await probeProgram(p, { ...away, landing: async () => '<p>Apply here.</p>' })).submit_closed, false);
+  assert.equal((await probeProgram(p, { ...away, landing: at('<p>Apply here.</p>') })).submit_closed, false);
   assert.equal((await probeProgram(p, { ...away, landing: async () => null })).submit_closed, false);
   // Stored by the walk, never stale.
   await upsertProgram(p, 'file', D1);
@@ -465,21 +467,174 @@ test('L39-5 fix round 1: a forms.gle-style redirect to another host whose page s
   assert.equal((await probeProgram(formProgram('h-gle2', 'https://forms.gle/abc'), { resolve: open.resolve, transport: open.transport, now: D1 })).submit_closed, false);
 });
 
-test('L39-5 fix round 1: an http hop, a 4th redirect and a private address are not read; 3 redirects are', async () => {
+test('L39-5 fix round 1: an http hop, a 4th redirect and a private address are not read (v6.1.19 L44-16: unread; the source page, closed too here, is read); 3 redirects are', async () => {
   const run = async (hops: Record<string, string>, inside: string[] = []) => {
     const site = hopSite(hops, FORM_CLOSED, inside);
     const h = await probeProgram(formProgram('h-hops', 'https://a.example/1'), { resolve: site.resolve, transport: site.transport, now: D1 });
     return { h, site };
   };
   const http = await run({ 'https://a.example/1': 'http://b.example/form' });
-  assert.deepEqual([http.h.submit_ok, http.h.submit_closed], [true, false]);
+  assert.deepEqual([http.h.submit_ok, http.h.closed_on, http.h.form_unread], [true, 'source', true]);
   assert.ok(!http.site.requests.some((u) => u.startsWith('http:')));
   const three = await run({ 'https://a.example/1': 'https://b.example/2', 'https://b.example/2': 'https://c.example/3', 'https://c.example/3': 'https://d.example/form' });
-  assert.equal(three.h.submit_closed, true);
+  assert.equal(three.h.closed_on, 'form');
   const four = await run({ 'https://a.example/1': 'https://b.example/2', 'https://b.example/2': 'https://c.example/3', 'https://c.example/3': 'https://d.example/4', 'https://d.example/4': 'https://e.example/form' });
-  assert.equal(four.h.submit_closed, false);
+  assert.deepEqual([four.h.closed_on, four.h.form_unread], ['source', true]);
   assert.ok(!four.site.requests.includes('https://e.example/form'));
   const priv = await run({ 'https://a.example/1': 'https://inside.example/form' }, ['inside.example']);
-  assert.deepEqual([priv.h.submit_ok, priv.h.submit_closed], [true, false]);
+  assert.deepEqual([priv.h.submit_ok, priv.h.closed_on, priv.h.form_unread], [true, 'source', true]);
   assert.ok(!priv.site.requests.includes('https://inside.example/form'));
+});
+
+// v6.1.19 Task 6 (lane 44): the closed read, round 3.
+test('L44-1: the closed read flags the usual closed wordings in any case and none of the open ones', async () => {
+  const { formSaysClosed, closedRead } = await import('./health');
+  const closed = [
+    'Applications are now closed.', 'This form is closed.', 'Submissions are closed.', 'Applications closed', 'Registration is closed',
+    'The call for proposals is closed', 'Applications for Cohort 6 have closed.', 'Sorry, this form is not accepting submissions.',
+    'The application period has ended.', 'Round 2 of Builder Grant Program is now closed.', 'APPLICATIONS ARE CLOSED',
+    'We are no longer accepting responses', 'This hackathon is Closed for Submissions.', 'Entries have been closed.',
+    'The form has closed.', 'Nominations are closed.', 'This form is no longer accepting responses.', 'Submissions have now closed.',
+  ];
+  assert.equal(closed.length, 18);
+  for (const t of closed) {
+    assert.equal(formSaysClosed(t), true, t);
+    assert.equal(closedRead(`<p>${t}</p>`), 'closed', t);
+  }
+  for (const t of ['Applications are open until Dec 1.', 'Closed Grant', 'Doors closed at 5 pm', 'Applications close on Dec 1.', 'Applications will be closed after review.', '']) {
+    assert.equal(formSaysClosed(t), false, t);
+    assert.equal(closedRead(`<p>${t}</p>`), null, t);
+  }
+});
+
+test('L44-7: hidden text and the program\'s own sentences never count; a round or region closed beside an open phrase reads `round`', async () => {
+  const { closedRead } = await import('./health');
+  for (const html of [
+    '<div hidden>Applications are closed.</div><p>Apply below.</p>',
+    '<div style="color: red; display:none">Applications are closed.</div><p>Apply below.</p>',
+    '<span aria-hidden="true" class="sr-only">Applications are closed.</span><p>Apply below.</p>',
+    '<div hidden><div>inner</div>Applications are closed.</div><p>Apply below.</p>',
+    '<!-- Applications are closed. --><script>"Applications are closed."</script><template>Applications are closed.</template><noscript>Applications are closed.</noscript><p>Apply.</p>',
+  ]) assert.equal(closedRead(html), null, html);
+  // A hidden input hides nothing after it; `hidden` inside a class value is not the attribute.
+  assert.equal(closedRead('<input type="hidden" name="x"><p>Applications are closed.</p>'), 'closed');
+  assert.equal(closedRead('<p class="not-hidden">Applications are closed.</p>'), 'closed');
+  // The program's own description and rules sentences (shown on its page) are taken out first.
+  const own = ['Grants for builders. The page will say applications are closed when the round ends.', 'No longer accepting teams of more than 5 people.'];
+  assert.equal(closedRead('<p>Grants for builders. The page will say applications are closed when the round ends. No longer accepting teams of more than 5 people. Apply below.</p>', own), null);
+  assert.equal(closedRead('<p>The page will say applications are closed when the round ends.</p><p>Applications are closed.</p>', own), 'closed');
+  // A round or a region: `round` only when the page also says something is open.
+  assert.equal(closedRead('<p>Round 1 applications are closed. Round 2 is open now: apply below.</p>'), 'round');
+  assert.equal(closedRead('<p>We are no longer accepting applications from teams outside the EU. Applications are open.</p>'), 'round');
+  assert.equal(closedRead('<p>Round 1 applications are closed.</p>'), 'closed');
+  assert.equal(closedRead('<p>Round 1 applications are closed. Apply now. This form is closed.</p>'), 'closed');
+});
+
+/** A site whose URLs answer as `pages` says: a string is a 200 HTML page, a number that status, `{ to }` a 302. */
+function mapSite(pages: Record<string, string | number | { to: string }>) {
+  return cimdFixture((u) => {
+    const p = pages[u.href];
+    if (p === undefined) return { status: 404, contentType: 'text/html', body: '' };
+    if (typeof p === 'number') return { status: p, contentType: 'text/html', body: '' };
+    if (typeof p === 'object') return { status: 302, location: p.to, body: '' };
+    return { status: 200, contentType: 'text/html', body: p };
+  });
+}
+
+test('L44-4, L44-15: a link redirected to another host is judged on its landing page, each hop fetched once; a 404 landing is down and goes stale at 20 hours', async () => {
+  const p = programFixture({ id: 'h-land', source_url: 'https://about.example/grants', submission_url: 'https://forms.gle/q' });
+  const up = mapSite({ 'https://about.example/grants': '<p>About</p>', 'https://forms.gle/q': { to: 'https://docs.google.com/forms/d/q/viewform' }, 'https://docs.google.com/forms/d/q/viewform': '<p>Apply here.</p>' });
+  const h = await probeProgram(p, { resolve: up.resolve, transport: up.transport, now: D1 });
+  assert.deepEqual([h.submit_ok, h.submit_closed, h.form_unread, h.redirects], [true, false, false, ['docs.google.com']]);
+  assert.deepEqual(up.requests.filter((u) => u.startsWith('https://forms.gle')), ['https://forms.gle/q']);
+  assert.deepEqual(up.requests.filter((u) => u.startsWith('https://docs.google.com')), ['https://docs.google.com/forms/d/q/viewform']);
+  // The landing answers 404, 410, 500 or shows an error page: down. A 403 wall is up.
+  for (const [land, ok] of [[404, false], [410, false], [500, false], ['<html><title>Page not found</title></html>', false], [403, true]] as const) {
+    const site = mapSite({ 'https://about.example/grants': '<p>About</p>', 'https://forms.gle/q': { to: 'https://docs.google.com/x' }, 'https://docs.google.com/x': land });
+    assert.equal((await probeProgram(p, { resolve: site.resolve, transport: site.transport, now: D1 })).submit_ok, ok, String(land));
+  }
+  // Through the walk: failing from D1, stale 20 hours on, as a direct link is.
+  const dead = mapSite({ 'https://about.example/grants': '<p>About</p>', 'https://forms.gle/q': { to: 'https://docs.google.com/x' } });
+  await upsertProgram(p, 'file', D1);
+  await only('h-land');
+  await runHealth(D1, { resolve: dead.resolve, transport: dead.transport });
+  assert.equal((await row('h-land')).submit_ok, false);
+  const r = await runHealth(new Date(D1.getTime() + STALE_AFTER_MS), { resolve: dead.resolve, transport: dead.transport });
+  assert.deepEqual(r.stale, ['h-land']);
+});
+
+test('L44-4: a source page behind a cross-host redirect gives the page text (so a change shows) and is down when it lands on a 404', async () => {
+  const p = programFixture({ id: 'h-srcr', source_url: 'https://old.example/grants', submission_url: 'https://form.example/apply' });
+  const site = (page: string | number) => mapSite({ 'https://old.example/grants': { to: 'https://new.example/grants' }, 'https://new.example/grants': page, 'https://form.example/apply': '<p>Apply</p>' });
+  const one = site('<p>Grants for open source builders up to five thousand dollars each quarter</p>');
+  const h = await probeProgram(p, { resolve: one.resolve, transport: one.transport, now: D1 });
+  assert.equal(h.source_ok, true);
+  assert.equal(h.body_text, 'grants for open source builders up to five thousand dollars each quarter');
+  const two = site('<p>The program has ended; thank you to every team that took part this year</p>');
+  assert.equal((await probeProgram(p, { resolve: two.resolve, transport: two.transport, now: D1, prevText: h.body_text })).changed, true);
+  const gone = site(404);
+  assert.deepEqual(Object.values(await probeProgram(p, { resolve: gone.resolve, transport: gone.transport, now: D1 })).slice(0, 2), [false, true]);
+});
+
+test('L44-16: a form whose landing the guarded read refuses is up, unread, counted and named in the log', async () => {
+  const p = programFixture({ id: 'h-unread', source_url: 'https://about.example/grants', submission_url: 'https://a.example/1' });
+  const site = mapSite({ 'https://about.example/grants': '<p>About</p>', 'https://a.example/1': { to: 'http://b.example/form' } });
+  const h = await probeProgram(p, { resolve: site.resolve, transport: site.transport, now: D1 });
+  assert.deepEqual([h.submit_ok, h.submit_closed, h.form_unread], [true, false, true]);
+  await upsertProgram(p, 'file', D1);
+  await only('h-unread');
+  const logged: string[] = [];
+  const was = console.log;
+  console.log = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
+  let r;
+  try {
+    r = await runHealth(D1, { resolve: site.resolve, transport: site.transport });
+  } finally {
+    console.log = was;
+  }
+  assert.deepEqual(r.form_unread, ['h-unread']);
+  assert.ok(logged.includes('[health] h-unread form not read past its redirect'), logged.join('\n'));
+});
+
+test('L44-8: closed_since keeps the day the page first said it; a change of what it says starts it again; open clears it', async () => {
+  const p = programFixture({ id: 'h-since', source_url: 'https://since.example/a', submission_url: 'https://since.example/form' });
+  await upsertProgram(p, 'file', D1);
+  await only('h-since');
+  const says = (form: string) => links('<p>About</p>', { 'https://since.example/form': { ok: true, page: form } });
+  await runHealth(D1, { link: says('<p>Applications are closed.</p>') });
+  await runHealth(D2, { link: says('<p>Applications are closed.</p>') });
+  let h = await row('h-since');
+  assert.deepEqual([h.submit_closed, h.closed_round, h.closed_on, h.closed_since], [true, false, 'form', D1]);
+  await runHealth(D3, { link: says('<p>Round 1 applications are closed. Round 2 is open now.</p>') });
+  h = await row('h-since');
+  assert.deepEqual([h.submit_closed, h.closed_round, h.closed_since], [false, true, D3]);
+  await runHealth(new Date(D3.getTime() + DAY), { link: says('<p>Apply</p>') });
+  h = await row('h-since');
+  assert.deepEqual([h.submit_closed, h.closed_round, h.closed_on, h.closed_since], [false, false, null, null]);
+});
+
+// v6.1.19 Task 6 fix round 1.
+test('fix round 1 (M2): a `>` inside a quoted attribute value does not end the tag, so a later `hidden` still hides', async () => {
+  const { closedRead } = await import('./health');
+  assert.equal(closedRead('<div data-x="a>b" hidden>Applications are closed.</div><p>Apply below.</p>'), null);
+  assert.equal(closedRead("<div title='x>y' aria-hidden=\"true\"><div>in</div>This form is closed.</div><p>Apply.</p>"), null);
+  assert.equal(closedRead('<div data-x="a>b">Applications are closed.</div>'), 'closed');
+});
+
+test('fix round 1 (M1): a run where the form or the page could not be read keeps the closed state and closed_since', async () => {
+  const p = programFixture({ id: 'h-flap', source_url: 'https://flap.example/a', submission_url: 'https://flap.example/form' });
+  await upsertProgram(p, 'file', D1);
+  await only('h-flap');
+  const says = (form: ProbeResult) => links('<p>About</p>', { 'https://flap.example/form': form });
+  await runHealth(D1, { link: says({ ok: true, page: '<p>Round 1 applications are closed. Round 2 is open now.</p>' }) });
+  await runHealth(D2, { link: says({ ok: false, why: '5xx' }) });
+  let h = await row('h-flap');
+  assert.deepEqual([h.submit_ok, h.closed_round, h.closed_on, h.closed_since], [false, true, 'form', D1]);
+  await runHealth(D3, { link: says({ ok: true, page: '<p>Round 1 applications are closed. Round 2 is open now.</p>' }) });
+  h = await row('h-flap');
+  assert.deepEqual([h.closed_round, h.closed_since], [true, D1]);
+  // A page read that says nothing closed still clears it.
+  await runHealth(new Date(D3.getTime() + DAY), { link: says({ ok: true, page: '<p>Apply</p>' }) });
+  h = await row('h-flap');
+  assert.deepEqual([h.closed_round, h.closed_on, h.closed_since], [false, null, null]);
 });

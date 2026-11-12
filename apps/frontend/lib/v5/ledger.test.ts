@@ -847,3 +847,36 @@ test('L18-4 fix round 1: askSent with a project lists that project\'s started ro
   await markSentAsked(i, o(i), ['l-sp-a'], NOW);
   assert.deepEqual(ids(await sentAsksOpen(i, due, NOW)), ['l-sp-none']);
 });
+
+test('L42-6: a result keeps sent_by_installation_id and sent_at', async () => {
+  // Two agents of one builder: one sends, the other records the result.
+  const [bl] = await sql()<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918421, 'l42-ledger') RETURNING id`;
+  const a = await install();
+  const b = await install();
+  await sql()`UPDATE installations SET builder_id = ${bl.id} WHERE id IN (${a}, ${b})`;
+  const owner = `b:${bl.id}`;
+  await prog('l42-keep');
+  const sentAt = new Date(NOW.getTime() - 3 * DAY);
+  assert.equal((await record(owner, 'l42-keep', 'applied', { installationId: a, now: sentAt })).ok, true);
+  const read = async () => (await sql()<{ installation_id: number; sent_by_installation_id: string | null; sent_at: Date | null; status: string }[]>`
+    SELECT installation_id, sent_by_installation_id, sent_at, status FROM applications WHERE owner = ${owner} AND program_id = 'l42-keep'`)[0];
+  assert.equal(Number((await read()).sent_by_installation_id), a);
+  // Another installation records the result, then corrects it: the send's installation and time stay.
+  assert.equal((await record(owner, 'l42-keep', 'won', { installationId: b, amount_usd: 100, now: NOW })).ok, true);
+  let r = await read();
+  assert.equal(r.installation_id, b, 'installation_id is the last toucher');
+  assert.equal(Number(r.sent_by_installation_id), a);
+  assert.equal(r.sent_at?.toISOString(), sentAt.toISOString());
+  assert.equal((await record(owner, 'l42-keep', 'rejected', { installationId: b, now: new Date(NOW.getTime() + DAY) })).ok, true);
+  r = await read();
+  assert.equal(r.status, 'rejected');
+  assert.equal(Number(r.sent_by_installation_id), a);
+  assert.equal(r.sent_at?.toISOString(), sentAt.toISOString());
+  // An outside win names the installation that recorded it as the send's.
+  await prog('l42-out');
+  assert.equal((await record(owner, 'l42-out', 'won', { installationId: b, amount_usd: 50, outsideWin: true, now: NOW })).ok, true);
+  const [w] = await sql()<{ sent_by_installation_id: string | null; sent_at: Date | null }[]>`
+    SELECT sent_by_installation_id, sent_at FROM applications WHERE owner = ${owner} AND program_id = 'l42-out'`;
+  assert.equal(Number(w.sent_by_installation_id), b);
+  assert.equal(w.sent_at, null);
+});

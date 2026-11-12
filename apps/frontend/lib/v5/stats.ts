@@ -9,7 +9,7 @@ import { listOpenPrograms, type ProgramRow } from './programs';
 
 export const STATS_KEYS = [
   'programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit',
-  'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'read_at',
+  'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at',
 ] as const;
 /**
  * L22-1 (v6.1.16): `won_usd` is the US dollar part of the wins only; `won_other` sums each other currency (never
@@ -24,9 +24,14 @@ export const STATS_KEYS = [
  * a builder's that an EarnKit start preceded, `throughEarnkit`), all time; `read_at` is the read's `now` (the clock
  * passed in; the route caches the read for 10 minutes).
  */
-export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other' | 'last_run_at' | 'read_at'>, number> & {
+/**
+ * v6.1.19 (L44-10): `last_check_ok` is false when the latest run's link check failed (after the last run that finished
+ * it); `last_run_at` stays the last run that finished its check.
+ */
+export type Stats = Record<Exclude<(typeof STATS_KEYS)[number], 'won_other' | 'last_run_at' | 'last_check_ok' | 'read_at'>, number> & {
   won_other: { currency: string; amount: number }[];
   last_run_at: string | null;
+  last_check_ok: boolean;
   read_at: string;
 };
 
@@ -50,17 +55,25 @@ export const SENT = ['applied', 'won', 'rejected', 'no_result'];
 type Sql = ReturnType<typeof sql>;
 
 /**
+ * v6.1.19 Task 1 (L42-1, L42-2): SQL over `applications a`: when the send was made. `sent_at` when kept; else an agent's
+ * row (`submitted_by` 'agent' or null, from before v6.1.9) reads its own `at`, as `applicationsOf` does; a builder's row
+ * with no send time (a send made outside EarnKit, recorded with its win) has none: null. A result never moves it.
+ */
+export const sendTime = (db: Sql) => db`CASE WHEN a.sent_at IS NOT NULL THEN a.sent_at WHEN COALESCE(a.submitted_by, 'agent') = 'agent' THEN a.at END`;
+
+/**
  * v6.1.18 Task 5 (L36-3): SQL over `applications a`: the send went through EarnKit. An agent sent it (`submitted_by`
- * null is the agent's, as track.ts's L29-23 reads it), or an EarnKit
- * start (a claim or a hold in `application_history`, same owner, program and project) came before its send time.
+ * null is the agent's, as track.ts's L29-23 reads it), or an EarnKit start (a claim in `application_history`, same
+ * owner, program and project) came before its send time. v6.1.19 (L42-5): a hold is not an EarnKit start; a builder's
+ * send after a hold is reported.
  */
 export const throughEarnkit = (db: Sql) => db`(COALESCE(a.submitted_by, 'agent') = 'agent' OR EXISTS (
   SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id
-    AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status IN ('started', 'held') AND h.at < COALESCE(a.sent_at, a.at)))`;
+    AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'started' AND h.at < COALESCE(a.sent_at, a.at)))`;
 
-/** Every send (applied or any result) with its send time (`sent_at`, else `at`) and `through` (throughEarnkit). */
+/** Every send (applied or any result) with its send time (`sendTime`, null for an undated one) and `through` (throughEarnkit). */
 export const sendRows = (db: Sql) => db`
-  SELECT a.program_id, a.title, a.submitted_by, a.auto_applied, COALESCE(a.sent_at, a.at) AS sent_time, ${throughEarnkit(db)} AS through
+  SELECT a.program_id, a.title, a.submitted_by, a.auto_applied, ${sendTime(db)} AS sent_time, ${throughEarnkit(db)} AS through
   FROM applications a WHERE a.status = ANY(${SENT})`;
 
 /**
@@ -90,19 +103,22 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
       FROM installations`,
     // L28-2 (v6.1.16 Task 14): a win counts once per repo (its GitHub id when known, fix round 1 M2, else its key) and program (its earliest win row), plus once per row
     // with no repo key; `counted` marks those rows.
-    db<{ sent: string; sent_week: string; won: string; won_usd: string | null; won_none: string }[]>`
+    db<{ sent: string; won: string; won_usd: string | null; won_none: string }[]>`
       WITH a AS (${wonOnce(db)})
       SELECT count(*) FILTER (WHERE status = ANY(${SENT})) AS sent,
-             count(*) FILTER (WHERE status = ANY(${SENT}) AND at >= ${week}) AS sent_week,
              count(*) FILTER (WHERE status = 'won' AND counted) AS won,
              sum(COALESCE((amounts->>'USD')::numeric, CASE WHEN amounts IS NULL THEN amount_usd END)) FILTER (WHERE status = 'won' AND counted) AS won_usd,
              count(*) FILTER (WHERE status = 'won' AND counted AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none
       FROM a`,
-    db<{ via: string }[]>`
+    // L42-1 (v6.1.19): the week counts sends by their send time, so a result today on an older send moves nothing,
+    // and an undated send (outside EarnKit) is in no week.
+    db<{ via: string; sent_week: string }[]>`
       WITH s AS (${sendRows(db)})
-      SELECT count(*) FILTER (WHERE COALESCE(submitted_by, 'agent') = 'agent' OR (submitted_by = 'builder' AND through)) AS via FROM s`,
+      SELECT count(*) FILTER (WHERE COALESCE(submitted_by, 'agent') = 'agent' OR (submitted_by = 'builder' AND through)) AS via,
+             count(*) FILTER (WHERE sent_time >= ${week}) AS sent_week FROM s`,
   ]);
-  const [run] = await db<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
+  const [run] = await db<{ last_run_at: Date | null; last_check_failed_at: Date | null }[]>`SELECT last_run_at, last_check_failed_at FROM cron_state WHERE id`;
+  const failedAt = run?.last_check_failed_at ?? null;
   const other = await db<{ currency: string; amount: string }[]>`
     WITH w AS (${wonOnce(db)})
     SELECT e.key AS currency, sum(e.value::numeric) AS amount FROM w a, jsonb_each_text(a.amounts) e
@@ -114,13 +130,14 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     installs_active_7d: Number(i.active),
     finds_7d: Number(i.finds),
     applications: Number(a.sent),
-    applications_7d: Number(a.sent_week),
+    applications_7d: Number(v.sent_week),
     applications_via_earnkit: Number(v.via),
     won: Number(a.won),
     won_usd: Number(a.won_usd ?? 0),
     won_other: other.map((r) => ({ currency: r.currency, amount: Number(r.amount) })),
     won_without_amount: Number(a.won_none),
-    last_run_at: run?.last_run_at.toISOString() ?? null,
+    last_run_at: run?.last_run_at?.toISOString() ?? null,
+    last_check_ok: !failedAt || (run?.last_run_at != null && run.last_run_at > failedAt),
     read_at: now.toISOString(),
   };
 }

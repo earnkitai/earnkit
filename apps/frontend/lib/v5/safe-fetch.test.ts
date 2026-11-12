@@ -1,6 +1,6 @@
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSON_MAX_BYTES, probeLink, RedirectError, SafeFetchError, safeFetchJson, safeProbePage } from './safe-fetch';
+import { JSON_MAX_BYTES, landingPage, LANDING_MAX_REDIRECTS, probeLink, RedirectError, SafeFetchError, safeFetchJson, safeProbePage } from './safe-fetch';
 import { cimdFixture } from './fixtures/cimd';
 
 const URL_ = 'https://client.example/cimd.json';
@@ -74,7 +74,8 @@ const site = (answer: Parameters<typeof cimdFixture>[0]) => cimdFixture(answer);
 test('probeLink: a 302 to another host is alive with that host and is never requested; safeProbePage (the builder live-link reader) still refuses it', async () => {
   for (const status of [301, 302, 303, 307, 308]) {
     const f = site({ status, location: 'https://docs.google.com/forms/d/x/viewform?usp=sf_link', body: '' });
-    assert.deepEqual(await probeLink('https://forms.example/apply', f), { ok: true, redirect: 'docs.google.com' }, String(status));
+    // v6.1.19 (L44-15): with its Location and the redirects taken, for the landing read to start there.
+    assert.deepEqual(await probeLink('https://forms.example/apply', f), { ok: true, redirect: 'docs.google.com', location: 'https://docs.google.com/forms/d/x/viewform?usp=sf_link', hops: 1 }, String(status));
     assert.deepEqual(f.requests, ['https://forms.example/apply']);
   }
   const f = site({ status: 302, location: 'https://docs.google.com/forms', body: '' });
@@ -90,7 +91,7 @@ test('probeLink: a same-site redirect is followed once and its page read; a 3xx 
   assert.deepEqual(hop.requests, ['https://grants.example/old', 'https://www.grants.example/new']);
   assert.deepEqual(await probeLink('https://grants.example/x', site({ status: 302, body: '' })), { ok: true });
   const twice = site((u) => (u.pathname === '/a' ? { status: 302, location: '/b', body: '' } : { status: 302, location: 'https://login.other.example/', body: '' }));
-  assert.deepEqual(await probeLink('https://grants.example/a', twice), { ok: true, redirect: 'login.other.example' });
+  assert.deepEqual(await probeLink('https://grants.example/a', twice), { ok: true, redirect: 'login.other.example', location: 'https://login.other.example/', hops: 2 });
   assert.equal(twice.requests.length, 2);
 });
 
@@ -126,4 +127,33 @@ test('probeLink: a 200 page saying the domain is for sale, or that the page coul
   const titled = site({ status: 200, contentType: 'text/html', body: '<html><title>example-grants.com is for sale</title><p>Hello.</p></html>' });
   assert.deepEqual(await probeLink('https://example-grants.com/', titled), { ok: false, why: '4xx' });
   assert.equal((await probeLink('https://grants.example/', site({ status: 200, contentType: 'text/html', body: PAGE }))).ok, true);
+});
+
+test('L44-4, L44-15 (v6.1.19): landingPage starts at the Location with the hops already taken, and says a 4xx, 5xx, error page or no address landing is down', async () => {
+  const at = (pages: Record<string, number | string | { to: string }>) => site((u) => {
+    const p = pages[u.href];
+    if (typeof p === 'number') return { status: p, body: '' };
+    if (typeof p === 'object') return { status: 302, location: p.to, body: '' };
+    return { status: 200, contentType: 'text/html', body: p ?? '' };
+  });
+  assert.equal(LANDING_MAX_REDIRECTS, 3);
+  const ok = at({ 'https://docs.example/f': PAGE });
+  assert.deepEqual(await landingPage('https://docs.example/f', { ...ok, hops: 1 }), { ok: true, page: PAGE, url: 'https://docs.example/f' });
+  assert.deepEqual(ok.requests, ['https://docs.example/f']);
+  for (const [status, why] of [[404, '4xx'], [410, '4xx'], [500, '5xx']] as const)
+    assert.deepEqual(await landingPage('https://docs.example/f', at({ 'https://docs.example/f': status })), { ok: false, why, url: 'https://docs.example/f' });
+  assert.deepEqual(await landingPage('https://docs.example/f', at({ 'https://docs.example/f': '<html><title>Page not found</title></html>' })), { ok: false, why: '4xx', url: 'https://docs.example/f' });
+  assert.deepEqual(await landingPage('https://docs.example/f', { ...ok, resolve: async () => [] }), { ok: false, why: 'dns', url: 'https://docs.example/f' });
+  assert.deepEqual(await landingPage('https://docs.example/f', at({ 'https://docs.example/f': 403 })), { ok: true, page: '', url: 'https://docs.example/f' });
+  // Two hops taken already: one more redirect is followed, a second is not.
+  const chain = at({ 'https://b.example/2': { to: 'https://c.example/3' }, 'https://c.example/3': { to: 'https://d.example/4' }, 'https://d.example/4': PAGE });
+  assert.equal(await landingPage('https://b.example/2', { ...chain, hops: 2 }), null);
+  assert.equal((await landingPage('https://b.example/2', { ...chain, hops: 1 }))?.ok, true);
+  // Every hop is guarded: http, a private address, a port: not read, nothing requested past the refusal.
+  const http = at({ 'https://a.example/1': { to: 'http://b.example/x' } });
+  assert.equal(await landingPage('https://a.example/1', http), null);
+  assert.deepEqual(http.requests, ['https://a.example/1']);
+  const inside = { ...ok, resolve: async () => [{ address: '10.0.0.5', family: 4 as const }] };
+  assert.equal(await landingPage('https://docs.example/f', inside), null);
+  assert.equal(await landingPage('https://docs.example:8443/f', ok), null);
 });
