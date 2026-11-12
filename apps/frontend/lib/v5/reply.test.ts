@@ -2001,6 +2001,17 @@ test('L41-11 (v6.1.19): every sent question in a reply is one line; a released r
   assert.equal(replyParts({ ...base({}), ask_sent: five.slice(0, 2) }, false, NOW).offer, null);
 });
 
+test('fix round 1 (v6.1.19 Task 3, M2): sentAskOf names exactly the programs the one question names, never by a title inside another', async () => {
+  const { sentAskOf } = await import('./reply');
+  const ask = (id: string, title: string) => ({ program_id: id, title, started_at: '2026-11-12T10:00:00.000Z', project_id: null, project: null });
+  const r = { ask_sent: [ask('a', 'Kiroween 2026'), ask('b', 'Codegeist'), ask('c', 'QNX Jam'), ask('d', 'Kiroween')], released: [], not_sent: undefined };
+  const got = sentAskOf(r);
+  assert.equal(got.question, 'Did you send Kiroween 2026, Codegeist, QNX Jam and 1 more?');
+  // "Kiroween" sits inside "Kiroween 2026" but is counted, not named: it is not marked.
+  assert.deepEqual(got.named, ['a', 'b', 'c']);
+  assert.deepEqual(sentAskOf({ ask_sent: [], released: [], not_sent: undefined }), { question: null, named: [] });
+});
+
 test('L36-2: a builder-sent claim past 24 hours asks instead of saying nothing sent; its agent note is the sent note', () => {
   const NOW = new Date('2026-11-12T12:00:00Z');
   const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });

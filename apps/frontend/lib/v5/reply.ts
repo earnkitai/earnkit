@@ -867,6 +867,13 @@ export const sentTitles = (r: Pick<R, 'ask_sent'> & { released?: R['released'] }
 export function sentQuestion(titles: string[]): string | null {
   return titles.length === 0 ? null : `Did you send ${listWords(titles)}?`;
 }
+/** Fix round 1 (v6.1.19 Task 3): the one sent question a reply asks and the programs it names (three at most, the rest
+ *  counted), as `replyText` builds it, so find marks exactly the named ones. Pure. */
+export function sentAskOf(r: Pick<R, 'ask_sent' | 'released' | 'not_sent'>): { question: string | null; named: string[] } {
+  const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
+  const items = [...(r.ask_sent ?? []), ...r.released.filter((p) => p.ask && !notSentIds.has(p.program_id))];
+  return { question: sentQuestion(items.map((x) => x.title)), named: items.slice(0, 3).map((x) => x.program_id) };
+}
 /** L41-11 (v6.1.19): the sent question's Say for this many forms. Pure. */
 export const sentSay = (n: number): string => (n === 1 ? SENT_SAY : SENT_MANY_SAY);
 /** L18-4, L36-1 (v6.1.18 Task 4); L41-11 (v6.1.19): one line for every sent question in the reply:

@@ -430,9 +430,10 @@ test('find with program_id: a closed program is closed, an upcoming one not open
     const show = r.reply!.show_to_builder as string;
     // Low 20 (v6.1.13): closed is said once and no rules are listed, with a project or without. L1l-8 (v6.1.19): it
     // ends on the reopen line.
-    assert.match(show, /^(Shut|Past) Grants, [^\n]*\.\nIt is closed; say its name again when it reopens, or tell me about your project and I find what is open\.$/, show);
+    // Fix round 1 (M3): with a project, the way on never asks for the project.
+    assert.match(show, /^(Shut|Past) Grants, [^\n]*\.\nIt is closed; say its name again when it reopens, or ask me what is open for this project\.$/, show);
     const bare = (await mcpCall(ctx(id), 'find', { program_id: pid })).reply!.show_to_builder as string;
-    assert.equal(bare, show);
+    assert.equal(bare, show.replace('ask me what is open for this project.', 'tell me about your project and I find what is open.'));
     assert.doesNotMatch(show, /draft|Apply at|https?:/);
     // With a project the rules list waits to be asked for (v6.1.8, 1b).
     assert.doesNotMatch(show, /^Rules:/m);
@@ -470,8 +471,9 @@ test('I1 (v6.1.15 fix round 1): a public GitLab repo with users is the builder\'
   const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project });
   const show = r.reply!.show_to_builder as string;
   assert.notEqual((r.reply!.verdict as { status: string }).status, 'no', show);
-  // L1l-6 (v6.1.19): a GitHub sign-in cannot show a GitLab repo is theirs; it checks their users.
-  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Sign in so I can check your users, then say yes and I apply to FLOSS/fund.'].join('\n'));
+  // L1l-6 (v6.1.19): a GitHub sign-in cannot show a GitLab repo is theirs; it checks their users. Fix round 1 (I1): and
+  // the yes drafts for the builder to send, never "I apply".
+  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Sign in so I can check your users, then say yes and I draft it for you to send.'].join('\n'));
   // The project reply: the host said once, and nothing says the code is missing.
   const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
   const text = listText(all.reply!);
@@ -486,12 +488,29 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   assert.equal(signInFirst('https://earnkit.com/link/x', 'Say yes and I apply to FLOSS/fund.'), 'Sign in at https://earnkit.com/link/x so I know the repo is yours, then say yes and I apply to FLOSS/fund.');
   // A reply gated twice keeps one sign-in, either reason.
   assert.equal(signInFirst(null, 'Sign in so I can check your users, then say yes and I apply.'), 'Sign in so I know the repo is yours, then say yes and I apply.');
-  // The find gate: Codeberg reads the same, and the apply is never offered before the sign-in.
+  // The find gate: Codeberg reads the same; fix round 1 (I1): the yes drafts, never an apply on a repo sign-in cannot confirm.
   const project = { name: 'Berg', description: 'A note-taking CLI.', repo_url: 'https://codeberg.org/acme/berg', users: true };
-  const show = (await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project })).reply!.show_to_builder as string;
-  assert.equal(show.split('\n').at(-1), 'Sign in so I can check your users, then say yes and I apply to FLOSS/fund.');
+  const one = (await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project })).reply!;
+  const show = one.show_to_builder as string;
+  assert.equal(show.split('\n').at(-1), 'Sign in so I can check your users, then say yes and I draft it for you to send.');
   assert.equal(show.split('Sign in').length, 2, show);
-  assert.doesNotMatch(show, /repo is yours/);
+  assert.doesNotMatch(show, /repo is yours|I apply\b/);
+  assert.match(one.agent_note as string, /On the builder's yes, fill the form of program_id floss-fund-zerodha from its fields for the builder to send; do not call track started with this repo\. Once they say it is sent, call track applied with submitted_by builder\./);
+  // The list: the ready heading says the builder sends, within 10 lines.
+  const list = (await mcpCall(ctx(await installation()), 'find', { project })).reply!.show_to_builder as string;
+  assert.ok(list.split('\n').length <= 10, list);
+  assert.doesNotMatch(list, /Ready to apply|I apply\b/, list);
+  assert.match(list, /^Ready for you to send \(\d+\):$/m, list);
+  assert.match(list.split('\n').at(-1)!, /^Sign in so I can check your users, then say yes and I draft .+ for you to send\.$/);
+  // Signed in, then found again: still no apply offer; the reply says to send it, within 10 lines.
+  const { id, builderId } = await linkedWith({});
+  const again = (await mcpCall({ ...ctx(id), builderId }, 'find', { project })).reply!;
+  const text = again.show_to_builder as string;
+  assert.ok(text.split('\n').length <= 10, text);
+  assert.doesNotMatch(text, /Ready to apply|Say yes and I apply|then apply\b/, text);
+  assert.match(text, /^Ready for you to send \(\d+\):$/m, text);
+  assert.equal(text.split('\n').at(-1), 'I could not read codeberg.org/acme/berg, so I cannot check it is yours. Send it yourself and tell me when it is in.');
+  assert.match(again.agent_note as string, /do not call track started with this repo/);
 });
 
 test('L1g-7 (v6.1.15): a contract reported on a testnet only is asked onto that chain\'s mainnet (persona 26)', async () => {
@@ -2638,6 +2657,14 @@ test('L41-4 (v6.1.19): a demo link given once clears the gap on the next find wi
     assert.doesNotMatch(later.show_to_builder as string, /a demo video link/, later.show_to_builder as string);
     const field = (later.fields as { key: string; value: string | null; from: string }[]).find((f) => f.key === 'demo_video')!;
     assert.equal(field.value, 'https://l414.example/demo');
+    // Fix round 1 (M7): "none" (or an empty value) clears the kept link; the gap is back, and stays back.
+    for (const cleared of ['none', '']) {
+      await one({ ...project, demo_url: 'https://l414.example/demo' });
+      const gone = await one({ ...project, demo_url: cleared });
+      assert.match(gone.show_to_builder as string, /a demo video link/, cleared);
+      assert.ok(!((gone.problems as string[] | undefined) ?? []).some((x) => x.startsWith('demo_url')), cleared);
+      assert.match((await one(project)).show_to_builder as string, /a demo video link/, cleared);
+    }
     // The record's project demo link, with no report yet.
     const { id, builderId } = await linkedWith({ projects: [{ id: 'l414r', name: 'L414 Rec', demo_url: 'https://l414.example/rec' }] });
     const rec = await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'l414-demo', project: { name: 'L414 Rec', description: 'An app.' } });
@@ -3189,7 +3216,7 @@ test('Review Focus 12 (v6.1.16, L23-2): a program past ends_at reads closed on f
     // Find: one line, closed, no yes.
     const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'tt-past', project: PROJECT });
     // L1l-8 (v6.1.19): a closed lookup ends on the reopen line; closed is said once.
-    assert.equal(one.reply!.show_to_builder, 'Past Grant, up to $5,000.\nIt is closed; say its name again when it reopens, or tell me about your project and I find what is open.');
+    assert.equal(one.reply!.show_to_builder, 'Past Grant, up to $5,000.\nIt is closed; say its name again when it reopens, or ask me what is open for this project.');
     // The tile, fresh and from a cache made before the close.
     const row = (await getProgram('tt-past'))!;
     assert.equal(landingTiles([row], NOW)[0].when, 'Closed');
@@ -3818,14 +3845,53 @@ test('L41-8 (v6.1.19): a repo not shown to be theirs heads "Ready for you to sen
   const c = { ...ctx(id), builderId, evidence: LIVE };
   await mcpCall(c, 'find', { project: PROJECT });
   await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{contributors}', '["someone"]'::jsonb) WHERE repo = ${rec.repo.toLowerCase()}`;
-  const told = (await mcpCall(c, 'find', { project: PROJECT })).reply!.show_to_builder as string;
+  const reply = (await mcpCall(c, 'find', { project: PROJECT })).reply!;
+  const told = reply.show_to_builder as string;
   const lines = told.split('\n');
+  const readyRows = [...(reply.ready as { program_id: string; n: number; title: string }[])].sort((a, b) => a.n - b.n);
+  const first = readyRows[0];
   assert.equal(lines[0], 'This repo is not yours; I apply only with repos you commit to.');
   assert.match(told, /^Ready for you to send \(\d+\):$/m, told);
   assert.doesNotMatch(told, /Ready to apply|I apply\b(?! only)/, told);
-  assert.equal(lines.at(-1), 'Say yes and I draft it for you to send.');
+  // Fix round 1 (I2): one ready reads "it"; several name the first.
+  assert.equal(lines.at(-1), readyRows.length > 1 ? `Say yes and I draft ${first.title} for you to send.` : 'Say yes and I draft it for you to send.');
   assert.equal(told.match(/\bSay\b/g)?.length, 1, told);
   assert.ok(lines.length <= 10, told);
+  // Fix round 1 (I2): the agent hears the way through the yes, and the builder's send is recorded, never refused.
+  assert.ok((reply.agent_note as string).includes(`On the builder's yes, fill the form of program_id ${first.program_id} from its fields for the builder to send; do not call track started with this repo. Once they say it is sent, call track applied with submitted_by builder.`), reply.agent_note as string);
+  const sent = await mcpCall(c, 'track', { program_id: first.program_id, status: 'applied', submitted_by: 'builder', project: PROJECT });
+  assert.equal(sent.isError, false, sent.text);
+  assert.doesNotMatch(sent.reply!.show_to_builder as string, /not yours/);
+  assert.match(sent.reply!.show_to_builder as string, new RegExp(`^Sent ${first.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  // Several ready: the yes names the one it drafts, the first by its number.
+  const { draftTarget, draftToSend } = await import('./find');
+  const two = { ready: [{ program_id: 'b', n: 2, title: 'Beta Grant' }, { program_id: 'a', n: 1, title: 'Alpha Grant' }] } as never;
+  assert.deepEqual(draftTarget(two), { id: 'a', named: 'Alpha Grant' });
+  assert.equal(draftToSend('Alpha Grant'), 'Say yes and I draft Alpha Grant for you to send.');
+  assert.deepEqual(draftTarget({ ready: [{ program_id: 'a', n: 1, title: 'Alpha Grant' }] } as never), { id: 'a', named: null });
+});
+
+test('fix round 1 (v6.1.19 Task 3, M5): the no-project closing with several asks, and the sent ask when nothing is open', async () => {
+  const { openListLines } = await import('./find');
+  const ask = 'Tell me which project and I match it.';
+  assert.deepEqual(openListLines(['Open now:'], 'Did you send A (x)?', 1, ask, true), ['Open now:', 'Did you send A (x)?', 'Say sent, or tell me which project and I match it.']);
+  assert.deepEqual(openListLines(['Open now:'], 'Did you send A (x) and B (y)?', 2, ask, true), ['Open now:', 'Did you send A (x) and B (y)?', 'Say which you sent, or tell me which project and I match it.']);
+  const none = 'Nothing is open right now. Ask again any time and I show what is new.';
+  const lines = openListLines([], 'Did you send A (x) and B (y)?', 2, none, false);
+  assert.deepEqual(lines, [none, 'Did you send A (x) and B (y)? Say which you sent and I note them.']);
+  assert.equal(lines.join('\n').match(/\bSay\b/g)?.length, 1);
+  assert.deepEqual(openListLines(['Open now:'], null, 0, ask, true), ['Open now:', ask]);
+});
+
+test('fix round 1 (v6.1.19 Task 3): withinLines drops the more line, then the Before line, then body lines from the end; first and last stay', async () => {
+  const { withinLines } = await import('./find');
+  const body = (n: number) => Array.from({ length: n }, (_, i) => `${i + 1}. Row.`);
+  const more = 'And 9 more in the full list.';
+  const before = 'Before applying: your name.';
+  assert.deepEqual(withinLines(['Head', ...body(7), more, before, 'Say.']), ['Head', ...body(7), before, 'Say.']);
+  assert.deepEqual(withinLines(['Head', ...body(8), more, before, 'Say.']), ['Head', ...body(8), 'Say.']);
+  assert.deepEqual(withinLines(['Head', ...body(12), 'Say.']), ['Head', ...body(8), 'Say.']);
+  assert.deepEqual(withinLines(['Head', 'Say.']), ['Head', 'Say.']);
 });
 
 test('L1i-5 (v6.1.16.1), L1k-2 (v6.1.18): the default numbers its rows as shown and the full list its own; another project starts fresh', async () => {
@@ -4142,10 +4208,11 @@ test('L1l-8 (v6.1.19): a closed lookup ends on the reopen line', async () => {
   const file = programFixture({ id: 'l1l8-past', title: 'Shut Grant', summary: 'Up to $5,000', ends_at: new Date(NOW.getTime() - 60_000).toISOString() });
   await upsertProgram(file, 'file', new Date(NOW.getTime() - 2 * H));
   try {
-    for (const args of [{ program_id: 'l1l8-past' }, { program_id: 'l1l8-past', project: PROJECT }]) {
-      const text = (await mcpCall(ctx(await installation()), 'find', args)).reply!.show_to_builder as string;
-      assert.equal(text, 'Shut Grant, up to $5,000.\nIt is closed; say its name again when it reopens, or tell me about your project and I find what is open.');
-    }
+    const bare = (await mcpCall(ctx(await installation()), 'find', { program_id: 'l1l8-past' })).reply!.show_to_builder as string;
+    assert.equal(bare, 'Shut Grant, up to $5,000.\nIt is closed; say its name again when it reopens, or tell me about your project and I find what is open.');
+    // Fix round 1 (M3): with a project, never "tell me about your project".
+    const withProject = (await mcpCall(ctx(await installation()), 'find', { program_id: 'l1l8-past', project: PROJECT })).reply!.show_to_builder as string;
+    assert.equal(withProject, 'Shut Grant, up to $5,000.\nIt is closed; say its name again when it reopens, or ask me what is open for this project.');
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'l1l8-past'`;
   }

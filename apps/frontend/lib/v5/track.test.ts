@@ -2749,6 +2749,57 @@ test('L41-3b (v6.1.19): a candidate with a non-rule gap is never named; a ready 
   }
 });
 
+test('fix round 1 (v6.1.19 Task 3, M8, M9): the one-rule Next is absent signed out and on a repo not shown to be theirs; a rule\'s own full stop is not doubled', async () => {
+  const { NEXT_LINE } = await import('./track');
+  assert.equal(NEXT_LINE({ title: 'T', money: '$1', draft: false, rules: [{ item: 'rule:x', what: 'a rule that ends.' }] }), 'Next: T, $1. Their rule: a rule that ends. Say yes if that fits you and I apply.');
+  assert.equal(NEXT_LINE({ title: 'T', money: '$1', draft: false, rules: [{ item: 'rule:x', what: 'one.' }, { item: 'rule:y', what: 'two..' }] }), 'Next: T, $1. Their rules: one; two. Say yes if all of that fits you and I apply.');
+  await upsertProgram(programFixture({ id: 'fr8-a', title: 'FR8 Sent Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'fr8-rule', title: 'FR8 Rule Grant', eligibility: [{ kind: 'rule', note: 'a rule here' }] } as never), 'file', NOW);
+  try {
+    const { markFind, markList } = await import('./installations');
+    const { projectKeyOf } = await import('./project-input');
+    // Signed out: no Next at all.
+    const out = await ctx();
+    const P = { name: 'Fr8', description: 'Fr8.' };
+    await markFind(out.installationId, NOW, undefined, 'name:fr8');
+    await markList(out.installationId, 'h', NOW, ['fr8-a', 'fr8-rule']);
+    const o = await send(out, 'fr8-a', P);
+    assert.doesNotMatch(o.show_to_builder, /Next:|Their rule/, o.show_to_builder);
+    assert.equal((o as { next?: unknown }).next, undefined);
+    // Signed in on a repo the read shows is someone else's: a send kept under the name and a rejection name nothing.
+    const c = await signedIn('fr8-me');
+    await seedRead('fr8-other/r', ['fr8-other']);
+    const THEIRS = { name: 'Theirs8', description: 'Keeps time.', repo_url: 'https://github.com/fr8-other/r' };
+    await markFind(c.installationId, NOW, undefined, projectKeyOf(THEIRS));
+    await markList(c.installationId, 'h', NOW, ['fr8-a', 'fr8-rule']);
+    const kept = await send(c, 'fr8-a', THEIRS, 'builder');
+    assert.doesNotMatch(kept.show_to_builder, /Next:|Their rule/, kept.show_to_builder);
+    const no = await track(c, { program_id: 'fr8-a', status: 'rejected', project: THEIRS });
+    assert.doesNotMatch(no.show_to_builder, /Next:|Their rule|Say yes/, no.show_to_builder);
+    assert.equal((no as { next?: unknown }).next, undefined);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('fr8-a', 'fr8-rule')`;
+  }
+});
+
+test('fix round 1 (v6.1.19 Task 3, M6): the manifest note also rides a send outside the standing approval', async () => {
+  const c = await signedIn('fr6');
+  await seedRead('fr6/m', ['fr6']);
+  const fundField = { key: 'funding_json_url', label: 'funding.json manifest URL', type: 'url', required: true, from: 'project', kind: 'links', todo: 'the funding manifest link' };
+  await upsertProgram(programFixture({ id: 'fr6-fund', title: 'FR6 File Fund', category: 'grant', submission_requirements: [fundField] as never } as never), 'file', NOW);
+  try {
+    const { getRecord, saveRecord } = await import('../v6/builders');
+    const { mergeRecord } = await import('../v6/record');
+    await saveRecord(c.builderId!, mergeRecord(await getRecord(c.builderId!), { policy: { auto_apply: true, max_per_night: 5, categories: ['hackathon'] } }, 'builder', NOW).record, NOW);
+    const { NO_MANIFEST_NOTE } = await import('./track');
+    const r = await track(c, { program_id: 'fr6-fund', status: 'applied', submitted_by: 'agent', fields_used: ['funding_json_url'], project: { name: 'Mine', description: 'Keeps time.', repo_url: 'https://github.com/fr6/m' } });
+    assert.match(r.show_to_builder, /outside your standing approval/, r.show_to_builder);
+    assert.ok(r.agent_note.includes(NO_MANIFEST_NOTE), r.agent_note);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'fr6-fund'`;
+  }
+});
+
 test('L41-9 (v6.1.19): FLOSS sent with no funding.json read adds the manifest note', async () => {
   const c = await signedIn('l419');
   await seedRead('l419/m', ['l419']);

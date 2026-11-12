@@ -902,6 +902,13 @@ async function act(
     // L35-11, controller ruling: advisory only.
     ...(res.ok && 'off_host_sent' in res ? [OFF_HOST_SENT_NOTE] : []),
   ].join(' ') || null;
+  // Fix round 1 (M6): the send's facts, read once for the manifest note and the Next line.
+  let factsRead: ReturnType<typeof sendFacts> | null = null;
+  const factsOnce = () => (factsRead ??= sendFacts(ctx, i, project.key));
+  // L41-9 (v6.1.19): an agent's send of a manifest program while the last repo read had no funding.json is recorded;
+  // the agent hears the form may have gone out without it (fix round 1, M6: outside the standing approval too).
+  const noManifest = i.status === 'applied' && sender === 'agent' && !!row && wantsManifest(row.file) && ctx.builderId !== null
+    && (await (async () => { const { facts } = await factsOnce(); return facts.repo_url_basis === 'code' && !facts.funding_json_url; })());
   // L29-9 (v6.1.16 Task 15): a send outside the standing approval is recorded, and answered as a refusal (isError).
   if (i.status === 'applied' && outside)
     return refused({
@@ -910,7 +917,7 @@ async function act(
       show_to_builder: outside === HAD_CLOSED && closedDay
         ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
         : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: [...(nameOnly ? [nameOnly] : []), ...(cofounder ? [cofounder] : []), ...(otherClaim ? [claimNote] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.', ...(unknownFields.length > 0 ? [droppedFieldsNote(unknownFields)] : [])].join(' '),
+      agent_note: [...(nameOnly ? [nameOnly] : []), ...(cofounder ? [cofounder] : []), ...(otherClaim ? [claimNote] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.', ...(unknownFields.length > 0 ? [droppedFieldsNote(unknownFields)] : []), ...(noManifest ? [NO_MANIFEST_NOTE] : [])].join(' '),
       ledger: await summary(owner, programs, ctx.now),
     });
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
@@ -937,10 +944,6 @@ async function act(
   };
   // L36-8 (v6.1.18): the dropped keys are named last.
   const dropped: Result = unknownFields.length > 0 ? { ...done, agent_note: `${done.agent_note} ${droppedFieldsNote(unknownFields)}` } : done;
-  // L41-9 (v6.1.19): an agent's send of a manifest program while the last repo read had no funding.json is recorded;
-  // the agent hears the form may have gone out without it.
-  const noManifest = i.status === 'applied' && sender === 'agent' && row && wantsManifest(row.file) && ctx.builderId !== null
-    && (await (async () => { const { facts } = await sendFacts(ctx, i, project.key); return facts.repo_url_basis === 'code' && !facts.funding_json_url; })());
   const manifested: Result = noManifest ? { ...dropped, agent_note: `${dropped.agent_note} ${NO_MANIFEST_NOTE}` } : dropped;
   // L45-4 (v6.1.19): a win in a currency with no static rate is recorded uncapped, and the agent hears it.
   const code = amount && amount.currency;
@@ -950,7 +953,7 @@ async function act(
   // Final fix (I1): never after a send kept under the project's name only (the repo is not shown to be theirs).
   const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice && !nameOnly)
     || (i.status === 'rejected' && res.ok && !('repeated' in res));
-  const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id) : null;
+  const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id, factsOnce) : null;
   // Fix round 1 (M1): the Next line is an apply offer; L41-3 (v6.1.19): one rule away, a rule offer first.
   if (next) await markOffer(ctx.installationId, next.rules.length > 0 ? 'rule' : 'apply', ctx.now);
   const withNext: Result = next
@@ -1002,10 +1005,11 @@ export const NO_MANIFEST_NOTE = 'The last repo read had no funding.json; if it i
  *  yes that confirms them. Pure. */
 export const NEXT_LINE = (n: Pick<NextReady, 'title' | 'money' | 'draft'> & { rules?: NextReady['rules'] }): string => {
   const act = n.draft ? 'draft it for you to send' : 'apply';
-  const rules = n.rules ?? [];
+  // Fix round 1 (M9): a rule's own full stop is not doubled.
+  const rules = (n.rules ?? []).map((r) => r.what.trim().replace(/\.+$/, ''));
   if (rules.length === 0) return `Next: ${n.title}, ${n.money}. Say yes and I ${act}.`;
-  if (rules.length === 1) return `Next: ${n.title}, ${n.money}. Their rule: ${rules[0].what}. Say yes if that fits you and I ${act}.`;
-  return `Next: ${n.title}, ${n.money}. Their rules: ${rules.map((r) => r.what).join('; ')}. Say yes if all of that fits you and I ${act}.`;
+  if (rules.length === 1) return `Next: ${n.title}, ${n.money}. Their rule: ${rules[0]}. Say yes if that fits you and I ${act}.`;
+  return `Next: ${n.title}, ${n.money}. Their rules: ${rules.join('; ')}. Say yes if all of that fits you and I ${act}.`;
 };
 /** L36-12 (v6.1.18): the agent's way to the next send without a find. L41-3 (v6.1.19): with rules, the gap_done
  *  that confirms them first. Pure. */
@@ -1023,13 +1027,13 @@ export const NEXT_NOTE = (n: NextReady): string => {
  * and whose open items are all rules not yet confirmed (ready once they are), with those rules; they are remembered as
  * its row's, so one gap_done confirms them all. Linked only. Null when none.
  */
-async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKey: string, sentId: string): Promise<NextReady | null> {
+async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKey: string, sentId: string, read: () => ReturnType<typeof sendFacts> = () => sendFacts(ctx, i, projectKey)): Promise<NextReady | null> {
   if (ctx.builderId === null || !projectKey || (await lastProjectKey(ctx.installationId)) !== projectKey) return null;
   // Final fix (I1): no apply offer on a repo that is not shown to be the builder's (a rejection never checks the tie).
   if (await repoNotMine(ctx, projectKey)) return null;
   const ids = [...new Set((await lastListIds(ctx.installationId)).filter((x) => x && x !== sentId))];
   if (ids.length === 0) return null;
-  const { facts, rec } = await sendFacts(ctx, i, projectKey);
+  const { facts, rec } = await read();
   const claims = await claimed(owner);
   const stale = ctx.now.getTime() - CLAIM_HOURS * 3_600_000;
   let oneYes: NextReady | null = null;

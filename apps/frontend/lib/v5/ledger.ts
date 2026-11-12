@@ -1075,13 +1075,13 @@ export async function rekeyByRepoId(owner: string, repoId: number, to: string, a
 }
 
 /** Keeps the project as the agent reported it at this find (parsed, v6.1.13 Task 1 review I1), per owner and project key. */
-export async function saveReport(owner: string, projectKey: string, report: Project, now: Date): Promise<void> {
+export async function saveReport(owner: string, projectKey: string, report: Project, now: Date, o: { clearDemo?: boolean } = {}): Promise<void> {
   if (!projectKey) return;
   // L35-1 (v6.1.16.1 Task 2): the answer to the join question stays with the report. L41-4, M3 (v6.1.19): so does a
-  // demo link once given, when the new report has none.
+  // demo link once given, when the new report has none; fix round 1 (M7): unless the builder cleared it (`clearDemo`).
   await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${projectKey}, ${sql().json(report as never)}, ${now})
     ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report || (CASE WHEN project_reports.report ? 'joins' THEN jsonb_build_object('joins', project_reports.report->'joins') ELSE '{}'::jsonb END)
-      || (CASE WHEN COALESCE(EXCLUDED.report->>'demo_url', '') = '' AND COALESCE(project_reports.report->>'demo_url', '') <> '' THEN jsonb_build_object('demo_url', project_reports.report->'demo_url') ELSE '{}'::jsonb END), at = EXCLUDED.at`;
+      || (CASE WHEN NOT ${o.clearDemo === true} AND COALESCE(EXCLUDED.report->>'demo_url', '') = '' AND COALESCE(project_reports.report->>'demo_url', '') <> '' THEN jsonb_build_object('demo_url', project_reports.report->'demo_url') ELSE '{}'::jsonb END), at = EXCLUDED.at`;
 }
 
 /** Days cached evidence stays (W3, final round; L23-12 v6.1.16: the evidence only, never the report). */
