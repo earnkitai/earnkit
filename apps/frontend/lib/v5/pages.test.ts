@@ -502,3 +502,21 @@ test('L21-5 (v6.1.16): the landing, programs-list and guide caches are keyed thr
       assert.ok(!/unstable_cache\(/.test(readFileSync(join(d, f), 'utf8')), `${dir}/${f}`);
   }
 });
+
+test('v6.1.17 Task 4: /api/me/signed-in answers only { signedIn } and is never stored: true with a live session, false without', async () => {
+  const { GET } = await import('../../app/api/me/signed-in/route');
+  const { createSession, cookieName } = await import('../v6/sessions');
+  const b = await upsertBuilder({ github_id: 990_101, login: 'signedinroute', name: null, avatar_url: null }, new Date());
+  const { token } = await createSession(b.id, new Date());
+  for (const [cookie, want] of [[`${cookieName()}=${token}`, true], [null, false], [`${cookieName()}=forged`, false]] as const) {
+    const r = await GET(new Request('https://earnkit.test/api/me/signed-in', { headers: cookie ? { cookie } : {} }));
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('cache-control'), 'no-store', String(cookie));
+    assert.deepEqual(await r.json(), { signedIn: want }, String(cookie));
+  }
+  // The home page's server HTML (the layout's header and the page) never names the record link.
+  const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
+  assert.ok(!/headers\(\)|cookies\(\)/.test(layout));
+  const { default: Header } = await import('../../app/components/common/Header');
+  assert.ok(!html(Header()).includes('Your record'));
+});

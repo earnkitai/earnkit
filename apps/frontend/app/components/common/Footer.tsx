@@ -3,14 +3,18 @@ import InstallButton from './InstallButton';
 import { Wordmark } from '../ui/Logo';
 import FooterLight from '../site/FooterLight';
 import { X } from '../../lib/links';
-import { ART_CREDIT, CTA_INSTALL, FOOT_CTA } from '../../../lib/v5/site-copy';
+import { ART_CREDIT, CTA_INSTALL, FOOT_CTA, NAV_RECORD } from '../../../lib/v5/site-copy';
 
 const LINK = 'inline-flex min-h-11 items-center text-s-foot-link motion-safe:transition-colors duration-200 hover:text-s-text';
 
-/** The footer's links, in order, then the X button. */
+/**
+ * The footer's links, in order, then the X button. `Your record` is always here (v6.1.17 Task 4): the header shows it
+ * only after its signed-in check, so without JavaScript this is the way to /me (signed out, /me goes to the docs).
+ */
 const LINKS = [
   { label: 'Programs', href: '/programs' },
   { label: 'Docs', href: '/docs' },
+  { label: NAV_RECORD, href: '/me' },
   { label: 'Terms', href: '/terms' },
 ] as const;
 const X_LINK = { href: X, label: 'EarnKit on X' };
@@ -57,7 +61,7 @@ const BAR = 'flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-
 /**
  * A rounded card over Panini's Pantheon (pre-sized JPEGs, lazy), the pointer light, a bottom fade; the CTA
  * line in Kaftan Serif and the white pill that opens the install sheet; then the bar: wordmark, Programs,
- * Docs, Terms, the art credit and EarnKit's X; then the company line. `linked` (/me with a linked agent, L21-22
+ * Docs, Your record, Terms, the art credit and EarnKit's X; then the company line. `linked` (/me with a linked agent, L21-22
  * v6.1.16): no install pill, the Ask line stays.
  */
 export default function Footer({ linked = false }: { linked?: boolean } = {}) {
@@ -91,11 +95,18 @@ export default function Footer({ linked = false }: { linked?: boolean } = {}) {
         <div className={`${BAR} border-s-foot-line`}>
           <HomeMark />
           <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6">
-            {LINKS.map((l) => (
-              <Link key={l.href} href={l.href} className={LINK}>
-                {l.label}
-              </Link>
-            ))}
+            {LINKS.map((l) =>
+              // A plain link to /me: never prefetched, so a page view never asks /me for a session.
+              l.href === '/me' ? (
+                <a key={l.href} href={l.href} className={LINK}>
+                  {l.label}
+                </a>
+              ) : (
+                <Link key={l.href} href={l.href} className={LINK}>
+                  {l.label}
+                </Link>
+              ),
+            )}
             <span className="text-[12px] text-s-card-meta">{ART_CREDIT}</span>
           </nav>
           <XButton href={x.href} label={x.label} fill="bg-s-foot-button" />

@@ -20,7 +20,7 @@ export const METHODS_BY_ROUTE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/api\/programs\/(?:approve|revert)$/, 'GET, HEAD, POST'],
   [/^\/api\/programs\/reviewers$/, 'POST, OPTIONS'],
   [/^\/api\/programs\/write$/, 'POST'],
-  [/^\/api\/(?:programs|programs\/writes|stats)$/, 'GET, HEAD'],
+  [/^\/api\/(?:programs|programs\/writes|stats|me\/signed-in)$/, 'GET, HEAD'],
   [/^\/auth\/github\/callback$/, 'GET, HEAD'],
   [/^\/llms\.txt$/, 'GET, HEAD'],
 ];
