@@ -425,7 +425,7 @@ test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when
   assert.ok(size < 20_480, `${size}`);
 });
 
-test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then under its old key (alias until v6.1.16)', async () => {
+test('#15 (v6.1.15), L35-23 (v6.1.17): a sampled-senders row is shown as outside_senders_90d only, the old key gone', async () => {
   const r = await reviewer('jobs-alias');
   const j = await job(r, [{ ref: 'o-1', name: 'Outside', live_url: 'https://outside.example/' }]);
   const at = NOW.toISOString();
@@ -440,10 +440,9 @@ test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then
   assert.deepEqual(seen.map((x) => [x.key, x.value, x.note]), [
     ['onchain[0].senders_90d', 90, null],
     ['onchain[0].outside_senders_90d', 40, 'sampled 50'],
-    ['onchain[0].funded_senders_90d', 40, 'sampled 50'],
     ['onchain[1].outside_senders_90d', 3, null],
-    ['onchain[1].funded_senders_90d', 3, null],
   ]);
+  assert.ok(!JSON.stringify(seen).includes('funded_senders_90d'));
 });
 
 test('M2 (v6.1.15 fix round 1): a row read before v6.1.15 reads with today\'s rule id and words on a results page', async () => {

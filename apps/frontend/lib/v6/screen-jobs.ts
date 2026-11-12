@@ -52,11 +52,11 @@ export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
 const FUNDED_KEY = /^(onchain\[\d+\]\.)funded_senders_90d$/;
 /**
  * A row as a reviewer sees it: the site's own words carry the fixed note first. #15 (v6.1.15): a sampled-senders row
- * is shown first as `onchain[i].outside_senders_90d`, then under its old key (alias until v6.1.16). Pure.
+ * is shown as `onchain[i].outside_senders_90d`; L35-23 (v6.1.17): its old key, the alias, is no longer shown. Pure.
  */
 const shown = (x: Row): Row[] => {
   const m = FUNDED_KEY.exec(x.key);
-  if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }, x]; // alias until v6.1.16
+  if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }];
   return [x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x];
 };
 /** A results row: `read_at` only when it differs from its applicant's (L26-4). */

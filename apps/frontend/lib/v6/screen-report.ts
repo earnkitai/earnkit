@@ -76,8 +76,8 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
 }
 
 const HEADER = [
-  // #15 (v6.1.15): outside_senders_90d names the count; funded_senders_90d carries the same value. alias until v6.1.16
-  'ref', 'name', 'tier', 'result', 'amount', 'flags', 'outside_senders_90d', 'funded_senders_90d', 'senders_90d', 'chains_mainnet', 'last_push_at', 'contributors_90d',
+  // #15 (v6.1.15): outside_senders_90d names the count. L35-23 (v6.1.17): its funded_senders_90d alias ended.
+  'ref', 'name', 'tier', 'result', 'amount', 'flags', 'outside_senders_90d', 'senders_90d', 'chains_mainnet', 'last_push_at', 'contributors_90d',
   'template_name', 'template_overlap', 'own_share', 'url_ok', 'line', 'problems',
 ];
 
@@ -100,7 +100,7 @@ export function csvReport(rows: ScreenRow[]): string {
     lines.push(
       [
         r.applicant.ref, r.applicant.name, r.placement.tier ?? NO_TIER, r.result ?? null, r.amount ?? null, [...new Set(r.placement.flags.map((f) => f.rule))].join(' '),
-        top?.funded_senders_90d, top?.funded_senders_90d /* alias until v6.1.16 */, top?.senders_90d, e?.depth?.chains_mainnet.join(' '), e?.code?.last_push_at,
+        top?.funded_senders_90d, top?.senders_90d, e?.depth?.chains_mainnet.join(' '), e?.code?.last_push_at,
         e?.team?.contributors_90d, e?.code?.template_name, e?.code?.template_overlap, e?.code?.own_share, e?.live.url_ok,
         r.line, r.applicant.problems.join('; '),
       ].map(cell).join(','),
