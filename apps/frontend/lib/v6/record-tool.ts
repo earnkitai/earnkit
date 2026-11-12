@@ -285,6 +285,8 @@ export function refusedWords(problem: string): string {
     : known ? `the answer on ${known}`
     // L24-5 (v6.1.16 Task 11): own keys only, so an inherited name never reads as JavaScript.
     : `${project}${allowedKey(LEAF_WORDS, leaf) ? LEAF_WORDS[leaf] : leaf.replace(/_/g, ' ')}`;
+  // L36-14 (v6.1.18): a projects entry whose id is missing or not valid says what each project needs.
+  if (path === 'projects.id') return 'each project needs an id (a short lowercase name)';
   // L24-5: a key EarnKit does not keep is named as sent, quoted and cleaned.
   if (why === 'not a field') return `${project}${quoteName(leaf)} is not something I keep`;
   // L24-21 (v6.1.16 Task 11): a refusal for length names the limit, in /me's words.

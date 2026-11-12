@@ -252,7 +252,7 @@ test('a rule beside a real gap: the real gap first, then the rule, in one gap ve
   const p = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'y' }, { kind: 'demo_video' }, { kind: 'rule', note: 'x' }] }));
   const v = evaluate(p, f, new Set(), NOW);
   assert.equal(v.status, 'gap');
-  assert.deepEqual(v.gaps.map((g) => [g.kind, g.what]), [['demo_video', 'a demo video'], ['rule', 'y'], ['rule', 'x']]);
+  assert.deepEqual(v.gaps.map((g) => [g.kind, g.what]), [['demo_video', 'a demo video link (a short screen recording of it working)'], ['rule', 'y'], ['rule', 'x']]);
   assert.deepEqual(v.rules, ['y', 'x']);
 });
 
@@ -645,7 +645,7 @@ test('L18-2c: a new-work-only hackathon with no repo gets the same step', async 
   const v = evaluate(k, await noRepo(), new Set(), NOW);
   // The code is the entry itself: it counts toward no limit, so the demo video and the Kiro folder keep it a gap (O3).
   assert.equal(v.status, 'gap', JSON.stringify(v));
-  assert.deepEqual(v.gaps.map((g) => g.what), ['code in a public repo', 'tell me when you started this', 'a demo video', 'a Kiro folder in the repo, not ignored by git', 'built with Kiro']);
+  assert.deepEqual(v.gaps.map((g) => g.what), ['code in a public repo', 'tell me when you started this', 'a demo video link (a short screen recording of it working)', 'a Kiro folder in the repo, not ignored by git', 'built with Kiro']);
   // A needs_repo hackathon with no open source rule: code in a repo.
   const plain = toRow(programFixture({ id: 'p-hack', tag: undefined, category: 'hackathon', needs_repo: true, existing_work: 'new_work_only', reward: '$5,000 in prizes', pool_usd: 5000 }));
   assert.deepEqual(evaluate(plain, await noRepo(), new Set(), NOW).gaps[0], NEEDS_CODE);
@@ -656,4 +656,11 @@ test('L18-2d: a program with needs_repo false and no repo gets no repo step', as
   assert.equal(p.file.needs_repo, false);
   const v = evaluate(p, await noRepo(), new Set(), NOW);
   assert.ok(!v.gaps.some((g) => g.kind === 'repo'), JSON.stringify(v.gaps));
+});
+
+test('L36-13 (v6.1.18): the demo video gap asks for a link, and a demo link passed with the project settles it', async () => {
+  const p = toRow(programFixture({ id: 'p-demo', eligibility: [{ kind: 'demo_video' }] }));
+  const v = evaluate(p, await factsOf('earnkit'), new Set(), NOW);
+  assert.deepEqual(v.gaps.map((g) => g.what), ['a demo video link (a short screen recording of it working)']);
+  assert.equal(evaluate(p, await factsOf('earnkit', { demo_url: 'https://www.youtube.com/watch?v=abc' }), new Set(), NOW).status, 'ready');
 });

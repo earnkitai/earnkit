@@ -260,7 +260,7 @@ test('a projects entry without an id: a problem line and no change', async () =>
   const problems = r.reply!.problems as string[];
   assert.equal(problems.length, 1);
   assert.match(problems[0], /^projects\.id: /);
-  assert.equal(r.reply!.show_to_builder, 'Not saved: project short name was not valid.');
+  assert.equal(r.reply!.show_to_builder, 'Not saved: each project needs an id (a short lowercase name).');
   assert.deepEqual(await getRecord(c.builderId), before);
 });
 
@@ -295,6 +295,11 @@ test('not saved reasons name the fact in plain words, never a record key (v6.1.7
   assert.equal(refusedWords('traction.line_pre_launch: too long'), 'pre-launch line was not valid');
   assert.equal(refusedWords('projects.1.id: too long'), 'project short name was not valid');
   assert.equal(refusedWords('person.email: bad'), 'email was not valid');
+});
+
+test('L36-14: a project with no valid id names what each project needs', () => {
+  assert.equal(refusedWords('projects.id: Invalid input: expected string, received undefined'), 'each project needs an id (a short lowercase name)');
+  assert.equal(savedLine({ answers: 0, facts: 0 }, ['projects.id: bad'], 0), 'Not saved: each project needs an id (a short lowercase name).');
 });
 
 test('C51: after the account is deleted, the next record call of a linked agent says so, once', async () => {

@@ -50,6 +50,9 @@ const chainDetails = (chain: string) => {
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };
 };
 
+/** L36-13 (v6.1.18): the demo video gap's words. */
+export const DEMO_VIDEO_WHAT = 'a demo video link (a short screen recording of it working)';
+
 /** One item's gap. `testnetOnly` (L1g-7, v6.1.15): the project reports the item's chain on a testnet only, so the
  *  deploy step names its mainnet. */
 function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
@@ -60,7 +63,8 @@ function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
     case 'contract_on': return { ...base, what: `a contract on ${chainName(v)}`, details: chainDetails(v) };
     case 'builder_codes': return { ...base, what: 'add Base Builder Codes to the app', agent_can: true };
     case 'live_product': return { ...base, what: 'put a live link up' };
-    case 'demo_video': return { ...base, what: 'a demo video' };
+    // L36-13 (v6.1.18): an action the builder can take today; never a length the program did not state.
+    case 'demo_video': return { ...base, what: DEMO_VIDEO_WHAT };
     case 'integration': return { ...base, what: `add ${integrationLabel(v) ?? v}`, agent_can: true, details: { docs: integrationDocs(v) } };
     case 'feature': return { ...base, what: i.note || v || 'a feature the program asks for' };
     case 'rule': return { ...base, what: i.note ?? '' };
@@ -201,7 +205,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         break;
       }
       case 'in_person': inPerson = true; break;
-      case 'demo_video':
+      // L36-13 (v6.1.18): a demo link passed with the project settles the demo video.
+      case 'demo_video': if (!facts.demo_url && !done.has(itemKey(i))) gaps.push(gapOf(i)); break;
       case 'feature':
       case 'rule': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
     }

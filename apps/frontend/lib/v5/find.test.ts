@@ -1251,7 +1251,7 @@ const inPersonBlock = (n: number, _noRepo = false) => [
   `${n + 1}. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
-const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
+const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
 /** L1c-2 (v6.1.10): with the VR rule unlikely (no keyword named), the rule slot goes to a rule with no keywords.
  *  L1d-2 (v6.1.11): Colosseum's crypto-product rule is unlikely for a project naming no crypto word. */
 /** L1e-2 (v6.1.13): Thiel's age rule names who it is for (student, college), so a project naming none of those never
@@ -1272,7 +1272,7 @@ const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => ['One ste
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
 // L18-2 (v6.1.18): an idea has no repo, so Colosseum's code in a repo comes before the demo video.
-const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
+const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
 const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
 /** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
@@ -1541,7 +1541,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "Ready to apply (1):",
       "1. FLOSS/fund, $10,000 to $100,000. First: publish a funding manifest on your site or repo.",
       "One step away (1):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       // L1j-3 (v6.1.17): YC and Alliance, left out, are counted.
       'And 23 more in the full list.',
       'Sign in once and I check the repo is yours; then say yes.',
@@ -1563,7 +1563,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "One step away (3):",
       "1. FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: a developer tool whose versions are near or past official end of life.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
@@ -1603,7 +1603,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   const claimed = await mcpCall(c, 'find', { project: VR });
   assert.equal(
     blockOf(claimed.reply!.show_to_builder as string, 'One step away'),
-    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.'].join('\n'),
+    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.'].join('\n'),
   );
   const done = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'gap_done', item: 'demo_video' });
   assert.equal(done.isError, false, done.text);
@@ -1925,7 +1925,7 @@ test('L1d-2 (v6.1.11, Review Focus 2 and 3): an idea or an empty repo naming no 
   const c = (crypto.reply!.gaps as G[]).find((x) => x.program_id === 'colosseum-eternal');
   assert.ok(c, show);
   assert.equal(lineOf(seen(crypto.reply!), c.n), COLOSSEUM_LINE(c.n));
-  assert.doesNotMatch(show, /a demo video\. Their rule: the team has not raised/);
+  assert.doesNotMatch(show, /a demo video link \(a short screen recording of it working\)\. Their rule: the team has not raised/);
   // Fix round 1 (v6.1.16): with bare "crypto" gone, a crypto app, a DeFi and an NFT idea still hit with no "onchain" in the text.
   for (const description of ['An idea: a crypto app that splits rent between roommates', 'An idea: a DeFi lending pool for students', 'An idea: an NFT ticket for concerts']) {
     const r = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description } });
@@ -1961,7 +1961,7 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
     [
       "One step away (3):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
       "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it. Their rule: a developer tool whose versions are near or past official end of life.",
       "In person (2):",
@@ -1988,9 +1988,9 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     blockOf(early.show_to_builder as string, 'One step away'),
     [
       "One step away (3):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
+      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
       "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
     ].join('\n'),
   );
@@ -2000,8 +2000,8 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     blockOf(late.show_to_builder as string, 'One step away'),
     [
       "One step away (3):",
-      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
-      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
+      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
     ].join('\n'),
   );
@@ -2100,7 +2100,7 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   const line = lineOf(show, g.n);
   // L1e-2 (v6.1.13): a ready program takes the closing's yes, so the rule reads as a plain sentence.
   assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: ${BASE_RULE}.`);
-  assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Draft it and show the builder; submit only on a yes to the draft.'));
+  assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again; with several rules on one row, one gap_done with the first rule item confirms every rule that row listed. Draft it and show the builder; submit only on a yes to the draft.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
   assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Tracked. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
@@ -2125,7 +2125,7 @@ test('project A with filter.all: a demo-video gap and a rule share one gap line;
   // L1e-6 (v6.1.13): one rule sentence per line, several joined: "Their rules: a; b.".
   const rulesOf = (x: G) => [x.gap, ...x.also].filter((a) => a.kind === 'rule').map((a) => a.what);
   const sentence = (rs: string[]) => (rs.length === 1 ? ` Their rule: ${rs[0]}.` : ` Their rules: ${rs.join('; ')}.`);
-  assert.ok(lineOf(show, mixed.n).includes(`: a demo video.${first} Their rule`), lineOf(show, mixed.n));
+  assert.ok(lineOf(show, mixed.n).includes(`: a demo video link (a short screen recording of it working).${first} Their rule`), lineOf(show, mixed.n));
   assert.ok(lineOf(show, mixed.n).includes(rule), lineOf(show, mixed.n));
   for (const x of gaps) if (rulesOf(x).length > 0) assert.ok(lineOf(show, x.n).includes(sentence(rulesOf(x))), lineOf(show, x.n));
   assert.ok(show.split('\n').every((l) => (l.match(/Their rules?:/g)?.length ?? 0) <= 1), show);
@@ -2595,12 +2595,12 @@ test('O3 (v6.1.10, Review Focus 4): a project with no first-commit date is asked
   assert.match(all.reply!.agent_note as string, /"Tell me when you started this" is a question, not work/);
   const one = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
   // L18-2 (v6.1.18): no repo link, so the code in a public repo comes first and the closing waits on it.
-  assert.equal(one.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: code in a public repo, tell me when you started this, a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when the code is in a public repo and I look again.');
+  assert.equal(one.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: code in a public repo, tell me when you started this, a demo video link (a short screen recording of it working) and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when the code is in a public repo and I look again.');
   const item = ((one.reply!.verdict as { gaps: { kind: string; item: string }[] }).gaps.find((x) => x.kind === 'new_work_after'))!.item;
   const t = await mcpCall(c, 'track', { program_id: 'kiroween-2026', status: 'gap_done', item, project: IDEA });
   assert.equal(t.reply!.show_to_builder, 'Tracked.');
   const again = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
-  assert.equal(again.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: code in a public repo, a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when the code is in a public repo and I look again.');
+  assert.equal(again.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: code in a public repo, a demo video link (a short screen recording of it working) and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when the code is in a public repo and I look again.');
   assert.ok(!(again.reply!.verdict as { gaps: { kind: string }[] }).gaps.some((x) => x.kind === 'new_work_after'));
   // A first-commit date in the project settles it too: after the start fits, before it does not.
   const late = await mcpCall(c, 'find', { program_id: 'ugreen-ai-nas-hackathon-2026', project: { ...IDEA, first_commit_at: '2026-10-25T00:00:00Z' } });
@@ -3119,8 +3119,8 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
     '3. Contact Grant, up to $5,000.',
     'One step away (3):',
     '4. S4 Codes Grant, up to $5,000: add Base Builder Codes to the app.',
-    '5. Berg Grant, up to $5,000: a demo video.',
-    '6. Demo Grant, up to $5,000: a demo video.',
+    '5. Berg Grant, up to $5,000: a demo video link (a short screen recording of it working).',
+    '6. Demo Grant, up to $5,000: a demo video link (a short screen recording of it working).',
     'And 42 more in the full list.',
     'Sign in once and I check the repo is yours; then say yes.',
   ].join('\n'));
@@ -3797,7 +3797,7 @@ test('L18-2 (v6.1.18): the PayPal one-program look for a project with no repo na
   const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'paypal-ai-hackathon', project });
   assert.equal(r.isError, false, r.text);
   const lines = (r.reply!.show_to_builder as string).split('\n');
-  assert.equal(lines[0], "PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: code in a public repo and a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.", lines.join('\n'));
+  assert.equal(lines[0], "PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: code in a public repo and a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.", lines.join('\n'));
   assert.equal(lines.at(-1), 'Tell me when the code is in a public repo and I look again.', lines.join('\n'));
 });
 
@@ -3810,7 +3810,7 @@ test('L18-3 (v6.1.18): a builder-sent program with two or more real gaps closes 
   const g = (r.reply!.verdict as { status: string; gaps: { kind: string }[] });
   assert.equal(g.status, 'gap', lines.join('\n'));
   assert.ok(g.gaps.filter((x) => x.kind !== 'rule').length >= 2, lines.join('\n'));
-  assert.equal(lines[0], 'Kiroween 2026, $100,000 in prizes: a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.', lines.join('\n'));
+  assert.equal(lines[0], 'Kiroween 2026, $100,000 in prizes: a demo video link (a short screen recording of it working) and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.', lines.join('\n'));
   assert.equal(lines.at(-1), 'Tell me when that is done and I draft it for you to send.', lines.join('\n'));
   assert.ok(!lines.some((l) => APPLY_OFFER.test(l)), lines.join('\n'));
 });

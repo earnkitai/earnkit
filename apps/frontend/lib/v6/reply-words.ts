@@ -26,8 +26,12 @@ export const PROOF_READING = 'Your proof is still being read; ask again in a min
 /** Linked, with no project in the record matching the find (I2 nuance, v6.1.9): the bar's line names the step that
  *  lets EarnKit read the proof. Pure. */
 export const ADD_PROJECT = 'Add this project to your record so EarnKit can read its proof.';
-/** Whether a gap's words are a linked bar line (PROOF_READING or ADD_PROJECT) without its full stop. Pure. */
-export const isProofReadingWhat = (what: string): boolean => `${what}.` === PROOF_READING || `${what}.` === ADD_PROJECT;
+/** L36-7 (v6.1.18): a usage bar with no record project says the bar first, then the record step. Pure. */
+export const ADD_PROJECT_USED = (users: number): string =>
+  `Needs about ${users} outside users in 90 days; I count 0 so far. Add this project to your record and I read its proof.`;
+/** Whether a gap's words are a linked bar line (PROOF_READING, ADD_PROJECT or ADD_PROJECT_USED) without its full stop. Pure. */
+export const isProofReadingWhat = (what: string): boolean =>
+  `${what}.` === PROOF_READING || `${what}.` === ADD_PROJECT || /^Needs about [\d,]+ outside users in 90 days; I count 0 so far\. Add this project to your record and I read its proof$/.test(what);
 
 /** Whether a gap's words are a confirmLine without its full stop (the unlinked tier gap). Pure. */
 export const isConfirmWhat = (what: string): boolean => confirmBar(what) !== null;

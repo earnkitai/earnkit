@@ -158,7 +158,7 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   const one = (g: GapProgram['gap'], also: GapProgram['also'] = []) => replyText(base({ gaps: [gap({ title: 'G', gap: g, also })] }), false).split('\n')[1];
   const ARC = { kind: 'contract_on' as const, item: 'contract_on:arc', what: 'a contract on Arc', effort: 'hours' as const, agent_can: false };
   const SW = { kind: 'integration' as const, item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days' as const, agent_can: true };
-  const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
+  const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video link (a short screen recording of it working)', effort: 'hours' as const, agent_can: false };
   // A contract deploy is never EarnKit's change (fix round 1): the line ends after the gap.
   assert.equal(one(ARC), '1. G, $1K: a contract on Arc.');
   assert.ok(!agentNote(base({ gaps: [gap({ title: 'G', gap: ARC })] }), { more: 0 }).includes('On "do <n>"'));
@@ -167,11 +167,11 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: SW })] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "do 1" and I add Smart Wallet.');
   assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet.');
   assert.equal(one(SW, [{ ...SW, item: 'integration:x', what: 'add X' }]), '1. G, $1K: add Smart Wallet and add X.');
-  assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video.');
+  assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video link (a short screen recording of it working).');
   // v6.1.14 (was C57): the unlinked proof is a gap after the colon; its sign-in is asked once, in the closing.
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof that real people use it', effort: 'weeks' as const, agent_can: false };
   assert.equal(one(TIER), '1. G, $1K: proof that real people use it.');
-  assert.equal(one(TIER, [DEMO]), '1. G, $1K: proof that real people use it and a demo video.');
+  assert.equal(one(TIER, [DEMO]), '1. G, $1K: proof that real people use it and a demo video link (a short screen recording of it working).');
   const two = base({ gaps: [gap({ title: 'G', money: '$1K', also: [{ kind: 'live_product', item: 'live_product', what: 'put a live link up', effort: 'hours', agent_can: false }] })] });
   assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc and put a live link up\.$/m);
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
@@ -432,9 +432,9 @@ test('every linked line ends with a full stop and has no banned word', () => {
 });
 
 const RULE_NOTE =
-  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Draft it and show the builder; submit only on a yes to the draft.';
+  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again; with several rules on one row, one gap_done with the first rule item confirms every rule that row listed. Draft it and show the builder; submit only on a yes to the draft.';
 const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
-const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
+const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video link (a short screen recording of it working)', effort: 'hours' as const, agent_can: false };
 
 test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change, as one sentence (L1e-6, v6.1.13); with something ready no rule line asks its own "yes n" (L1e-2)', () => {
   const r = base({
@@ -458,7 +458,7 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       "One step away (2):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "2. Goose Grants, $10K. Their rules: a project built with or for goose; work not already funded by an employer or client.",
-      "3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.",
+      "3. Colosseum, $25K: a demo video link (a short screen recording of it working). Their rule: the team has not raised venture capital.",
       // L1j-3 (v6.1.17): the in-person row left out is counted.
       "And 1 more in the full list.",
       "Say yes and I apply to Base Ecosystem Fund.",
@@ -508,7 +508,7 @@ test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attend
     replyText(r, true),
     [
       "One step away (1):",
-      "1. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.",
+      "1. Camp, $10K: a demo video link (a short screen recording of it working). Their rule: a team of two. First: work 3 months from the office.",
       "In person (1):",
       "2. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.",
       "Nothing remote is ready yet. Say yes and I start the in-person applications.",
@@ -560,7 +560,7 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
 
 test('O1 (v6.1.10): a step closing within 7 days says so after its money', () => {
   const paypal = gap({ title: 'PayPal AI Hackathon', money: '$67,500 in prizes', closes_in: 'in 2 days', gap: VIDEO, also: [ruleGap('uses a PayPal API')] });
-  assert.equal(replyText(base({ gaps: [paypal] }), true).split('\n')[1], '1. PayPal AI Hackathon, $67,500 in prizes, closes in 2 days: a demo video. Their rule: uses a PayPal API.');
+  assert.equal(replyText(base({ gaps: [paypal] }), true).split('\n')[1], '1. PayPal AI Hackathon, $67,500 in prizes, closes in 2 days: a demo video link (a short screen recording of it working). Their rule: uses a PayPal API.');
   const rule = gap({ title: 'Kiroween', money: '$100K', closes_in: 'in 5 days', gap: ruleGap('built with Kiro') });
   assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 2" if that rule fits you and I get it ready.');
   assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n')[2], '2. Kiroween, $100K, closes in 5 days. Their rule: built with Kiro.');
@@ -736,7 +736,7 @@ test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do
   assert.equal(gapAction(gap({ title: 'Two', gap: BC, also: [{ ...BC, kind: 'integration', item: 'integration:x', what: 'add X' }] })), 'Say "do" and I make both changes first.');
   // A contract deploy is the builder's (keys and gas).
   assert.equal(gapAction(gap({ title: 'Arc Grant' })), 'Tell me when the contract is on Arc and I look again.');
-  assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO, also: [ruleGap('a team')] })), 'Tell me when the demo video is ready and I look again.');
+  assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO, also: [ruleGap('a team')] })), 'Send me the demo video link and I fill it in.');
   assert.equal(gapAction(gap({ title: 'Used', gap: USERS })), 'Say yes if they do and I draft it.');
   const rule = gap({ title: 'Fund', n: 2, gap: ruleGap('a seed stage startup') });
   assert.equal(gapLine(rule, true), 'Fund, $1K. Their rule: a seed stage startup.');
@@ -807,9 +807,9 @@ test('L24-2 (v6.1.16 Task 11): after a question (look again, a rule, a draft) a 
   for (const last of [null, 'look_again', 'rule', 'draft', 'do', 'stop'] as const) {
     const t = replyText(one, true, new Date(), last);
     assert.doesNotMatch(t, /Your yes stands/, String(last));
-    assert.equal(t.split('\n\n').at(-1), "Ready to apply (1):\n1. Users Grant, $1K.\nOne step away (1):\n2. Other, $1K: a demo video.\nSay yes and I apply to Users Grant.", String(last));
+    assert.equal(t.split('\n\n').at(-1), "Ready to apply (1):\n1. Users Grant, $1K.\nOne step away (1):\n2. Other, $1K: a demo video link (a short screen recording of it working).\nSay yes and I apply to Users Grant.", String(last));
   }
-  assert.equal(replyText(one, true, new Date(), 'apply').split('\n\n').at(-1), "Ready to apply (1):\n1. Users Grant, $1K.\nOne step away (1):\n2. Other, $1K: a demo video.\nYour yes stands for Users Grant: I apply now.");
+  assert.equal(replyText(one, true, new Date(), 'apply').split('\n\n').at(-1), "Ready to apply (1):\n1. Users Grant, $1K.\nOne step away (1):\n2. Other, $1K: a demo video link (a short screen recording of it working).\nYour yes stands for Users Grant: I apply now.");
   // The offer kind of each closing.
   assert.equal(replyParts(one, true, new Date(), null).offer, 'apply');
   assert.equal(replyParts(base({ gaps: [gap({ title: 'R', gap: ruleGap('x'), rules: ['x'] })] }), true).offer, 'rule');
@@ -899,7 +899,7 @@ test('L1d-2 (v6.1.11, Review Focus 2): a gap line names its setup steps as "Firs
   const setup = ['sign up for a Colosseum account', 'start the four-week sprint in the Eternal dashboard'];
   const vc = 'the team has not raised venture capital for the startup it submits';
   const g = gap({ title: 'Colosseum Eternal', money: '$25,000 award', gap: VIDEO, also: [ruleGap(vc)], rules: [vc], setup });
-  const line = 'Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rule: the team has not raised venture capital for the startup it submits.';
+  const line = 'Colosseum Eternal, $25,000 award: a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rule: the team has not raised venture capital for the startup it submits.';
   assert.equal(gapLine({ ...g, n: 2 }), `2. ${line}`);
   assert.equal(gapLine({ ...g, n: 2 }, true), line);
   assert.doesNotMatch(gapLine({ ...g, n: 2 }), /: a demo video\. Their rule/);
@@ -911,7 +911,7 @@ test('L1d-2 (v6.1.11, Review Focus 2): a gap line names its setup steps as "Firs
   const done = gap({ title: 'Base', money: '$5K', gap: codes, setup: ['sign in to the portal'] });
   assert.equal(gapLine({ ...done, n: 3 }), '3. Base, $5K: add Base Builder Codes to the app. First: sign in to the portal.');
   // No setup: unchanged.
-  assert.equal(gapLine({ ...gap({ title: 'C', money: '$1K', gap: VIDEO }), n: 1 }), '1. C, $1K: a demo video.');
+  assert.equal(gapLine({ ...gap({ title: 'C', money: '$1K', gap: VIDEO }), n: 1 }), '1. C, $1K: a demo video link (a short screen recording of it working).');
 });
 
 test('L1d-2 (v6.1.11): an in-person gap line keeps its one attend sentence, never a second "First:"', () => {
@@ -997,7 +997,7 @@ test('fix round 1 (v6.1.12): the nothing-ready closing picks the cheapest step s
   assert.equal(end([vr, floss]), 'Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.');
   assert.equal(end([vr, gap({ title: 'UGREEN', gap: STARTED })]), 'Nothing is ready yet. Tell me when you started and I check it.');
   // Changes only: the first one, as before.
-  assert.equal(end([vr, gap({ title: 'Arc Fund' })]), 'Nothing is ready yet. Tell me when the demo video is ready and I look again.');
+  assert.equal(end([vr, gap({ title: 'Arc Fund' })]), 'Nothing is ready yet. Send me the demo video link and I fill it in.');
 });
 
 test('fix round 1 (v6.1.12): the N3 closing lists at most three needs, then "and n more"', () => {
@@ -1047,13 +1047,13 @@ test('Review Focus 1 (v6.1.14): a reply whose closing names the needs never repe
 
 test('Review Focus 2 (v6.1.14): an unlinked builder reads the sign-in ask once per reply, in the closing', () => {
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof that real people use it', effort: 'weeks' as const, agent_can: false };
-  const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
+  const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video link (a short screen recording of it working)', effort: 'hours' as const, agent_can: false };
   const link = 'https://earnkit.com/link?c=abc';
   const show = replyText(base({ sign_in: link, gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })] }), true);
   // L29-33 (v6.1.16 Task 15): its own line; after a bare closing it is the action, last. L1j-6 (v6.1.17): it names what it checks.
   assert.equal(show, ['One step away (1):', '1. Sign Grant, Up to $5,000: proof that real people use it.', 'Nothing is ready yet.', `Sign in once at ${link} and I check your users and remember you.`].join('\n'));
   assert.equal(show.match(/Sign in/g)!.length, 1, show);
-  assert.equal(gapLine({ ...gap({ title: 'G', gap: TIER, also: [DEMO] }), n: 1 }), '1. G, $1K: proof that real people use it and a demo video.');
+  assert.equal(gapLine({ ...gap({ title: 'G', gap: TIER, also: [DEMO] }), n: 1 }), '1. G, $1K: proof that real people use it and a demo video link (a short screen recording of it working).');
   // No proof gap shown: the closing keeps its repo-read promise.
   assert.match(replyText(base({ sign_in: link, ready: [ready({ title: 'A' })] }), true), /\nSign in once at \S+ and I read your repo for proof and remember you\.\nSay yes and I apply to A\.$/);
 });
@@ -1293,7 +1293,7 @@ test('L24-8 (J3-8): one closing Say; the do-gap line loses its own', () => {
 test('L24-9 (J1-39): a yes names the program whenever other blocks are listed', () => {
   const inPerson = ready({ title: 'Meetup', in_person: true });
   const t = replyText(base({ ready: [ready({ title: 'Text Grant' }), inPerson], gaps: [gap({ title: 'Step', gap: VIDEO })] }), true);
-  assert.equal(t.split('\n\n').at(-1), "Ready to apply (1):\n1. Text Grant, $1K.\nOne step away (1):\n2. Step, $1K: a demo video.\nAnd 1 more in the full list.\nSay yes and I apply to Text Grant.");
+  assert.equal(t.split('\n\n').at(-1), "Ready to apply (1):\n1. Text Grant, $1K.\nOne step away (1):\n2. Step, $1K: a demo video link (a short screen recording of it working).\nAnd 1 more in the full list.\nSay yes and I apply to Text Grant.");
   const two = replyText(base({ ready: [ready({ title: 'A' }), ready({ title: 'B' }), inPerson] }), true);
   assert.equal(two.split('\n\n').at(-1), "Ready to apply (2):\n1. A, $1K.\n2. B, $1K.\nAnd 1 more in the full list.\nSay yes and I apply to all 2 ready.");
 });
@@ -1614,7 +1614,7 @@ test('L18-3: Kiroween (builder submits) with three real gaps closes "Tell me whe
   const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
   assert.equal(gapAction(gap({ title: 'Used', gap: USERS }), null, true), 'Say yes if they do and I draft it.');
   // A single step still closes on the step.
-  assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO }), null, true), 'Tell me when the demo video is ready and I look again.');
+  assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO }), null, true), 'Send me the demo video link and I fill it in.');
 });
 
 test('L18-3b: the same gaps on an agent-sent program still close "Tell me when that is done and I apply."', () => {
@@ -1664,4 +1664,37 @@ test('Task 7 (Task 1 review minors): the more line drops a shown program by id, 
   const twin = { program_id: 'twin-b', title: 'Twin Grant', closes_at: plusDays(L18_NOW, 2) };
   const text = renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [{ program_id: 'twin-a', title: 'Twin Grant', closes_at: plusDays(L18_NOW, 1) }, twin, UGREEN, META_VR] } });
   assert.ok(text.split('\n').includes('And 4 more in the full list; closing this week: Twin Grant (2 days) and UGREEN Hackathon 2026 on AI NAS (3 days).'), text);
+});
+
+// ---- v6.1.18 Task 8: more sends per session (lane 36) ----
+
+test('L36-5 (v6.1.18): a row with several rules shows them all and its one ask covers all of them', () => {
+  const two = gap({ title: 'GitHub Fund', money: '$10,000 per project', gap: ruleGap('an OSI-approved open source license', 'rule:0000000a'), also: [ruleGap('maintainer lives in a region supported by GitHub Sponsors', 'rule:0000000b')] });
+  assert.equal(gapLine({ ...two, n: 1 }), '1. GitHub Fund, $10,000 per project. Their rules: an OSI-approved open source license; maintainer lives in a region supported by GitHub Sponsors.');
+  assert.equal(gapAction(two), 'Say yes if all of that is you and I draft it.');
+  assert.equal(replyText(base({ gaps: [two] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if all of that is you and I get it ready.');
+  // One rule keeps its own words.
+  const one = gap({ title: 'One Fund', gap: ruleGap('a team of two') });
+  assert.equal(gapAction(one), 'Say yes if that is you and I draft it.');
+  assert.equal(replyText(base({ gaps: [one] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.');
+});
+
+test('L36-11 (v6.1.18): a program another agent of the builder holds is left out of the Before line', () => {
+  const r = base({
+    ready: [ready({ title: 'FUTO Microgrants', claimed_since: '2026-11-12T00:00:00Z' }), ready({ title: 'FLOSS/fund' })],
+    blockers: [{ program_id: 'futo-microgrants', sign_in: null, needs_click: true, needs: [] }, { program_id: 'floss-fund', sign_in: null, needs_click: true, needs: [] }],
+  });
+  const text = replyText(r, true);
+  assert.ok(text.split('\n').includes('Before applying: you press submit yourself on FLOSS/fund.'), text);
+  assert.doesNotMatch(text, /press submit yourself on FUTO/);
+});
+
+test('L36-13 (v6.1.18): the demo video gap is a link the builder sends; the agent passes it as project.demo_url', () => {
+  const video = gap({ title: 'PayPal AI Hackathon', money: '$67,500 in prizes', gap: VIDEO });
+  assert.equal(gapLine({ ...video, n: 1 }), '1. PayPal AI Hackathon, $67,500 in prizes: a demo video link (a short screen recording of it working).');
+  assert.equal(gapAction(video), 'Send me the demo video link and I fill it in.');
+  assert.equal(singleStepClosing(VIDEO), 'Send me the demo video link and I fill it in.');
+  const r = base({ gaps: [video] });
+  assert.equal(replyText(r, true).split('\n').at(-1), 'Nothing is ready yet. Send me the demo video link and I fill it in.');
+  assert.ok(agentNote(r, { more: 0 }).split('\n').includes('A demo video gap takes a link: when the builder sends it, pass it as project.demo_url and call find again.'));
 });

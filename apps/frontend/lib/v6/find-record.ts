@@ -14,9 +14,9 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { PROJECT_ITEM, hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { ADD_PROJECT, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
+import { ADD_PROJECT, ADD_PROJECT_USED, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
 import { currentBuilderLine } from './tier-words';
-import { TIERS, place, type Tier } from './tiers';
+import { DEFAULT_THRESHOLDS, TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
 
@@ -200,10 +200,14 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
  *  the sign-in once (v6.1.14); linked (no own
  *  tier read yet), that the proof is still being read (I2), or, when no project in the record matches the find
  *  (`noProject`), to add it so its proof can be read (I2 nuance, v6.1.9). Pure. */
-export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict =>
-  row.file.min_tier
-    ? tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? ADD_PROJECT : PROOF_READING) : confirmLine(row.file.min_tier)}`, o.onchain)
-    : v;
+export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict => {
+  const min = row.file.min_tier;
+  if (!min) return v;
+  // L36-7 (v6.1.18): with no record project, a usage bar says the bar first; adding the project takes minutes.
+  const add = min === 'used' ? ADD_PROJECT_USED(DEFAULT_THRESHOLDS.used_funded_senders) : ADD_PROJECT;
+  const out = tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? add : PROOF_READING) : confirmLine(min)}`, o.onchain);
+  return o.linked && o.noProject && out !== v ? { ...out, gaps: out.gaps.map((g) => (g.kind === 'tier' ? { ...g, effort: 'minutes' as const } : g)) } : out;
+};
 
 /**
  * L12-7 (v6.1.14): with no tier at all (nothing read, no repo or live link) a `building` bar asks for code, so a program

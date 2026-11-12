@@ -132,3 +132,19 @@ test('Task 9 fix round 1 (M2): a reader that throws gets the same bound: kept wi
 });
 
 after(async () => (await import('../v5/db')).sql().end());
+
+test('L36-7 (v6.1.18): linked with no record project, a usage bar says the bar first and the record step takes minutes', async () => {
+  const { provisionalGate } = await import('./find-record');
+  const { isProofReadingWhat } = await import('./reply-words');
+  const prog = (min: string) => ({ id: 'floss-fund', file: { title: 'FLOSS/fund', min_tier: min, chains: [], eligibility: [] } }) as unknown as ProgramRow;
+  const ready = { program_id: 'floss-fund', status: 'ready' as const, gaps: [], reason: null, long_shot: null, rules: [] };
+  const used = provisionalGate(ready, prog('used'), 'building', { onchain: true, linked: true, noProject: true });
+  const g = used.gaps[0] as Gap;
+  assert.equal(`FLOSS/fund, $10,000 to $100,000. ${g.what}.`, 'FLOSS/fund, $10,000 to $100,000. Needs about 25 outside users in 90 days; I count 0 so far. Add this project to your record and I read its proof.');
+  assert.equal(g.effort, 'minutes');
+  assert.ok(isProofReadingWhat(g.what));
+  // A live bar keeps the record step's own words, also in minutes; a matched project still being read stays weeks.
+  const live = provisionalGate(ready, prog('live'), 'building', { onchain: true, linked: true, noProject: true }).gaps[0] as Gap;
+  assert.deepEqual([live.what, live.effort], ['Add this project to your record so EarnKit can read its proof', 'minutes']);
+  assert.equal((provisionalGate(ready, prog('used'), 'building', { onchain: true, linked: true, noProject: false }).gaps[0] as Gap).effort, 'weeks');
+});

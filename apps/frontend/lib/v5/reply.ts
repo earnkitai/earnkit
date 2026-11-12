@@ -23,7 +23,7 @@ const NEEDS_SHOWN = 3;
 
 /** The agent note line for rule gaps (v6.1.6, R18a): EarnKit shows them, the builder confirms each once. */
 export const RULE_NOTE =
-  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Draft it and show the builder; submit only on a yes to the draft.';
+  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again; with several rules on one row, one gap_done with the first rule item confirms every rule that row listed. Draft it and show the builder; submit only on a yes to the draft.';
 
 /**
  * L24-2 (v6.1.16 Task 11): the kind of the one `Say` a reply offered, kept per installation (`installations.last_offer`):
@@ -173,6 +173,10 @@ function attendLine(p: ReadyProgram, alone: boolean): string {
 
 /** A gap program whose gaps are only rules to confirm (R18a). Pure. */
 export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
+/** L36-5 (v6.1.18): the rules still to confirm on a gap row. Pure. */
+export const ruleCount = (g: GapProgram): number => [g.gap, ...g.also].filter((x) => x.kind === 'rule').length;
+/** L36-5 (v6.1.18): the one-program ask when the row lists several rules. */
+export const RULES_ACTION = 'Say yes if all of that is you and I draft it.';
 /** O2 (v6.1.10): an in-person program that needs only its rule confirmed: listed in the In person block. Pure. */
 export const attendRuleGap = (g: GapProgram) => g.in_person && ruleOnlyGap(g);
 
@@ -262,9 +266,16 @@ const weeksOf = (x: Gap): number | null => {
 /** L1g-5 (v6.1.16): the one closing shape for a single step: "Tell me when {step} and I look again."; a telling step
  *  ("tell me the live repo") takes the place of "when {step}". Pure. */
 export function singleStepClosing(x: Gap): string {
+  // L36-13 (v6.1.18): a demo video is a link the builder sends.
+  if (x.kind === 'demo_video') return DEMO_CLOSING;
   if (x.setup && telling(x.setup)) return `T${x.setup.slice(1)} and I look again.`;
   return `Tell me when ${stepClause(x) ?? 'that is done'} and I look again.`;
 }
+
+/** L36-13 (v6.1.18): the closing on a demo video step. */
+export const DEMO_CLOSING = 'Send me the demo video link and I fill it in.';
+/** L36-13 (v6.1.18): how the agent passes the demo video link. */
+export const DEMO_NOTE = 'A demo video gap takes a link: when the builder sends it, pass it as project.demo_url and call find again.';
 
 /** L1f-2 (v6.1.14): the closing when the step's only change is code in a repo: one action, no rule yes before the code exists. */
 export const CODE_CLOSING = singleStepClosing(NEEDS_CODE);
@@ -281,7 +292,8 @@ const STARTED_CLOSING = 'Tell me when you started and I check it.';
  */
 function gapActionOf(g: GapProgram, signIn: string | null, draftOnly = false): { action: string | null; step?: Gap } {
   if (g.in_person) return { action: null };
-  if (ruleOnlyGap(g)) return { action: 'Say yes if that is you and I draft it.' };
+  // L36-5 (v6.1.18): several rules on the row are one ask.
+  if (ruleOnlyGap(g)) return { action: ruleCount(g) > 1 ? RULES_ACTION : 'Say yes if that is you and I draft it.' };
   const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
   if (signIn && signInOnly([g.gap, ...g.also])) return { action: signIn };
   if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return { action: null };
@@ -400,8 +412,11 @@ function beforeLine(r: R, waiting: string | null = null, said: string[] = []): s
   const inPerson = new Set(r.ready.filter((p) => p.in_person).map((p) => p.program_id));
   const remote = r.blockers.filter((b) => !inPerson.has(b.program_id));
   const groups = new Map<string, string[]>();
+  // L36-11 (v6.1.18): a program another agent of the builder's holds is left out; this agent sends nothing for it.
+  const claimedIds = new Set(r.ready.filter((p) => p.claimed_since).map((p) => p.program_id));
   for (const b of remote) {
     if (!b.sign_in && !b.needs_click) continue;
+    if (claimedIds.has(b.program_id)) continue;
     const words = b.sign_in ? `${signInWords(b.sign_in)}${b.needs_click ? ' and press submit yourself on' : ' for'}` : 'you press submit yourself on';
     groups.set(words, [...(groups.get(words) ?? []), ...titlesOf(r, [b])]);
   }
@@ -490,7 +505,8 @@ export const NOTHING_READY = 'Nothing is ready yet.';
 export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I start the in-person applications.';
 
 /** L29-28 (v6.1.16 Task 15): the rule question's Say. Pure. */
-export const ruleSay = (n: number): string => `Say "yes ${n}" if that rule fits you and I get it ready.`;
+export const ruleSay = (n: number, many = false): string =>
+  many ? `Say "yes ${n}" if all of that is you and I get it ready.` : `Say "yes ${n}" if that rule fits you and I get it ready.`;
 /** L29-34 (v6.1.16 Task 15): the users question, unlinked. */
 export const USERS_UNLINKED = 'Do real people use it? Say yes, sign in once, and I check.';
 /** L1i-3 (v6.1.16.1): the users question with the sign-in link in it, the reply's one sign-in sentence. Pure. */
@@ -520,6 +536,8 @@ export function closingLine(o: {
   drafts?: string[]; applyTitle?: string; others?: boolean; overLimit?: boolean; doOffer?: { n: number; verb: string } | null;
   /** L29-17 (v6.1.16 Task 15): what the yes needs from the builder first, named in the Say. */
   yesNeeds?: string[];
+  /** L36-5 (v6.1.18): the program the rule Say names lists several rules, so the yes covers all of them. */
+  ruleMany?: boolean;
   /** L29-34 (v6.1.16 Task 15): unlinked, the users question says the sign-in that checks it. */
   linked?: boolean;
   /** Task 11 fix round 1 (M1): ready programs the builder held; with none other ready, the reply closes on the hold. */
@@ -573,9 +591,9 @@ export function closingLine(o: {
   if (o.held > 0) return withDo({ text: 'Your other agent is handling these.', offer: null });
   if (o.gaps > 0) {
     // L29-28 (v6.1.16 Task 15): the rule Say says what the yes does.
-    if (o.firstRule !== null) return { text: `Nothing is ready yet. ${ruleSay(o.firstRule)}`, offer: 'rule' };
+    if (o.firstRule !== null) return { text: `Nothing is ready yet. ${ruleSay(o.firstRule, o.ruleMany)}`, offer: 'rule' };
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
-    if (o.stepRule != null) return { text: `Nothing is ready yet. ${ruleSay(o.stepRule)}`, offer: 'rule' };
+    if (o.stepRule != null) return { text: `Nothing is ready yet. ${ruleSay(o.stepRule, o.ruleMany)}`, offer: 'rule' };
     const step = o.firstStep ?? null;
     // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
     if (step?.users && o.linked === false) return { text: `Nothing is ready yet. ${USERS_UNLINKED}`, offer: 'look_again' };
@@ -885,6 +903,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
           const c = closingLine({
             // Fix round 1 (I2): an in-person program held for another project is listed, never a yes.
             ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length - onHold.length + heldInPerson, firstStep, stepRule,
+            // L36-5 (v6.1.18): the rule Say covers every rule its row lists.
+            ruleMany: (() => { const row = steps.find((g) => g.n === (firstRule ?? stepRule)); return row ? ruleCount(row) > 1 : false; })(),
             // L16-11 (v6.1.16): the one ready program left to say yes to, by name.
             ...(unsaid.length === 1 ? { title: unsaid[0].title } : {}),
             yesStands: stands.filter((p) => !click.has(p.program_id)).map((p) => p.title),
@@ -1131,7 +1151,7 @@ const IN_PERSON_HEAD = 'In person';
 export const FULL_RULE_SAY = 'Say a number and I show what that program asks.';
 const fullSay = (say: string): string => {
   const fact = withoutSay(say);
-  return /Say "yes \d+" if that rule fits you/.test(say) ? [fact, FULL_RULE_SAY].filter(Boolean).join(' ') : say;
+  return /Say "yes \d+" if (that rule fits you|all of that is you)/.test(say) ? [fact, FULL_RULE_SAY].filter(Boolean).join(' ') : say;
 };
 
 /**
@@ -1237,6 +1257,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:public' || x.item === 'repo:archived')))
     lines.push(REPO_STEP_NOTE);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
+  // L36-13 (v6.1.18): the demo video link goes in the project.
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(DEMO_NOTE);
   // L29-19 (v6.1.16 Task 15): one way.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push(`"Do real people use it" is a question, not work: ask the builder once. ${USERS_NOTE}`);
