@@ -161,14 +161,14 @@ test('cache: at most 1,000 documents, oldest dropped first', async () => {
   const urls = Array.from({ length: 1_001 }, (_, i) => `https://many.example/c${i}.json`);
   for (const u of urls) assert.equal((await authorize(u, f)).status, 302);
   assert.equal(f.requests.length, 1_001);
+  // Fix round 1 (N2): the store holds at most 1,000 rows, one per URL.
+  assert.equal((await sql()`SELECT count(*)::int AS n, count(DISTINCT url)::int AS u FROM cimd_documents`)[0].n, 1_000);
   await authorize(urls[1_000], f);
   assert.equal(f.requests.length, 1_001, 'the newest is kept');
-  // L35-5 (v6.1.16.1 Task 2): the oldest left memory; its stored good copy serves it with no fetch.
-  await authorize(urls[0], f);
-  assert.equal(f.requests.length, 1_001, 'the oldest is read from the store');
+  // L35-5 (v6.1.16.1 Task 2): with no stored copy either, the oldest is fetched again.
   await clearAll();
   await authorize(urls[0], f);
-  assert.equal(f.requests.length, 1_002, 'with no stored copy, it is fetched');
+  assert.equal(f.requests.length, 1_002, 'the oldest was dropped');
 });
 
 test('a signed (registered) client_id still authorizes and exchanges unchanged, with no fetch', async () => {

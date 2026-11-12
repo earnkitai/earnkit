@@ -16,7 +16,7 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, markAsked, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -949,13 +949,27 @@ async function sentByAnother<T extends FindReply | ProgramReply>(ctx: FindContex
   };
 }
 
-/** L35-1 (v6.1.16.1 Task 2): the builder's answer to the join question for this name and repo: the one kept with the
- *  project's report, else the record project's (by the repo, else the name); null while undecided. */
+/** L35-1 (v6.1.16.1 Task 2): the builder's answer to the join question for this name and this repo: the one kept with
+ *  the name's report, else the record project with this repo's; null while undecided. Fix round 1 (I1): an answer
+ *  given for another repo is no answer here. */
 async function joinDecided(ctx: FindContext, fromName: string, toRepo: string): Promise<'joined' | 'kept_apart' | null> {
-  const kept = await joinDecision(ownerOf(ctx), fromName);
+  const kept = await joinDecision(ownerOf(ctx), fromName, toRepo);
   if (kept || ctx.builderId === null) return kept;
-  const p = (await getRecord(ctx.builderId)).projects.find((x) => (x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === toRepo) || nameKeyOf(x) === fromName);
+  const p = (await getRecord(ctx.builderId)).projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === toRepo);
   return p?.join ?? null;
+}
+
+/**
+ * Fix round 1 (I1): after a joined answer for this repo, new rows under the name move onto it only through the gate a
+ * send takes: the signed-in builder's tie to the repo (cache only, as `followRename`), then `joinRows` with its locks
+ * and the cross-builder check. Nothing else moves sends in find; a refusal is silent (no login, nothing written).
+ */
+async function joinAgain(ctx: FindContext, fromName: string, toRepo: string, project: Project): Promise<void> {
+  if (ctx.builderId === null) return;
+  const login = (await getBuilder(ctx.builderId))?.login ?? null;
+  const facts = (await cachedRepoFacts(project)) ?? { repo_url: toRepo };
+  if ((await repoTie(login, facts, { repoUrl: toRepo, noFetch: true })) === null) return;
+  await joinRows(ownerOf(ctx), fromName, toRepo, await cachedRepoId(toRepo), await cachedRepoParent(toRepo));
 }
 
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {
@@ -969,9 +983,14 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L35-1 (v6.1.16.1 Task 2): asked only while the builder has not answered; kept apart, nothing moves.
   if (project?.repo_url && fromName && toRepo !== fromName) {
     const decided = await joinDecided(ctx, fromName, toRepo);
+    const held = await heldUnder(ownerOf(ctx), fromName);
     if (decided === 'kept_apart') {
       // The builder said yes and another builder holds the repo: the name keeps its sends.
-    } else if (!decided && (await heldUnder(ownerOf(ctx), fromName))) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
+    } else if (decided === 'joined') {
+      // Fix round 1 (I1): rows under the name since the yes move only through the send's tie gate.
+      if (held) await joinAgain(ctx, fromName, toRepo, project);
+    } else if (held) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
+    // The name holds nothing: only its report moves (the B4 silent re-key).
     else await rekeyProject(ownerOf(ctx), fromName, toRepo);
   }
   // W2 (final round): a project by name alone whose report names a repo is read under that repo's key (steps, claims, report).

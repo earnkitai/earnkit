@@ -274,9 +274,14 @@ is decided early and written only on the recording path (L35-7). The join yes (`
 the owner's lock for each program the name holds and the repo's lock (and a fork's parent's): when another builder sent
 the repo, nothing moves (sends marked `off_repo`) and the reply is `KEPT_APART`; else every name row moves with the
 repo's identity and `off_repo` cleared, and `JOINED` is said only when rows moved (`ALREADY_JOINED` otherwise). The
-answer is kept on the name key's report (`joinDecision`, `saveJoinDecision`; `saveReport` keeps it, `reportOf` strips
-it) and on a matching record project (`join`, EarnKit only); find asks `JOIN_QUESTION` only while undecided and moves
-nothing once kept apart. Forks: the cached read keeps `fork`, `parent_repo_id` and `parent_full_name`
+answer is kept per name and repo key on the name key's report (`joins`; `joinDecision`, `saveJoinDecision`;
+`saveReport` keeps it, `reportOf` strips it) and on the record project with that repo (`join`, EarnKit only); an answer
+for another repo is no answer (fix round 1, I1). find asks `JOIN_QUESTION` only while undecided for this repo, moves
+nothing once kept apart, and after a joined answer moves new name rows only through the send's gate (`joinAgain`: the
+tie by the cached read, then `joinRows`); a join never moves a send kept off another repo. The own-claim exception in
+`record` counts only a co-founder's send under this very repo key (never a fork's parent or an id alone, I2). track
+resolves a repo key whose cached read now answers another link (a rename) to that link (`currentLink`, M1);
+`cimd_documents` holds at most 1,000 rows (N2). Forks: the cached read keeps `fork`, `parent_repo_id` and `parent_full_name`
 (`cachedRepoParent`); `sentForRepo` also matches the parent's id or key (an id or parent match is `by: 'id'`, never
 naming the other builder, L35-20), and `cachedRepoId` returns an id only when the read's name agrees with the link
 (`readAgrees`); a verified rename (the other row's read now answers with this link) counts as a key match. Co-founders:

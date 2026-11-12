@@ -140,8 +140,8 @@ export const ALREADY_JOINED = (name: string, repo: string): string => `${quoteNa
  * rules move to the repo's key, and the name reads as the repo from now on. Never for a repo that is not the
  * builder's; the program id is not read. L35-1 (v6.1.16.1 Task 2): in one transaction under the locks (`joinRows`):
  * when another builder already sent the repo, nothing moves and the send stays under its name (`KEPT_APART`); either
- * way the answer is kept with the project (its report, and the record project when one is this project), so the
- * question is not asked again.
+ * way the answer is kept with the project for this repo (its report, and the record project with this repo), so the
+ * question is not asked again for this repo (fix round 1, I1: another repo is undecided).
  */
 async function joinProject(ctx: TrackContext, owner: string, name: string, project: Project | undefined, refuse: (note: string, agentNote?: string) => Promise<Result>, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
   const passed = projectKeyOf(project);
@@ -156,10 +156,11 @@ async function joinProject(ctx: TrackContext, owner: string, name: string, proje
     const report = await reportOf(owner, to);
     if (report) await saveReport(owner, from, report, ctx.now);
   }
-  await saveJoinDecision(owner, from, name, decision, ctx.now);
+  // Fix round 1 (I1): the answer is this name's for this repo only.
+  await saveJoinDecision(owner, from, to, name, decision, ctx.now);
   if (ctx.builderId !== null)
     await withRecord(ctx.builderId, ctx.now, (cur) => {
-      const p = cur.projects.find((x) => (x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === to) || nameKeyOf(x) === from);
+      const p = cur.projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === to);
       if (!p || p.join === decision) return { record: null, result: null };
       p.join = decision;
       return { record: cur, result: null };
@@ -257,7 +258,18 @@ export function trackAmount(i: { amount_usd?: number; amount?: number | string; 
  */
 async function projectOf(ctx: TrackContext, i: { project?: Project; project_id?: string }): Promise<{ key: string; given: boolean }> {
   const p = await givenProjectOf(ctx, i);
-  return { ...p, key: await resolvedKey(ownerKey(ctx.installationId, ctx.builderId), p.key) };
+  return { ...p, key: await currentLink(await resolvedKey(ownerKey(ctx.installationId, ctx.builderId), p.key)) };
+}
+
+/**
+ * Fix round 1 (M1): a repo key whose cached read now answers with another link (GitHub renamed or moved it, same id) is
+ * that link, so a send by the name alone or with no project after a rename finds the renamed row, find or no find.
+ * Cache only; any other key is itself.
+ */
+async function currentLink(key: string): Promise<string> {
+  if (!repoKeyOf(key)) return key;
+  const now = await cachedRepoLink(key);
+  return now && now !== key && (await cachedRepoId(now)) !== null ? now : key;
 }
 
 async function givenProjectOf(ctx: TrackContext, i: { project?: Project; project_id?: string }): Promise<{ key: string; given: boolean }> {
@@ -485,7 +497,7 @@ async function act(
   const project = await projectOf(ctx, i);
   // L28-4 (v6.1.16 Task 14): the application's project key: the record project's named by project_id, else the project's.
   const recorded = i.project_id !== undefined && ctx.builderId !== null ? projectKeyOf((await getRecord(ctx.builderId)).projects.find((x) => x.id === i.project_id)) : '';
-  let appKey = recorded ? await resolvedKey(owner, recorded) : project.key;
+  let appKey = recorded ? await currentLink(await resolvedKey(owner, recorded)) : project.key;
   // Fix round 1 (M3): a renamed or transferred repo, read under its current link, takes its old keys' rows, steps and
   // confirmed rules first (only the cached read's own link, so an old link never pulls them back). Fix round 2 (C4):
   // only once this builder's tie to the repo is shown, so a refused call moves nothing.

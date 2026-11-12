@@ -339,6 +339,8 @@ async function storeDocument(url: string, doc: unknown, at: number): Promise<voi
       ON CONFLICT (url) DO UPDATE SET document = EXCLUDED.document, fetched_at = EXCLUDED.fetched_at`;
     // A copy past the 6 hours is never served, so it goes: the table holds at most the last 6 hours of good reads.
     await sql()`DELETE FROM cimd_documents WHERE fetched_at < ${new Date(at - CIMD_STALE_MS)}`;
+    // Fix round 1 (N2): one row per URL and at most CIMD_CACHE_MAX rows, the oldest read dropped first.
+    await sql()`DELETE FROM cimd_documents WHERE url IN (SELECT url FROM cimd_documents ORDER BY fetched_at DESC, url OFFSET ${CIMD_CACHE_MAX})`;
   } catch (err) {
     console.warn('[oauth] client document not stored', err instanceof Error ? err.message : String(err));
   }

@@ -426,7 +426,9 @@ export async function record(
         if (parent?.key) await repoLock(tx, parent.key, programId, parent.id);
         const other = await sentForRepo(tx, programId, k, owner, id, parent);
         // L35-4 (v6.1.16.1 Task 2): this agent's own claim, taken before the co-founder's send: the form went out; recorded.
-        if (other && status === 'applied' && o.tied === true && row?.status === 'started' && row.at.getTime() < other.at.getTime()) cofounderSent = true;
+        // Fix round 1 (I2): only for a send under this very repo key (never a fork's parent, never an id alone).
+      if (other && status === 'applied' && o.tied === true && other.by === 'key' && k === repoKeyOf(key) && row?.status === 'started'
+        && (row.project_id ?? '') === key && row.at.getTime() < other.at.getTime()) cofounderSent = true;
         else if (other && status === 'held') return { ok: false, note: NOTHING_TO_HOLD_REPO } as const;
         // Controller ruling: never the other builder's result; their login only on the caller's strong tie, and (L35-20)
         // only when the match is by this repo's key.
@@ -844,7 +846,8 @@ export async function rekeyProject(owner: string, from: string, to: string): Pro
  * The moves of `rekeyProject` inside the caller's transaction; the application rows moved. L35-1, L35-2 (v6.1.16.1
  * Task 2): each moved row takes the new key's identity (`gh:{id}` with its repo id, else the key), never one another of
  * the owner's rows of that program holds. `join` (the builder's yes, `joinRows`): the cross-builder check already passed
- * under the locks, so rows kept off the repo move too and are no longer kept off it, and the repo id is `repoId`.
+ * under the locks, so rows kept off this repo move too and are no longer kept off it (fix round 1: never a row kept off
+ * another repo), and the repo id is `repoId`.
  */
 async function rekeyIn(tx: Db, owner: string, from: string, to: string, o: { join?: boolean; repoId?: number | null } = {}): Promise<number> {
   // W4 (final round): copied with ON CONFLICT, so a step marked under `to` at this moment never breaks the unique
@@ -857,7 +860,7 @@ async function rekeyIn(tx: Db, owner: string, from: string, to: string, o: { joi
   await tx`DELETE FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}`;
   // FR-5 (fix round 1): the history follows its application.
   await tx`UPDATE application_history h SET project_id = ${to} WHERE h.owner = ${owner} AND h.project_id = ${from}
-    AND EXISTS (SELECT 1 FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.project_id = ${from} AND (${o.join === true} OR a.off_repo IS NULL OR a.off_repo <> ${to}))
+    AND EXISTS (SELECT 1 FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.project_id = ${from} AND (a.off_repo IS NULL OR (${o.join === true} AND a.off_repo = ${to}) OR (${o.join !== true} AND a.off_repo <> ${to})))
     AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = h.owner AND b.program_id = h.program_id AND COALESCE(b.project_id, '') = ${to})`;
   // L28-4 (v6.1.16 Task 14): one row per owner, program and project: a row moves unless `to` already holds that
   // program (then both stay, each under its own key). It carries the new key's repo (L28-6: a renamed repo).
@@ -879,7 +882,8 @@ async function rekeyIn(tx: Db, owner: string, from: string, to: string, o: { joi
       repo_id = COALESCE(a.repo_id, ${joinId}::bigint),
       identity = CASE WHEN ${toRepo}::text IS NOT NULL AND COALESCE(a.repo_id, ${joinId}::bigint) IS NOT NULL THEN 'gh:' || COALESCE(a.repo_id, ${joinId}::bigint)::text ELSE ${to} END,
       off_repo = CASE WHEN ${o.join === true} THEN NULL ELSE a.off_repo END
-    WHERE a.owner = ${owner} AND a.project_id = ${from} AND (${o.join === true} OR a.off_repo IS NULL OR a.off_repo <> ${to})
+    -- Fix round 1 (I1): a join moves a send kept off this very repo, never one kept off another repo.
+    WHERE a.owner = ${owner} AND a.project_id = ${from} AND (a.off_repo IS NULL OR (${o.join === true} AND a.off_repo = ${to}) OR (${o.join !== true} AND a.off_repo <> ${to}))
       AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = a.owner AND b.program_id = a.program_id AND COALESCE(b.project_id, '') = ${to})
       AND NOT EXISTS (SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND c.ctid <> a.ctid
         AND c.identity = CASE WHEN ${toRepo}::text IS NOT NULL AND COALESCE(a.repo_id, ${joinId}::bigint) IS NOT NULL THEN 'gh:' || COALESCE(a.repo_id, ${joinId}::bigint)::text ELSE ${to} END)`;
@@ -920,19 +924,24 @@ export async function joinRows(owner: string, from: string, to: string, repoId: 
   }) as Promise<{ moved: number } | { taken: Date }>;
 }
 
-/** L35-1 (v6.1.16.1 Task 2): the builder's answer to the join question for a name key, kept with EarnKit's copy of
- *  the project (its report), or null while it is not decided. */
-export async function joinDecision(owner: string, nameKey: string): Promise<'joined' | 'kept_apart' | null> {
-  if (!nameKey) return null;
-  const [r] = await sql()<{ j: string | null }[]>`SELECT report->>'join' AS j FROM project_reports WHERE owner = ${owner} AND project_key = ${nameKey}`;
+/**
+ * L35-1 (v6.1.16.1 Task 2; fix round 1, I1): the builder's answer to the join question for this name and this repo
+ * key, kept with EarnKit's copy of the project (the name's report, `joins` by repo key), or null while it is not
+ * decided. An answer given for another repo is no answer for this one.
+ */
+export async function joinDecision(owner: string, nameKey: string, repoKey: string): Promise<'joined' | 'kept_apart' | null> {
+  if (!nameKey || !repoKey) return null;
+  const [r] = await sql()<{ j: string | null }[]>`SELECT report->'joins'->>${repoKey} AS j FROM project_reports WHERE owner = ${owner} AND project_key = ${nameKey}`;
   return r?.j === 'joined' || r?.j === 'kept_apart' ? r.j : null;
 }
 
-/** L35-1: keeps the answer to the join question on the name key's report (a report with only the name when none). */
-export async function saveJoinDecision(owner: string, nameKey: string, name: string, decision: 'joined' | 'kept_apart', now: Date): Promise<void> {
-  if (!nameKey) return;
-  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${nameKey}, ${sql().json({ name, description: '', join: decision } as never)}, ${now})
-    ON CONFLICT (owner, project_key) DO UPDATE SET report = project_reports.report || ${sql().json({ join: decision } as never)}`;
+/** L35-1: keeps the answer to the join question for this name and repo on the name key's report (a report with only
+ *  the name when none). */
+export async function saveJoinDecision(owner: string, nameKey: string, repoKey: string, name: string, decision: 'joined' | 'kept_apart', now: Date): Promise<void> {
+  if (!nameKey || !repoKey) return;
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${nameKey}, ${sql().json({ name, description: '', joins: { [repoKey]: decision } } as never)}, ${now})
+    ON CONFLICT (owner, project_key) DO UPDATE SET report = project_reports.report
+      || jsonb_build_object('joins', COALESCE(project_reports.report->'joins', '{}'::jsonb) || ${sql().json({ [repoKey]: decision } as never)})`;
 }
 
 /**
@@ -978,7 +987,7 @@ export async function saveReport(owner: string, projectKey: string, report: Proj
   if (!projectKey) return;
   // L35-1 (v6.1.16.1 Task 2): the answer to the join question stays with the report.
   await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${projectKey}, ${sql().json(report as never)}, ${now})
-    ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report || (CASE WHEN project_reports.report ? 'join' THEN jsonb_build_object('join', project_reports.report->'join') ELSE '{}'::jsonb END), at = EXCLUDED.at`;
+    ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report || (CASE WHEN project_reports.report ? 'joins' THEN jsonb_build_object('joins', project_reports.report->'joins') ELSE '{}'::jsonb END), at = EXCLUDED.at`;
 }
 
 /** Days cached evidence stays (W3, final round; L23-12 v6.1.16: the evidence only, never the report). */
@@ -1010,10 +1019,10 @@ export async function resolvedKey(owner: string, key: string): Promise<string> {
 /** The project as reported at the owner's last find on this project key, or null. */
 export async function reportOf(owner: string, projectKey: string): Promise<Project | null> {
   if (!projectKey) return null;
-  const [r] = await sql()<{ report: Project & { join?: unknown } }[]>`SELECT report FROM project_reports WHERE owner = ${owner} AND project_key = ${projectKey}`;
+  const [r] = await sql()<{ report: Project & { joins?: unknown } }[]>`SELECT report FROM project_reports WHERE owner = ${owner} AND project_key = ${projectKey}`;
   if (!r) return null;
-  // L35-1: the join answer is EarnKit's own, never part of the project.
-  const { join: _join, ...report } = r.report;
+  // L35-1: the join answers are EarnKit's own, never part of the project.
+  const { joins: _joins, ...report } = r.report;
   return report as Project;
 }
 

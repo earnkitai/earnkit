@@ -2242,3 +2242,69 @@ test('L35-20 (v6.1.16.1 Task 2, lifted): an unrelated repo whose cached read car
   assert.equal(r.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
   assert.ok(!JSON.stringify(r).includes('ali-b26'));
 });
+
+// ---- v6.1.16.1 Task 2 fix round 1 ----
+
+test('X1, I1 (Task 2 fix round 1): a join answer is per repo; a joined name never moves sends onto a repo its builder is not tied to; the victim\'s own sends go through', async () => {
+  const { find, JOIN_QUESTION } = await import('./find');
+  await seedRead('xmal/app', ['xmal'], 359101);
+  await seedRead('vic-x1/app', ['vic-x1'], 359102);
+  for (const id of ['x1-g1', 'x1-g2', 'x1-g3']) await upsertProgram(programFixture({ id, title: `X1 ${id}` }), 'file', NOW);
+  const mal = await signedIn('xmal');
+  const OWN = { name: 'App', description: 'An app.', repo_url: 'https://github.com/xmal/app' };
+  const VIC = { name: 'App', description: 'An app.', repo_url: 'https://github.com/vic-x1/app' };
+  assert.equal((await track(mal, { program_id: 'join', status: 'gap_done', item: 'join:App', project: OWN })).show_to_builder, '"App" and github.com/xmal/app are already one project.');
+  assert.equal((await send(at(mal, 1), 'x1-g1', { name: 'App', description: 'An app.' }, 'builder')).show_to_builder, 'Sent X1 x1-g1.');
+  assert.equal((await send(at(mal, 2), 'x1-g2', VIC, 'builder')).show_to_builder, 'Sent X1 x1-g2.');
+  const before = async () => (await sql()`SELECT program_id, project_id, repo_key, off_repo FROM applications WHERE owner = ${mal.owner} ORDER BY program_id`).map((r) => [r.program_id, r.project_id, r.repo_key, r.off_repo]);
+  const kept = await before();
+  assert.deepEqual(kept, [['x1-g1', 'name:app', null, null], ['x1-g2', 'name:app', null, 'https://github.com/vic-x1/app']]);
+  // The answer for his own repo is no answer for the victim's: the question, and nothing moves.
+  const r = await find({ ...at(mal, 3), linkUrl: async () => null }, { project: VIC });
+  assert.notEqual(r.show_to_builder, JOIN_QUESTION('App', 'github.com/vic-x1/app'));
+  assert.deepEqual(await before(), kept);
+  const yes = await track(at(mal, 4), { program_id: 'join', status: 'gap_done', item: 'join:App', project: VIC });
+  assert.equal(yes.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.');
+  assert.deepEqual(await before(), kept);
+  const vic = await signedIn('vic-x1');
+  for (const id of ['x1-g1', 'x1-g2']) assert.equal((await send(at(vic, 5), id, VIC)).show_to_builder, `Sent X1 ${id}.`);
+  // His own repo, answered joined: a later name-only send moves onto it only through the tie gate (he owns it).
+  assert.equal((await send(at(mal, 6), 'x1-g3', { name: 'App', description: 'An app.' }, 'builder')).show_to_builder, 'Sent X1 x1-g3.');
+  await find({ ...at(mal, 7), linkUrl: async () => null }, { project: OWN });
+  assert.deepEqual((await rowsOf(mal.owner, 'x1-g3')).map((x) => [x.project_id, x.repo_key]), [['https://github.com/xmal/app', 'https://github.com/xmal/app']]);
+  assert.deepEqual((await rowsOf(mal.owner, 'x1-g2')).map((x) => [x.project_id, x.off_repo]), [['name:app', 'https://github.com/vic-x1/app']]);
+});
+
+test('X2, I2 (Task 2 fix round 1): a fork owner\'s claim taken before the parent\'s owner sent does not let the fork send; no co-founder note', async () => {
+  await seedRead('px2/t', ['px2'], 359201);
+  await seedFacts('fo-x2/t-fork', { fork: true, contributors: ['fo-x2'], repo_id: 359202, parent_repo_id: 359201, parent_full_name: 'px2/t' });
+  await upsertProgram(programFixture({ id: 'x2-g', title: 'X2 Grant' }), 'file', NOW);
+  const fo = await signedIn('fo-x2');
+  const px = await signedIn('px2');
+  const FORK = { name: 'T', description: 'A fork.', repo_url: 'https://github.com/fo-x2/t-fork' };
+  assert.equal((await track(fo, { program_id: 'x2-g', status: 'started', project: FORK })).show_to_builder, '');
+  assert.equal((await send(at(px, 1), 'x2-g', { name: 'T', description: 'The original.', repo_url: 'https://github.com/px2/t' })).show_to_builder, 'Sent X2 Grant.');
+  const before = await fullRows(fo.owner, 'x2-g');
+  const r = await send(at(fo, 2), 'x2-g', FORK);
+  assert.equal(r.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
+  assert.equal(r.refused, true);
+  assert.ok(!/co-founder/i.test(r.agent_note), r.agent_note);
+  assert.deepEqual(await fullRows(fo.owner, 'x2-g'), before);
+});
+
+test('X3, M1 (Task 2 fix round 1): after a GitHub rename with no find since, the name alone and no project are the same application', async () => {
+  await seedRead('xr3/old', ['al-x3'], 359301);
+  await upsertProgram(programFixture({ id: 'x3-g', title: 'X3 Grant' }), 'file', NOW);
+  const al = await signedIn('al-x3');
+  assert.equal((await send(al, 'x3-g', { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/xr3/old' })).show_to_builder, 'Sent X3 Grant.');
+  // GitHub renamed it: the same id, and the old link's read answers the new one.
+  await seedRead('xr3/new', ['al-x3'], 359301);
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{html_url}', '"https://github.com/xr3/new"'::jsonb) WHERE repo = 'xr3/old'`;
+  const tries = [
+    await send(at(al, 1), 'x3-g', { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/xr3/new' }),
+    await send(at(al, 2), 'x3-g', { name: 'Clock', description: 'Tells time.' }),
+    await track(at(al, 3), { program_id: 'x3-g', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] }),
+  ];
+  for (const r of tries) assert.equal(r.show_to_builder, 'Already sent on Nov 4.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'x3-g'`)[0].n, 1);
+});
