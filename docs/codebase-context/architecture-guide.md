@@ -259,6 +259,37 @@ keyless send then a repo send reads `Already sent on {date}.` and no orphan clai
 ends on the sign-in line always fetches the link (never after the record was deleted) and carries it as `sign_in`; right
 after an unlink the notice keeps only `This agent was unlinked from your account.` and the closing carries the link.
 
+**Ownership, identity and list numbers (v6.1.16.1 Task 2, lane 35).** Each application row carries `identity`
+(`gh:{repo_id}` when GitHub's id is known, else the repo key, else the folded name key; `identityOf` in
+project-input.ts, `identityFor` when the caller passes none), one per (owner, program, identity) by the partial unique
+index `applications_owner_program_identity` (the old project-key index stays for one release; the schema backfill gives
+an identity only to the furthest-gone row of a would-be duplicate). `record` and `claim` look the row up by identity
+first, but (controller ruling) only when that row's key gives the same repo key as the call's own; an identity another
+row holds is never written twice. The cross-builder check runs on the call's own repo key (and the picked row's when it
+names another). A send or claim with a repo and a name points the name at the repo (`rememberName`, the name key's
+report), so a later send by the name alone or with no project (the installation's last project, else the owner's one
+row) answers `Already sent on {date}.`; `formerSentAt` with an empty key matches any send of the former builder for
+that program. Every refusal returns before any write in its transaction: the keyless take-over in `record` and `claim`
+is decided early and written only on the recording path (L35-7). The join yes (`joinRows`) runs in one transaction under
+the owner's lock for each program the name holds and the repo's lock (and a fork's parent's): when another builder sent
+the repo, nothing moves (sends marked `off_repo`) and the reply is `KEPT_APART`; else every name row moves with the
+repo's identity and `off_repo` cleared, and `JOINED` is said only when rows moved (`ALREADY_JOINED` otherwise). The
+answer is kept on the name key's report (`joinDecision`, `saveJoinDecision`; `saveReport` keeps it, `reportOf` strips
+it) and on a matching record project (`join`, EarnKit only); find asks `JOIN_QUESTION` only while undecided and moves
+nothing once kept apart. Forks: the cached read keeps `fork`, `parent_repo_id` and `parent_full_name`
+(`cachedRepoParent`); `sentForRepo` also matches the parent's id or key (an id or parent match is `by: 'id'`, never
+naming the other builder, L35-20), and `cachedRepoId` returns an id only when the read's name agrees with the link
+(`readAgrees`); a verified rename (the other row's read now answers with this link) counts as a key match. Co-founders:
+`claimedForRepo` finds another owner's live claim on the repo: a `started` answers `COFOUNDER_STARTED` and writes
+nothing; an `applied` over it is recorded and clears it (`COFOUNDER_CLAIM_NOTE`); an `applied` over the caller's own
+claim taken before a co-founder's send is recorded (`COFOUNDER_SENT_NOTE`). A hold on a repo another builder sent is
+`NOTHING_TO_HOLD_REPO`. A one-program find for a repo another builder sent shows L28-1's line and no yes
+(`sentByAnother`, L35-10). A builder send of a repo EarnKit cannot check gets `CANT_CONFIRM_NAME_NOTE`; an off-GitHub
+`off_repo` link never blocks another builder (controller ruling), it only adds `OFF_HOST_SENT_NOTE` (`offHostSent`).
+List references: `listRef` (programs.ts) reads `#N`, `N.`, `No. N`, `no N` and number words one to twenty against the
+last list's stable numbers, in track and find's `program_id`; in track a token shaped like a list number
+(`looksLikeListRef`) that is none matches only an exact id, never a title.
+
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only
@@ -432,7 +463,12 @@ http:// client_id goes to the same document check and is refused there):
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
 and `reservedClientName` (a name holding `earnkit` after look-alike letters fold, and v6.1.16 L16-10 digits and `l`
 read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
-are capped at 30 an hour per document host (`cimdFetch`; over it, no fetch and the failure page); only a refetch
+are capped at 30 an hour per document host and caller address block (`cimdFetch`, `CIMD_FETCH_KEY(host, block)`;
+v6.1.16.1 Task 2, L35-5; the routes pass `blockOf(clientIp)`) and 300 an hour per host across every block
+(`cimdFetchHost`, controller ruling); both must pass before a fetch (over either, no fetch and the failure page). A good
+document is also stored in `cimd_documents` (document, fetched_at; rows past 6 hours go on each write), so a process with
+no entry in memory serves a stored copy read within the hour with no fetch, and a stored copy up to 6 hours old is a good
+copy (exempt from the caps, served on a transport error); a withdrawal deletes it. Only a refetch
 of a URL that still has a good copy is exempt, so a URL with a failed entry counts again after its 5 minute wait. A refetch that hits a transport error (DNS, connect, timeout, 5xx,
 `TransportError` in safe-fetch) keeps serving the last good copy for up to 6 hours from its last good read; any
 definitive answer (4xx, redirect, non-JSON or invalid body, failed check) drops it and caches the failure. Any failed check
