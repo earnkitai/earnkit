@@ -20,8 +20,8 @@ export type ProgramRow = {
 /** The fields whose change is recorded in program_changes. */
 export const CHANGE_FIELDS = ['ends_at', 'max_award_usd', 'status', 'submission_url', 'submission_requirements', 'form'] as const;
 
-/** Days a program may stay stale, or an API program unverified, before it drops out. */
-export const STALE_DAYS = 14;
+/** Days a program may stay stale, or an API program unverified, before it drops out (v6.1.17 Task 3: 12, so a page that stays down leaves within 14 days of its first failure). */
+export const STALE_DAYS = 12;
 
 type RawRow = Omit<ProgramRow, 'file'> & { file: unknown };
 
@@ -36,7 +36,7 @@ function parseRows(rows: readonly RawRow[]): ProgramRow[] {
   return out;
 }
 
-/** Active, not past ends_at, not stale over 14 days and, for an API program, verified in the last 14 days. */
+/** Active, not past ends_at, not stale over STALE_DAYS (12) and, for an API program, verified in the last STALE_DAYS. */
 export async function listOpenPrograms(now: Date = new Date()): Promise<ProgramRow[]> {
   return listWhere(now, false);
 }

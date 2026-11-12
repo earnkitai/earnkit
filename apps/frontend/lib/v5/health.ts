@@ -1,9 +1,12 @@
 /**
- * The daily freshness walk: probes each listed program's source and submission links (PROBE_PARALLEL at once, PROBE_MS
- * each), counts failing days (two in a row marks it stale), and moves a program's status by its dates: an upcoming one
- * opens at starts_at, an active or upcoming one closes at ends_at (v6.1.16 Task 16, L30-1). A source page sharing under
- * 80% of its words with the stored text counts as changed: listed in the owner's digest, never stale. A redirect to
- * another host is alive and logged (L30-2). One program's failure never stops the walk; it is returned in `failed`.
+ * The daily freshness walk: probes each listed program's source and submission links, 10 programs at once (up to 20
+ * links, PROBE_PARALLEL) and PROBE_MS each; a program whose links have failed for STALE_AFTER_MS (20 hours, from
+ * `first_failed_at`, v6.1.17 L30-9) is stale; and moves a program's status by its dates: an upcoming one opens at
+ * starts_at, an active or upcoming one closes at ends_at (v6.1.16 Task 16, L30-1). A source page sharing under 80% of
+ * its words with the stored text counts as changed: listed in the owner's digest, never stale. A redirect to another
+ * host is alive and logged (L30-2). One program's failure never stops the walk; it is returned in `failed`. A row whose
+ * file no longer parses, or an upcoming program at its start with no form, is `unreadable` (v6.1.17 L30-18, L35-18):
+ * counted and named in the owner's digest with its fix, never a failure that turns every run red.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -34,17 +37,18 @@ export type Failed = { id: string | null; step: string; error: ErrorCode };
 /** v6.1.16 Task 16: 8 s per link, 10 programs at once. */
 export const PROBE_MS = 8_000;
 export const PROBE_PARALLEL = 10;
-const FAIL_DAYS_STALE = 2;
+/** v6.1.17 Task 3 (L30-9): a link failing this long (from its first failure) is stale; two runs a minute apart never are. */
+export const STALE_AFTER_MS = 20 * 3_600_000;
 /** A page whose words are less than this share of the stored ones counts as changed. */
 const SAME_WORDS = 0.8;
 const MAX_TEXT = 65_536;
 
-/** The run's error codes (controller ruling, v6.1.16 Task 16): the JSON and the Actions log carry only these. */
 /**
- * `catalog`: a program that cannot open or close because its file lacks what the schema needs; `parse`: a stored row
- * whose file no longer parses.
+ * The run's error codes (controller ruling, v6.1.16 Task 16): the JSON and the Actions log carry only these. `catalog`:
+ * a program whose moved file the schema refuses. v6.1.17 Task 3: `parse` is gone; a stored row that no longer parses,
+ * like an upcoming program with no form, is `unreadable`, never a failure.
  */
-export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'catalog' | 'parse' | 'error';
+export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'catalog' | 'error';
 
 /** The full error for the server log only: its name and a short message, a URL's query cut, no stack. Pure. */
 export function errorWords(err: unknown): string {
@@ -145,13 +149,25 @@ export function movedByDate(file: Program, now: Date): { to: 'active' | 'closed'
   return { to, file: { ...rest, status: to } as Program };
 }
 
-export type HealthRun = { checked: number; stale: string[]; changed: string[]; closed: string[]; opened: string[]; failed: Failed[] };
+/**
+ * v6.1.17 Task 3 (L30-18, L35-18): a program the walk could not read, with the owner's fix (the digest's
+ * `{id}: {fix}` line): owner text, a sentence, no field or file names.
+ */
+export type Unreadable = { id: string; fix: string };
+export const UNREADABLE_FIX = {
+  parse: 'its saved entry no longer reads, so it is not checked; correct the entry.',
+  noForm: 'its start date passed but it has no form questions, so it stays upcoming; add them.',
+} as const;
+
+export type HealthRun = {
+  checked: number; stale: string[]; changed: string[]; closed: string[]; opened: string[]; unreadable: Unreadable[]; failed: Failed[];
+};
 
 /**
  * Walks the listed (active and upcoming) programs, oldest check first, at most `limit`, PROBE_PARALLEL at once. Once a
  * probe could not finish before `deadline` (epoch ms, read on `clock`) no new probe starts, but every row's dates are still applied. Each program's
  * probe and health write is one try and its status move another, so a refused write never blocks its close; each
- * failure is in `failed` with the program's id.
+ * failure is in `failed` with the program's id, and each row the owner must fix in `unreadable`.
  */
 export async function runHealth(
   now: Date,
@@ -166,16 +182,21 @@ export async function runHealth(
     WHERE p.status IN ('active', 'upcoming')
     ORDER BY h.checked_at ASC NULLS FIRST, p.id
     LIMIT ${limit}`;
-  const out: HealthRun = { checked: 0, stale: [], changed: [], closed: [], opened: [], failed: [] };
+  const out: HealthRun = { checked: 0, stale: [], changed: [], closed: [], opened: [], unreadable: [], failed: [] };
   // The full reason goes to the server log only; the run's answer carries the code.
   const fail = (id: string, err: unknown, code?: ErrorCode) => {
     console.error(`[health] ${id} failed: ${typeof err === 'string' ? err : errorWords(err)}`);
     out.failed.push({ id, step: 'health', error: code ?? errorCode(err) });
   };
+  /** The owner's to fix in the file: counted and named in the digest, never in `failed`; the reason in the log too. */
+  const unreadable = (id: string, why: string, fix: string) => {
+    console.error(`[health] ${id} unreadable: ${why}`);
+    out.unreadable.push({ id, fix });
+  };
 
   const walk = async (r: Walked): Promise<void> => {
     const parsed = ProgramFile.safeParse(r.file);
-    if (!parsed.success) return fail(r.id, 'the program file does not parse', 'parse');
+    if (!parsed.success) return unreadable(r.id, 'the program file does not parse', UNREADABLE_FIX.parse);
     const file = parsed.data;
     // A probe starts only when it can finish before the deadline.
     if (deadline === undefined || clock() + (probeDeps.probeMs ?? PROBE_MS) <= deadline) {
@@ -184,18 +205,22 @@ export async function runHealth(
         for (const host of h.redirects) console.log(`[health] ${r.id} redirects to ${host}`);
         const failed = !h.source_ok || !h.submit_ok;
         const prevDays = r.fail_days ?? 0;
+        // fail_days stays a count of UTC dates for the owner's eye; staleness reads first_failed_at (L30-9).
         const failDays = !failed ? 0 : r.checked_at && sameDay(r.checked_at, now) && r.was_failing ? prevDays : prevDays + 1;
-        await db`
-          INSERT INTO program_health (program_id, checked_at, source_ok, submit_ok, body_hash, body_text, changed_at, fail_days)
-          VALUES (${r.id}, ${now}, ${h.source_ok}, ${h.submit_ok}, ${h.body_hash}, ${h.body_text}, ${h.changed ? now : null}, ${failDays})
+        // A failing check keeps the stored start of the failures (or starts it now); a clean one clears it.
+        const [w] = await db<{ first_failed_at: Date | null }[]>`
+          INSERT INTO program_health (program_id, checked_at, source_ok, submit_ok, body_hash, body_text, changed_at, fail_days, first_failed_at)
+          VALUES (${r.id}, ${now}, ${h.source_ok}, ${h.submit_ok}, ${h.body_hash}, ${h.body_text}, ${h.changed ? now : null}, ${failDays}, ${failed ? now : null})
           ON CONFLICT (program_id) DO UPDATE SET
             checked_at = EXCLUDED.checked_at, source_ok = EXCLUDED.source_ok, submit_ok = EXCLUDED.submit_ok,
             body_hash = COALESCE(EXCLUDED.body_hash, program_health.body_hash),
             body_text = COALESCE(EXCLUDED.body_text, program_health.body_text),
             changed_at = CASE WHEN ${h.changed} THEN EXCLUDED.changed_at ELSE program_health.changed_at END,
-            fail_days = EXCLUDED.fail_days`;
+            fail_days = EXCLUDED.fail_days,
+            first_failed_at = CASE WHEN ${failed} THEN LEAST(COALESCE(program_health.first_failed_at, EXCLUDED.first_failed_at), EXCLUDED.first_failed_at) END
+          RETURNING first_failed_at`;
         if (h.changed) out.changed.push(r.id);
-        if (failDays >= FAIL_DAYS_STALE) {
+        if (failed && w?.first_failed_at && now.getTime() - w.first_failed_at.getTime() >= STALE_AFTER_MS) {
           out.stale.push(r.id);
           await db`UPDATE programs SET stale_since = ${now} WHERE id = ${r.id} AND stale_since IS NULL`;
         } else if (!failed && r.stale_since) {
@@ -209,7 +234,7 @@ export async function runHealth(
     const move = movedByDate(file, now);
     if (!move) return;
     // L30-1: an upcoming program opens only with its requirements in the file; until then it stays and the owner hears.
-    if ('blocked' in move) return fail(r.id, 'opens today but has no submission requirements', 'catalog');
+    if ('blocked' in move) return unreadable(r.id, 'opens today but has no submission requirements', UNREADABLE_FIX.noForm);
     try {
       await upsertProgram(move.file, r.source, now);
       (move.to === 'closed' ? out.closed : out.opened).push(r.id);
@@ -225,5 +250,6 @@ export async function runHealth(
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, rows.length)) }, worker));
   for (const k of ['stale', 'changed', 'closed', 'opened'] as const) out[k].sort();
+  out.unreadable.sort((a, b) => a.id.localeCompare(b.id));
   return out;
 }

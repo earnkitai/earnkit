@@ -9,7 +9,7 @@ import { repoKey } from '../v5/repo-facts';
 import { resolveRepo, sharedContributors } from './applicants';
 import type { Budget } from './code';
 import { type Evidence, type EvidenceDeps, flattenRows, readEvidence, retryable, type Row, type Subject } from './evidence';
-import { PUBLIC_BASES, UNREAD, xpCounts } from './screen-jobs';
+import { PUBLIC_BASES, queuerReviews, UNREAD, xpCounts } from './screen-jobs';
 import { reviewerLine } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Thresholds } from './tiers';
 
@@ -77,11 +77,14 @@ async function advance(jobId: string, now: Date): Promise<boolean> {
  * the applicant back and ends the call; a null tier worth a retry is queued again, final at the third.
  * `deadline` (epoch ms on `clock`, default Date.now) is checked between applicants. Never throws for an applicant's read.
  * `left` counts the selected applicants not reached because the call stopped (deadline or budget); each job it
- * reached or left rows of stores `last_run_read` and `last_run_left` (v6.1.16 Task 16).
+ * reached or left rows of stores `last_run_read` and `last_run_left` (v6.1.16 Task 16). v6.1.17 Task 3: `requeued`
+ * counts the reads put back for a retry (not in `read`); a job whose queuing builder no longer reviews its program is
+ * skipped (L30-16, the sweep cuts it); a job none of whose rows was read on this UTC day has `last_run_left` cleared
+ * first, so "read today" is never yesterday's (v6.1.16 Task 16 N5).
  */
 export async function workQueue(o: {
   now: Date; limit: number; jobId?: string; deadline?: number; deps?: WorkDeps; clock?: () => number;
-}): Promise<{ read: number; left: number; jobs_finished: string[] }> {
+}): Promise<{ read: number; requeued: number; left: number; jobs_finished: string[] }> {
   const clock = o.clock ?? Date.now;
   const { evidence: read = readEvidence, ...rest } = o.deps ?? {};
   // One allowance for the call: once it stops, later repos wait (their copies under 7 days stand).
@@ -90,13 +93,17 @@ export async function workQueue(o: {
   const only = o.jobId !== undefined ? sql()`AND a.job_id = ${o.jobId}` : sql()``;
   const stale = new Date(o.now.getTime() - TAKEN_MS);
   const free = () => sql()`(a.status = 'queued' OR (a.status = 'reading' AND a.taken_at < ${stale}))`;
+  const dayStart = new Date(`${o.now.toISOString().slice(0, 10)}T00:00:00Z`);
+  await sql()`UPDATE screen_jobs j SET last_run_left = 0 WHERE j.last_run_left > 0
+    AND NOT EXISTS (SELECT 1 FROM screen_applicants a WHERE a.job_id = j.id AND a.read_at >= ${dayStart})`;
   const queued = await sql()<Queued[]>`
     SELECT a.job_id, a.ref, a.name, a.repo_url, a.live_url, a.contracts, a.identical_pitch, j.thresholds
     FROM screen_applicants a JOIN screen_jobs j ON j.id = a.job_id
-    WHERE ${free()} AND j.expires_at > ${o.now} ${only}
+    WHERE ${free()} AND j.expires_at > ${o.now} AND ${queuerReviews()} ${only}
     ORDER BY j.created_at, a.job_id, a.ref
     LIMIT ${o.limit}`;
   let count = 0;
+  let requeued = 0;
   let reached = 0;
   const finished: string[] = [];
   const readOf = new Map<string, number>();
@@ -146,7 +153,10 @@ export async function workQueue(o: {
           read_at = CASE WHEN attempts + 1 >= ${MAX_ATTEMPTS} THEN ${o.now}::timestamptz ELSE NULL END,
           line = CASE WHEN attempts + 1 >= ${MAX_ATTEMPTS} THEN 'no tier: the read failed.' ELSE NULL END
           WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading' RETURNING status`;
-        if (r?.status !== 'failed') continue;
+        if (r?.status !== 'failed') {
+          if (r) requeued++;
+          continue;
+        }
       } else if (!p.tier) {
         await sql()`UPDATE screen_applicants SET status = 'failed', error = ${oneLine(e.notes[0] ?? 'read was partial')}, line = 'no tier: the read failed.',
           rows = ${sql().json(rows as never)}, read_at = ${o.now} WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
@@ -171,5 +181,5 @@ export async function workQueue(o: {
   for (const a of queued.slice(reached)) leftOf.set(a.job_id, (leftOf.get(a.job_id) ?? 0) + 1);
   for (const id of new Set([...readOf.keys(), ...leftOf.keys()]))
     await sql()`UPDATE screen_jobs SET last_run_read = ${readOf.get(id) ?? 0}, last_run_left = ${leftOf.get(id) ?? 0} WHERE id = ${id}`;
-  return { read: count, left: queued.length - reached, jobs_finished: finished };
+  return { read: count, requeued, left: queued.length - reached, jobs_finished: finished };
 }

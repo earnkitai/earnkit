@@ -85,6 +85,18 @@ CREATE TABLE IF NOT EXISTS program_health (
 );
 -- The source page's normalized text (up to 64 KB): a change is under 80% of its words shared.
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS body_text text;
+-- v6.1.17 Task 3 (L30-9): when the current run of failures began (null while the links load); stale at 20 hours of
+-- failing, never by counting UTC dates.
+ALTER TABLE program_health ADD COLUMN IF NOT EXISTS first_failed_at timestamptz;
+-- v6.1.17 Task 3 (L30-14): one row, the last daily run that finished (answered 200); /api/stats shows it and the
+-- owner's digest names a gap over 26 hours.
+CREATE TABLE IF NOT EXISTS cron_state (
+  id          boolean PRIMARY KEY DEFAULT true CHECK (id),
+  last_run_at timestamptz NOT NULL
+);
+-- Fix round 1 (M2): the gap belongs to the UTC day. When a run crosses into a new day, `prev_run_at` keeps the last
+-- run before it and `day_first_at` this day's first run, so a second run that day measures the same gap.
+ALTER TABLE cron_state ADD COLUMN IF NOT EXISTS prev_run_at timestamptz, ADD COLUMN IF NOT EXISTS day_first_at timestamptz;
 
 -- One row per installed agent (its bearer token's hash).
 CREATE TABLE IF NOT EXISTS installations (

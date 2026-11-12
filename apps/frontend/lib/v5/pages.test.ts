@@ -334,11 +334,11 @@ test('/llms.txt is plain text', async () => {
   assert.match(await res.text(), /https:\/\/earnkit\.com\/mcp/);
 });
 
-test('/api/stats answers the eleven keys (L22-1, v6.1.16: won_other and won_without_amount)', async () => {
+test('/api/stats answers the twelve keys (L22-1, v6.1.16: won_other and won_without_amount; v6.1.17: last_run_at)', async () => {
   const res = await statsGet();
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, number>;
-  assert.equal(Object.keys(body).length, 11);
+  assert.equal(Object.keys(body).length, 12);
   assert.ok(body.programs_open >= 2);
 });
 

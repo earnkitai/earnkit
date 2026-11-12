@@ -156,6 +156,8 @@ export async function unlinkInstallation(installationId: number, builderId: numb
       WHERE id = ${installationId} AND builder_id = ${builderId}`;
     if (r.count === 0) return false;
     await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId}`;
+    // v6.1.16 Task 9 N5 (v6.1.17 Task 3): this agent's results-question markers for the builder go with the link.
+    await tx`DELETE FROM outcome_asks WHERE installation_id = ${installationId} AND owner = ${owner}`;
     return true;
   }) as Promise<boolean>;
 }
