@@ -402,7 +402,10 @@ failures (the `parse` code is gone) but `health.unreadable`, each named in the d
 (`UNREADABLE_FIX`), so they no longer turn every run red. A run that answers 200 stores its time in the one-row
 `cron_state` (`last_run_at`, never moved back; step `last_run`, listed in `failed` if the write fails); `/api/stats`
 shows it as `last_run_at` and the next digest names a gap over `GAP_HOURS` (26): `No daily run finished for {n} hours
-before this one; the last was {day time} UTC.` (L30-14). Every sweep boundary is pinned 1 ms either side in
+before this one; the last was {day time} UTC.` (L30-14; fix round 1, M2: the gap belongs to the UTC day, from the last run
+before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a new day) to the day's first run
+(`day_first_at`), so a second run that day builds the same body and is not mailed again). Program links also count
+"may be for sale" and "available for purchase" as parked (fix round 1, N1). Every sweep boundary is pinned 1 ms either side in
 `cron.test.ts`. The workflow prints the body and fails the job when the answer is 4xx or 5xx, there is no answer in
 540 s, or `failed` is not empty, one `::error::` line per entry; a 5xx or a timeout is tried once more after 10 minutes
 (`RETRY_AFTER_S`, job timeout 30 minutes); a missing `CRON_SECRET` fails the job unless the repo variable

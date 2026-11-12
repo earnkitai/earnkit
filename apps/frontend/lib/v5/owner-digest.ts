@@ -144,9 +144,13 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     failing: [], changed: [],
     unreadable: run.unreadable ?? [],
   };
-  // The time the last run stored; this run stores its own only after the digest (cron.ts).
-  const [state] = await db<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
-  const gap = runGap(state?.last_run_at ?? null, now);
+  // The gap belongs to the UTC day (fix round 1, M2): from the last run before today's start to today's first run (or
+  // this one, when it is the first), so a second run the same day builds the same body and is not sent again. This run
+  // stores its own time only after the digest (cron.ts).
+  const [state] = await db<{ last_run_at: Date; prev_run_at: Date | null; day_first_at: Date | null }[]>`
+    SELECT last_run_at, prev_run_at, day_first_at FROM cron_state WHERE id`;
+  const today = state && state.last_run_at >= dayStart;
+  const gap = today ? runGap(state.prev_run_at, state.day_first_at ?? now) : runGap(state?.last_run_at ?? null, now);
   if (gap) health.gap = gap;
   for (const r of healthRows) {
     const f = ProgramFile.safeParse(r.file).data;

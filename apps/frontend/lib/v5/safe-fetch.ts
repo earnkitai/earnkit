@@ -100,7 +100,10 @@ const ERROR_PHRASES: RegExp[] = [
  */
 const PROGRAM_ERROR_PHRASES: RegExp[] = [
   ...ERROR_PHRASES,
-  /\b(domain|[\w-]+\.[a-z]{2,})\s+is for sale\b/i, /\bbuy this domain\b/i, /could not find that page/i, /\bno longer available\b/i,
+  /\b(domain|[\w-]+\.[a-z]{2,})\s+is for sale\b/i, /\bbuy this domain\b/i,
+  // Fix round 1 (N1): two more parking wordings.
+  /\bmay be for sale\b/i, /\bavailable for purchase\b/i,
+  /could not find that page/i, /\bno longer available\b/i,
 ];
 /** The Accept header of live-link probes: HTML first, anything else accepted. */
 const PROBE_ACCEPT = 'text/html,*/*;q=0.8';

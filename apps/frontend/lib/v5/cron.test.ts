@@ -539,3 +539,23 @@ test('L30-14, L30-18 (Review Focus 5): after 27 hours with no run, the run\'s di
   await sql()`DELETE FROM cron_state`;
   await sql()`DELETE FROM owner_digests`;
 });
+
+test('fix round 1 (M2): two runs on a day after a gap send one email: the second builds the same body (the gap from the last run before the day to its first run)', async () => {
+  const H = 3_600_000;
+  await sql()`DELETE FROM cron_state`;
+  await sql()`DELETE FROM owner_digests`;
+  // 27 h 55 min before the first run: measured from now, the second run 10 minutes later would read 28 hours.
+  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${new Date(deps.now.getTime() - 27 * H - 55 * 60_000)})`;
+  const run = (now: Date) => cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue });
+  const first = (await (await run(deps.now)).json()) as Body;
+  const second = (await (await run(new Date(deps.now.getTime() + 10 * 60_000))).json()) as Body;
+  assert.deepEqual([first.digest, second.digest], ['sent', 'none']);
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 02:20 UTC.'), sent[0].text);
+  // The next day, with its run on time, there is no gap.
+  const next = (await (await run(new Date(deps.now.getTime() + 24 * H))).json()) as Body;
+  assert.notEqual(next.digest, 'sent');
+  assert.equal(sent.length, 1);
+  await sql()`DELETE FROM cron_state`;
+  await sql()`DELETE FROM owner_digests`;
+});

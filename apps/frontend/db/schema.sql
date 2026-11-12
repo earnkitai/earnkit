@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS cron_state (
   id          boolean PRIMARY KEY DEFAULT true CHECK (id),
   last_run_at timestamptz NOT NULL
 );
+-- Fix round 1 (M2): the gap belongs to the UTC day. When a run crosses into a new day, `prev_run_at` keeps the last
+-- run before it and `day_first_at` this day's first run, so a second run that day measures the same gap.
+ALTER TABLE cron_state ADD COLUMN IF NOT EXISTS prev_run_at timestamptz, ADD COLUMN IF NOT EXISTS day_first_at timestamptz;
 
 -- One row per installed agent (its bearer token's hash).
 CREATE TABLE IF NOT EXISTS installations (

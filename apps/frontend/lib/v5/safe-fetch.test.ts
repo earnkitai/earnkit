@@ -115,6 +115,8 @@ test('probeLink: a 200 page saying the domain is for sale, or that the page coul
     'example-grants.com is for sale',
     'This domain is for sale. Make an offer.',
     'Buy this domain today.',
+    'This domain may be for sale.',
+    'example-grants.com is available for purchase.',
     'Sorry, we could not find that page',
     'This program is no longer available.',
   ]) {

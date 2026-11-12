@@ -191,7 +191,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/scripts/screen.mts`: pnpm screen: the screening pilot over a program's applicant CSV into a markdown and a CSV report (via lib/v6/screen.ts)
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements
-- `db/schema.sql`: The whole schema, additive and safe to run twice; v6.1.16 Task 15: `installations.last_list` and `installations.next_needs`; v6.1.16.1 Task 2: `applications.identity` with `applications_owner_program_identity` (partial unique) and its backfill, `cimd_documents`; v6.1.17 Task 3: `program_health.first_failed_at`, `cron_state` (one row)
+- `db/schema.sql`: The whole schema, additive and safe to run twice; v6.1.16 Task 15: `installations.last_list` and `installations.next_needs`; v6.1.16.1 Task 2: `applications.identity` with `applications_owner_program_identity` (partial unique) and its backfill, `cimd_documents`; v6.1.17 Task 3: `program_health.first_failed_at`, `cron_state` (one row; fix round 1: `prev_run_at`, `day_first_at`)
 
 ## apps/frontend (config)
 

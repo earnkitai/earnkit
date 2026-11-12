@@ -110,10 +110,18 @@ async function sweepAsks(now: Date): Promise<number> {
   return (await sql()`DELETE FROM outcome_asks WHERE asked_on < ${before}::date`).count;
 }
 
-/** L30-14 (v6.1.17): the time of the last run that answered 200; never moves back. */
+/**
+ * L30-14 (v6.1.17): the time of the last run that answered 200; never moves back. Fix round 1 (M2): the first run of a
+ * new UTC day also keeps the last run before it (`prev_run_at`) and itself (`day_first_at`), so the digest measures one
+ * gap for the whole day and a second run that day builds the same body.
+ */
 async function storeLastRun(now: Date): Promise<void> {
-  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${now})
-    ON CONFLICT (id) DO UPDATE SET last_run_at = GREATEST(cron_state.last_run_at, EXCLUDED.last_run_at)`;
+  const dayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  await sql()`INSERT INTO cron_state (id, last_run_at, day_first_at) VALUES (true, ${now}, ${now})
+    ON CONFLICT (id) DO UPDATE SET
+      prev_run_at = CASE WHEN cron_state.last_run_at < ${dayStart} THEN cron_state.last_run_at ELSE cron_state.prev_run_at END,
+      day_first_at = CASE WHEN cron_state.last_run_at < ${dayStart} THEN EXCLUDED.last_run_at ELSE cron_state.day_first_at END,
+      last_run_at = GREATEST(cron_state.last_run_at, EXCLUDED.last_run_at)`;
 }
 
 /** The last daily run that answered 200, or null before the first. */
