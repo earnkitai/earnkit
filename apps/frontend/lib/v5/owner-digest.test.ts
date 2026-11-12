@@ -156,3 +156,44 @@ test('v6.1.16 Task 16 (L30-1): a program the run opened at its start date is nam
   assert.match(sent[0]!.text, /Opened because the start date came\n- Opening Grants \(od-open\)/);
   assert.doesNotMatch(sent[0]!.text, /Opening Grants: status/);
 });
+
+// v6.1.17 Task 3 (L30-14, L30-18, L35-18, Review Focus 5).
+test('L30-14: with no daily run for 27 hours the digest names the gap first; 26 hours exactly is no gap; none stored is no gap', async () => {
+  const { runGap, GAP_HOURS } = await import('./owner-digest');
+  const H = 3_600_000;
+  assert.equal(GAP_HOURS, 26);
+  assert.equal(runGap(null, NOW), null);
+  assert.equal(runGap(new Date(NOW.getTime() - 26 * H), NOW), null);
+  assert.deepEqual(runGap(new Date(NOW.getTime() - 26 * H - 1), NOW), { hours: 26, last: new Date(NOW.getTime() - 26 * H - 1) });
+  await sql()`DELETE FROM cron_state`;
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${new Date(NOW.getTime() - 27 * H)})`;
+  try {
+    assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].text, 'EarnKit programs: 2026-11-04\n\nNo daily run finished for 27 hours before this one; the last was 2026-11-03 03:15 UTC.\n');
+    await sql()`UPDATE cron_state SET last_run_at = ${new Date(NOW.getTime() - 24 * H)}`;
+    assert.equal(await sendOwnerDigest(new Date(NOW.getTime() + 60_000), mailer), 'none');
+  } finally {
+    await sql()`DELETE FROM cron_state`;
+  }
+});
+
+test('L30-18, L35-18: the programs the walk could not read are named with their fix, one line each, sentences with no field names', async () => {
+  const { UNREADABLE_FIX } = await import('./health');
+  const unreadable = [{ id: 'od-parse', fix: UNREADABLE_FIX.parse }, { id: 'od-form', fix: UNREADABLE_FIX.noForm }];
+  assert.equal(await sendOwnerDigest(NOW, mailer, { unreadable }), 'sent');
+  const text = sent[0].text;
+  assert.ok(text.includes([
+    'Programs the run could not read',
+    '- od-parse: its saved entry no longer reads, so it is not checked; correct the entry.',
+    '- od-form: its start date passed but it has no form questions, so it stays upcoming; add them.',
+  ].join('\n')), text);
+  for (const line of text.split('\n').filter((l) => l.startsWith('- od-'))) {
+    assert.match(line, /\.$/);
+    assert.doesNotMatch(line, /[—–]|submission_requirements|starts_at|\.json|programs\//);
+  }
+  // The same day, the same list: sent once.
+  assert.equal(await sendOwnerDigest(NOW, mailer, { unreadable }), 'none');
+  await sql()`DELETE FROM owner_digests`;
+});

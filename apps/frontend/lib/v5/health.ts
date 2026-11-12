@@ -43,12 +43,12 @@ export const STALE_AFTER_MS = 20 * 3_600_000;
 const SAME_WORDS = 0.8;
 const MAX_TEXT = 65_536;
 
-/** The run's error codes (controller ruling, v6.1.16 Task 16): the JSON and the Actions log carry only these. */
 /**
- * `catalog`: a program that cannot open or close because its file lacks what the schema needs; `parse`: a stored row
- * whose file no longer parses.
+ * The run's error codes (controller ruling, v6.1.16 Task 16): the JSON and the Actions log carry only these. `catalog`:
+ * a program whose moved file the schema refuses. v6.1.17 Task 3: `parse` is gone; a stored row that no longer parses,
+ * like an upcoming program with no form, is `unreadable`, never a failure.
  */
-export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'catalog' | 'parse' | 'error';
+export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'catalog' | 'error';
 
 /** The full error for the server log only: its name and a short message, a URL's query cut, no stack. Pure. */
 export function errorWords(err: unknown): string {

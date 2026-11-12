@@ -11,9 +11,9 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd)', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at last)', async () => {
   const s = await readStats(NOW);
-  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'won', 'won_usd', 'won_other', 'won_without_amount']);
+  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
 });
 
@@ -70,13 +70,13 @@ test('installs, finds and applications count what happened, with their windows',
   assert.equal(now.applications_7d - before.applications_7d, 2);
   assert.equal(now.won - before.won, 2);
   assert.equal(now.won_usd - before.won_usd, 750.5);
-  for (const [k, v] of Object.entries(now)) assert.equal(typeof v, k === 'won_other' ? 'object' : 'number', k);
+  for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at') assert.equal(typeof v, k === 'won_other' ? 'object' : 'number', k);
 });
 
-test('statsGet answers the eleven keys, and a failed read is a 503 that is never cached', async () => {
+test('statsGet answers the twelve keys, and a failed read is a 503 that is never cached', async () => {
   const ok = await statsGet(() => readStats(NOW));
   assert.equal(ok.status, 200);
-  assert.equal(Object.keys((await ok.json()) as object).length, 11);
+  assert.equal(Object.keys((await ok.json()) as object).length, 12);
   const bad = await statsGet(async () => {
     throw new Error('db down');
   });
@@ -102,4 +102,19 @@ test('L22-1 (v6.1.16): won_usd is the US dollar part only; other currencies are 
   assert.equal(now.won_usd - before.won_usd, 3500.5);
   assert.equal(eur(now) - eur(before), 2000);
   assert.equal(now.won_without_amount - before.won_without_amount, 1);
+});
+
+// v6.1.17 Task 3 (L30-14, Review Focus 5).
+test('L30-14: last_run_at is null before any run, then the last daily run that finished, even 27 hours old', async () => {
+  await sql()`DELETE FROM cron_state`;
+  assert.equal((await readStats(NOW)).last_run_at, null);
+  const old = new Date(NOW.getTime() - 27 * 3_600_000);
+  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${old})`;
+  try {
+    assert.equal((await readStats(NOW)).last_run_at, '2026-11-03T09:00:00.000Z');
+    const body = (await (await statsGet(() => readStats(NOW))).json()) as { last_run_at: string };
+    assert.equal(body.last_run_at, old.toISOString());
+  } finally {
+    await sql()`DELETE FROM cron_state`;
+  }
 });

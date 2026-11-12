@@ -2,12 +2,15 @@
  * The owner's one email a day: programs closed by their deadline, programs opened by their start date, links that
  * failed, source pages that changed, and the day's changes to live programs, each with a revert link when one can be
  * made. Nothing happened, nothing sent; mail not set up (RESEND_API_KEY unset), 'mail off'. The idempotency key is the
- * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again.
+ * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again. v6.1.17 Task 3:
+ * first, a gap of over GAP_HOURS since the last daily run that finished (L30-14); and the programs the walk could not
+ * read, each `{id}: {fix}` (L30-18, L35-18).
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { ownerMail, type Mailer } from './mail';
 import { ProgramFile } from './program-file';
+import type { Unreadable } from './health';
 import { findProgramsDir, revertPlan } from './programs-api';
 import { revertExpiry, revertUrl } from './programs-pending';
 
@@ -18,7 +21,21 @@ export type DigestHealth = {
   opened?: { id: string; title: string }[];
   failing: { id: string; title: string; url: string }[];
   changed: { id: string; title: string; url: string }[];
+  /** v6.1.17 Task 3 (L30-18, L35-18): programs the walk could not read, with the owner's fix. */
+  unreadable?: Unreadable[];
+  /** v6.1.17 Task 3 (L30-14): the last daily run before this one, when it finished over GAP_HOURS before now. */
+  gap?: { hours: number; last: Date };
 };
+
+/** v6.1.17 Task 3 (L30-14): a gap over this many hours since the last daily run is named in the digest. */
+export const GAP_HOURS = 26;
+const HOUR = 3_600_000;
+
+/** The gap since `last` when it is over GAP_HOURS (whole hours, rounded down), else null. Pure. */
+export function runGap(last: Date | null, now: Date): { hours: number; last: Date } | null {
+  if (!last || now.getTime() - last.getTime() <= GAP_HOURS * HOUR) return null;
+  return { hours: Math.floor((now.getTime() - last.getTime()) / HOUR), last };
+}
 
 const FIELD_WORDS: Record<string, string> = {
   ends_at: 'deadline',
@@ -34,6 +51,13 @@ const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 /** The email body, or null when the lists are all empty. Pure. */
 export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth): string | null {
   const blocks: string[] = [];
+  if (health.gap) {
+    const at = health.gap.last.toISOString().slice(0, 16).replace('T', ' ');
+    blocks.push(`No daily run finished for ${health.gap.hours} hours before this one; the last was ${at} UTC.`);
+  }
+  if (health.unreadable?.length) {
+    blocks.push(['Programs the run could not read', ...health.unreadable.map((u) => `- ${u.id}: ${oneLine(u.fix)}`)].join('\n'));
+  }
   if (health.closed.length > 0) {
     blocks.push(['Closed because the deadline passed', ...health.closed.map((p) => `- ${oneLine(p.title)} (${p.id})`)].join('\n'));
   }
@@ -85,7 +109,7 @@ export const digestKey = (day: string, body: string) => `owner-digest:${day}:${c
  * Gathers the UTC day's events, mails the digest if there is one: 'sent', 'none' (nothing to say, or this body was
  * already sent today), or 'mail off' (RESEND_API_KEY unset, checked first, nothing read or sent).
  */
-export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent' | 'none' | 'mail off'> {
+export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreadable?: Unreadable[] } = {}): Promise<'sent' | 'none' | 'mail off'> {
   if (!process.env.RESEND_API_KEY?.trim()) return 'mail off';
   const day = now.toISOString().slice(0, 10);
   const dayStart = new Date(`${day}T00:00:00Z`);
@@ -118,7 +142,12 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
     closed: closedRows.map((r) => ({ id: r.id, title: titleOf(r) })),
     opened: openedRows.map((r) => ({ id: r.id, title: titleOf(r) })),
     failing: [], changed: [],
+    unreadable: run.unreadable ?? [],
   };
+  // The time the last run stored; this run stores its own only after the digest (cron.ts).
+  const [state] = await db<{ last_run_at: Date }[]>`SELECT last_run_at FROM cron_state WHERE id`;
+  const gap = runGap(state?.last_run_at ?? null, now);
+  if (gap) health.gap = gap;
   for (const r of healthRows) {
     const f = ProgramFile.safeParse(r.file).data;
     if (!f) continue;

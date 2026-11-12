@@ -21,11 +21,11 @@ const mailer: Mailer = async (m) => {
 };
 const deps = { link: async () => ({ ok: true as const, page: '<p>x</p>' }), mailer, now: new Date('2026-11-04T06:15:00Z') };
 type Body = {
-  health: Record<string, number> | null; swept: Record<string, number | null>; screen: { read: number; left: number; jobs_finished: string[] } | null;
+  health: Record<string, number> | null; swept: Record<string, number | null>; screen: { read: number; requeued: number; left: number; jobs_finished: string[] } | null;
   digest: string | null; failed: { id: string | null; step: string; error: string }[];
 };
-const quietHealth = async () => ({ checked: 0, stale: [], changed: [], closed: [], opened: [], failed: [] });
-const idleQueue = async () => ({ read: 0, left: 0, jobs_finished: [] });
+const quietHealth = async () => ({ checked: 0, stale: [], changed: [], closed: [], opened: [], unreadable: [], failed: [] });
+const idleQueue = async () => ({ read: 0, requeued: 0, left: 0, jobs_finished: [] });
 /** A statement trigger that refuses every DELETE on `table` (a sweep that fails). */
 const refuseDeletes = async (table: string) => {
   await sql().unsafe(`CREATE OR REPLACE FUNCTION cr_refuse() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'refused'; END $$ LANGUAGE plpgsql`);
@@ -59,14 +59,15 @@ test('cronPost: 401 without or with a wrong secret, 503 when CRON_SECRET is unse
   assert.equal((await cronPost(req(`Bearer ${SECRET}`), deps)).status, 503);
 });
 
-test('cronPost: runs every step and answers the counts, the swept counts per table and an empty failed list', async () => {
+test('cronPost: runs every step and answers the counts, the swept counts per table and an empty failed list (L30-13: the shape is pinned)', async () => {
   const res = await cronPost(req(`Bearer ${SECRET}`), deps);
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
-  assert.deepEqual(Object.keys(body.health!).sort(), ['changed', 'checked', 'closed', 'opened', 'stale']);
-  assert.deepEqual(Object.keys(body.swept).sort(), ['evidence', 'link_codes', 'oauth_clients', 'oauth_codes', 'repo_cache', 'reports', 'screens', 'sessions', 'windows']);
+  assert.deepEqual(Object.keys(body), ['health', 'swept', 'screen', 'digest', 'failed']);
+  assert.deepEqual(Object.keys(body.health!), ['checked', 'stale', 'changed', 'closed', 'opened', 'unreadable']);
+  assert.deepEqual(Object.keys(body.swept), ['repo_cache', 'reports', 'screens', 'link_codes', 'sessions', 'oauth_codes', 'oauth_clients', 'evidence', 'windows', 'outcome_asks']);
   assert.ok(Object.values(body.swept).every((n) => typeof n === 'number'));
-  assert.deepEqual(Object.keys(body.screen!).sort(), ['jobs_finished', 'left', 'read']);
+  assert.deepEqual(Object.keys(body.screen!), ['read', 'requeued', 'left', 'jobs_finished']);
   assert.ok(['sent', 'none'].includes(body.digest!));
   assert.deepEqual(body.failed, []);
 });
@@ -105,7 +106,7 @@ test('L30-4: a health error is listed and the sweeps, the queue and the digest s
   const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
     ...deps,
     runHealth: async () => { throw new TypeError('bad https://x.example/p?token=secret'); },
-    workQueue: async () => (queued++, { read: 0, left: 0, jobs_finished: [] }),
+    workQueue: async () => (queued++, { read: 0, requeued: 0, left: 0, jobs_finished: [] }),
   }));
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
@@ -122,7 +123,7 @@ test('L30-4: a sweep error still lets the screen step and the digest run, with f
   try {
     const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
       ...deps, runHealth: quietHealth,
-      workQueue: async () => (queued++, { read: 5, left: 0, jobs_finished: [] }),
+      workQueue: async () => (queued++, { read: 5, requeued: 0, left: 0, jobs_finished: [] }),
       sendDigest: async () => (digests++, 'none' as const),
     }));
     assert.equal(res.status, 200);
@@ -165,7 +166,7 @@ test('L30-4: a digest error after the closes reads failed digest with status 200
 });
 
 test('L30-4: 500 only when every step failed', async () => {
-  const tables = ['repo_cache', 'project_reports', 'screen_jobs', 'link_codes', 'evidence_cache', 'rate_windows'];
+  const tables = ['repo_cache', 'project_reports', 'screen_jobs', 'link_codes', 'evidence_cache', 'rate_windows', 'outcome_asks'];
   for (const t of tables) await refuseDeletes(t);
   try {
     const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
@@ -176,7 +177,7 @@ test('L30-4: 500 only when every step failed', async () => {
     }));
     assert.equal(res.status, 500);
     const body = (await res.json()) as Body;
-    assert.deepEqual(body.failed.map((f) => f.step), ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'screen', 'digest']);
+    assert.deepEqual(body.failed.map((f) => f.step), ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'sweep_asks', 'screen', 'digest']);
   } finally {
     for (const t of tables) await allowDeletes(t);
   }
@@ -187,7 +188,7 @@ test('budget: RUN_BUDGET_MS is 420 s; the queue gets min(300 s, the deadline les
   let t = 1_000_000;
   const calls: { deadline?: number }[] = [];
   const slowHealth = (ms: number) => async () => ((t += ms), quietHealth());
-  const q = async (o: { deadline?: number }) => (calls.push(o), { read: 0, left: 0, jobs_finished: [] });
+  const q = async (o: { deadline?: number }) => (calls.push(o), { read: 0, requeued: 0, left: 0, jobs_finished: [] });
   await cronPost(req(`Bearer ${SECRET}`), { ...deps, clock: () => t, runHealth: slowHealth(45_000), workQueue: q });
   assert.equal(calls[0].deadline, 1_000_000 + 45_000 + 300_000);
   t = 1_000_000;
@@ -211,6 +212,7 @@ test('budget: a share of 600 queued after a 200 s walk stops at the deadline, th
   await upsertProgram(programFixture({ id: 'cr-q' }), 'file', deps.now);
   await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at)
     VALUES ('cr-job', 'cr-q', 1, 1, ${new Date(deps.now.getTime() - 3_600_000)}, 600, ${new Date(deps.now.getTime() + 30 * 86_400_000)})`;
+  await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES ('cr-q', 1) ON CONFLICT DO NOTHING`;
   for (let i = 0; i < 600; i++)
     await sql()`INSERT INTO screen_applicants (job_id, ref, name, live_url, status) VALUES ('cr-job', ${`q${String(i).padStart(3, '0')}`}, 'Q', 'https://q.example/', 'queued')`;
   const start = 5_000_000;
@@ -224,7 +226,7 @@ test('budget: a share of 600 queued after a 200 s walk stops at the deadline, th
   const body = (await res.json()) as Body;
   assert.ok(t - start < RUN_BUDGET_MS, `ran ${t - start} ms`);
   // 200 s of walk, then reads until the deadline less 20 s (400 s): 100 read, 100 of the share of 200 left.
-  assert.deepEqual(body.screen, { read: 100, left: 100, jobs_finished: [] });
+  assert.deepEqual(body.screen, { read: 100, requeued: 0, left: 100, jobs_finished: [] });
   assert.deepEqual(body.failed, []);
   const [job] = await sql()`SELECT last_run_read, last_run_left FROM screen_jobs WHERE id = 'cr-job'`;
   assert.deepEqual([job.last_run_read, job.last_run_left], [100, 100]);
@@ -237,14 +239,15 @@ test('sweeps: evidence past 180 days, rate windows past 2 days, and OAuth client
   const now = deps.now;
   await sql()`INSERT INTO evidence_cache (key, kind, rows, read_at) VALUES ('cr:old', 'repo', '[]', ${new Date(now.getTime() - 180 * day - 1)}), ('cr:new', 'repo', '[]', ${new Date(now.getTime() - 180 * day + 1)})`;
   await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES ('cr-old', ${new Date(now.getTime() - 2 * day - 1)}, 1), ('cr-new', ${new Date(now.getTime() - 2 * day + 1)}, 1)`;
-  for (const [id, days, used] of [['cr-c-old', 31, null], ['cr-c-used', 31, new Date(now.getTime() - 31 * day)], ['cr-c-young', 29, null]] as const)
-    await sql()`INSERT INTO oauth_clients (client_id, redirect_uris, created_at, used_at) VALUES (${id}, ${['https://c.example/cb']}, ${new Date(now.getTime() - days * day)}, ${used})`;
+  // v6.1.16 Task 16 N2 (v6.1.17 Task 3): pinned 1 ms either side of 30 days.
+  for (const [id, ms, used] of [['cr-c-old', 30 * day + 1, null], ['cr-c-used', 30 * day + 1, new Date(now.getTime() - 31 * day)], ['cr-c-edge', 30 * day, null], ['cr-c-young', 30 * day - 1, null]] as const)
+    await sql()`INSERT INTO oauth_clients (client_id, redirect_uris, created_at, used_at) VALUES (${id}, ${['https://c.example/cb']}, ${new Date(now.getTime() - ms)}, ${used})`;
   const body = (await (await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: quietHealth, workQueue: idleQueue })).json()) as Body;
   // L23-12 (v6.1.16): the cached evidence past 180 days goes in the reports step, which runs first.
   assert.deepEqual([body.swept.reports, body.swept.evidence, body.swept.windows, body.swept.oauth_clients], [1, 0, 1, 1]);
   assert.deepEqual((await sql()`SELECT key FROM evidence_cache WHERE key LIKE 'cr:%'`).map((r) => r.key), ['cr:new']);
   assert.deepEqual((await sql()`SELECT key FROM rate_windows WHERE key LIKE 'cr-%'`).map((r) => r.key), ['cr-new']);
-  assert.deepEqual((await sql()`SELECT client_id FROM oauth_clients WHERE client_id LIKE 'cr-c-%' ORDER BY 1`).map((r) => r.client_id), ['cr-c-used', 'cr-c-young']);
+  assert.deepEqual((await sql()`SELECT client_id FROM oauth_clients WHERE client_id LIKE 'cr-c-%' ORDER BY 1`).map((r) => r.client_id), ['cr-c-edge', 'cr-c-used', 'cr-c-young']);
 });
 
 const jsonReq = (body: unknown) =>
@@ -256,10 +259,10 @@ test('cronPost: a run with a job_id works that job only and skips health, the sw
     ...deps,
     runHealth: async () => { throw new Error('health must not run'); },
     sendDigest: async () => { throw new Error('digest must not run'); },
-    workQueue: async (o) => (calls.push(o), { read: 3, left: 0, jobs_finished: ['job-abc'] }),
+    workQueue: async (o) => (calls.push(o), { read: 3, requeued: 0, left: 0, jobs_finished: ['job-abc'] }),
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { screen: { read: 3, left: 0, jobs_finished: ['job-abc'] } });
+  assert.deepEqual(await res.json(), { screen: { read: 3, requeued: 0, left: 0, jobs_finished: ['job-abc'] } });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].limit, 300);
   assert.equal(calls[0].jobId, 'job-abc');
@@ -268,9 +271,9 @@ test('cronPost: a run with a job_id works that job only and skips health, the sw
 
 test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweeps and answers screen; a queue error is listed', async () => {
   const calls: { limit: number; jobId?: string; deadline?: number }[] = [];
-  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async (o) => (calls.push(o), { read: 0, left: 0, jobs_finished: [] }) });
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async (o) => (calls.push(o), { read: 0, requeued: 0, left: 0, jobs_finished: [] }) });
   const body = (await res.json()) as Body;
-  assert.deepEqual(body.screen, { read: 0, left: 0, jobs_finished: [] });
+  assert.deepEqual(body.screen, { read: 0, requeued: 0, left: 0, jobs_finished: [] });
   assert.deepEqual(calls.map((c) => [c.limit, c.jobId]), [[200, undefined]]);
   // The daily share is 300 s at most.
   assert.ok(calls[0].deadline! > Date.now() + 290_000 && calls[0].deadline! <= Date.now() + 300_000);
@@ -281,6 +284,8 @@ test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweeps a
 
 test('cronPost: the plain run sweeps the rows of screen jobs over 180 days old (L15-14), keeps the job row until 365 days (L23-13); a triggered run sweeps nothing', async () => {
   const at = (days: number) => new Date(deps.now.getTime() - days * 86_400_000);
+  // Their queuer still reviews the program, so only age sweeps them (L30-16 cuts the others).
+  await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES ('p', 1) ON CONFLICT DO NOTHING`;
   for (const [id, days] of [['dead-job', 366], ['old-job', 181], ['young-job', 179]] as const) {
     await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at)
       VALUES (${id}, 'p', 1, 1, ${at(days)}, 1, ${at(days - 180)})`;
@@ -302,7 +307,7 @@ test('cronPost: the plain run sweeps the rows of screen jobs over 180 days old (
 
 test('cronPost: a body that is not { job_id } answers 400 and runs nothing', async () => {
   let ran = 0;
-  const watch = { ...deps, runHealth: async () => { ran++; throw new Error('must not run'); }, workQueue: async () => (ran++, { read: 0, left: 0, jobs_finished: [] }) };
+  const watch = { ...deps, runHealth: async () => { ran++; throw new Error('must not run'); }, workQueue: async () => (ran++, { read: 0, requeued: 0, left: 0, jobs_finished: [] }) };
   const raw = (body: string) => new Request('https://earnkit.test/api/cron', { method: 'POST', headers: { authorization: `Bearer ${SECRET}` }, body });
   for (const body of ['{not json', JSON.stringify({ job: 'x' }), JSON.stringify({ job_id: 'x', extra: 1 }), JSON.stringify({ job_id: 7 }), JSON.stringify({ job_id: 'x'.repeat(2_000) })]) {
     const res = await cronPost(raw(body), watch);
@@ -400,7 +405,7 @@ test('L22-13 (v6.1.16): the daily status flip expires every catalog surface (rev
   let n = 0;
   watchCatalogRevalidation(() => n++);
   try {
-    const flip = async () => ({ checked: 2, stale: [], changed: [], closed: ['cr-a'], opened: ['cr-b'], failed: [] });
+    const flip = async () => ({ checked: 2, stale: [], changed: [], closed: ['cr-a'], opened: ['cr-b'], unreadable: [], failed: [] });
     const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: flip, workQueue: idleQueue });
     assert.equal(res.status, 200);
     assert.equal(n, 2);
@@ -419,11 +424,118 @@ test('fix round 1 (M1): the walk gets its own share; a walk that uses all of it 
     ...deps, clock: () => t,
     // The slowest a real walk can be: its last probe ends at its deadline.
     runHealth: async (_now, d) => ((healthDeadline = d!.deadline!), (t = d!.deadline!), quietHealth()),
-    workQueue: async (o) => (calls.push(o), (t = o.deadline!), { read: 1, left: 0, jobs_finished: [] }),
+    workQueue: async (o) => (calls.push(o), (t = o.deadline!), { read: 1, requeued: 0, left: 0, jobs_finished: [] }),
   });
   const body = (await res.json()) as Body;
   assert.equal(healthDeadline, start + 180_000);
   assert.deepEqual(body.failed, []);
   assert.equal(calls[0].deadline! - (start + 180_000), 220_000);
   assert.ok(t - start < RUN_BUDGET_MS);
+});
+
+// --- v6.1.17 Task 3.
+
+test('v6.1.16 Task 16 N2 (v6.1.17 Task 3): every sweep boundary is pinned 1 ms either side; outcome_asks over 30 days go by the day', async () => {
+  // A day in 1999, so no other file's rows fall in any window.
+  const now = new Date('1999-06-01T06:00:00Z');
+  const day = 86_400_000;
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+  /** Three rows per boundary: one ms younger, exactly at it, one ms older (only this one goes). */
+  const edge = (ms: number) => [['young', ago(ms - 1)], ['at', ago(ms)], ['old', ago(ms + 1)]] as const;
+  for (const [k, t] of edge(30 * day)) {
+    await sql()`INSERT INTO repo_cache (repo, facts, fetched_at) VALUES (${`cr99/${k}`}, '{}', ${t})`;
+    await sql()`INSERT INTO oauth_clients (client_id, redirect_uris, created_at) VALUES (${`cr99-${k}`}, ${['https://c.example/cb']}, ${t})`;
+  }
+  for (const [k, t] of edge(180 * day)) {
+    await sql()`INSERT INTO evidence_cache (key, kind, rows, read_at) VALUES (${`cr99:${k}`}, 'repo', '[]', ${t})`;
+    await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at, finished_at)
+      VALUES (${`cr99-job-${k}`}, 'cr99', 1, 1, ${t}, 1, ${now}, ${t})`;
+    await sql()`INSERT INTO screen_applicants (job_id, ref, name, status) VALUES (${`cr99-job-${k}`}, 'r', 'R', 'done')`;
+  }
+  for (const [k, t] of edge(365 * day))
+    await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at, finished_at)
+      VALUES (${`cr99-tomb-${k}`}, 'cr99', 1, 1, ${t}, 1, ${now}, ${t})`;
+  for (const [k, t] of edge(day)) {
+    await sql()`INSERT INTO link_codes (code, installation_id, created_at, expires_at) VALUES (${`cr99-${k}`}, 1, ${ago(3 * day)}, ${t})`;
+    await sql()`INSERT INTO sessions (token_hash, builder_id, created_at, expires_at, last_seen_at) VALUES (${`cr99-${k}`}, 1, ${ago(3 * day)}, ${t}, ${ago(3 * day)})`;
+    await sql()`INSERT INTO oauth_codes_spent (nonce, token_hash, at) VALUES (${`cr99-${k}`}, 'h', ${t})`;
+  }
+  for (const [k, t] of edge(2 * day)) await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${`cr99-${k}`}, ${t}, 1)`;
+  // 1999-05-02 is 30 days before 1999-06-01: kept; the day before goes.
+  await sql()`INSERT INTO outcome_asks (installation_id, owner, program_id, asked_on) VALUES
+    (991, 'i:991', 'cr99-at', '1999-05-02'), (991, 'i:991', 'cr99-old', '1999-05-01'), (991, 'i:991', 'cr99-young', '1999-05-03')`;
+
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue, sendDigest: async () => 'none' as const });
+  const body = (await res.json()) as Body;
+  assert.deepEqual(body.failed, []);
+  assert.deepEqual(body.swept, {
+    repo_cache: 1, reports: 1, screens: 2, link_codes: 1, sessions: 1, oauth_codes: 1, oauth_clients: 1, evidence: 0, windows: 1, outcome_asks: 1,
+  });
+  const left = async (q: Promise<{ k: string }[]>) => (await q).map((r) => r.k).sort();
+  const two = (p: string) => [`${p}at`, `${p}young`];
+  assert.deepEqual(await left(sql()`SELECT repo AS k FROM repo_cache WHERE repo LIKE 'cr99/%'`), two('cr99/'));
+  assert.deepEqual(await left(sql()`SELECT client_id AS k FROM oauth_clients WHERE client_id LIKE 'cr99-%'`), two('cr99-'));
+  assert.deepEqual(await left(sql()`SELECT key AS k FROM evidence_cache WHERE key LIKE 'cr99:%'`), two('cr99:'));
+  assert.deepEqual(await left(sql()`SELECT job_id AS k FROM screen_applicants WHERE job_id LIKE 'cr99-job-%'`), two('cr99-job-'));
+  assert.deepEqual(await left(sql()`SELECT id AS k FROM screen_jobs WHERE id LIKE 'cr99-tomb-%'`), two('cr99-tomb-'));
+  assert.deepEqual(await left(sql()`SELECT code AS k FROM link_codes WHERE code LIKE 'cr99-%'`), two('cr99-'));
+  assert.deepEqual(await left(sql()`SELECT token_hash AS k FROM sessions WHERE token_hash LIKE 'cr99-%'`), two('cr99-'));
+  assert.deepEqual(await left(sql()`SELECT nonce AS k FROM oauth_codes_spent WHERE nonce LIKE 'cr99-%'`), two('cr99-'));
+  assert.deepEqual(await left(sql()`SELECT key AS k FROM rate_windows WHERE key LIKE 'cr99-%'`), two('cr99-'));
+  assert.deepEqual(await left(sql()`SELECT program_id AS k FROM outcome_asks WHERE installation_id = 991`), two('cr99-'));
+  for (const [t, c] of [['repo_cache', 'repo'], ['oauth_clients', 'client_id'], ['evidence_cache', 'key'], ['screen_applicants', 'job_id'], ['screen_jobs', 'id'],
+    ['link_codes', 'code'], ['sessions', 'token_hash'], ['oauth_codes_spent', 'nonce'], ['rate_windows', 'key'], ['outcome_asks', 'program_id']] as const)
+    await sql()`DELETE FROM ${sql()(t)} WHERE ${sql()(c)} LIKE 'cr99%'`;
+  await sql()`DELETE FROM cron_state`;
+});
+
+test('L30-14: a run that answers 200 stores its time, never moving it back; a 500 run and an owner trigger store nothing', async () => {
+  await sql()`DELETE FROM cron_state`;
+  const { lastRunAt } = await import('./cron');
+  const quiet = { ...deps, runHealth: quietHealth, workQueue: idleQueue, sendDigest: async () => 'none' as const };
+  await cronPost(jsonReq({ job_id: 'none' }), quiet);
+  assert.equal(await lastRunAt(), null);
+  assert.equal((await cronPost(req(`Bearer ${SECRET}`), quiet)).status, 200);
+  assert.equal((await lastRunAt())?.toISOString(), deps.now.toISOString());
+  await cronPost(req(`Bearer ${SECRET}`), { ...quiet, now: new Date(deps.now.getTime() - 86_400_000) });
+  assert.equal((await lastRunAt())?.toISOString(), deps.now.toISOString());
+  const later = new Date(deps.now.getTime() + 86_400_000);
+  const tables = ['repo_cache', 'project_reports', 'screen_jobs', 'link_codes', 'evidence_cache', 'rate_windows', 'outcome_asks'];
+  for (const t of tables) await refuseDeletes(t);
+  try {
+    const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
+      ...deps, now: later,
+      runHealth: async () => { throw new Error('h'); },
+      workQueue: async () => { throw new Error('q'); },
+      sendDigest: async () => { throw new Error('d'); },
+    }));
+    assert.equal(res.status, 500);
+  } finally {
+    for (const t of tables) await allowDeletes(t);
+  }
+  assert.equal((await lastRunAt())?.toISOString(), deps.now.toISOString());
+  await sql()`DELETE FROM cron_state`;
+});
+
+test('L30-14, L30-18 (Review Focus 5): after 27 hours with no run, the run\'s digest names the gap and the unreadable rows, then stores its time; /api/stats showed the old time until then', async () => {
+  const { readStats } = await import('./stats');
+  const H = 3_600_000;
+  const old = new Date(deps.now.getTime() - 27 * H);
+  await sql()`DELETE FROM cron_state`;
+  await sql()`DELETE FROM owner_digests`;
+  await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${old})`;
+  assert.equal((await readStats(deps.now)).last_run_at, old.toISOString());
+  const walk = async () => ({ ...(await quietHealth()), unreadable: [{ id: 'cr-bad', fix: 'its saved entry no longer reads, so it is not checked; correct the entry.' }] });
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: walk, workQueue: idleQueue });
+  const body = (await res.json()) as Body;
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.failed, []);
+  assert.equal(body.health!.unreadable, 1);
+  assert.equal(body.digest, 'sent');
+  const text = sent.at(-1)!.text;
+  assert.ok(text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 03:15 UTC.'), text);
+  assert.ok(text.includes('Programs the run could not read\n- cr-bad: its saved entry no longer reads, so it is not checked; correct the entry.'), text);
+  assert.equal((await readStats(deps.now)).last_run_at, deps.now.toISOString());
+  await sql()`DELETE FROM cron_state`;
+  await sql()`DELETE FROM owner_digests`;
 });
