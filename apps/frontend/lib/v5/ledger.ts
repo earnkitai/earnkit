@@ -14,7 +14,7 @@
  */
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
-import { codeChecked, itemKey } from './eligibility';
+import { LICENSE_FILE, codeChecked, itemKey } from './eligibility';
 import { getProgram, isOpenAt, programsById, type ProgramRow } from './programs';
 import { dayWords } from './deadline';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
@@ -366,7 +366,8 @@ export async function record(
     const items = eligibilityOf(program.file);
     // T3-R1 (v6.1.13): the code-in-a-repo step ('repo') is taken, re-checked by the read; fix round 1 (T7-F2, v6.1.14):
     // for any program, as the bar's code step (L12-7) shows on programs that do not require a repo too.
-    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo'])];
+    // L38-27 (v6.1.18 Task 11): a license rule's license file gap is its own item.
+    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo', ...(items.some((x) => x.check === 'license') ? [LICENSE_FILE.item] : [])])];
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
     if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }

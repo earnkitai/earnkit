@@ -58,6 +58,9 @@ export type RepoFacts = {
   contributors?: string[];
   /** L28-3: 'Organization' when the repo's owner is an organization. */
   owner_type?: string;
+  /** L38-27 (v6.1.18 Task 11): the license GitHub detects, its SPDX id ("MIT", "NOASSERTION" for a license file it
+   *  does not recognize); null when the read found no license file; none when not read (unknown). */
+  license?: string | null;
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
@@ -81,6 +84,8 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   /** L35-3 (v6.1.16.1 Task 2): a fork's parent, GitHub's repo id and full name, from the read's `parent`. */
   parent_repo_id?: number;
   parent_full_name?: string;
+  /** L38-27 (v6.1.18 Task 11): the detected license's SPDX id, null for none; a row cached before has none (unknown). */
+  license?: string | null;
 };
 type Fetch = typeof fetch;
 
@@ -247,7 +252,15 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     // L35-3 (v6.1.16.1 Task 2): a fork keeps its parent, so the one-per-repo rule reads the parent's repo too.
     ...(r.repo.fork === true && typeof r.repo.parent?.id === 'number' ? { parent_repo_id: r.repo.parent.id } : {}),
     ...(r.repo.fork === true && typeof r.repo.parent?.full_name === 'string' ? { parent_full_name: r.repo.parent.full_name } : {}),
+    license: licenseOf(r.repo.license),
   };
+}
+
+/** L38-27 (v6.1.18 Task 11): the SPDX id of the license GitHub detects, cleaned; null for none (no license file). Pure. */
+export function licenseOf(l: unknown): string | null {
+  if (!l || typeof l !== 'object') return null;
+  const id = (l as { spdx_id?: unknown }).spdx_id;
+  return typeof id === 'string' && /^[A-Za-z0-9.+-]{1,64}$/.test(id) ? id : 'NOASSERTION';
 }
 
 /** Thrown when an installation has used its uncached repo reads for the day. */
@@ -481,6 +494,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: Unread): 
     ...(code && repoIdIn(code) !== null ? { repo_id: repoIdIn(code)! } : {}),
     ...(code && Array.isArray(code.contributors) ? { contributors: code.contributors.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()) } : {}),
     ...(code?.owner_type ? { owner_type: code.owner_type } : {}),
+    ...(code && code.license !== undefined ? { license: code.license === null ? null : licenseOf({ spdx_id: code.license }) } : {}),
   };
 }
 

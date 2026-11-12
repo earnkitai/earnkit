@@ -11,7 +11,7 @@
   "min_tier": "used",
   "eligibility": [
     { "kind": "users", "note": "an open source first project with demonstrated community traction and adoption" },
-    { "kind": "rule", "note": "a clear open source license on the repo" },
+    { "kind": "rule", "note": "a clear open source license on the repo", "check": "license" },
     { "kind": "rule", "note": "maintainer lives in a region supported by GitHub Sponsors" }
   ],
   "category": "grant",
@@ -25,8 +25,7 @@
   "chains": [],
   "any_chain": true,
   "setup": [
-    "sign up for GitHub Sponsors if you have not",
-    "add a clear open source license to the repo"
+    "sign up for GitHub Sponsors if you have not"
   ],
   "each_time": [
     "security background and impact answers"

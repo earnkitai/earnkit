@@ -12,7 +12,7 @@
   "eligibility": [
     { "kind": "demo_video" },
     { "kind": "rule", "note": "meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform", "keywords": ["paypal"] },
-    { "kind": "rule", "note": "a public code repo with a visible open source license" }
+    { "kind": "rule", "note": "a public code repo with a visible open source license", "check": "license" }
   ],
   "category": "hackathon",
   "starts_at": "2026-10-01T09:15:00-07:00",

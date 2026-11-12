@@ -82,6 +82,8 @@ export type Repo = {
   /** GitHub's repo id: the same through a rename or a transfer (L28-6, v6.1.16 Task 14). */
   id?: number;
   owner?: { login?: string; type?: string };
+  /** L38-27 (v6.1.18 Task 11): the license GitHub detects; null when the repo has no license file. */
+  license?: { key?: string; spdx_id?: string | null } | null;
 };
 export type TreeEntry = { path: string; type: string; size?: number };
 export type RepoRead = {

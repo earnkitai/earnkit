@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendRuleGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
-import { NEEDS_CODE, PUBLIC_REPO } from './eligibility';
+import { LICENSE_FILE, NEEDS_CODE, PUBLIC_REPO } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 import { DELETED_NOTICE } from '../v6/reply-words';
@@ -1513,6 +1513,15 @@ test('L1j-1, L1j-6 (v6.1.17): one sentence mentions signing in, and the action i
   const code = replyText(base({ sign_in: link, gaps: [gap({ title: 'Sign Grant', gap: TIER }), gap({ title: 'Code Grant', gap: NEEDS_CODE })] }), true);
   assert.equal(code.split('\n').at(-2), `Sign in once at ${link} and I check your users and remember you.`, code);
   assert.match(code.split('\n').at(-1)!, /^Nothing is ready yet\. /);
+});
+
+test('L38-27 (v6.1.18 Task 11): the license file gap reads "a license file" and its do offer adds an MIT license file', () => {
+  const hero = gap({ title: 'HeroDevs Open Source Sustainability Fund', money: '$2,500 to $15,000', gap: LICENSE_FILE, n: 1 });
+  assert.equal(gapLine(hero, true), 'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.');
+  assert.equal(gapAction(hero), 'Say "do" and I add an MIT license file first.');
+  const list = replyText(base({ gaps: [hero] }), true);
+  assert.equal(list, ['One step away (1):', '1. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.', 'Nothing is ready yet. Say "do 1" and I add an MIT license file.'].join('\n'));
+  assert.doesNotMatch(list, /\u2014|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });
 
 // Registered last, so it reads every reply the tests above rendered.

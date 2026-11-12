@@ -213,7 +213,7 @@ export function doOfferOf(gaps: (GapProgram & { n: number })[]): { n: number; ve
 /** What "do" makes: in a list line the short verb ("add them"); on the one-program reply, where no list names the
  *  change twice, the change itself ("add Base Builder Codes to the app"). Pure. */
 const doVerb = (real: Gap[], named: boolean): string =>
-  real.length > 1 ? 'make both changes' : named ? real[0].what : (DO_VERB[real[0].kind] ?? 'make the change');
+  real.length > 1 ? 'make both changes' : named ? (real[0].do ?? real[0].what) : (DO_VERB[real[0].kind] ?? 'make the change');
 /** The "tell me if real people use it" question: a yes, not work (the same gap the agent note names). Pure. */
 const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
 /** T3-R1 (v6.1.13): the code-in-a-repo step of a grant for existing code (eligibility's NEEDS_CODE). Pure. */

@@ -606,3 +606,35 @@ test('lane 20 audit (v6.1.16): narrowed keywords miss look-alike projects and st
   // OTF keeps "privacy": it is the program's target.
   assert.ok(eligibilityKeywords('otf-internet-freedom-fund').includes('privacy'));
 });
+
+test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rule; none is the license file gap; unknown keeps the rule', async () => {
+  // The recorded fixtures carry GitHub's license: GPL-3.0 on saber, none on nextjs-dashboard.
+  assert.equal((await factsOf('saber-distributor')).license, 'GPL-3.0');
+  const bare = await factsOf('nextjs-dashboard', { users: true });
+  assert.equal(bare.license, null);
+  // Not read: no license field, so the rule stays a question.
+  const unread = parseProject({ name: 'App', description: 'An app.', users: true, live_url: 'https://app.example' });
+  assert.ok(unread.ok);
+  assert.equal('license' in (await repoFacts(unread.project, { now: NOW })), false);
+  const hero = fromFile('herodevs-sustainability-fund');
+  const RULE = 'an OSI-approved open source license';
+  const items = (license: string | null | undefined, done: string[] = []) => evaluate(hero, { ...bare, license }, new Set(done), NOW).gaps.map((g) => g.what);
+  for (const id of ['MIT', 'Apache-2.0', 'GPL-3.0', 'GPL-3.0-only', 'BSD-3-Clause', '0BSD']) assert.deepEqual(items(id), [], id);
+  assert.equal(evaluate(hero, { ...bare, license: 'MIT' }, new Set(), NOW).status, 'ready');
+  // No license file: the license file gap, minutes, EarnKit's to add; closed by its own item.
+  const none = evaluate(hero, bare, new Set(), NOW);
+  assert.deepEqual(none.gaps.map((g) => [g.kind, g.item, g.what, g.effort, g.agent_can, g.do]), [['feature', 'feature:license', 'a license file', 'minutes', true, 'add an MIT license file']]);
+  assert.deepEqual(items(null, ['feature:license']), []);
+  // A license GitHub does not recognize, one not on the list, or no read: the rule question, as before.
+  for (const id of ['NOASSERTION', 'BUSL-1.1', undefined]) assert.deepEqual(items(id), [RULE], String(id));
+  assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
+  // An archived repo: its license is not the live repo's, so the rule stays a question beside the live repo step.
+  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set(), NOW).gaps.map((g) => g.what), ['the repo is archived', RULE]);
+  // The rules marked as license checks; the ones that ask more than a license are not.
+  const checked = (slug: string) => eligibilityOf(fromFile(slug).file).filter((i) => i.check === 'license').map((i) => i.note);
+  for (const slug of ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund'])
+    assert.equal(checked(slug).length, 1, slug);
+  for (const slug of ['neon-open-source-program', 'nlnet-open-call', 'floss-fund-zerodha']) assert.deepEqual(checked(slug), [], slug);
+  // Only a rule takes check.
+  assert.throws(() => ProgramFile.parse({ ...hero.file, eligibility: [{ kind: 'feature', value: 'x', check: 'license' }] }));
+});

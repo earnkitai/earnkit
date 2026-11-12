@@ -1255,6 +1255,9 @@ const inPersonBlock = (n: number, _noRepo = false) => [
   `${n + 1}. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
+/** L38-27 (v6.1.18 Task 11): the replayed Next.js repo has no license file, so the license rules read as a license file. */
+const HERO_LICENSE = (n: number) => `${n}. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.`;
+const SOSF_LICENSE = (n: number) => `${n}. GitHub Secure Open Source Fund, $10,000 per project: a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.`;
 const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
 /** L1c-2 (v6.1.10): with the VR rule unlikely (no keyword named), the rule slot goes to a rule with no keywords.
  *  L1d-2 (v6.1.11): Colosseum's crypto-product rule is unlikely for a project naming no crypto word. */
@@ -1365,11 +1368,14 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   const d = await mcpCall(c, 'find', { project: SAAS });
   const show = d.reply!.show_to_builder as string;
   assert.equal(show, [
-    "One step away (1):",
+    "One step away (3):",
     "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+    // L38-27 (v6.1.18 Task 11): no license file in the repo.
+    "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it and a license file.",
+    "3. GitHub Secure Open Source Fund, $10,000 per project: tell me if real people use it and a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
     "In person (2):",
-    "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-    "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+    "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
+    "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
     // L1j-1 (v6.1.17): the closing carries the sign-in, so no other line mentions it.
     `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`,
   ].join('\n'));
@@ -1468,6 +1474,7 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   ];
   for (const [id, gap, head, closing] of want) {
     const show = await lane1h(id);
+    console.log('PERSONA', id, JSON.stringify(show));
     assert.equal(show, [...head, closing].join('\n'), `persona ${id}`);
     const lines = show.split('\n');
     // The gap words once, in line 1; no other line but the closing's step speaks of the same gap.
@@ -1497,11 +1504,14 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.equal(
     d.reply!.show_to_builder,
     [
-      "One step away (1):",
+      "One step away (3):",
       "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      // L38-27 (v6.1.18 Task 11): the repo has no license file, so the license rules are a license file EarnKit adds.
+      "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it and a license file.",
+      "3. GitHub Secure Open Source Fund, $10,000 per project: tell me if real people use it and a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
       "In person (2):",
-      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
+      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
     ].join('\n'),
   );
@@ -1529,17 +1539,20 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
     [
       "Ready to apply (1):",
       "1. FLOSS/fund, $10,000 to $100,000. First: publish a funding manifest on your site or repo.",
-      "One step away (1):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "One step away (3):",
+      // L38-27 (v6.1.18 Task 11): no license file in the repo: the license rules are a license file, minutes, EarnKit's.
+      "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.",
+      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "4. GitHub Secure Open Source Fund, $10,000 per project: a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
       // L1j-3 (v6.1.17): YC and Alliance, left out, are counted.
       'And 2 more in the full list.',
       'Sign in once and I check the repo is yours; then say yes.',
     ].join('\n'),
   );
   assert.doesNotMatch(r.reply!.show_to_builder as string, /proof that /);
-  // One real change each, so the money decides: $1M pool, $120K pool, then PayPal's $67,500 pool.
+  // One real change each: L38-27 (v6.1.18 Task 11): the license file (minutes, EarnKit's) leads, then the money decides.
   const all = await mcpCall(await dashCtx(), 'find', { project: VR, filter: { all: true } });
-  assert.deepEqual(ids(all.reply!.gaps).slice(0, 3), ['meta-vr-start-competition-2026', 'codegeist-2026', 'paypal-ai-hackathon']);
+  assert.deepEqual(ids(all.reply!.gaps).slice(0, 3), ['herodevs-sustainability-fund', 'meta-vr-start-competition-2026', 'github-secure-open-source-fund']);
   // B20c fix round 1 (persona 9): a private repo is the builder's word, so it exists. L1f-1 (v6.1.14, Review Focus 6):
   // FLOSS/fund and HeroDevs are open source programs, so the private repo is one step from each (a public repo), never
   // ready and never "Say yes and I apply.".
@@ -1579,7 +1592,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
 test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and Meta VR heads the next default list as rule-only with its yes', async () => {
   const c = await dashCtx();
   const first = await mcpCall(c, 'find', { project: VR });
-  assert.equal(blockOf(first.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
+  assert.equal(blockOf(first.reply!.show_to_builder as string, 'One step away'), ['One step away (3):', HERO_LICENSE(2), META_VR_LINE(3), SOSF_LICENSE(4)].join('\n'));
   // L29-8 (v6.1.16 Task 15): a claim waits on the rule; the refusal says so and nothing is written.
   const started = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started' });
   assert.equal(started.isError, true, started.text);
@@ -1590,7 +1603,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   const claimed = await mcpCall(c, 'find', { project: VR });
   assert.equal(
     blockOf(claimed.reply!.show_to_builder as string, 'One step away'),
-    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.'].join('\n'),
+    ['One step away (3):', META_VR_LINE(2), HERO_LICENSE(3), SOSF_LICENSE(4)].join('\n'),
   );
   const done = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'gap_done', item: 'demo_video' });
   assert.equal(done.isError, false, done.text);
@@ -1598,14 +1611,14 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   const show = again.reply!.show_to_builder as string;
   assert.equal(
     blockOf(show, 'One step away'),
-    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.'].join('\n'),
+    ['One step away (3):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.', HERO_LICENSE(3), SOSF_LICENSE(4)].join('\n'),
   );
   assert.equal(ids(again.reply!.gaps)[0], 'meta-vr-start-competition-2026');
   assert.doesNotMatch(show, /Codegeist/);
   assert.equal(show.split('\n').at(-1), 'Sign in once and I check the repo is yours; then say yes.');
   // Another installation, with no claim and no step done, still sees the demo video step.
   const other = await mcpCall(await dashCtx(), 'find', { project: VR });
-  assert.equal(blockOf(other.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
+  assert.equal(blockOf(other.reply!.show_to_builder as string, 'One step away'), ['One step away (3):', HERO_LICENSE(2), META_VR_LINE(3), SOSF_LICENSE(4)].join('\n'));
   // Skipped, it leaves the list.
   await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'skipped' });
   const skipped = await mcpCall(c, 'find', { project: VR });
@@ -1654,6 +1667,32 @@ test('L1e-4 (v6.1.13, Review Focus 9, persona 4): after the users yes on FLOSS/f
   // The send-time verdict reads the same project fact: track started names no users step for HeroDevs.
   const started = await mcpCall(c, 'track', { program_id: 'herodevs-sustainability-fund', status: 'started', project: RIPGREP });
   assert.doesNotMatch(started.reply!.show_to_builder as string, /real people/);
+});
+
+/** L38-27: the programs whose license rule the read settles. */
+const LICENSE_RULED = ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund'];
+test('L38-27 (v6.1.18 Task 11): HeroDevs on a repo with no license file asks for a license file EarnKit adds; an OSI license asks nothing', async () => {
+  const c = await dashCtx();
+  const project = { ...RIPGREP, users: true };
+  const one = await mcpCall(c, 'find', { program_id: 'herodevs-sustainability-fund', project });
+  assert.equal(one.reply!.show_to_builder, ['HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.', 'Say "do" and I add an MIT license file first.'].join('\n'));
+  assert.match(one.reply!.agent_note as string, /^On "do": make the gap's change/m);
+  // The agent adds it and says so: the item is the program's own, and the rule asks nothing after.
+  const done = await mcpCall(c, 'track', { program_id: 'herodevs-sustainability-fund', status: 'gap_done', item: 'feature:license', project });
+  assert.equal(done.isError, false, done.text);
+  const after = await mcpCall(c, 'find', { program_id: 'herodevs-sustainability-fund', project });
+  assert.equal((after.reply!.verdict as { status: string }).status, 'ready', after.reply!.show_to_builder as string);
+  assert.doesNotMatch(after.reply!.show_to_builder as string, /license/);
+  // A repo GitHub reads as MIT: no license step and no license question, in the list either.
+  await sql()`DELETE FROM repo_cache`;
+  const mit = replayFetch('nextjs-dashboard', (u, b) => (/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace('"license":null', '"license":{"key":"mit","spdx_id":"MIT"}') : b));
+  const m = { installationId: await installation(), builderId: null, now: NOW, gh: mit.fetch };
+  const list = await mcpCall(m, 'find', { project, filter: { all: true } });
+  const text = listText(list.reply!);
+  const ns = [...(list.reply!.gaps as G[]), ...(allReady(list.reply!) as G[])].filter((p) => LICENSE_RULED.includes(p.program_id)).map((p) => p.n);
+  assert.ok(ns.length >= 3, text);
+  for (const n of ns) assert.doesNotMatch(lineOf(text, n), /licen[cs]e/i, text);
+  assert.ok(allReady(list.reply!).some((p) => (p as G).program_id === 'herodevs-sustainability-fund'), listText(list.reply!));
 });
 
 test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule yes, the idea and the empty repo read one line and a closing that names the answers', async () => {
@@ -1935,8 +1974,8 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
   const QUEST = { name: 'HandsOn', description: 'A hand tracking game for Meta Quest', repo_url: `https://github.com/${dash.repo}` };
   const r = await mcpCall(await dashCtx(), 'find', { project: QUEST });
   assert.equal(r.isError, false, r.text);
-  // Lane 10 saw FLOSS/fund alone; the keyword hit now takes its own slot, ahead by its money, and the rule with no hit
-  // (HeroDevs' licence rule beside a users question) keeps the one last slot.
+  // Lane 10 saw FLOSS/fund alone; the keyword hit now takes its own slot, ahead by its money. L38-27 (v6.1.18 Task 11):
+  // the repo has no license file, so the last slot is a rule-free step: GitHub's fund, the users question and a license file.
   assert.equal(
     r.reply!.show_to_builder,
     [
@@ -1944,7 +1983,7 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it. Their rule: an OSI-approved open source license.",
+      "3. GitHub Secure Open Source Fund, $10,000 per project: tell me if real people use it and a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
@@ -1959,29 +1998,24 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
 test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the project fits is always in the default reply, its line saying so', async () => {
   const PAY = { ...VR, description: 'Stream VR games from your PC to your headset over Wi-Fi; pay per game with PayPal' };
   const at = async (now: Date) => mcpCall({ installationId: await installation(), builderId: null, now, gh: dash.fetch }, 'find', { project: PAY });
-  // N1 (v6.1.12): eight days out both keyword hits (VR and PayPal) take their own slots in rank order, and a rule
-  // with no keywords (HeroDevs; L1e-2, v6.1.13: Thiel names students, so not here) keeps the one last slot. L1e-6: the
-  // PayPal line says it closes in 8 days; one yes per reply, the ready program's.
+  // N1 (v6.1.12): eight days out the keyword hits take their slots in rank order. L38-27 (v6.1.18 Task 11): the repo has
+  // no license file, so HeroDevs and GitHub's fund are a license file EarnKit adds (minutes, first), and PayPal waits
+  // for its close. One yes per reply, the ready program's.
   const early = (await at(NOW)).reply!;
   assert.equal(
     blockOf(early.show_to_builder as string, 'One step away'),
-    [
-      "One step away (3):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
-      // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rules: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform; a public code repo with a visible open source license.",
-      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: an OSI-approved open source license.",
-    ].join('\n'),
+    ["One step away (3):", HERO_LICENSE(2), META_VR_LINE(3), SOSF_LICENSE(4)].join('\n'),
   );
-  // Two days out it is listed first, ahead of the cap; a keyword hit, it leaves the one rule slot to HeroDevs (N1, v6.1.12).
+  // Two days out it is listed first, ahead of the cap. L38-27: its license rule is a license file too, and the two
+  // license file steps keep the other slots.
   const late = (await at(new Date('2026-11-10T08:00:00Z'))).reply!;
   assert.equal(
     blockOf(late.show_to_builder as string, 'One step away'),
     [
       "One step away (3):",
-      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rules: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform; a public code repo with a visible open source license.",
-      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
-      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: an OSI-approved open source license.",
+      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video and a license file. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
+      HERO_LICENSE(3),
+      SOSF_LICENSE(4),
     ].join('\n'),
   );
   assert.equal((late.gaps as { program_id: string; closes_in?: string }[])[0].closes_in, 'in 2 days');

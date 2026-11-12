@@ -24,6 +24,8 @@ export type Gap = {
   agent_can: boolean;
   /** v6.1.14 (L1f-1, L1f-3): the step that closes the gap, said after "First:" on its line and in the closing. */
   setup?: string;
+  /** L38-27 (v6.1.18 Task 11): the change EarnKit makes on "do", when it is not `what` ("add an MIT license file"). */
+  do?: string;
   details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null; tier?: string; min_tier?: string };
 };
 export type Verdict = {
@@ -100,6 +102,21 @@ export const NEEDS_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a re
 export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes', agent_can: false };
 /** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question. */
 export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'the repo is archived', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+/** L38-27 (v6.1.18 Task 11): a license rule and a repo read that found no license file: EarnKit adds one on "do". */
+export const LICENSE_FILE: Gap = {
+  kind: 'feature', item: 'feature:license', what: 'a license file', do: 'add an MIT license file', effort: 'minutes', agent_can: true,
+  details: { docs: 'https://choosealicense.com/licenses/mit/' },
+};
+/**
+ * L38-27: the SPDX ids GitHub reports for common OSI-approved licenses (GitHub reports `GPL-3.0`, `LGPL-2.1`,
+ * `AGPL-3.0` without `-only`; the `-only` and `-or-later` spellings are kept for safety).
+ */
+const OSI = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0', 'MPL-2.0', 'ISC', 'Unlicense', 'CC0-1.0', 'EPL-2.0', '0BSD']);
+const osiId = (id: string) => OSI.has(id.replace(/-(only|or-later)$/, ''));
+/** L38-27: what the read says of a license rule: an OSI license, no license file, or nothing to go on (not read, or a
+ *  license GitHub does not recognize or that is not on the list). Pure. */
+export const licenseRead = (facts: Pick<RepoFacts, 'license'>): 'osi' | 'none' | 'unknown' =>
+  facts.license === null ? 'none' : typeof facts.license === 'string' && osiId(facts.license) ? 'osi' : 'unknown';
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
@@ -196,9 +213,22 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         break;
       }
       case 'in_person': inPerson = true; break;
+      case 'rule': {
+        if (done.has(itemKey(i))) break;
+        // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
+        // the license file gap (once, and closed by its own done); anything else keeps the question. An archived repo's
+        // license is not the live repo's: its step is the live repo, then the read.
+        const read = i.check === 'license' && !(facts.notes ?? []).includes('archived') ? licenseRead(facts) : 'unknown';
+        if (read === 'osi') break;
+        if (read === 'none') {
+          if (!done.has(LICENSE_FILE.item) && !gaps.includes(LICENSE_FILE)) gaps.push(LICENSE_FILE);
+          break;
+        }
+        gaps.push(gapOf(i));
+        break;
+      }
       case 'demo_video':
-      case 'feature':
-      case 'rule': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'feature': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
     }
   }
 
