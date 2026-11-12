@@ -4,7 +4,7 @@
  * made. Nothing happened, nothing sent; mail not set up (RESEND_API_KEY unset), 'mail off'. The idempotency key is the
  * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again. v6.1.17 Task 3:
  * first, a gap of over GAP_HOURS since the last daily run that finished (L30-14); and the programs the walk could not
- * read, each `{id}: {fix}` (L30-18, L35-18).
+ * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the sends in the window, by agents and builders.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -13,6 +13,7 @@ import { ProgramFile } from './program-file';
 import type { Unreadable } from './health';
 import { findProgramsDir, revertPlan } from './programs-api';
 import { revertExpiry, revertUrl } from './programs-pending';
+import { SENT } from './stats';
 
 export type DigestChange = { id: string; title: string; fields: string[]; revertUrl: string | null; revertNote?: string };
 export type DigestHealth = {
@@ -26,6 +27,12 @@ export type DigestHealth = {
   /** v6.1.17 Task 3 (L30-14): the last daily run before this one, when it finished over GAP_HOURS before now. */
   gap?: { hours: number; last: Date };
 };
+
+/**
+ * v6.1.18 Task 5 (L18-5): the sends in the digest's window (`sent` of them, by agents and by builders), every send all
+ * time, and each program with sends in the window.
+ */
+export type DigestApplications = { sent: number; agent: number; builder: number; total: number; byProgram: { id: string; title: string; sent: number }[] };
 
 /** v6.1.17 Task 3 (L30-14): a gap over this many hours since the last daily run is named in the digest. */
 export const GAP_HOURS = 26;
@@ -49,11 +56,19 @@ const FIELD_WORDS: Record<string, string> = {
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 /** The email body, or null when the lists are all empty. Pure. */
-export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth): string | null {
+export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth, apps?: DigestApplications): string | null {
   const blocks: string[] = [];
   if (health.gap) {
     const at = health.gap.last.toISOString().slice(0, 16).replace('T', ' ');
     blocks.push(`No daily run finished for ${health.gap.hours} hours before this one; the last was ${at} UTC.`);
+  }
+  // L18-5 (v6.1.18 Task 5): the day's sends, most sent program first; a day with none adds nothing.
+  if (apps && apps.sent > 0) {
+    const programs = [...apps.byProgram].sort((a, b) => b.sent - a.sent || a.id.localeCompare(b.id));
+    blocks.push([
+      `Applications: ${apps.sent} sent (${apps.agent} by agents, ${apps.builder} by builders); ${apps.total} all time.`,
+      ...programs.map((p) => `- ${oneLine(p.title)} (${p.id}): ${p.sent}`),
+    ].join('\n'));
   }
   if (health.unreadable?.length) {
     blocks.push(['Programs the run could not read', ...health.unreadable.map((u) => `- ${u.id}: ${oneLine(u.fix)}`)].join('\n'));
@@ -100,6 +115,24 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>): Prom
     failures.add(err instanceof Error ? err.name.replace(/[^\w]/g, '').slice(0, 40) : 'unknown');
     return { url: null, note: '(no revert link)' };
   }
+}
+
+/** L18-5 (v6.1.18 Task 5): the sends whose send time (`sent_at`, else `at`) is in (since, now], and every send all time. */
+async function digestApplications(since: Date, now: Date): Promise<DigestApplications> {
+  const db = sql();
+  const [t] = await db<{ sent: string; agent: string; builder: string; total: string }[]>`
+    SELECT count(*) FILTER (WHERE w) AS sent, count(*) FILTER (WHERE w AND submitted_by = 'agent') AS agent,
+           count(*) FILTER (WHERE w AND submitted_by = 'builder') AS builder, count(*) AS total
+    FROM (SELECT submitted_by, (COALESCE(sent_at, at) > ${since} AND COALESCE(sent_at, at) <= ${now}) AS w
+          FROM applications WHERE status = ANY(${SENT})) s`;
+  const rows = await db<{ id: string; title: string | null; sent: string }[]>`
+    SELECT program_id AS id, max(title) AS title, count(*) AS sent FROM applications
+    WHERE status = ANY(${SENT}) AND COALESCE(sent_at, at) > ${since} AND COALESCE(sent_at, at) <= ${now}
+    GROUP BY program_id`;
+  return {
+    sent: Number(t.sent), agent: Number(t.agent), builder: Number(t.builder), total: Number(t.total),
+    byProgram: rows.map((r) => ({ id: r.id, title: r.title ?? r.id, sent: Number(r.sent) })),
+  };
 }
 
 /** The digest's idempotency key: the UTC day and the first 16 hex of the body's sha256. Pure. */
@@ -171,7 +204,8 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
   }
   if (failures.size > 0) console.error(`[owner-digest] revert links failed: ${[...failures].join(', ')}`);
 
-  const text = dailyOwnerText(day, changes, health);
+  const apps = await digestApplications(since, now);
+  const text = dailyOwnerText(day, changes, health, apps);
   if (text === null) return 'none';
   const key = digestKey(day, text);
   const hash = key.slice(key.lastIndexOf(':') + 1);

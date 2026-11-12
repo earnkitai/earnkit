@@ -127,6 +127,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/api/programs/route.ts`: GET /api/programs: the public list of listed programs
 - `apps/frontend/app/api/programs/write/route.ts`: POST /api/programs/write: the owner bot adds, updates or closes a program
 - `apps/frontend/app/api/programs/writes/route.ts`: GET /api/programs/writes: the write audit log and pending writes
+- `apps/frontend/app/api/programs/applications/route.ts`: GET /api/programs/applications: every send with totals, owner only (v6.1.18 L18-5)
 - `apps/frontend/app/api/programs/reviewers/route.ts`: POST /api/programs/reviewers: the owner marks a signed-in builder as a program's reviewer (or removes them)
 - `apps/frontend/app/api/stats/route.ts`: GET /api/stats: the public counts
 - `apps/frontend/app/api/me/signed-in/route.ts`: v6.1.17 Task 4: GET `{ signedIn: boolean }` (`hasSession`, read only), `Cache-Control: no-store`; a failed read is false; other methods 405

@@ -197,3 +197,36 @@ test('L30-18, L35-18: the programs the walk could not read are named with their 
   assert.equal(await sendOwnerDigest(NOW, mailer, { unreadable }), 'none');
   await sql()`DELETE FROM owner_digests`;
 });
+
+test("L18-5c: the digest's applications block for a day with 3 sends and none for a day with 0", async () => {
+  // The pure block: most sends first; the title on one line.
+  const block = dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, {
+    sent: 3, agent: 2, builder: 1, total: 7,
+    byProgram: [{ id: 'od-b', title: 'Beta  Prize', sent: 1 }, { id: 'od-a', title: 'Alpha Grants', sent: 2 }],
+  });
+  assert.equal(block, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (2 by agents, 1 by builders); 7 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
+  assert.equal(dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, { sent: 0, agent: 0, builder: 0, total: 7, byProgram: [] }), null);
+
+  const db = sql();
+  await db`DELETE FROM owner_digests`;
+  await db`DELETE FROM cron_state`;
+  const day = new Date('2026-12-20T06:15:00Z');
+  const at = (h: number) => new Date(`2026-12-20T0${h}:00:00Z`);
+  // An earlier send (before the window) counts all time only; a claim is not a send.
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, title, application_id)
+    VALUES ('i:9001', 9001, 'od-a', 'applied', ${at(1)}, ${at(1)}, 'agent', 'Alpha Grants', 'app_od1'),
+           ('i:9002', 9002, 'od-a', 'won', ${at(5)}, ${at(2)}, 'agent', 'Alpha Grants', 'app_od2'),
+           ('b:9003', 9003, 'od-b', 'applied', ${at(3)}, ${at(3)}, 'builder', 'Beta Prize', 'app_od3'),
+           ('i:9004', 9004, 'od-b', 'started', ${at(4)}, NULL, NULL, 'Beta Prize', 'app_od4'),
+           ('i:9005', 9005, 'od-c', 'applied', ${new Date('2026-11-01T00:00:00Z')}, ${new Date('2026-11-01T00:00:00Z')}, 'agent', 'Old', 'app_od5')`;
+  try {
+    assert.equal(await sendOwnerDigest(day, mailer), 'sent');
+    assert.equal(sent[0].text, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (2 by agents, 1 by builders); 4 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
+    // Two days on, no sends since that digest: nothing to say.
+    assert.equal(await sendOwnerDigest(new Date('2026-12-22T06:15:00Z'), mailer), 'none');
+    assert.equal(sent.length, 1);
+  } finally {
+    await db`DELETE FROM applications WHERE application_id LIKE 'app_od%'`;
+    await db`DELETE FROM owner_digests`;
+  }
+});

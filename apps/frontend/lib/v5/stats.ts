@@ -38,8 +38,8 @@ export const openMoneyUsd = (rows: ProgramRow[]): number =>
     .filter((r) => categoryOf(r.file) !== 'investment')
     .reduce((sum, r) => sum + (r.file.pool_usd ?? r.file.max_award_usd ?? 0), 0);
 
-/** The statuses of an application the builder sent: applied, or any result. */
-const SENT = ['applied', 'won', 'rejected', 'no_result'];
+/** The statuses of an application the builder sent: applied, or any result (the owner's list and digest count the same, v6.1.18 L18-5). */
+export const SENT = ['applied', 'won', 'rejected', 'no_result'];
 
 /** L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program. */
 const wonOnce = (db: ReturnType<typeof sql>) => db`

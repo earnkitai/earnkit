@@ -5,7 +5,7 @@ import type { Mailer } from './mail';
 import { getProgram } from './programs';
 import { programsListGet, watchCatalogRevalidation } from './programs-read';
 import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
-import { approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { applicationsGet, approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
@@ -427,4 +427,81 @@ test('L22-13 (v6.1.16): an API write expires every catalog surface through reval
   } finally {
     watchCatalogRevalidation(null);
   }
+});
+
+// ---- L18-5 (v6.1.18 Task 5): the owner's list of every send ----
+
+const appsReq = (query = '', auth = `Bearer ${TOKEN}`) =>
+  applicationsGet(new Request(`https://earnkit.com/api/programs/applications${query}`, { headers: { authorization: auth } }));
+
+type AppsOut = {
+  ok: boolean;
+  error?: string;
+  totals: { all: number; agent: number; builder: number; auto: number; by_program: { program_id: string; title: string; sent: number }[] };
+  rows: Record<string, unknown>[];
+};
+
+/** Two sends in L18-5's window: one by an agent (an installation owner), one by a builder (a linked GitHub login). */
+const seedSends = async () => {
+  const db = sql();
+  const [b] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918273, 'l185-login') RETURNING id`;
+  const [ia] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name) VALUES ('l185-a', 'Claude Code') RETURNING id`;
+  const [ib] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('l185-b', 'Cursor', ${b.id}) RETURNING id`;
+  const t1 = new Date('2030-01-02T10:00:00Z');
+  const t2 = new Date('2030-01-03T10:00:00Z');
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, auto_applied, title, application_id, fields_used)
+    VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-alpha', 'applied', ${t1}, ${t1}, 'agent', true, 'Alpha Grants', 'app_l185a', ${['name', 'url']})`;
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, auto_applied, title, application_id, amount_usd)
+    VALUES (${'b:' + b.id}, ${ib.id}, 'l185-beta', 'won', ${new Date('2030-01-04T10:00:00Z')}, ${t2}, 'builder', false, 'Beta Prize', 'app_l185b', 500)`;
+  // Neither a claim nor a skip is a send.
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, title, application_id)
+    VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-gamma', 'started', ${t2}, 'Gamma', 'app_l185c')`;
+  return { ia: ia.id, ib: ib.id };
+};
+
+test('L18-5: 404 while the API is off, 401 on a wrong token, 200 with totals and rows for two sends (one agent, one builder), the builder row names the login and no email', async () => {
+  delete process.env.EARNKIT_PROGRAMS_TOKEN;
+  assert.equal((await appsReq()).status, 404);
+  process.env.EARNKIT_PROGRAMS_TOKEN = TOKEN;
+  assert.equal((await appsReq('', 'Bearer wrong')).status, 401);
+  const { ia, ib } = await seedSends();
+  const res = await appsReq('?since=2030-01-01T00:00:00Z');
+  assert.equal(res.status, 200);
+  const raw = await res.text();
+  const out = JSON.parse(raw) as AppsOut;
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.totals, {
+    all: 2, agent: 1, builder: 1, auto: 1,
+    by_program: [{ program_id: 'l185-alpha', title: 'Alpha Grants', sent: 1 }, { program_id: 'l185-beta', title: 'Beta Prize', sent: 1 }],
+  });
+  assert.deepEqual(out.rows, [
+    {
+      application_id: 'app_l185b', program_id: 'l185-beta', title: 'Beta Prize', status: 'won', submitted_by: 'builder', auto_applied: false,
+      sent_at: '2030-01-03T10:00:00.000Z', at: '2030-01-04T10:00:00.000Z', builder: 'l185-login', agent: 'Cursor', fields_used: 0, amount_usd: 500,
+    },
+    {
+      application_id: 'app_l185a', program_id: 'l185-alpha', title: 'Alpha Grants', status: 'applied', submitted_by: 'agent', auto_applied: true,
+      sent_at: '2030-01-02T10:00:00.000Z', at: '2030-01-02T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 2, amount_usd: null,
+    },
+  ]);
+  // Never an email, a sign-in code or an installation id.
+  assert.doesNotMatch(raw, /@|installation|"owner"|"i:|"b:/);
+  // The rows' keys are exactly the ones above (deepEqual), so no installation id rides along under another name.
+  assert.ok(ia > 0 && ib > 0);
+});
+
+test('L18-5b: since filters, limit caps at 500, a bad since is 400 "since: an ISO date"', async () => {
+  const later = (await (await appsReq('?since=2030-01-03T00:00:00Z')).json()) as AppsOut;
+  assert.deepEqual(later.rows.map((r) => r.application_id), ['app_l185b']);
+  assert.equal(later.totals.all, 1);
+  const one = (await (await appsReq('?since=2030-01-01T00:00:00Z&limit=1')).json()) as AppsOut;
+  assert.deepEqual(one.rows.map((r) => r.application_id), ['app_l185b']);
+  assert.equal(one.totals.all, 2, 'the totals count the window, not the page');
+  assert.equal((await appsReq('?limit=9999')).status, 200);
+  assert.equal((await appsReq('?limit=0')).status, 400);
+  const bad = await appsReq('?since=yesterday');
+  assert.equal(bad.status, 400);
+  assert.deepEqual(await bad.json(), { ok: false, error: 'since: an ISO date' });
+  const { APPLICATIONS_MAX } = await import('./programs-api');
+  assert.equal(APPLICATIONS_MAX, 500);
 });
