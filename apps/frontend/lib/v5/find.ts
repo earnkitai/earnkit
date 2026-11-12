@@ -12,7 +12,7 @@ import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjec
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
-import { closesWords, dayWords, programZone } from './deadline';
+import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
@@ -540,14 +540,23 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   };
 }
 
+/** L1i-6 (v6.1.16.1): a names-and-money line: "{title}, {money}, closes Dec 6, in person." (the close only when it has
+ *  one, `closesWords`). Pure. */
+export const openLine = (p: Program, now: Date): string => {
+  const closes = closesIn(p, now) && closeDay(p, now) ? closesWords(p.ends_at!, now, programZone(p)) : null;
+  return `${p.title}, ${moneyOf(p)}${closes ? `, ${closes}` : ''}${p.in_person ? ', in person' : ''}.`;
+};
+
 /** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
  *  be read still gave, so the closing asks for what it does by that name. */
-async function openList(ctx: FindContext, problem: string | null, name: string | null = null): Promise<FindReply> {
+async function openList(ctx: FindContext, problem: string | null, name: string | null = null, all = false): Promise<FindReply> {
   const programs = await listOpenPrograms(ctx.now);
-  // Fix round 1 (M4, L29-26 v6.1.16 Task 15): within the 10-line budget: names and money, the first OPEN_SHOWN, then
-  // the count (template row 12, v6.1.15: its own sentence).
-  const lines = programs.slice(0, OPEN_SHOWN).map((r) => `${r.file.title}, ${moneyOf(r.file)}.`);
-  if (programs.length > OPEN_SHOWN) lines.push(`And ${programs.length - OPEN_SHOWN} more.`);
+  // Fix round 1 (M4, L29-26 v6.1.16 Task 15): within the 10-line budget: the first OPEN_SHOWN, then the count (template
+  // row 12, v6.1.15: its own sentence). L1i-4 (v6.1.16.1): filter.all lists every open program, no cap. L1i-6: each line
+  // keeps its close and in person.
+  const shown = all ? programs : programs.slice(0, OPEN_SHOWN);
+  const lines = shown.map((r) => openLine(r.file, ctx.now));
+  if (programs.length > shown.length) lines.push(`And ${programs.length - shown.length} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   // L29-1, L29-2 (v6.1.16 Task 15): the applications by name whenever there are any, project or not; then the ask for
   // the project is one line, in place of the open list.
@@ -938,7 +947,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key, problems);
   // L24-2 (v6.1.16 Task 11): the open list offers no yes.
   if (!project) await markOffer(ctx.installationId, null, ctx.now);
-  if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null, rawName(i.project));
+  if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null, rawName(i.project), i.filter?.all === true);
 
   const facts = await factsOf(project, ctx, key);
   problems.push(...(facts.problems ?? []));

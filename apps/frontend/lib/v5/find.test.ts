@@ -478,7 +478,15 @@ test('find with no project: the open list and the ask for the project', async ()
   assert.ok(lines.length <= 10, show);
   assert.equal(lines.filter((l) => /^[^\n]+, [^\n]+\.$/.test(l) && !l.startsWith('Tell me')).length, 5, show);
   for (const line of lines.slice(1)) assert.ok(line.endsWith('.'), line);
-  assert.doesNotMatch(show, /I'll|closes|in person/);
+  assert.doesNotMatch(show, /I'll/);
+  // L1i-6 (v6.1.16.1): each line keeps its close and in person.
+  assert.equal(lines.slice(1, 6).join('\n'), [
+    "PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days.",
+    'UGREEN Hackathon 2026 on AI NAS, $46,000 in prizes, closes in 11 days.',
+    'Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days.',
+    'Alliance ALL19, $400,000 at admission, closes in 14 days, in person.',
+    'Monad Blitz @广州 (Guangzhou), $1,500 in prizes, closes Nov 21, in person.',
+  ].join('\n'));
   assert.equal(lines.at(-1), 'Tell me which project and I match it.');
   // Template row 12 (v6.1.15): the overflow is its own sentence, with a capital.
   assert.match(lines.at(-2)!, /^And \d+ more\.$/);
@@ -2405,14 +2413,34 @@ test('O3 (v6.1.10, Review Focus 4): a project with no first-commit date is asked
   assert.equal((early.reply!.verdict as { status: string }).status, 'no');
 });
 
-// Re-pinned by fix round 1 (M4, v6.1.16 Task 15): the no-project open list is names and money only (the closes and
-// in-person marks are the guides', the tiles' and the project find's).
-test('O4 (v6.1.10), M4: the no-project open list names five programs with their money, then the count', async () => {
+// Re-pinned by L1i-6 (v6.1.16.1): the no-project open list is names and money with the close and in person.
+test('O4 (v6.1.10), M4, L1i-6: the no-project open list names five programs with their money and close, then the count', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', {});
   const lines = (r.reply!.show_to_builder as string).split('\n');
   assert.equal(lines[0], 'Open now:');
-  assert.ok(lines.slice(1, 6).every((l) => /^[^\n]+, [^\n]+\.$/.test(l) && !/closes|in person/.test(l)), lines.join('\n'));
+  assert.ok(lines.slice(1, 6).every((l) => /^[^\n]+, [^\n]+, closes [^\n]+\.$/.test(l)), lines.join('\n'));
   assert.match(lines[6], /^And \d+ more\.$/);
+});
+
+test('L1i-4, L1i-6 (v6.1.16.1): with filter.all, no project and a name only list every open program, one per line, with close and in person', async () => {
+  const { listOpenPrograms } = await import('./programs');
+  const open = await listOpenPrograms(NOW);
+  for (const args of [{ filter: { all: true } }, { project: { name: 'Lumen' }, filter: { all: true } }]) {
+    const r = await mcpCall(ctx(await installation()), 'find', args);
+    assert.equal(r.isError, false, r.text);
+    const show = r.reply!.show_to_builder as string;
+    const lines = show.split('\n');
+    assert.equal(lines[0], 'Open now:');
+    assert.doesNotMatch(show, /^And \d+ more\.$/m);
+    for (const p of open) {
+      const line = lines.find((l) => l.startsWith(`${p.file.title}, `));
+      assert.ok(line, `${p.id} missing: ${show}`);
+      if (p.file.in_person) assert.match(line!, /, in person\.$/, p.id);
+      if (p.file.ends_at && !/rolling/.test(p.file.summary)) assert.match(line!, /, closes /, p.id);
+    }
+    assert.equal(lines.filter((l) => /^[^\n]+, [^\n]+\.$/.test(l) && !l.startsWith('Tell me') && !l.startsWith('Sign in')).length, open.length, show);
+    assert.equal(lines.at(-1), JSON.stringify(args).includes('Lumen') ? 'Tell me what Lumen does in a line, or its repo link, and I match it.' : 'Tell me which project and I match it.');
+  }
 });
 
 const NIGHT_FIELDS = [
@@ -2765,8 +2793,8 @@ test('L23-9, L23-22 (v6.1.16): one minute before a close, find, the tile and the
     const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'tt-soon' });
     assert.match(one.reply!.show_to_builder as string, /^Soon Grant, up to \$5,000, closes in under an hour\./);
     const list = await mcpCall(ctx(await installation()), 'find', {});
-    // Fix round 1 (M4): the open list is names and money; the close is on the project find, the tile and the guide.
-    assert.match(list.reply!.show_to_builder as string, /^Open now:\nSoon Grant, up to \$5,000\.$/m);
+    // L1i-6 (v6.1.16.1): the open list keeps the close, as the tile and the guide.
+    assert.match(list.reply!.show_to_builder as string, /^Open now:\nSoon Grant, up to \$5,000, closes in under an hour\.$/m);
     assert.equal(landingTiles([(await getProgram('tt-soon'))!], NOW)[0].when, 'Closes in under an hour');
     assert.equal((await guideTextById('tt-soon', NOW))!.guide.closes, 'Closes in under an hour.');
   } finally {
