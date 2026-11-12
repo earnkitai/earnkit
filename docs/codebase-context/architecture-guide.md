@@ -130,7 +130,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    The users question closes "Do real people use it? Say yes and I apply." only when that yes makes the program ready;
    with a setup step or a rule left beside it, "Do real people use it? Say yes and I look again." (final fix, v6.1.12); only when no remote step is shown (or none names an
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
-   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check the repo is yours; then say yes." with a repo (v6.1.16.1), "Sign in once at <link> and I remember you." with none; with no link to give, after a deleted account or a failed link, "Sign in once and I check that." or "Sign in once and I remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
+   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof of real users" and the sign-in is asked once, inside the Say that needs it (v6.1.18 Task 10, see that section; never a promise to remember the builder); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
    `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
@@ -239,7 +239,8 @@ evidence either way (another host, a private or unreadable repo) track and find 
 cannot check it is yours. Send it yourself and tell me when it is in.` (`CANT_CONFIRM_REPO(key)`, v6.1.18 L36-6: the
 builder is signed in, so EarnKit never asks for the login); `NOT_YOUR_REPO` only on evidence
 against (`repoEvidence`), and then find's one action is `Say which repo is yours.`; a signed-out builder with a repo gets
-no apply offer (`Sign in once and I check the repo is yours; then say yes.`) and track answers `Sign in first so I can
+no apply offer before the sign-in (v6.1.18 Task 10: the offer is said again after it, in one sentence, `Sign in at {link}
+so I know the repo is yours, then say yes and I apply to {title}.`, `signInFirst`) and track answers `Sign in first so I can
 check the repo is yours.` (FR-1; `APPLY_OFFER` in find.ts names the lines that give way). One application per repo is
 keyed by GitHub's repo id when known (`sentForRepo`, `repoLock`, the screen's earliest lookup, stats' `wonOnce`), the link
 as the fallback; a rename re-key (`rekeyByRepoId`, from find's `followRename` and track's `followRepoId`, only from the
@@ -253,8 +254,9 @@ key's own row, never a keyless one, and track's own-claim exception (FR-4) count
 project's `repo_id` is EarnKit-only (a patch setting it is dropped with `set by EarnKit only`; /me never edits it), and
 `rekeyByRepoId` moves a key only when that key's own cached read carries the same id. Track's `followRepoId` and find's
 `followRename` run only once the builder's tie to the repo is shown, so a refused call moves nothing. A signed-out find
-with a repo shows one sign-in line: the reply's own sign-in sentence gives way to `Sign in once at {link} and I check the
-repo is yours; then say yes.` (without the link when the reply has none, or the unlinked notice already carries it).
+with a repo shows one sign-in line: the reply's apply offer, said again after the sign-in (v6.1.18 Task 10,
+`signInFirst(link, applyOfferOf(text))`: `Sign in at {link} so I know the repo is yours, then say yes and I apply to
+{title}.`; without the link when the reply has none, and the unlinked notice keeps only its first sentence).
 
 Task 14 fix round 3: once track's gate shows the tie, `record` (applied, held; `tied`) and `claim` (`tied`) take over the
 builder's own keyless row for the program (its key and repo key set, only when no other owner holds that repo), so a
@@ -1265,11 +1267,9 @@ means what the last `Say` offered.
   and the full list's Ready count agree and a yes never covers a program the agent lacks; the default list's size cap
   (`findReplyCap(..., keepReady)`) trims the other lists' fields and details before any ready program's. The full view (`fullView(blocks, ...)`) writes the default's block headings with their
   true counts: `Ready to apply ({n}):`, `Being handled by your other agent ({n}):`, `On hold until you say go ({n}):`,
-  `One step away ({n}):`, `In person ({n}):`. The Before line ranks 5.55 and a linkless notice 5.6, ahead of the step
-  rows past the first (5.7). The sign-in after a repo read names what it checks by the proof gap's bar
-  (`signInSentence(link, read, bar)`, `proofBarOf`): "Sign in once at {link} and I check your users and remember you."
-  The one-program reply puts the sign-in before its action, and an in-person ready program ends `You apply in person;
-  the guide has the steps.` (`IN_PERSON_ONE`). An unknown name with no candidates reads `I do not know a program called
+  `Not ready yet ({n}):` (v6.1.18 Task 10; `One step away` before), `In person ({n}):`. The Before line ranks 5.55 and a
+  linkless notice 5.6, ahead of the step rows past the first (5.7). v6.1.18 Task 10 replaced the separate sign-in
+  sentence and `IN_PERSON_ONE` as the in-person ending (see that section). An unknown name with no candidates reads `I do not know a program called
   "{name}". Say its full name.` (`unknownProgramLine(suggest, name)`, find and track). A same-day repeat reads `Nothing
   new since your last look.`; a later day keeps the date. A program the not-sent line names gets no started line. With
   every ready program under "Your yes stands", a do gap is still offered (`..., or "do {n}" and I {verb} first.`). An
@@ -1401,6 +1401,51 @@ means what the last `Say` offered.
   devices`; Ethereum security's `a defined audit scope: lines of code and contract count` (rule item ids follow the
   note, so a builder who confirmed the old wording is asked once more). HeroDevs' users note no longer repeats its end
   of life rule. `programs:check` refuses an open source file's public repo rule item with keywords too.
+
+## v6.1.18 Task 10: lane 38 structure (the sign-in joins the action; In person in one line; one step means one step)
+
+- **Sign-in (big 1).** A default reply carries a sign-in sentence only when its one action needs it, and then inside
+  the Say line, first; no sentence promises to remember the builder (`signInSentence` and `signInLine` are gone; the
+  record tool keeps its own `Sign in once at {link} and I remember you.`). The JSON `sign_in` link stays for the agent
+  on every unlinked reply. The forms:
+  - signed out with a repo, any apply offer (find's gate, `beforeSend`): the reply's last apply offer (`applyOfferOf`)
+    said again after the sign-in, `Sign in at {link} so I know the repo is yours, then say yes and I apply to {title}.`
+    (`signInFirst` in ledger.ts; a builder setup step stays between: `..., then publish X, then say yes and I apply.`;
+    no link: `Sign in so I know the repo is yours, ...`). `APPLY_OFFER` already reads the merged form (`, then say yes
+    ... I apply`), so a reply gated twice keeps one sign-in, and no apply is ever offered before it.
+  - the only step program whose change is the unlinked proof, with a rule beside it (`stepRule`, `signInOnly`): the
+    rule Say after the sign-in, `Nothing is ready yet. Sign in at {link} so I can check the repo, then say "yes n" if
+    that rule fits you and I draft {title}.` (`signInCheck`, `signInThen` in reply-words).
+  - nothing else to say (the closing would be the bare `Nothing is ready yet.`) and a proof gap shown: `Nothing is ready
+    yet. Sign in at {link} so I can check the repo, then I look again.` (`signInLookAgain`).
+  - the unlinked users question keeps its own sign-in, `Do real people use it? Say yes, sign in once at {link}, and I
+    check.` (Task 9's forms, unchanged).
+  - any other reply (a yes with no repo, a rule Say, a step of another program, the in-person closing): no sign-in.
+  The one-program reply puts the sign-in first in its action when the program carries the proof: `Sign in at {link} so
+  I can check the repo, then I look again.` (the proof alone), `..., then say yes if that is you and I draft it.`
+  (proof and rules), `..., then tell me when that is done and I apply.` (proof beside other gaps); `actionOffer` reads
+  the action after the sign-in. The unlink notice keeps only its first sentence whenever the Say signs in.
+- **In person (big 2).** The default view's In person block is one line, the numbers kept (`oneLine` blocks in `fit`):
+  `In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 6 days.`
+  (`inPersonShort`, `moneyFigure` keeps the figure a money phrase starts with, `inPersonHead`: `In person:` when a row
+  has no long odds; held by another agent, `, being handled by your other agent`). The setup, needs and rules are the
+  agent's (`hidden`) lines and the one-program reply's. An in-person program with an online form (a submission link
+  with fields, `hasForm`; every open catalog program has one) ends its own reply on `Say yes and I draft it for you to
+  send.` (`IN_PERSON_DRAFT`, offer `draft`; a live claim by another agent replaces it with the held line); `You apply in
+  person; the guide has the steps.` (`IN_PERSON_ONE`) only with no form. With no project, an in-person lookup with a
+  form asks for the project (`NO_PROJECT_ONE`). The in-person closing (`IN_PERSON_CLOSING`) is unchanged.
+- **Headings (big 3).** `stepItems(g)`: a row's real gaps, its setup steps and each rule still to confirm. `One step away
+  ({n}):` holds rows with one step (`oneStep`: one item, or a rule-only row, which is one yes); the rest go under `More
+  to do first ({n}):` as `{n}. {title}, {money}: {first item}, then {k} more steps.` (`moreStepsLine`; `1 more step`).
+  The row a rule Say names keeps its whole line, so the rules the Say asks about are on screen. The full list heads
+  every row not ready `Not ready yet ({n}):` (`NOT_READY_HEAD`). Every in-person program with gaps lists in the In
+  person block, never under a step heading (`attendGap`; find's `numbered` and the full list's selection; the default
+  list still shows only rule-only in-person ones; the Monad Blitz bug). Ranks: One step away keeps the step block's
+  (rank 2, min 2, grow 5.7); More to do first takes rank 2 only when it holds the row the closing speaks to, and its
+  other rows grow at 5.85, after the results question (5.8). The more line counts rows both headings hide.
+- **One Say.** `SAY_SENTENCE` already reads `, then say` and the full view's rule check reads `say "yes n"` in either
+  case (`fullSay`), so the merged forms stay the reply's one Say; a new Say kind joining `ONE_SAY_ORDER` composes with
+  them as before (the sign-in is never its own line).
 
 ## What v5 deliberately does not do
 
