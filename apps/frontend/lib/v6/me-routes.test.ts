@@ -650,3 +650,30 @@ test('L31-6 (v6.1.16 Task 17, controller ruling): with both cookies, sign-out en
     (process.env as Record<string, string | undefined>).NODE_ENV = saved;
   }
 });
+
+test('L35-17 (v6.1.17 Task 4): in production a write with only the old ek_me asks for a new sign-in and saves nothing; sign-out still ends it', async () => {
+  const saved = process.env.NODE_ENV;
+  const { b, token, cookie, csrf } = await signedIn();
+  (process.env as Record<string, string>).NODE_ENV = 'production';
+  try {
+    // The page still reads it (this release only).
+    assert.notEqual((await meGet(new Request('https://earnkit.test/me', { headers: { cookie } }), deps)).status, 302);
+    for (const [handler, path, form] of [
+      [editPost, '/me/edit', { csrf, path: 'person.name', value: 'Old Name' }],
+      [policyPost, '/me/policy', { csrf }],
+      [deletePost, '/me/delete', { csrf, confirm: b.login }],
+    ] as const) {
+      const r = await handler(post(path, form, { cookie }), deps);
+      assert.equal(r.status, 403, path);
+      assert.equal(await r.text(), 'Sign in again from the link your agent gives you.');
+      assert.equal(r.headers.getSetCookie().length, 0, path);
+    }
+    assert.equal((await getRecord(b.id)).person.name ?? null, null);
+    assert.ok(await getBuilder(b.id), 'not deleted');
+    const out = await signoutPost(post('/me/signout', { csrf }, { cookie }), deps);
+    assert.equal(out.status, 303);
+    assert.equal(await sessionBuilder(`ek_me=${token}`, NOW), null);
+  } finally {
+    (process.env as Record<string, string | undefined>).NODE_ENV = saved;
+  }
+});

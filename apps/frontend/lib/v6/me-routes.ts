@@ -17,7 +17,7 @@ import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord 
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
-import { clearCookies, endSession, sessionBuilder, sessionToken } from './sessions';
+import { clearCookies, currentName, endSession, sessionBuilder, sessionToken } from './sessions';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -96,8 +96,11 @@ export function sameOrigin(request: Request): boolean {
   }
 }
 
-/** The checks every post shares; on success the builder, the form and the time. */
-async function guard(request: Request, deps: Deps): Promise<Response | { builder: Builder; form: URLSearchParams; now: Date }> {
+/**
+ * The checks every post shares; on success the builder, the form and the time. `oldName`: a session held only under
+ * the old cookie name passes (sign-out only, so a builder can always end it).
+ */
+async function guard(request: Request, deps: Deps, oldName = false): Promise<Response | { builder: Builder; form: URLSearchParams; now: Date }> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (type !== 'application/x-www-form-urlencoded') return text(415, ME_ERRORS.form);
   // A body slower than 5 s is a 408 with the page's line (v6.1.16 Task 5 fix round 1, I2).
@@ -107,6 +110,9 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   const now = deps.now ?? new Date();
   // L31-3 (v6.1.16 Task 17): a same-origin Origin, or with none a same-origin Referer, before the session and csrf.
   if (!sameOrigin(request)) return text(403, ME_ERRORS.notFromUs);
+  // L35-17 (v6.1.17 Task 4): a session held only under the old cookie name reads the page but writes nothing; the
+  // builder signs in again, which sets the new name.
+  if (!oldName && !currentName(request.headers.get('cookie'))) return text(403, ME_ERRORS.signin);
   const builder = await sessionBuilder(request.headers.get('cookie'), now);
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
@@ -427,7 +433,7 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
 
 /** POST /me/signout: csrf; ends this session. */
 export async function signoutPost(request: Request, deps: Deps = {}): Promise<Response> {
-  const g = await guard(request, deps);
+  const g = await guard(request, deps, true);
   if (g instanceof Response) return g;
   await endSession(request.headers.get('cookie'));
   return signedOut('/');
