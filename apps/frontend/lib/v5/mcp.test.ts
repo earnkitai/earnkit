@@ -358,7 +358,24 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const info = await mcpServerInfo(await ctx());
   assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
-  assert.equal(pkg.version, '6.1.16');
+  assert.equal(pkg.version, '6.1.17');
+});
+
+test('L1j-8 (v6.1.17 Task 5): the release gate bumped the package version to the newest v6.1 plan\'s', async () => {
+  const { readdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
+  const dir = join(import.meta.dirname, '..', '..', '..', '..', 'docs', 'design-docs-and-implementation-plans');
+  const parts = (v: string) => v.split('.').map(Number);
+  const newer = (a: string, b: string) => {
+    const [x, y] = [parts(a), parts(b)];
+    for (let k = 0; k < Math.max(x.length, y.length); k++) if ((x[k] ?? -1) !== (y[k] ?? -1)) return (x[k] ?? -1) > (y[k] ?? -1);
+    return false;
+  };
+  // Plan files are named v{version}-{slug}-plan.md (v6.1.16.1-patch-plan.md); the v6.1 series is this package's.
+  const versions = readdirSync(dir).map((f) => /^v(6\.1\.\d+(?:\.\d+)?)-.*plan\.md$/.exec(f)?.[1]).filter((v): v is string => !!v);
+  const newest = versions.reduce((a, b) => (newer(b, a) ? b : a));
+  assert.equal(pkg.version, newest, `apps/frontend/package.json is ${pkg.version}; the newest plan is v${newest}`);
 });
 
 test('L35-25 (v6.1.17, L.2, L.3): a call refused by the network window counts on neither window; an own-limit refusal adds nothing either', async () => {
