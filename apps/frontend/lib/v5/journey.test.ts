@@ -216,12 +216,13 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /—/, show);
     assert.doesNotMatch(show, /\b(coin|points|score|rank|streak|token)s?\b/i, show);
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
-    const isReply = /Ready to apply|One step away|In person \(|Nothing fits yet/.test(show);
+    const isReply = /Ready to apply|One step away|More to do first|Not ready yet \(|In person[,:( ]|Nothing fits yet/.test(show);
     // O2 (v6.1.10, Review Focus 5, fix round 1): a reply that lists in-person programs never ends on the bare "Nothing is
     // ready yet."; with no remote step shown it ends on starting the in-person applications.
-    if (/^In person \(/m.test(show)) {
+    // L38 big 2 (v6.1.18 Task 10): the default view's In person block is one line ("In person, long odds: 4. ...").
+    if (/^In person[,:( ]/m.test(show)) {
       assert.notEqual(show.split('\n').at(-1), 'Nothing is ready yet.', show);
-      if (!/^(Ready to apply|One step away) \(/m.test(show)) assert.match(show, /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/, show);
+      if (!/^(Ready to apply|One step away|More to do first) \(/m.test(show)) assert.match(show, /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/, show);
     }
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).

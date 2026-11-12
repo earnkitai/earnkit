@@ -183,8 +183,22 @@ export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 export const ruleCount = (g: GapProgram): number => [g.gap, ...g.also].filter((x) => x.kind === 'rule').length;
 /** L36-5 (v6.1.18): the one-program ask when the row lists several rules. */
 export const RULES_ACTION = 'Say yes if all of that is you and I draft it.';
-/** O2 (v6.1.10): an in-person program that needs only its rule confirmed: listed in the In person block. Pure. */
-export const attendRuleGap = (g: GapProgram) => g.in_person && ruleOnlyGap(g);
+/** O2 (v6.1.10): an in-person program that needs only its rule confirmed is listed in the In person block. L38 big 3
+ *  (v6.1.18 Task 10): every in-person program with gaps is, never under the step headings (the Monad Blitz bug: only
+ *  rule-only ones moved); the default list lists only the rule-only ones (find). Pure. */
+export const attendGap = (g: Pick<GapProgram, 'in_person'>): boolean => g.in_person;
+
+/** L38 big 2 (v6.1.18 Task 10): the figure a money phrase starts with ("$500,000" of "$500,000 investment", "up to
+ *  $250,000" of "up to $250,000 investment or $10,000 grant"); a phrase with no figure is kept whole. Pure. */
+export const moneyFigure = (money: string): string => /^((?:up to )?\$[\d,.]+[KMB]?(?: to \$[\d,.]+[KMB]?)?)(?=[\s,.]|$)/i.exec(money)?.[1] ?? money;
+/** L38 big 2 (v6.1.18 Task 10): an in-person row of the default view's one In person line: "4. Y Combinator Winter 2027
+ *  Batch, $500,000." with ", closes {when}" when it says one; held by another agent, said so. The setup, the needs and
+ *  the rule are the one-program reply's and the JSON's. Pure. */
+export const inPersonShort = (p: Pick<ReadyProgram, 'n' | 'title' | 'money'> & { closes_in?: string | null; claimed_since?: string }): string =>
+  `${p.n}. ${p.title}, ${moneyFigure(p.money)}${p.closes_in ? `, closes ${p.closes_in}` : ''}${p.claimed_since ? ', being handled by your other agent' : ''}.`;
+/** L38 big 2: the one In person line's head: "In person, long odds:" when every row it holds has long odds. Pure. */
+export const inPersonHead = (rows: object[]): string =>
+  rows.length > 0 && rows.every((x) => 'long_shot' in x && !!x.long_shot) ? 'In person, long odds:' : 'In person:';
 
 /** The unlinked tier gap ("proof of real users"); its sign-in is asked once, in the closing (v6.1.14). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
@@ -875,17 +889,18 @@ export const soonFirst = <P extends Pick<ReadyProgram, 'closes_at'>>(ps: P[], no
 
 /** L1i-2: a numbered block of the default view: its heading (the true count), its rows in order, at most `cap` shown.
  *  L1j-3 (v6.1.17): the rows any block leaves out are counted once, on the line before the Say (`defaultRows`). */
-type Block = { head: string; ids: string[]; line: (i: number) => string; order?: number[]; cap?: number };
+/** L38 big 2 (v6.1.18 Task 10): `oneLine`, the heading and its rows as one line (the In person block). */
+type Block = { head: string; ids: string[]; line: (i: number) => string; order?: number[]; cap?: number; oneLine?: true };
 /** Lines a block takes at most. Pure. */
-const blockMax = (b: Block): number => (b.ids.length === 0 ? 0 : 1 + Math.min(b.ids.length, b.cap ?? b.ids.length));
+const blockMax = (b: Block): number => (b.ids.length === 0 ? 0 : b.oneLine ? 1 : 1 + Math.min(b.ids.length, b.cap ?? b.ids.length));
 /** How many rows a block shows in `k` lines: all it may when they fit, else as many as fit under its heading. Pure. */
 const blockRows = (b: Block, k: number): number => {
   const n = b.ids.length;
-  if (n === 0 || k < 2) return 0;
-  return Math.min(n, b.cap ?? n, k - 1);
+  if (n === 0 || k < (b.oneLine ? 1 : 2)) return 0;
+  return Math.min(n, b.cap ?? n, b.oneLine ? n : k - 1);
 };
 /** The lines a block uses for `rows` shown rows. Pure. */
-const blockUses = (rows: number): number => (rows === 0 ? 0 : 1 + rows);
+const blockUses = (b: Block, rows: number): number => (rows === 0 ? 0 : b.oneLine ? 1 : 1 + rows);
 
 /**
  * The builder text and the kind of the one `Say` it offers (L24-2, v6.1.16 Task 11), for find to keep. L29-26 (v6.1.16
@@ -906,9 +921,10 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   }
   const ready = r.ready.filter((p) => !p.in_person);
   const inPerson = r.ready.filter((p) => p.in_person);
-  // O2 (v6.1.10): a rule-only in-person program is in the In person block, after the ready ones.
-  const steps = r.gaps.filter((g) => !attendRuleGap(g));
-  const attendRules = r.gaps.filter(attendRuleGap);
+  // O2 (v6.1.10): a rule-only in-person program is in the In person block, after the ready ones. L38 big 3 (v6.1.18
+  // Task 10): every in-person program with gaps is (the full list lists them all), never under the step headings.
+  const steps = r.gaps.filter((g) => !attendGap(g));
+  const attendRules = r.gaps.filter(attendGap);
   const attendCount = inPerson.length + attendRules.length;
   const heldInPerson = inPerson.filter((p) => p.claimed_since).length;
   // A program another agent holds leaves the count to say yes to (v6.1.7, C37); so does one the builder held (L24-4).
@@ -1064,6 +1080,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const unstep = (p: ReadyProgram): ReadyProgram => (stepsFirst.length > 0 && p.program_id === unsaid[0]?.program_id ? { ...p, needs: p.needs.filter((x) => !stepsFirst.includes(x)) } : p);
   const readyLines = (ps: ReadyProgram[], strip = false) => ps.map((p) => readyLine(unstep(strip ? { ...p, claimed_since: undefined } : p), r.linked, now, false, named, namedInClosing.has(p.program_id)));
   const inPersonLines = [...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))];
+  // L38 big 2 (v6.1.18 Task 10): the default view's In person block is one line: number, name, money, close.
+  const inPersonRows = [...inPerson, ...attendRules].map((x) => inPersonShort(x));
   const readyOf = (head: string, ps: ReadyProgram[], strip = false): Block => {
     const lines = readyLines(ps, strip);
     return { head, ids: ps.map((p) => p.program_id), line: (i) => lines[i], cap: READY_SHOWN };
@@ -1074,7 +1092,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     : null;
   // With nothing else ready, the in-person block takes the ready slot, after the step the closing names.
   const attendBlock: Block | null = !readyBlock && attendCount > 0
-    ? { head: `In person (${attendCount}):`, ids: [...inPerson, ...attendRules].map((x) => x.program_id), line: (i) => inPersonLines[i], cap: READY_SHOWN }
+    ? { head: inPersonHead([...inPerson, ...attendRules]), ids: [...inPerson, ...attendRules].map((x) => x.program_id), line: (i) => inPersonRows[i], cap: READY_SHOWN, oneLine: true }
     : null;
   // L1h-8 (v6.1.16 Task 15): the gap line the closing speaks to (its do offer, its rule, its step), else the first; a
   // step the closing names is said there only (`closingSetup`).
@@ -1132,7 +1150,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const rest = [
     ...(free.length > 0 && heldReady.length > 0 ? readyLines(heldReady, true) : []),
     ...((free.length > 0 || heldReady.length > 0) && onHold.length > 0 ? readyLines(onHold) : []),
-    ...(attendBlock ? [] : inPersonLines),
+    // L38 big 2 (v6.1.18 Task 10): the In person line leaves each program's setup and needs to these lines.
+    ...inPersonLines,
   ];
   // L1j-3 (v6.1.17): any ready or step row left out is counted on one line before the Say; it takes a line of its own.
   const readyIds = r.ready.map((p) => p.program_id);
@@ -1176,7 +1195,7 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
       if (!b) continue;
       const want = grow ? blockMax(b) : Math.min(s.min ?? blockMax(b), blockMax(b));
       const rows = blockRows(b, Math.min(want, had + left));
-      const uses = blockUses(rows);
+      const uses = blockUses(b, rows);
       if (uses < had) continue;
       take.set(i, uses);
       left -= uses - had;
@@ -1203,11 +1222,14 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
       const on = new Set(order.slice(0, n));
       const idx = b.ids.map((_, j) => j);
       if (n > 0) {
-        kept.push(b.head, ...idx.filter((j) => on.has(j)).map((j) => b.line(j)));
+        const rowLines = idx.filter((j) => on.has(j)).map((j) => b.line(j));
+        if (b.oneLine) kept.push(`${b.head} ${rowLines.join(' ')}`);
+        else kept.push(b.head, ...rowLines);
         shown.push(...idx.filter((j) => on.has(j)).map((j) => b.ids[j]));
         rows = kept.length;
       }
-      hidden.push(...idx.filter((j) => !on.has(j)).map((j) => b.line(j)));
+      // L38 big 2: a one-line block's rows are all in the agent's lines already (`rest`).
+      if (!b.oneLine) hidden.push(...idx.filter((j) => !on.has(j)).map((j) => b.line(j)));
       return;
     }
     kept.push(...s.lines.slice(0, k));
@@ -1318,7 +1340,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     // L29-27 (v6.1.16 Task 15): the skip by number is the agent's, never a second Say.
     ...(r.ready.length + r.gaps.length > 1 ? [SKIP_NOTE] : []),
   ];
-  if (r.ready.some((p) => p.in_person) || r.gaps.some(attendRuleGap))
+  if (r.ready.some((p) => p.in_person) || r.gaps.some(attendGap))
     lines.push('In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup. When the reply closes on starting the in-person applications, a yes is that yes for each one listed; for one with a rule (a "yes n" from the builder, or that closing yes), call track gap_done with its rule item first.');
   if (r.gaps.some((g) => !ruleOnlyGap(g)))
     lines.push(

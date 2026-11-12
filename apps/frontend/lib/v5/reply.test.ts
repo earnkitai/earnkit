@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendRuleGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
+import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
 import { NEEDS_CODE, PUBLIC_REPO } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
@@ -65,7 +65,7 @@ const base = (over: Partial<R> = {}): R => {
     linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false, linked_notice: null,
     ...over,
   };
-  return { ...r, ...numbered(r.ready, r.gaps, attendRuleGap) };
+  return { ...r, ...numbered(r.ready, r.gaps, attendGap) };
 };
 
 const MONDAY = base({
@@ -220,8 +220,10 @@ test('in person: its own block, with the setup, never in the count to apply to; 
     // L1i-6 (v6.1.16.1): the full view keeps the close. L35-9 (v6.1.17): under the default's headings. L1k-3 (v6.1.18):
     // the In person heading says in person, so its rows do not.
     ['Ready to apply (2):', '1. Alliance ALL19, $400K at admission, closes in 14 days.', '2. Arc Builders Fund, investment from Circle Ventures.', 'One step away (1):', '3. Circle Developer Grants, $5,000 to $100,000 USDC grants.', 'In person (1):', '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days.'].join('\n'));
+  // L38 big 2 (v6.1.18 Task 10): alone, the In person block is one line; its setup is the agent's (hidden) line.
   const only = replyText(base({ ready: [mumbai] }), false);
-  assert.ok(only.startsWith('In person (1):\n1. ETHGlobal Mumbai'), only);
+  assert.ok(only.startsWith('In person: 1. ETHGlobal Mumbai, up to $15K, closes in 2 days.\n'), only);
+  assert.deepEqual(replyParts(base({ ready: [mumbai] }), false).hidden, ['1. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. First: apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.']);
   assert.doesNotMatch(only, /Say yes to apply/);
   assert.match(agentNote(r, { more: 0 }), /In-person programs .* draft nothing for one until the builder says yes to attending it/);
   assert.doesNotMatch(agentNote(MONDAY, { more: 0 }), /In-person/);
@@ -497,7 +499,7 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
 });
 
-test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attending takes, after its rules; a rule-only one is in the In person block (T3-R5: with no yes of its own)', () => {
+test('R18d, O2 (v6.1.10, Review Focus 5), L38 big 3 (v6.1.18 Task 10): an in-person gap line says what attending takes, after its rules; every in-person one with gaps is in the In person block (T3-R5: with no yes of its own)', () => {
   const attend = { in_person: true, setup: ['work 3 months from the office'] };
   const r = base({
     gaps: [
@@ -505,16 +507,20 @@ test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attend
       gap({ title: 'Camp', money: '$10K', gap: VIDEO, also: [ruleGap('a team of two')], rules: ['a team of two'], ...attend }),
     ],
   });
+  // L38 big 3: Camp has a real gap and still lists under In person (the Monad Blitz bug), never under a step heading.
   assert.equal(
     replyText(r, true),
     [
-      "One step away (1):",
-      "1. Camp, $10K: a demo video link (a short screen recording of it working). Their rule: a team of two. First: work 3 months from the office.",
-      "In person (1):",
-      "2. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.",
+      "In person: 1. Residency, $500K. 2. Camp, $10K.",
       "Nothing remote is ready yet. Say yes and I start the in-person applications.",
     ].join('\n'),
   );
+  // The attend sentence after the rules is the agent's line (and the one-program reply's).
+  assert.deepEqual(replyParts(r, true).hidden, [
+    "1. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.",
+    "2. Camp, $10K: a demo video link (a short screen recording of it working). Their rule: a team of two. First: work 3 months from the office.",
+  ]);
+  assert.equal(replyText(r, true, new Date(), null, { all: true }).split('\n').slice(0, 3).join('\n'), ['In person (2):', '1. Residency, $500K.', '2. Camp, $10K.'].join('\n'));
 });
 
 test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never ends on "Nothing is ready yet"; rule-only ones follow the ready ones in the block', () => {
@@ -530,9 +536,8 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
       "1. FLOSS/fund, $10,000 to $100,000: real users.",
       "2. OTF, $900K. Their rule: advances internet freedom.",
-      "In person (2):",
-      "3. Y Combinator, $500K investment. Needs a YC account.",
-      "4. Antler, $250K. Their rule: a co-founder with US work authorization. Attend in person.",
+      // L38 big 2 (v6.1.18 Task 10): one line, the numbers kept.
+      "In person: 3. Y Combinator, $500K. 4. Antler, $250K.",
       "Nothing is ready yet. Say \"yes 2\" if that rule fits you and I draft OTF.",
     ].join('\n'),
   );
@@ -577,27 +582,32 @@ test('R20/R21: an in-person line says its odds, then what attending takes, then 
     setup: ["start the application with the first founder's email", 'your passport'], needs: ["start the application with the first founder's email", 'your passport'],
   });
   const bare = ready({ title: 'Bare Summit', money: '$5K', in_person: true });
-  const text = replyText(base({ ready: [yc, alliance, bare] }), true);
-  assert.equal(
-    text.split('\n').slice(0, 4).join('\n'),
+  // L38 big 2 (v6.1.18 Task 10): the default view's one line names number, name, money and close; the full line (the
+  // one-program reply's and the agent's) keeps the odds, what attending takes and the needs.
+  const r = base({ ready: [yc, alliance, bare] });
+  assert.equal(replyText(r, true).split('\n')[0], 'In person: 1. Y Combinator Winter 2027 Batch, $500K. 2. Alliance ALL19, $400K, closes in 14 days. 3. Bare Summit, $5K.');
+  assert.deepEqual(
+    replyParts(r, true).hidden,
     [
-      'In person (3):',
       '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
       "2. Alliance ALL19, $400K at admission, closes in 14 days. First: start the application with the first founder's email; your passport.",
       '3. Bare Summit, $5K. Attend in person.',
-    ].join('\n'),
+    ],
   );
+  // Every row with long odds: the head says so once.
+  assert.equal(replyText(base({ ready: [yc, { ...alliance, long_shot: 'many apply, few are taken' }] }), true).split('\n')[0],
+    'In person, long odds: 1. Y Combinator Winter 2027 Batch, $500K. 2. Alliance ALL19, $400K, closes in 14 days.');
 });
 
-test('R21: an in-person gap with no setup reads "Attend in person." after its rules (v6.1.6)', () => {
+test('R21: an in-person gap with no setup reads "Attend in person." after its rules (v6.1.6); L38 big 2: the agent\'s line', () => {
   const g = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
   assert.equal(
-    replyText(base({ gaps: [g] }), true).split('\n')[1],
+    replyParts(base({ gaps: [g] }), true).hidden[0],
     '1. Residency, $1M. Their rule: a US co-founder. Attend in person.',
   );
   const withSetup = { ...g, setup: ['the right to work in the US'] };
   assert.equal(
-    replyText(base({ gaps: [withSetup] }), true).split('\n')[1],
+    replyParts(base({ gaps: [withSetup] }), true).hidden[0],
     '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US.',
   );
 });
@@ -700,7 +710,8 @@ test('C1 fix round 1 (I2): one held in-person program and nothing else ready nev
   const NOW = new Date('2026-11-04T12:00:00Z');
   const r = base({ linked: true, ready: [ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z' })] });
   const text = replyText(r, false, NOW);
-  assert.match(text, /In person \(1\):\n1\. Held Away, .* Being handled by your other agent\./);
+  // L38 big 2 (v6.1.18 Task 10): the one In person line says it.
+  assert.match(text, /^In person: 1\. Held Away, \$1K, being handled by your other agent\.$/m);
   assert.doesNotMatch(text, /Rent Split/);
   assert.notEqual(text.split('\n').at(-1), IN_PERSON_CLOSING);
   assert.doesNotMatch(text, /Say yes/);
@@ -860,7 +871,8 @@ test('v6.1.9: Builder Codes reported but not in the code read is said once', () 
 
 test('v6.1.9: an in-person need the setup step already names is said once', () => {
   const r = base({ ready: [ready({ title: 'Alliance ALL19', in_person: true, setup: ["open the application with the first founder's email"], needs: ["open the application with the first founder's email", "the first founder's email"] })] });
-  const line = replyText(r, true).split('\n').find((l) => l.includes('Alliance'))!;
+  // L38 big 2 (v6.1.18 Task 10): the full in-person line is the agent's (and the one-program reply's).
+  const line = replyParts(r, true).hidden.find((l) => l.includes('Alliance'))!;
   assert.equal(line, "1. Alliance ALL19, $1K. First: open the application with the first founder's email.");
 });
 
@@ -1331,8 +1343,10 @@ test('L24-4: a program the builder held is in its own block, out of the yes and 
 });
 
 test('L24-1, ruling 12: a held line never names a project or a time', () => {
-  const t = replyText(base({ ready: [ready({ title: 'In', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z' })] }), true);
-  assert.match(t, /1\. In, \$1K\. Attend in person\. Being handled by your other agent\.$/m);
+  const r = base({ ready: [ready({ title: 'In', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z' })] });
+  assert.match(replyParts(r, true).hidden[0], /^1\. In, \$1K\. Attend in person\. Being handled by your other agent\.$/);
+  // L38 big 2 (v6.1.18 Task 10): the default view's one line.
+  assert.match(replyText(r, true), /^In person: 1\. In, \$1K, being handled by your other agent\.$/m);
 });
 
 test('L24-6: the agent note names an EarnKit cut once', () => {
@@ -1348,7 +1362,7 @@ test('L1h-8: the needs line for a builder missing a company start date, the stag
     title: 'Solana Incubator Cohort 6', money: 'NYC incubator with relocation stipend, amount not stated', in_person: true,
     setup: [], needs: ['the company start date', 'the stage', 'active users with 6-month growth', 'revenue with its growth', 'the amount raised', 'your runway in months', 'the answer on moving to NYC'],
   });
-  const line = replyText(base({ ready: [solana] }), true).split('\n')[1];
+  const line = replyParts(base({ ready: [solana] }), true).hidden[0];
   assert.equal(line, '1. Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated. Attend in person. Needs your company start date, stage, active users with 6-month growth and 4 more.');
   assert.equal(line.split('Needs your')[1].match(/ and /g)?.length, 1);
 });
@@ -1394,15 +1408,17 @@ test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row t
   const steps = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'].map((t) => gap({ title: `${t} Grant` }));
   // The rule the closing asks sits fifth: it is shown first among the rows kept, and the Say names its shown number.
   steps[4] = gap({ title: 'Five Grant', gap: ruleGap('a rule'), rules: ['a rule'] });
+  // L38 big 2 (v6.1.18 Task 10): the In person line takes one line, so two more steps than before fit the budget.
+  steps.push(gap({ title: 'Eight Grant' }), gap({ title: 'Nine Grant' }));
   const r = base({ ready: [yc, alliance], gaps: steps });
   const p = replyParts(r, true);
   const lines = p.text.split('\n');
   assert.equal(lines.length, 10, p.text);
-  assert.equal(lines[0], 'One step away (7):');
+  assert.equal(lines[0], 'One step away (9):');
   const rows = lines.filter((l) => /^\d+\. /.test(l)).map((l) => Number(l.split('.')[0]));
   assert.deepEqual(rows, rows.map((_, i) => i + 1), p.text);
   // L1j-3 (v6.1.17): every row left out, step or in person, is counted on the line before the Say.
-  assert.equal(lines.at(-2), moreInFull(9 - rows.length), p.text);
+  assert.equal(lines.at(-2), moreInFull(11 - rows.length - (p.text.includes('In person') ? 2 : 0)), p.text);
   const five = lines.find((l) => l.includes('Five Grant'))!;
   assert.equal(lines.at(-1), `Nothing is ready yet. Say "yes ${five.split('.')[0]}" if that rule fits you and I draft Five Grant.`);
   // Every program the default leaves out is in the full view, and the full view asks no rule.
@@ -1410,8 +1426,9 @@ test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row t
   for (const g of steps) assert.ok(full.includes(`. ${g.title}, $1K.`), g.title);
   assert.doesNotMatch(full, /Say "yes/);
   assert.equal(full.split('\n').at(-1), `Nothing is ready yet. ${FULL_RULE_SAY}`);
-  // `shown` names the rows by their shown number, in order.
-  assert.equal(p.shown.length, rows.length);
+  // `shown` names the rows by their shown number, in order (the In person line's two too).
+  assert.equal(p.shown.length, rows.length + 2);
+  assert.match(p.text, new RegExp(`^In person: ${rows.length + 1}\\. Y Combinator, \\$500K\\. ${rows.length + 2}\\. Alliance, \\$400K\\.$`, 'm'));
 });
 
 test('L1i-6 (v6.1.16.1): the full view carries closes and in person; a hidden ready row leaves no gap in the shown numbers', () => {
@@ -1427,7 +1444,8 @@ test('Fix round 1 (I1, v6.1.16.1): the line carrying the only link outranks ever
   const link = 'https://earnkit.com/link/abc';
   const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
   const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
-  const steps = [gap({ title: 'Rule Grant', gap: ruleGap('a rule'), rules: ['a rule'] }), gap({ title: 'Two Grant' }), gap({ title: 'Three Grant' })];
+  // L38 big 2 (v6.1.18 Task 10): the In person line is one line, so three more steps keep the budget tight.
+  const steps = [gap({ title: 'Rule Grant', gap: ruleGap('a rule'), rules: ['a rule'] }), ...['Two', 'Three', 'Four', 'Five', 'Six'].map((t) => gap({ title: `${t} Grant` }))];
   const busy = {
     ready: [yc, alliance], gaps: steps, sign_in: link,
     applications: [{ program_id: 'a', title: 'A Grant', status: 'waiting' as const, sent_at: '2026-11-03T10:00:00.000Z', result_at: null, amount: null }],
@@ -1526,6 +1544,27 @@ test('L1j-1, L1j-6 (v6.1.17): one sentence mentions signing in, and the action i
   assert.doesNotMatch(ruled, /remember you/);
 });
 
+test('L38 big 2 (v6.1.18 Task 10): the default In person block is one line, numbers kept; the setup and needs go to the agent', async () => {
+  const { moneyFigure, inPersonShort } = await import('./reply');
+  assert.equal(moneyFigure('$500,000 investment'), '$500,000');
+  assert.equal(moneyFigure('$400,000 at admission'), '$400,000');
+  assert.equal(moneyFigure('up to $250,000 investment or $10,000 grant'), 'up to $250,000');
+  assert.equal(moneyFigure('$500,000 to $1,000,000 investment'), '$500,000 to $1,000,000');
+  assert.equal(moneyFigure('NYC incubator with relocation stipend'), 'NYC incubator with relocation stipend');
+  assert.equal(inPersonShort({ n: 4, title: 'Y', money: '$1K prize' }), '4. Y, $1K.');
+  const odds = 'many apply, few are taken';
+  const yc = ready({ title: 'Y Combinator Winter 2027 Batch', money: '$500,000 investment', in_person: true, long_shot: odds, setup: ['a YC account'], needs: ['a YC account', 'your answers'] });
+  const alliance = ready({ title: 'Alliance ALL19', money: '$400,000 at admission', closes_in: 'in 6 days', in_person: true, long_shot: odds, setup: ['your email'], needs: ['your email'] });
+  const steps = ['Colosseum Eternal', 'FLOSS/fund', 'Solana Foundation Grants'].map((t) => gap({ title: t }));
+  const p = replyParts(base({ ready: [yc, alliance], gaps: steps }), true);
+  const lines = p.text.split('\n');
+  assert.ok(lines.length <= 10, p.text);
+  assert.ok(lines.includes('In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 6 days.'), p.text);
+  assert.doesNotMatch(p.text, /Long odds: many|Needs a YC account|your email/);
+  assert.ok(p.hidden.some((h) => h.startsWith('4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account')), p.hidden.join('\n'));
+  assert.deepEqual(p.shown.slice(-2), [yc.program_id, alliance.program_id]);
+});
+
 // Registered last, so it reads every reply the tests above rendered.
 test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
   assert.ok(rendered.length >= 100, `${rendered.length}`);
@@ -1574,7 +1613,8 @@ test('L18-1c: budget-hidden and cap-hidden rows are summed once', () => {
   // Seven step rows and two in person: the 10-line budget leaves some out (the L1i-2 fixture).
   const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
   const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
-  const r = base({ ready: [yc, alliance], gaps: ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'].map((t) => gap({ title: `${t} Grant` })) });
+  // L38 big 2 (v6.1.18 Task 10): nine, since the In person line takes one line.
+  const r = base({ ready: [yc, alliance], gaps: ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'].map((t) => gap({ title: `${t} Grant` })) });
   const budget = replyParts(r, true, L18_NOW);
   const left = Number(/^And (\d+) more in the full list\.$/.exec(budget.text.split('\n').at(-2)!)![1]);
   assert.ok(left > 0, budget.text);
@@ -1635,15 +1675,18 @@ test('L18-3b: the same gaps on an agent-sent program still close "Tell me when t
 test('L1k-3: an in-person row under its heading has no in-person suffix', () => {
   const summit = ready({ title: 'Bare Summit', money: '$5K', in_person: true, closes_in: 'in 3 days' });
   const residency = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
-  // An in-person program one real step away sits under One step away, where only the suffix says in person.
+  // L38 big 3 (v6.1.18 Task 10): an in-person program one real step away lists under In person too (the Monad Blitz
+  // bug), never under a step heading.
   const camp = gap({ title: 'Build Camp', money: '$2K', in_person: true });
   const text = replyText(base({ ready: [MONDAY.ready[0], summit], gaps: [camp, residency] }), false, new Date(), null, { all: true });
   const lines = text.split('\n');
-  const ip = lines.indexOf('In person (2):');
+  const ip = lines.indexOf('In person (3):');
   assert.ok(ip > 0, text);
-  assert.equal(lines[ip + 1], '3. Bare Summit, $5K, closes in 3 days.', text);
-  assert.equal(lines[ip + 2], '4. Residency, $1M.', text);
-  assert.ok(lines.includes('2. Build Camp, $2K, in person.'), text);
+  // The ready one first, then those with gaps, in list order.
+  assert.equal(lines[ip + 1], '2. Bare Summit, $5K, closes in 3 days.', text);
+  assert.equal(lines[ip + 2], '3. Build Camp, $2K.', text);
+  assert.equal(lines[ip + 3], '4. Residency, $1M.', text);
+  assert.ok(!lines.some((l) => /^(One step away|More to do first|Not ready yet) /.test(l)), text);
   for (const l of lines.slice(ip + 1).filter((x) => /^\d+\. /.test(x))) assert.doesNotMatch(l, /in person/, l);
 });
 
@@ -1772,7 +1815,7 @@ test('L38-25 (v6.1.18): the answers waiting again say the builder changed them',
 
 test('L38-28 (v6.1.18): an in-person Needs list reads each field\'s to-do, never its need word', () => {
   const yc = ready({ title: 'Y Combinator', money: '$500,000 investment', in_person: true, setup: ['a YC account'], need_you: ['your answers', 'batch preference'], todos: ['your answers', 'the batch you want'], needs: ['a YC account', 'your answers', 'batch preference'] });
-  assert.ok(replyText(base({ ready: [yc] }), true).split('\n').includes('1. Y Combinator, $500,000 investment. Needs a YC account, your answers and the batch you want.'));
+  assert.ok(replyParts(base({ ready: [yc] }), true).hidden.includes('1. Y Combinator, $500,000 investment. Needs a YC account, your answers and the batch you want.'));
 });
 
 test('L38-30 (v6.1.18): a ready program whose setup step is the builder\'s own closes on that step first', () => {

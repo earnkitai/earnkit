@@ -403,7 +403,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   }
   const r = { ...ready(), n: 0 };
   // L1j-7 (v6.1.17): an in-person program closes on its one action too.
-  if (r.in_person) return { lines: [inPersonLine(r, true), ...o.rules, IN_PERSON_ONE], offer: null };
+  // L38 big 2 (v6.1.18 Task 10): one with an online form ends on a real yes: EarnKit drafts it for the builder to send.
+  if (r.in_person) return hasForm(row) ? { lines: [inPersonLine(r, true), ...o.rules, IN_PERSON_DRAFT], offer: 'draft' } : { lines: [inPersonLine(r, true), ...o.rules, IN_PERSON_ONE], offer: null };
   if (o.standing) return { lines: [readyLine(r, o.linked, o.now, true), ...o.rules, STANDING_ONE], offer: 'stop' };
   // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you. L1e-3 (v6.1.13): one
   // the builder submits too, in the draft wording. L24-2 (v6.1.16 Task 11): only after an apply offer.
@@ -421,8 +422,14 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   return { lines: [readyLine(shown, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, c.text], offer: c.offer };
 }
 
-/** L1j-7 (v6.1.17): the one action of an in-person program's own reply. */
+/** L1j-7 (v6.1.17): the one action of an in-person program's own reply. L38 big 2 (v6.1.18 Task 10): only when it has
+ *  no online form. */
 export const IN_PERSON_ONE = 'You apply in person; the guide has the steps.';
+/** L38 big 2 (v6.1.18 Task 10): the one action of an in-person program's own reply when it has an online form: the yes
+ *  to attending, and EarnKit drafts the form for the builder to send. */
+export const IN_PERSON_DRAFT = 'Say yes and I draft it for you to send.';
+/** L38 big 2: an online form EarnKit can draft: a submission link with fields to fill (every program has the link). Pure. */
+const hasForm = (row: ProgramRow): boolean => !!row.file.submission_url && row.file.submission_requirements.length > 0;
 /** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. */
 export const NO_PROJECT_ONE = 'Tell me about your project and I check the fit.';
 
@@ -539,11 +546,13 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         ? said.lines
         // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too. L1k-4
         // (v6.1.18): an online one ends on the ask for the project, never on a rules bullet.
-        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, p.in_person ? IN_PERSON_ONE : NO_PROJECT_ONE];
+        // L38 big 2 (v6.1.18 Task 10): an in-person one with an online form asks for the project, as an online one does.
+        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
-    if (verdict?.status === 'ready' && !p.in_person) {
+    // L38 big 2 (v6.1.18 Task 10): an in-person draft yes gives way too.
+    if (verdict?.status === 'ready' && (!p.in_person || show.at(-1) === IN_PERSON_DRAFT)) {
       show[show.length - 1] = heldLine;
       offer = null;
     } else if (show.at(-1) === IN_PERSON_ONE || show.at(-1) === NO_PROJECT_ONE) show.splice(show.length - 1, 0, heldLine);
@@ -1130,6 +1139,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
   const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
+  // L38 big 3 (v6.1.18 Task 10): the full list lists every in-person program with gaps in the In person block (the
+  // Monad Blitz bug: only rule-only ones moved); the default list keeps only the rule-only ones there.
+  const attendIn = (every: boolean) => (v: Verdict) => attending(v) && (every || rulesOnly(v.gaps));
   /** What the list shows, by default or (`every`) in the full list: one function for both (fix round 1, M1). */
   const selectionOf = (every: boolean) => {
     const readyOrder = every ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
@@ -1144,9 +1156,10 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
       { unlikely: unlikelyV, soon, hit, offChain: (v) => offChain(v, byId, projectChains) });
     // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
     // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
-    const attendV = gapV.filter((v) => attendRule(v) && (every || !unlikelyV(v)));
+    const inBlock = attendIn(every);
+    const attendV = gapV.filter((v) => inBlock(v) && (every || !unlikelyV(v)));
     const attendShown = every ? attendV : cappedOf(attendV, Math.max(0, MAX_IN_PERSON - shownReady.filter(attending).length), soon);
-    return { shownReady, shownGaps: [...stepGaps.filter((v) => !attendRule(v)), ...attendShown] };
+    return { shownReady, shownGaps: [...stepGaps.filter((v) => !inBlock(v)), ...attendShown] };
   };
   const { shownReady, shownGaps } = selectionOf(all);
   // L18-1 (v6.1.18): the rows the rank cap left out of the default view, and those of them closing within 7 days (in
@@ -1174,7 +1187,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const { ready, gaps } = numbered(
     shownReady.map((v) => marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)))),
     shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v))),
-    (g) => g.in_person && rulesOnly([g.gap, ...g.also]),
+    // L38 big 3 (v6.1.18 Task 10): every in-person gap shown is numbered in the In person block.
+    (g) => g.in_person,
   );
 
   /** Every ready program in `order` as the list would show it (the shown one when it is shown), held ones marked. */

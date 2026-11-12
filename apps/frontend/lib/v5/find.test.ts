@@ -214,7 +214,8 @@ test('the numbers the builder sees are the n of each item: ready in order, gaps,
   // The real in-person programs are open now too: from the first in-person one on, every ready item is in person,
   // numbered after every step; the rule-only in-person programs follow them in the In person block (O2, v6.1.10).
   assert.equal(inPerson.program_id, 'f-attend');
-  const attendRule = (g: { in_person?: boolean; gap: { kind: string }; also: { kind: string }[] }) => g.in_person === true && [g.gap, ...g.also].every((x) => x.kind === 'rule');
+  // L38 big 3 (v6.1.18 Task 10): in the full list every in-person gap is in the In person block.
+  const attendRule = (g: { in_person?: boolean; gap: { kind: string }; also: { kind: string }[] }) => g.in_person === true;
   const steps = (gaps as unknown as Parameters<typeof attendRule>[0][]).filter((g) => !attendRule(g)) as unknown as typeof gaps;
   const ruled = gaps.filter((g) => !steps.includes(g));
   assert.ok(ruled.length > 0 && ruled.some((g) => g.program_id === 'antler-us-residency'), JSON.stringify(ids(ruled)));
@@ -265,7 +266,8 @@ test('find with program_id: the fields and the verdict; no link and no rules lis
   assert.equal((reply.program as { submission_url: string }).submission_url, 'https://alliance.xyz/apply');
   assert.ok(reply.verdict);
   // In person and ready: the in-person line of the list without its number; L1j-7 (v6.1.17): then its one action.
-  assert.equal(reply.show_to_builder, "Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.\nYou apply in person; the guide has the steps.");
+  // L38 big 2 (v6.1.18 Task 10): an online form: the yes drafts it for the builder to send.
+  assert.equal(reply.show_to_builder, "Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.\nSay yes and I draft it for you to send.");
   const bare = await mcpCall(ctx(id), 'find', { program_id: 'alliance-all19' });
   assert.ok((bare.reply!.fields as { value: unknown }[]).every((f) => f.value === null));
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
@@ -281,7 +283,8 @@ test('find with program_id for YC: in person, the line says what attending takes
   const r = await mcpCall(ctx(id), 'find', { program_id: 'y-combinator', project: PROJECT });
   assert.equal(r.isError, false, r.text);
   // L1j-7 (v6.1.17): one closing action.
-  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.\nYou apply in person; the guide has the steps.');
+  // L38 big 2 (v6.1.18 Task 10): YC's application is online: the lookup ends on a real yes.
+  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.\nSay yes and I draft it for you to send.');
 });
 
 test('find with program_id and no project: the money, the rules list, no link and no draft offer; the agent is told to pass the project (v6.1.8, 1b)', async () => {
@@ -1258,10 +1261,9 @@ const PROJECT_B = { name: 'dotfiles', description: 'Mathias Bynens dotfiles for 
 const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and dotfiles' };
 /** The in-person block numbered from `n`. L1e-3 (v6.1.13): YC's application answers are the builder's, repo or not
  *  (its file says so), so its line names them for every project; `_noRepo` is kept for the callers. */
+// L38 big 2 (v6.1.18 Task 10): one line, the numbers kept; the setup and the needs are the one-program reply's.
 const inPersonBlock = (n: number, _noRepo = false) => [
-  'In person (2):',
-  `${n}. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.`,
-  `${n + 1}. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.`,
+  `In person, long odds: ${n}. Y Combinator Winter 2027 Batch, $500,000. ${n + 1}. Alliance ALL19, $400,000, closes in 14 days.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
 const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.`;
@@ -1384,9 +1386,8 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   assert.equal(show, [
     "One step away (1):",
     "1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
-    "In person (2):",
-    "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
-    "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
+    // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
+    "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
     // L1j-1 (v6.1.17): the closing carries the sign-in, so no other line mentions it.
     // L18-1 (v6.1.18): the rows the rank cap left out are counted.
     'And 22 more in the full list.',
@@ -1490,7 +1491,7 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
     // L1k-5 (v6.1.18): the more line follows the rows; the repo note and the sign-in after it.
-    const rows = head.reduce((a, l, i) => (/^\d+\. /.test(l) ? i + 1 : a), 0);
+    const rows = head.reduce((a, l, i) => (/^(\d+\. |In person)/.test(l) ? i + 1 : a), 0);
     assert.equal(show, [...head.slice(0, rows), `And ${more} more in the full list.`, ...head.slice(rows), closing].join('\n'), `persona ${id}`);
     const lines = show.split('\n');
     // The gap words once, in line 1; no other line but the closing's step speaks of the same gap.
@@ -1523,9 +1524,8 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
     [
       "One step away (1):",
       "1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
-      "In person (2):",
-      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
-      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
+      // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
+      "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 22 more in the full list.',
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
@@ -1580,9 +1580,8 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
       "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: a developer tool whose versions are near or past official end of life.",
-      "In person (2):",
-      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
-      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
+      // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
+      "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): right after the rows.
       'And 21 more in the full list.',
       // L38-6 (v6.1.18): the public repo gap names it, so the private note is left out.
@@ -1731,9 +1730,8 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
     [
       "One step away (1):",
       "1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.",
-      "In person (2):",
-      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
-      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
+      // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
+      "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 10 more in the full list.',
       "Nothing is ready yet. Tell me when the code is in a repo and I look again.",
@@ -1783,9 +1781,8 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "2. Uniswap Foundation Open Grants, set by milestone budget: code in a repo. Their rule: work that contributes to the Uniswap ecosystem and benefits people beyond your own product.",
       "3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% of the audit cost: code in a repo. First: register a legal entity for KYB; finalize the contracts for audit. Their rule: smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit.",
-      "In person (2):",
-      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
-      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
+      // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
+      "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 9 more in the full list.',
       "Nothing is ready yet. Tell me when the code is in a repo and I look again.",
@@ -1981,9 +1978,8 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
       "2. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
       "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: real users. Their rule: a developer tool whose versions are near or past official end of life.",
-      "In person (2):",
-      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
-      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
+      // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
+      "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 20 more in the full list.',
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
@@ -3388,7 +3384,7 @@ test('Review Focus 21: each of the 52 catalog programs as the only ready one, wi
   const { prefill } = await import('./prefill');
   const { reportOnlyFacts } = await import('./repo-facts');
   const { moneyOf } = await import('./find');
-  const { replyParts, numbered, attendRuleGap } = await import('./reply');
+  const { replyParts, numbered, attendGap } = await import('./reply');
   const dir = new URL('../../../../programs/', import.meta.url);
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
   assert.equal(files.length, 52);
@@ -3417,7 +3413,7 @@ test('Review Focus 21: each of the 52 catalog programs as the only ready one, wi
         repo_notes: ['private' as const], linked_notice: linked ? 'This agent is now linked to GitHub account ada. Unlink any time at earnkit.com/me.' : null,
         ...(linked ? {} : { sign_in: 'https://earnkit.test/link/abc' }),
       };
-      const shown = { ...r, ...numbered(r.ready, r.gaps, attendRuleGap) };
+      const shown = { ...r, ...numbered(r.ready, r.gaps, attendGap) };
       const { text, hidden } = replyParts(shown as never, false, NOW);
       const lines = text.split('\n');
       assert.ok(lines.length <= 10, `${f} ${linked}: ${lines.length}\n${text}`);
@@ -3758,8 +3754,9 @@ test('v6.1.17 fix round 1 (I3): with no project, the ask is last and the sign-in
 });
 
 test('v6.1.17 fix round 1 (M1, N1): an in-person lookup ends on its action with no project, and a held line sits before it', async () => {
+  // L38 big 2 (v6.1.18 Task 10): an in-person program with an online form asks for the project, as an online one does.
   const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'alliance' });
-  assert.equal((r.reply!.show_to_builder as string).split('\n').at(-1), 'You apply in person; the guide has the steps.');
+  assert.equal((r.reply!.show_to_builder as string).split('\n').at(-1), 'Tell me about your project and I check the fit.');
   const { claim } = await import('../v6/claims');
   const { saveInstallation, connectInstallation } = await import('./installations');
   const { linkInstallation } = await import('../v6/builders');
@@ -3770,7 +3767,9 @@ test('v6.1.17 fix round 1 (M1, N1): an in-person lookup ends on its action with 
   await linkInstallation(other, builderId, NOW);
   await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', other, new Date(NOW.getTime() - 60_000));
   const held = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { program_id: 'alliance-all19', project: PROJECT });
-  assert.deepEqual((held.reply!.show_to_builder as string).split('\n').slice(-2), ['Another agent of yours started this one on Nov 4.', 'You apply in person; the guide has the steps.']);
+  // L38 big 2: the draft yes gives way to the held line, as a remote yes does.
+  assert.equal((held.reply!.show_to_builder as string).split('\n').at(-1), 'Another agent of yours started this one on Nov 4.');
+  assert.doesNotMatch(held.reply!.show_to_builder as string, /Say yes/);
 });
 
 test('v6.1.16 Task 15 N2 (v6.1.17): find never reads as, am or mm as initials; YC and yc keep Y Combinator', async () => {
@@ -3883,10 +3882,11 @@ test('L1k-4: a no-project online lookup ends on "Tell me about your project and 
   assert.equal(lines.at(-1), 'Tell me about your project and I check the fit.', online);
   assert.ok(lines.includes('Rules:') && lines.at(-2)!.startsWith('- '), online);
   assert.equal(online.split('Tell me about your project').length, 2);
-  // The in-person one keeps its own action.
+  // L38 big 2 (v6.1.18 Task 10): an in-person one with an online form asks for the project too (every open program has
+  // a form; the no-form action stays for one that has none).
   const inPerson = (await mcpCall(ctx(await installation()), 'find', { program_id: 'alliance' })).reply!.show_to_builder as string;
-  assert.equal(inPerson.split('\n').at(-1), 'You apply in person; the guide has the steps.', inPerson);
-  assert.doesNotMatch(inPerson, /Tell me about your project/);
+  assert.equal(inPerson.split('\n').at(-1), 'Tell me about your project and I check the fit.', inPerson);
+  assert.doesNotMatch(inPerson, /the guide has the steps/);
   // With a project, the verdict closes as before.
   const withProject = (await mcpCall(ctx(await installation()), 'find', { program_id: 'base-ecosystem-fund', project: PROJECT })).reply!.show_to_builder as string;
   assert.doesNotMatch(withProject, /Tell me about your project/);
