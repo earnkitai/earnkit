@@ -641,9 +641,11 @@ and I look again." with no repo; the read settles it. The unlinked path names `b
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`sessions.ts`; v6.1.16 Task 17, L31-6:
 the cookie is `__Host-ek_me` in production, so Secure, Path=/ and no Domain, and `ek_me` on local http; for one
-release a session under the old `ek_me` is still read (`sessionToken`), the /me gate moves it to the new name
-(`renewedCookies`), the callback expires any old one, and sign-out and delete end the session behind each cookie
-present and expire both names) and lands
+release a session under the old `ek_me` is still read (`sessionToken`), the callback expires any old one, and sign-out
+and delete end the session behind each cookie present and expire both names; v6.1.17 Task 4, L35-17: the old name is
+never promoted into `__Host-ek_me` (`renewedCookies` is gone), so it dies with its session; a /me write carrying only
+the old name is 403 `Sign in again from the link your agent gives you.` (`currentName` in `guard`), sign-out still
+works, and from v6.1.18 the old name is ignored) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
 names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
 links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
@@ -932,8 +934,12 @@ program. With a linked agent the page carries `data-me-linked` and the header an
 data-install>` that a mount-time click handler upgrades to the install modal. The modal keeps focus (`useFocusTrap`:
 Tab and Shift+Tab loop, `#site-root` is `inert` while it is open; Esc and the focus return as before). The layout puts
 the skip link `Skip to content.` first in `body`, wraps header and page in `#site-root` and the page in `main#content`,
-and reads the session cookie (presence only) so the header shows `Your record`; that `cookies()` call makes every
-page render per request (the data stays cached). Under 360px the pill says `Add`. /programs is a semantic list
+and reads no cookie (v6.1.17 Task 4; v6.1.16 read it, which made every page render per request): `/`, `/programs`,
+`/docs` and `/terms` are static (ISR) and each guide is ISR on its first request (`generateStaticParams` returns none).
+The header's `NavLinks` asks `/api/me/signed-in` after load (`{ signedIn: boolean }` only, `Cache-Control: no-store`,
+a read-only session check, `hasSession`, no `last_seen_at` write) and shows `Your record` on a true answer, never
+prefetched; the server HTML never carries it. The footer always links `/me` with a plain `<a>` (`Your record`), the
+way there without JavaScript (signed out, /me goes to the docs). Under 360px the pill says `Add`. /programs is a semantic list
 (`Opportunities`: a section and h2 per block, Open now, Not open yet, Closed, each a `ul` of `li > article` with an h3
 link, the money and the close line; the landing's Open now uses the same markup); a tile without a logo shows the
 organizer's initials (`initialsOf`) and the organizer wraps to two lines. One `@media print` block (white page,
@@ -946,7 +952,27 @@ link is not one of ours.`, `Sign-in failed.`, `Too many sign-ins.`, `Sign-in is 
 shell with one h1 and the title `{h1 without its full stop} · EarnKit`. A page answers 200 for every state (Next sets
 no 429 or 503 from a page); the state's own status is data only. The confirm form posts to `/link/<code>/confirm`;
 a POST to `/link/<code>` is 405 (`Allow: GET`, proxy); a refused post or callback is a 303 to `/link/failed` (a dead
-code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive).
+code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive). /link pages send
+`Content-Security-Policy: frame-ancestors 'none'; form-action 'self' https://github.com` (`LINK_CSP`, v6.1.17 Task 4,
+v6.1.16 Task 13 N2: the confirm form posts to itself and continues to GitHub; the value repeats frame-ancestors because
+Next keeps the last matching header).
+
+**/me answers collapsed (v6.1.17 Task 4, L35-24).** Each answer (`answers.{kind}`, `projects.{id}.answers.{kind}`,
+`isAnswerPath`) is a `<details name="answers">` showing its label and first line (`firstLineOf`, 60 characters, cut at
+a word with an ellipsis); only the one named by `?open={path}` holds its field (edit box, short form, Approve), every
+other holds the link `Open this answer` to `/me?open={path}#a-{path}`, so one is open at a time with no script. The
+section form carries `open`, so a Save or a refusal comes back with it open. Waiting for you counts the answers that
+wait (`{n} answers wait for you below.` and `Open the first one`) instead of repeating them; each is marked
+`Waiting for you.` in its section, and an Approve opens the next waiting answer (`approvePost`). The row styles sit on
+the container (`ANSWER_ROWS`). A 154-answer record (lane 35's H.19) is about 420 KB as served (it was 2.4 MB in dev).
+
+**Guide reads that fail (v6.1.17 Task 4, v6.1.16 Task 13 N3).** A failed read is never kept as a 404: the guide ids
+are `definiteGuideIds` (an empty list throws like a failed read), so neither `cachedRead` nor the proxy's minute cache
+(`okFor`, a success only) keeps it. When the proxy cannot read the ids it rewrites the guide path to `/guide-unavailable`
+(`GUIDE_DOWN`, per request, noindex: `This guide is unavailable right now. Try again in a few minutes.`). If the page's
+own read fails, `getGuidePage` answers `'error'` and the page throws, so ISR keeps the last good guide (or, with none,
+`app/programs/[id]/error.tsx` shows the same line); `connection()` is not called there (in an ISR render it is an empty
+500). The next request reads again.
 
 **/me sections (v6.1.16, Task 13).** One form per card, one `Save` each: the inputs carry `form="form-{section}"` (so the approval forms stay beside their fields) and `/me/edit` takes `section` with every field of the card by its path; only fields whose value differs from the page's are written (an untouched one keeps who set it), each checked as one edit is; the valid ones save and each refused one is named beside the Save (`Saved.`, then `Not saved: {field}: {reason}.` per field, fix round 1), and a removed team member goes last. The policy form stays all or nothing. Success is `/me?saved={section}#{section}` (`Saved.` beside that Save); a refusal is the signed line with `at={section}` and shows inside that card, a failed delete beside the delete form (`/me#delete`). The skip list is part of the standing-approval form (`never`). The single `path`/`value` edit still works. Labels hold the label only; the hint is its own element, the field's `aria-describedby`. A delete lands on `/?deleted=1`: `Your record is deleted.`. /me has no canonical.
 
