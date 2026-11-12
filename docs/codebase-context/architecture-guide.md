@@ -276,7 +276,10 @@ the repo, nothing moves (sends marked `off_repo`) and the reply is `KEPT_APART`;
 repo's identity and `off_repo` cleared, and `JOINED` is said only when rows moved (`ALREADY_JOINED` otherwise). The
 answer is kept per name and repo key on the name key's report (`joins`; `joinDecision`, `saveJoinDecision`;
 `saveReport` keeps it, `reportOf` strips it) and on the record project with that repo (`join`, EarnKit only); an answer
-for another repo is no answer (fix round 1, I1). find asks `JOIN_QUESTION` only while undecided for this repo, moves
+for another repo is no answer (fix round 1, I1), nor one for another name on that repo (fix round 2, M3). find's silent
+re-key of a name that holds nothing runs only behind the builder's tie to the repo and in one transaction under the
+owner's program locks, reading the name again there; holding anything, only the report moves (`quietRekey`, fix round
+2, I3). find asks `JOIN_QUESTION` only while undecided for this repo, moves
 nothing once kept apart, and after a joined answer moves new name rows only through the send's gate (`joinAgain`: the
 tie by the cached read, then `joinRows`); a join never moves a send kept off another repo. The own-claim exception in
 `record` counts only a co-founder's send under this very repo key (never a fork's parent or an id alone, I2). track

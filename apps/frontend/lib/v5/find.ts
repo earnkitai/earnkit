@@ -16,7 +16,7 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -955,21 +955,28 @@ async function sentByAnother<T extends FindReply | ProgramReply>(ctx: FindContex
 async function joinDecided(ctx: FindContext, fromName: string, toRepo: string): Promise<'joined' | 'kept_apart' | null> {
   const kept = await joinDecision(ownerOf(ctx), fromName, toRepo);
   if (kept || ctx.builderId === null) return kept;
-  const p = (await getRecord(ctx.builderId)).projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === toRepo);
+  // Fix round 2 (M3): the record project with this repo and this name.
+  const p = (await getRecord(ctx.builderId)).projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === toRepo && nameKeyOf(x) === fromName);
   return p?.join ?? null;
 }
 
 /**
  * Fix round 1 (I1): after a joined answer for this repo, new rows under the name move onto it only through the gate a
  * send takes: the signed-in builder's tie to the repo (cache only, as `followRename`), then `joinRows` with its locks
- * and the cross-builder check. Nothing else moves sends in find; a refusal is silent (no login, nothing written).
+ * and the cross-builder check. Not tied, nothing is read or written. When another builder already sent the repo, no row
+ * moves and `joinRows` marks the builder's own name sends kept off that repo (`off_repo`); nothing is said (no login).
  */
 async function joinAgain(ctx: FindContext, fromName: string, toRepo: string, project: Project): Promise<void> {
-  if (ctx.builderId === null) return;
+  if (!(await tiedTo(ctx, toRepo, project))) return;
+  await joinRows(ownerOf(ctx), fromName, toRepo, await cachedRepoId(toRepo), await cachedRepoParent(toRepo));
+}
+
+/** Fix round 2 (I3): whether the signed-in builder is tied to the repo by the cached read (no fetch), as `followRename`. */
+async function tiedTo(ctx: FindContext, toRepo: string, project: Project): Promise<boolean> {
+  if (ctx.builderId === null) return false;
   const login = (await getBuilder(ctx.builderId))?.login ?? null;
   const facts = (await cachedRepoFacts(project)) ?? { repo_url: toRepo };
-  if ((await repoTie(login, facts, { repoUrl: toRepo, noFetch: true })) === null) return;
-  await joinRows(ownerOf(ctx), fromName, toRepo, await cachedRepoId(toRepo), await cachedRepoParent(toRepo));
+  return (await repoTie(login, facts, { repoUrl: toRepo, noFetch: true })) !== null;
 }
 
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[], pre: BeforeSend = { join: null }): Promise<FindReply | ProgramReply> {
@@ -990,8 +997,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
       // Fix round 1 (I1): rows under the name since the yes move only through the send's tie gate.
       if (held) await joinAgain(ctx, fromName, toRepo, project);
     } else if (held) pre.join = JOIN_QUESTION(project.name, toRepo.replace(/^https:\/\//, ''));
-    // The name holds nothing: only its report moves (the B4 silent re-key).
-    else await rekeyProject(ownerOf(ctx), fromName, toRepo);
+    // The name holds nothing: the B4 silent re-key, only behind the builder's tie and under the owner's locks, the name
+    // read again there (fix round 2, I3: `quietRekey`).
+    else if (await tiedTo(ctx, toRepo, project)) await quietRekey(ownerOf(ctx), fromName, toRepo);
   }
   // W2 (final round): a project by name alone whose report names a repo is read under that repo's key (steps, claims, report).
   const key = project ? await resolvedKey(ownerOf(ctx), projectKeyOf(project)) : '';

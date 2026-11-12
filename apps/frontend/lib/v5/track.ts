@@ -160,7 +160,8 @@ async function joinProject(ctx: TrackContext, owner: string, name: string, proje
   await saveJoinDecision(owner, from, to, name, decision, ctx.now);
   if (ctx.builderId !== null)
     await withRecord(ctx.builderId, ctx.now, (cur) => {
-      const p = cur.projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === to);
+      // Fix round 2 (M3): the record project with this repo and this name.
+      const p = cur.projects.find((x) => x.repo_url && projectKeyOf({ repo_url: x.repo_url }) === to && nameKeyOf(x) === from);
       if (!p || p.join === decision) return { record: null, result: null };
       p.join = decision;
       return { record: cur, result: null };

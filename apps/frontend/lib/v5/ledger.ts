@@ -897,6 +897,30 @@ async function rekeyIn(tx: Db, owner: string, from: string, to: string, o: { joi
 }
 
 /**
+ * Fix round 2 (I3): find's silent re-key of a name that holds nothing (B4, L28-5), for a builder the caller has shown is
+ * tied to `to`. One transaction under the owner's lock for each program with a row under the name; inside it the name is
+ * read again: with no application and no step it re-keys (`rekeyIn`, which then moves only the report); with any, only
+ * the report moves (never a row, so a send or claim racing this find stays under its name). Whether rows moved.
+ */
+export async function quietRekey(owner: string, from: string, to: string): Promise<boolean> {
+  if (!from || !to || from === to) return false;
+  return sql().begin(async (tx) => {
+    const programs = (await tx<{ program_id: string }[]>`SELECT DISTINCT program_id FROM applications WHERE owner = ${owner} AND project_id = ${from} ORDER BY program_id`).map((r) => r.program_id);
+    for (const p of programs) await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + p}))`;
+    const [h] = await tx<{ n: number }[]>`SELECT (
+      (SELECT count(*) FROM applications WHERE owner = ${owner} AND project_id = ${from}) +
+      (SELECT count(*) FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}))::int AS n`;
+    if (h.n === 0) return (await rekeyIn(tx, owner, from, to)) > 0;
+    await tx`INSERT INTO project_reports (owner, project_key, report, at)
+      SELECT owner, ${to}, report, at FROM project_reports WHERE owner = ${owner} AND project_key = ${from}
+      ON CONFLICT (owner, project_key) DO UPDATE
+        SET report = CASE WHEN EXCLUDED.at > project_reports.at THEN EXCLUDED.report ELSE project_reports.report END,
+            at = GREATEST(project_reports.at, EXCLUDED.at)`;
+    return false;
+  }) as Promise<boolean>;
+}
+
+/**
  * L35-1 (v6.1.16.1 Task 2): a tied builder's yes to the join question, in one transaction under the owner's lock for
  * each program the name holds and the repo's (and a fork's parent's, `parent`): when another owner already sent the repo to any of those programs,
  * nothing moves (`taken`, that send's time; its sends are marked kept off the repo); else every row under the name moves onto the repo key (kept off it or

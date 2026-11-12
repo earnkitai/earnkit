@@ -2308,3 +2308,45 @@ test('X3, M1 (Task 2 fix round 1): after a GitHub rename with no find since, the
   for (const r of tries) assert.equal(r.show_to_builder, 'Already sent on Nov 4.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'x3-g'`)[0].n, 1);
 });
+
+// ---- v6.1.16.1 Task 2 fix round 2 ----
+
+test('I3 (Task 2 fix round 2): a find with the victim\'s repo racing a builder send and a started by name never lands the stranger\'s rows on the victim\'s repo; the victim\'s sends go through', async () => {
+  const { find } = await import('./find');
+  await seedRead('rvs/app', ['rvs'], 359401);
+  const VIC = { name: 'App', description: 'An app.', repo_url: 'https://github.com/rvs/app' };
+  const NAME = { name: 'App', description: 'An app.' };
+  const vic = await signedIn('rvs');
+  for (let k = 0; k < 10; k++) {
+    const sentId = `i3-s${k}`;
+    const startId = `i3-c${k}`;
+    await upsertProgram(programFixture({ id: sentId, title: `I3 Sent ${k}` }), 'file', NOW);
+    await upsertProgram(programFixture({ id: startId, title: `I3 Start ${k}` }), 'file', NOW);
+    const s = await signedIn(`rms-${k}`);
+    await Promise.all([
+      find({ ...s, linkUrl: async () => null }, { project: VIC }),
+      send(s, sentId, NAME, 'builder'),
+      track(s, { program_id: startId, status: 'started', project: NAME }),
+    ]);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${s.owner} AND (repo_key IS NOT NULL OR project_id LIKE 'https://%')`)[0].n, 0, `round ${k}`);
+    for (const id of [sentId, startId]) assert.equal((await send(at(vic, 1), id, VIC)).show_to_builder, `Sent I3 ${id === sentId ? 'Sent' : 'Start'} ${k}.`, `round ${k}`);
+  }
+});
+
+test('M3 (Task 2 fix round 2): a join answer for one name on a repo never covers another name on that repo', async () => {
+  const { find, JOIN_QUESTION } = await import('./find');
+  await seedRead('m3j/x', ['m3j'], 359501);
+  await upsertProgram(programFixture({ id: 'm3-g1', title: 'M3 One' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'm3-g2', title: 'M3 Two' }), 'file', NOW);
+  const b = await signedIn('m3j');
+  const { getRecord, saveRecord } = await import('../v6/builders');
+  const rec = await getRecord(b.builderId!);
+  await saveRecord(b.builderId!, { ...rec, projects: [{ id: 'foo', name: 'Foo', repo_url: 'https://github.com/m3j/x', answers: {} }] }, NOW);
+  assert.equal((await send(b, 'm3-g1', { name: 'Foo', description: 'F.' }, 'builder')).show_to_builder, 'Sent M3 One.');
+  assert.equal((await track(at(b, 1), { program_id: 'join', status: 'gap_done', item: 'join:Foo', project: { name: 'Foo', description: 'F.', repo_url: 'https://github.com/m3j/x' } })).show_to_builder, 'Joined "Foo" with github.com/m3j/x.');
+  assert.equal((await getRecord(b.builderId!)).projects[0].join, 'joined');
+  assert.equal((await send(at(b, 2), 'm3-g2', { name: 'Bar', description: 'B.' }, 'builder')).show_to_builder, 'Sent M3 Two.');
+  const r = await find({ ...at(b, 3), linkUrl: async () => null }, { project: { name: 'Bar', description: 'B.', repo_url: 'https://github.com/m3j/x' } });
+  assert.equal(r.show_to_builder, JOIN_QUESTION('Bar', 'github.com/m3j/x'));
+  assert.deepEqual((await rowsOf(b.owner, 'm3-g2')).map((x) => x.project_id), ['name:bar']);
+});
