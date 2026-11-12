@@ -60,6 +60,8 @@ const COPY_BANNED = /\b(score|rank|grade|points?|coins?|tokens?|streaks?)(s|d|in
 
 /** A K or M money figure ("$100K", "$325k", "2M ARB", "$1.5M"): the catalog writes full figures (lane 22, L1h-1). */
 const KM = /\d(?:\.\d+)?\s?[KkMm]\b/;
+/** L1i-10 (v6.1.16.1): a figure written with "million" or "billion" ("$1 million"): full figures there too. */
+const MONEY_WORDS = /\d[\d.,]*\s+(million|billion)\b/i;
 
 /** Each problem as "<path or (program)>: <message>"; empty when the program may be written. */
 export function programProblems(p: Program, now: Date = new Date()): string[] {
@@ -81,11 +83,13 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
     problems.push(`summary: the money "${piece}" needs a number or "Amount not stated"`);
   // Lane 22 (v6.1.15): full figures on every surface, never K or M.
   if (KM.test(piece)) problems.push(`summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`);
+  else if (MONEY_WORDS.test(piece)) problems.push(`summary: money must be in full figures ("$1,000,000", never "$1 million")`);
   // FR-6 (v6.1.15): the rules the guide and the reply show are in full figures too. L1h-1 (v6.1.16): and the
   // description, the reward, every past round (label, themes, examples) and each requirement's `todo`, which the
   // guide, the lookup and the needs lists carry; a requirement's `label` is the program's own question and kept.
   const full = (path: string, text: string | undefined) => {
     if (text && KM.test(text)) problems.push(`${path}: money must be in full figures ("$100,000", never "$100K")`);
+    else if (text && MONEY_WORDS.test(text)) problems.push(`${path}: money must be in full figures ("$1,000,000", never "$1 million")`);
   };
   q.rules.forEach((r, i) => full(`rules.${i}`, r));
   (q.eligibility ?? []).forEach((e, i) => full(`eligibility.${i}.note`, e.note));
