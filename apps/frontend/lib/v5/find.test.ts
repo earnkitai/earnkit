@@ -3383,3 +3383,32 @@ test('L1i-5 (v6.1.16.1): stableNumbers keeps the last list\'s numbers and number
   assert.deepEqual([...stableNumbers([], ['a', 'b'])], [['a', 1], ['b', 2]]);
   assert.deepEqual([...stableNumbers(['a', '', 'c'], ['c', 'd', 'a'])], [['a', 1], ['c', 3], ['d', 4]]);
 });
+
+// ---- v6.1.16.1 Task 2 ----
+
+test('Task 2 (v6.1.16.1, Task 1 leftover): after an unlink, a find closing on the users question has one sign-in sentence, the closing\'s', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const link = 'https://earnkit.com/link/t2leftover';
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  assert.equal(await unlinkInstallation(id, builderId, NOW), true);
+  const d = await mcpCall({ installationId: id, builderId: null, now: new Date(NOW.getTime() + H), gh: dash.fetch, linkUrl: async () => link }, 'find', { project: SAAS });
+  const show = d.reply!.show_to_builder as string;
+  assert.equal(show.split('\n').at(-1), `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`, show);
+  assert.ok(show.includes('This agent was unlinked from your account.'), show);
+  assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, show);
+  assert.equal(show.split(link).length, 2, show);
+});
+
+test('L35-6 (v6.1.16.1 Task 2): find\'s program_id takes a list reference as the last list\'s number; any other falls to the name lookup', async () => {
+  const { markList } = await import('./installations');
+  const { programFixture } = await import('./fixtures/program');
+  for (const n of [1, 2, 3]) await upsertProgram(programFixture({ id: `l35-fnum-${n}`, title: `L35 FNum ${n}` }), 'file', NOW);
+  const id = await installation();
+  await markList(id, 'h', NOW, ['l35-fnum-1', 'l35-fnum-2', 'l35-fnum-3']);
+  for (const ref of ['#3', '3.', 'No. 3', 'three']) {
+    const r = await mcpCall(ctx(id), 'find', { program_id: ref });
+    assert.match(r.reply!.show_to_builder as string, /^L35 FNum 3\b/, ref);
+  }
+  const none = await mcpCall(ctx(id), 'find', { program_id: '#99' });
+  assert.equal(none.reply!.show_to_builder, 'Which program do you mean? Say its name.');
+});

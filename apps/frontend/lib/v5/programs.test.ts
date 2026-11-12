@@ -213,3 +213,16 @@ test('L24-3 (v6.1.16 Task 11): the strict lookup takes an id, an exact title or 
   // find's lookup is unchanged.
   assert.equal((await programByName('yc', now)).row?.id, 'y-combinator');
 });
+
+test('L35-6 (v6.1.16.1 Task 2): listRef reads #N, N., No. N, no N and number words one to twenty; anything else is null', async () => {
+  const { listRef, looksLikeListRef } = await import('./programs');
+  const list = Array.from({ length: 20 }, (_, i) => `p${i + 1}`);
+  for (const ref of ['#3', '3.', 'No. 3', 'no 3', 'three', 'Three', '3', ' #3 ']) assert.equal(listRef(ref, list), 'p3', ref);
+  assert.equal(listRef('twenty', list), 'p20');
+  assert.equal(listRef('two', list.slice(0, 3)), 'p2');
+  for (const ref of ['twenty-one', '#99', '0', 'L35 Err Two', 'two grants', '#', '']) assert.equal(listRef(ref, list.slice(0, 3)), null, ref);
+  // An empty slot names no program.
+  assert.equal(listRef('2', ['p1', '', 'p3']), null);
+  for (const ref of ['#3', 'twenty-one', 'No. 99', 'seven.']) assert.equal(looksLikeListRef(ref), true, ref);
+  for (const ref of ['L35 Err Two', 'base batches', 'no code grant']) assert.equal(looksLikeListRef(ref), false, ref);
+});

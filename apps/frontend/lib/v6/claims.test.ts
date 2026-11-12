@@ -163,3 +163,26 @@ test('Task 14 fix round 3b, L35-7 and L35-4 (v6.1.16.1 Task 2): two builders tak
     assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'cl-3c' AND repo_key = ${repo}`)[0].n, 1, `round ${k}`);
   }
 });
+
+test('L35-4, L35-3, L35-2 (v6.1.16.1 Task 2): a co-founder\'s live claim on the repo refuses a claim and writes nothing; a fork\'s claim reads the parent\'s send; a claim keeps its identity', async () => {
+  await upsertProgram(programFixture({ id: 'cl-35', title: 'Co-founder Grant' }), 'file', NOW);
+  const repo = 'https://github.com/org/cl35';
+  const a = await builderWithTwoAgents();
+  const b = await builderWithTwoAgents();
+  assert.deepEqual(await claim(a.owner, 'cl-35', repo, a.a, NOW, null, { repoId: 35350, tied: true }), { ok: true });
+  const [mine] = await sql()`SELECT identity FROM applications WHERE owner = ${a.owner} AND program_id = 'cl-35'`;
+  assert.equal(mine.identity, 'gh:35350');
+  assert.deepEqual(await claim(b.owner, 'cl-35', repo, b.a, new Date(NOW.getTime() + H), null, { repoId: 35350, tied: true }), { ok: false, cofounder: { at: NOW } });
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${b.owner}`)[0].n, 0);
+  // The same repo by its id alone (a renamed link) is the same claim.
+  assert.deepEqual(await claim(b.owner, 'cl-35', 'https://github.com/org/cl35-renamed', b.a, new Date(NOW.getTime() + H), null, { repoId: 35350, tied: true }), { ok: false, cofounder: { at: NOW } });
+  // A claim past 24 hours is not live: the co-founder may claim.
+  assert.deepEqual(await claim(b.owner, 'cl-35', repo, b.a, new Date(NOW.getTime() + 25 * H), null, { repoId: 35350, tied: true }), { ok: true });
+
+  // A fork's claim after the parent was sent: refused, with no login (the match is by the parent).
+  await upsertProgram(programFixture({ id: 'cl-35f', title: 'Fork Grant' }), 'file', NOW);
+  assert.deepEqual(await record(a.owner, 'cl-35f', 'applied', { installationId: a.a, now: NOW, project_id: repo, repoId: 35350, tied: true }), { ok: true });
+  const fork = await claim(b.owner, 'cl-35f', 'https://github.com/someone/cl35-fork', b.a, NOW, null, { repoId: 35351, tied: true, parentRepo: { id: 35350, key: repo } });
+  assert.ok(!fork.ok && 'repo' in fork && fork.repo.login === null, JSON.stringify(fork));
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${b.owner} AND program_id = 'cl-35f'`)[0].n, 0);
+});

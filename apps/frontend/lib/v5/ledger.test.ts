@@ -633,3 +633,38 @@ test('N2 (Task 14 fix round 1): the record-id backfill keeps the newest of two r
   const rows = await sql()`SELECT project_id FROM applications WHERE owner = ${owner} AND program_id = 'l28-n2' ORDER BY project_id`;
   assert.deepEqual(rows.map((r) => r.project_id), ['https://github.com/org/mono', 'mono-web']);
 });
+
+test('L35-2, L35-3, L35-11, L35-20 (v6.1.16.1 Task 2): sentForRepo by key, id, parent and an off-GitHub key; a row found by identity; formerSentAt with no key', async () => {
+  const { sentForRepo, formerSentAt } = await import('./ledger');
+  await prog('l35-sfr');
+  const a = await install();
+  const b = await install();
+  const repo = 'https://github.com/l35/sfr';
+  assert.deepEqual(await record(o(a), 'l35-sfr', 'applied', { installationId: a, now: NOW, project_id: repo, repoId: 35800 }), { ok: true });
+  const [row] = await sql()`SELECT identity FROM applications WHERE owner = ${o(a)} AND program_id = 'l35-sfr'`;
+  assert.equal(row.identity, 'gh:35800');
+  assert.equal((await sentForRepo(sql(), 'l35-sfr', repo, o(b)))?.by, 'key');
+  assert.equal((await sentForRepo(sql(), 'l35-sfr', 'https://github.com/l35/other', o(b), 35800))?.by, 'id');
+  assert.equal((await sentForRepo(sql(), 'l35-sfr', 'https://github.com/l35/fork', o(b), 35801, { id: 35800, key: null }))?.by, 'id');
+  assert.equal((await sentForRepo(sql(), 'l35-sfr', 'https://github.com/l35/fork', o(b), 35801, { id: null, key: repo }))?.by, 'id');
+  assert.equal(await sentForRepo(sql(), 'l35-sfr', 'https://github.com/l35/fork', o(b), 35801), null);
+  assert.equal(await sentForRepo(sql(), 'l35-sfr', repo, o(a)), null);
+  // The same owner by the identity alone (another link with the same id): the one row, already sent.
+  const again = await record(o(a), 'l35-sfr', 'applied', { installationId: a, now: NOW, project_id: 'https://github.com/l35/sfr-renamed', repoId: 35800 });
+  assert.deepEqual(again, { ok: false, note: 'Already sent on Nov 4.' });
+  // Off GitHub, a send kept under the name holds the canonical key.
+  await prog('l35-gl');
+  assert.deepEqual(await record(o(a), 'l35-gl', 'applied', { installationId: a, now: NOW, project_id: 'name:gl', offRepo: 'https://gitlab.com/l35/gl' }), { ok: true });
+  assert.equal((await sentForRepo(sql(), 'l35-gl', 'https://gitlab.com/l35/gl', o(b)))?.by, 'key');
+  // An unlinked installation's former builder: with no key, any send of that program counts.
+  const { upsertBuilder, linkInstallation, unlinkInstallation } = await import('../v6/builders');
+  const bd = await upsertBuilder({ github_id: 935_801, login: 'l35-former', name: null, avatar_url: null }, NOW);
+  const i = await install();
+  await linkInstallation(i, bd.id, NOW);
+  await prog('l35-former');
+  for (const k of ['name:a', 'name:b'])
+    assert.deepEqual(await record(`b:${bd.id}`, 'l35-former', 'applied', { installationId: i, now: NOW, project_id: k }), { ok: true });
+  assert.equal(await unlinkInstallation(i, bd.id, NOW), true);
+  assert.ok(await sql().begin((tx) => formerSentAt(tx, `i:${i}`, 'l35-former', '')));
+  assert.equal(await sql().begin((tx) => formerSentAt(tx, `i:${i}`, 'l35-former', 'name:c')), null);
+});
