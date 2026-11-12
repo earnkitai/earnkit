@@ -510,3 +510,26 @@ test('fix round 1 (I2): ages count UTC days: a run 5 seconds earlier the next da
     await resetDigest();
   }
 });
+
+test('fix round 2: a round that began on a day no digest covered is named once in the next digest, not again the day after', async () => {
+  const db = sql();
+  await resetDigest();
+  await db`DELETE FROM programs`;
+  await upsertProgram(programFixture({ id: 'od-rd', title: 'Round Day Grants', source_url: 'https://rd.example/about', submission_url: 'https://rd.example/form' }), 'file', NOW);
+  const link: LinkCheck = async (u) => ({ ok: true, page: u.endsWith('/form') ? '<p>Round 1 applications are closed. Round 2 is open now: apply below.</p>' : '<p>About</p>' });
+  const day = (n: number) => new Date(NOW.getTime() + n * 86_400_000);
+  try {
+    // A digest went out the day before D; on D the walk sees the round but no digest goes out.
+    await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-03', ${new Date('2026-11-03T06:15:00Z')})`;
+    await runHealth(NOW, { link });
+    await runHealth(day(1), { link });
+    assert.equal(await sendOwnerDigest(day(1), mailer), 'sent');
+    assert.equal(sent[0].text.match(/Round Day Grants: the form says one round is closed \(https:\/\/rd\.example\/form\); check it\./g)?.length, 1, sent[0].text);
+    await runHealth(day(2), { link });
+    assert.equal(await sendOwnerDigest(day(2), mailer), 'none');
+    assert.equal(sent.length, 1);
+  } finally {
+    await db`DELETE FROM programs WHERE id LIKE 'od-%'`;
+    await resetDigest();
+  }
+});

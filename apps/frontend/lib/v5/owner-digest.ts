@@ -284,6 +284,9 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
   // Changes since the last digest of an earlier day (a re-send the same day keeps its window); 24 h with none.
   const [last] = await db<{ day: string; sent_at: Date }[]>`SELECT day, sent_at FROM owner_digests WHERE day < ${day} ORDER BY day DESC LIMIT 1`;
   const since = last?.sent_at ?? new Date(now.getTime() - 86_400_000);
+  // Fix round 2: one round closed is new when it began after the last digest of an earlier day was sent (any time with
+  // none), so a round that began on a day no digest covered is still named once.
+  const roundFrom = last?.sent_at ?? new Date(0);
 
   const closedRows = await db<TitleRow[]>`
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
@@ -301,7 +304,7 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
     FROM program_health h JOIN programs p ON p.id = h.program_id
     WHERE p.status IN ('active', 'upcoming') AND h.checked_at >= ${dayStart} AND h.checked_at < ${dayEnd}
       AND (NOT h.source_ok OR NOT h.submit_ok OR (h.submit_closed AND p.status = 'active')
-        OR (h.closed_round AND p.status = 'active' AND h.closed_since >= ${dayStart}) OR h.changed_at >= ${dayStart})
+        OR (h.closed_round AND p.status = 'active' AND h.closed_since > ${roundFrom}) OR h.changed_at >= ${dayStart})
     ORDER BY p.id`;
   const openedRows = await db<TitleRow[]>`
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
@@ -347,9 +350,9 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
     const base = { id: r.id, title: f.title, ...(!listed.has(r.id) && { unlisted: true }) };
     if (!r.source_ok) health.failing.push({ ...base, url: f.source_url, days: daysSince(r.first_failed_at) });
     if (!r.submit_ok) health.failing.push({ ...base, url: f.submission_url, days: daysSince(r.first_failed_at) });
-    // Fix round 1 (I1): one round closed only on the day it first appeared, whatever else lists the program; (M1) a
+    // Fix round 1 (I1), round 2: one round closed only in the first digest after it began, whatever else lists the program; (M1) a
     // closed state kept over an unread run is listed only while the link it names loads.
-    const roundToday = r.closed_round && r.closed_since !== null && r.closed_since >= dayStart;
+    const roundToday = r.closed_round && r.closed_since !== null && r.closed_since > roundFrom;
     const loads = r.closed_on === 'form' ? r.submit_ok : r.source_ok;
     if (r.status === 'active' && r.closed_on && loads && (r.submit_closed || roundToday)) {
       health.formsClosed!.push({
