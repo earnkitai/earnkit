@@ -3,7 +3,7 @@ import InstallButton from './InstallButton';
 import { Wordmark } from '../ui/Logo';
 import FooterLight from '../site/FooterLight';
 import { X } from '../../lib/links';
-import { ART_CREDIT, CTA_INSTALL, FOOT_CTA, NAV_RECORD } from '../../../lib/v5/site-copy';
+import { ART_CREDIT, CTA_INSTALL, FOOT_CTA, NAV_RECORD } from '../../../lib/v5/footer-words';
 
 const LINK = 'inline-flex min-h-11 items-center text-s-foot-link motion-safe:transition-colors duration-200 hover:text-s-text';
 

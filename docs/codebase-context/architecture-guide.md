@@ -593,8 +593,9 @@ Every release and patch bumps `apps/frontend/package.json`'s `version` (served a
 the version the PR ships (L1j-8, v6.1.17). `mcp.test.ts` pins `serverInfo.version` equal to the package version. It
 also pins the package version equal to the newest `v6.1.*` plan file in
 `docs/design-docs-and-implementation-plans/` (for example `v6.1.17-journeys-11-plan.md` gives 6.1.17), so a release
-whose plan is written but whose package is not bumped fails the suite. A four-part patch (`v6.1.16.1-patch-plan.md`)
-needs the package at that four-part version.
+whose plan is written but whose package is not bumped fails the suite. Only major.minor.patch is compared (v6.1.17
+final round, `releaseVersionOf`): a four-part patch plan (`v6.1.17.1-patch-plan.md`) is a patch of 6.1.17 and asks
+for 6.1.17, since a fourth part is not semver.
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -1017,7 +1018,8 @@ are `definiteGuideIds` (an empty list throws like a failed read), so neither `ca
 (`okFor`, a success only) keeps it. When the proxy cannot read the ids it rewrites the guide path to `/guide-unavailable`
 (`GUIDE_DOWN`, per request, noindex: `This guide is unavailable right now. Try again in a few minutes.`). If the page's
 own read fails, `getGuidePage` answers `'error'` and the page throws, so ISR keeps the last good guide (or, with none,
-`app/programs/[id]/error.tsx` shows the same line); `connection()` is not called there (in an ISR render it is an empty
+`app/programs/[id]/error.tsx` shows the same line once JavaScript runs: the server answers 500 with Next's error
+shell, so the line is not in that HTML; v6.1.17 final round: the panel is the shared `Unavailable`, footer included); `connection()` is not called there (in an ISR render it is an empty
 500). The next request reads again.
 
 **/me sections (v6.1.16, Task 13).** One form per card, one `Save` each: the inputs carry `form="form-{section}"` (so the approval forms stay beside their fields) and `/me/edit` takes `section` with every field of the card by its path; only fields whose value differs from the page's are written (an untouched one keeps who set it), each checked as one edit is; the valid ones save and each refused one is named beside the Save (`Saved.`, then `Not saved: {field}: {reason}.` per field, fix round 1), and a removed team member goes last. The policy form stays all or nothing. Success is `/me?saved={section}#{section}` (`Saved.` beside that Save); a refusal is the signed line with `at={section}` and shows inside that card, a failed delete beside the delete form (`/me#delete`). The skip list is part of the standing-approval form (`never`). The single `path`/`value` edit still works. Labels hold the label only; the hint is its own element, the field's `aria-describedby`. A delete lands on `/?deleted=1`: `Your record is deleted.`. /me has no canonical.
@@ -1257,7 +1259,9 @@ means what the last `Say` offered.
 - **Readers, keys and checks (v6.1.17 Task 2).** Lengths are characters as people count them, code points: zod 4's
   string max counts code points (pinned in `record.test.ts`), so 1,996 emoji fit a 2,000-character answer, and
   `record get`'s per-kind `length` is `Array.from(text).length` (L35-15). `readAmount` never calls an amount starting
-  `0.` ambiguous (`0.001` is 0.001; `1.234` still is). Initials stand for a program only through `initialsWord` (two
+  `0.` ambiguous (`0.001` is 0.001; `1.234` still is), and reads a leading `0,` as a decimal comma (`0,500` is 0.5;
+  final round). prefill's record-value cut check counts code points too (`fit: 'cut'` only over `max_chars`; final
+  round, review M1). Initials stand for a program only through `initialsWord` (two
   letters or more, never a COMMON_WORDS English word, any case), in find's lookup, its several-words tier and track's
   strict one: `as`, `am`, `mm` name nothing; `yc`, `YC` name Y Combinator (Task 15 N2). `isOpenAt` reads `starts_at`
   for an active program too: active before its start is not open, `statusAt` says upcoming, `listOpenPrograms` leaves

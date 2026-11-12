@@ -354,7 +354,7 @@ export function prefill(
       ...(file.form?.fields?.[r.key] ? { form_id: file.form.fields[r.key] } : {}),
     };
     const fromRecord = rec ? recordValue(r, rec) : null;
-    const over = fromRecord && r.max_chars !== undefined && fromRecord.value.length > r.max_chars;
+    const over = fromRecord && r.max_chars !== undefined && Array.from(fromRecord.value).length > r.max_chars; // code points (L35-15, v6.1.17)
     if (fromRecord)
       return {
         ...base, value: fromRecord.value, from: 'record', ...(fromRecord.prose ? { style: STYLE_CONTRACT } : {}),

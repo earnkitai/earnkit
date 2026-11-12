@@ -5,7 +5,7 @@ import { PAGE_COL_WIDE } from '../components/site/ui';
 import { getLanding } from '../lib/landing-cache';
 import { pageMeta } from '../lib/meta';
 import { PROGRAMS_DESCRIPTION, PROGRAMS_TITLE } from '../../lib/v5/site-copy';
-import { Unavailable } from './[id]/GuideView';
+import { Unavailable } from '../components/site/Unavailable';
 
 export const revalidate = 600;
 

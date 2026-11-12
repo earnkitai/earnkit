@@ -616,5 +616,10 @@ test('v6.1.16 Task 13 N3 (v6.1.17 Task 4): a failed guide-id read is never kept 
   assert.deepEqual(down.metadata.robots, { index: false, follow: false });
   assert.ok(textOf(html(down.default())).startsWith('This guide is unavailable right now. Try again in a few minutes. EarnKit home'));
   const { default: GuideError } = await import('../../app/programs/[id]/error');
-  assert.equal(textOf(html(React.createElement(GuideError))), 'This guide is unavailable right now. Try again in a few minutes. EarnKit home');
+  // v6.1.17 final round (Task 4 review N2): the error boundary is the one shared panel, footer included, as the
+  // server-rendered unavailable page.
+  const errorHtml = html(React.createElement(GuideError));
+  assert.ok(textOf(errorHtml).startsWith('This guide is unavailable right now. Try again in a few minutes. EarnKit home'));
+  assert.match(errorHtml, /<footer/);
+  assert.equal(errorHtml, html(down.default()));
 });

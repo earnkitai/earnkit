@@ -1,4 +1,4 @@
-import { Unavailable } from '../programs/[id]/GuideView';
+import { Unavailable } from '../components/site/Unavailable';
 import { GUIDE_UNAVAILABLE } from '../programs/[id]/unavailable';
 
 /**

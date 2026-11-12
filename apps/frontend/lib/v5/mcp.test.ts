@@ -361,21 +361,33 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   assert.equal(pkg.version, '6.1.17');
 });
 
+/**
+ * v6.1.17 final round: the package version a set of plan file names asks for: the newest v6.1 plan's major.minor.patch.
+ * A fourth part (v6.1.17.1-patch-plan.md) is a patch of that release and is not semver, so it is ignored.
+ */
+const releaseVersionOf = (files: string[]): string => {
+  const parts = (v: string) => v.split('.').map(Number);
+  const newer = (a: string, b: string) => {
+    const [x, y] = [parts(a), parts(b)];
+    for (let k = 0; k < 3; k++) if (x[k] !== y[k]) return x[k] > y[k];
+    return false;
+  };
+  // Plan files are named v{version}-{slug}-plan.md (v6.1.16.1-patch-plan.md); the v6.1 series is this package's.
+  const versions = files.map((f) => /^v(6\.1\.\d+)(?:\.\d+)?-.*plan\.md$/.exec(f)?.[1]).filter((v): v is string => !!v);
+  return versions.reduce((a, b) => (newer(b, a) ? b : a));
+};
+
 test('L1j-8 (v6.1.17 Task 5): the release gate bumped the package version to the newest v6.1 plan\'s', async () => {
   const { readdirSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const dir = join(import.meta.dirname, '..', '..', '..', '..', 'docs', 'design-docs-and-implementation-plans');
-  const parts = (v: string) => v.split('.').map(Number);
-  const newer = (a: string, b: string) => {
-    const [x, y] = [parts(a), parts(b)];
-    for (let k = 0; k < Math.max(x.length, y.length); k++) if ((x[k] ?? -1) !== (y[k] ?? -1)) return (x[k] ?? -1) > (y[k] ?? -1);
-    return false;
-  };
-  // Plan files are named v{version}-{slug}-plan.md (v6.1.16.1-patch-plan.md); the v6.1 series is this package's.
-  const versions = readdirSync(dir).map((f) => /^v(6\.1\.\d+(?:\.\d+)?)-.*plan\.md$/.exec(f)?.[1]).filter((v): v is string => !!v);
-  const newest = versions.reduce((a, b) => (newer(b, a) ? b : a));
+  const newest = releaseVersionOf(readdirSync(dir));
   assert.equal(pkg.version, newest, `apps/frontend/package.json is ${pkg.version}; the newest plan is v${newest}`);
+  // v6.1.17 final round: a patch plan's fourth part is ignored, so v6.1.17.1 still asks for 6.1.17.
+  assert.equal(releaseVersionOf(['v6.1.16.1-patch-plan.md', 'v6.1.17-journeys-11-plan.md', 'v6.1.17.1-patch-plan.md']), '6.1.17');
+  assert.equal(releaseVersionOf(['v6.1.16-journeys-10-plan.md', 'v6.1.16.1-patch-plan.md']), '6.1.16');
+  assert.equal(releaseVersionOf(['v6.1.9-journeys-3-plan.md', 'v6.1.10-journeys-4-plan.md']), '6.1.10');
 });
 
 test('L35-25 (v6.1.17, L.2, L.3): a call refused by the network window counts on neither window; an own-limit refusal adds nothing either', async () => {
