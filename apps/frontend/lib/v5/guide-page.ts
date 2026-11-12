@@ -31,6 +31,17 @@ export async function listGuideIds(now: Date = new Date()): Promise<string[]> {
 }
 
 /**
+ * The guide ids as a definite answer (v6.1.16 Task 13 N3, v6.1.17 Task 4): an empty list is a failed read (the catalog is
+ * never empty), so it throws like one. A cache never keeps it and no guide is answered 404 from it; the next request
+ * reads again.
+ */
+export async function definiteGuideIds(now: Date = new Date(), list: (now: Date) => Promise<string[]> = listGuideIds): Promise<string[]> {
+  const ids = await list(now);
+  if (ids.length === 0) throw new Error('no guide ids read');
+  return ids;
+}
+
+/**
  * The program behind a page, or null (a 404): a listed program, or one that reads closed at `now` (`closedAt`). A stale
  * or unverified open program is a 404. Plain JSON, so it can be cached; the page itself is `guidePageOf` at render.
  */
@@ -67,7 +78,10 @@ export async function guideTextById(id: string, now: Date = new Date()): Promise
   return row ? guidePageOf(row, now) : null;
 }
 
-/** The page for `id`, gated: an id outside the known set is null before any per-id read. */
+/**
+ * The page for `id`, gated: an id outside the known set is null before any per-id read. A failed read of either throws
+ * (never null), so only a found guide or a definite unknown is an answer a cache may keep (N3).
+ */
 export async function gatedGuidePage<T = GuidePage>(
   id: string,
   ids: () => Promise<string[]>,

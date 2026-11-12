@@ -14,6 +14,13 @@ export const securityHeaders = (production: boolean) => [
   ...(production ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000' }] : []),
 ];
 
+/**
+ * The /link pages (v6.1.16 Task 13 N2, v6.1.17 Task 4): their confirm form posts only to EarnKit and continues to
+ * GitHub's sign-in. It carries frame-ancestors too: Next keeps the last matching value of a header, so this one
+ * replaces the site-wide CSP there.
+ */
+export const LINK_CSP = "frame-ancestors 'none'; form-action 'self' https://github.com";
+
 /** Static images: nothing loads or runs, even if one is opened directly. */
 export const IMAGE_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'";
 
@@ -42,6 +49,7 @@ const nextConfig: NextConfig = {
       // The builder's private pages are never indexed; /me is never cached.
       ...NOINDEX_PATHS.map((source) => ({ source, headers: [{ key: 'X-Robots-Tag', value: 'noindex' }] })),
       { source: '/me', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
+      { source: '/link/:path*', headers: [{ key: 'Content-Security-Policy', value: LINK_CSP }] },
       // A program logo under /public/programs, matched by extension only so it never catches /programs/<id>.
       {
         source: '/programs/:file([a-z0-9-]+\\.(?:svg|png))',

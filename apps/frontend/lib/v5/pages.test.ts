@@ -557,3 +557,42 @@ test('L35-24 (v6.1.17 Task 4): /me collapses each answer to its first line, one 
   assert.equal(firstLineOf(`${'word '.repeat(40)}`), `${'word '.repeat(16).trim()}…`);
   assert.equal(Array.from(firstLineOf('\u{1F600}'.repeat(300))).length, 81);
 });
+
+test('v6.1.16 Task 13 N2 (v6.1.17 Task 4): /link pages send form-action self and GitHub, after the site-wide CSP so theirs wins, frame-ancestors kept', async () => {
+  const rules = await nextConfig.headers!();
+  const csp = (source: string) => rules.findLastIndex((r) => r.source === source && r.headers.some((h) => h.key === 'Content-Security-Policy'));
+  const link = rules[csp('/link/:path*')];
+  assert.ok(link, 'a /link CSP rule');
+  assert.ok(csp('/link/:path*') > csp('/:path*'), 'after the site-wide one');
+  assert.equal(link.headers.find((h) => h.key === 'Content-Security-Policy')?.value, "frame-ancestors 'none'; form-action 'self' https://github.com");
+});
+
+test('v6.1.16 Task 13 N3 (v6.1.17 Task 4): a failed guide-id read is never kept as a 404; the next request reads again', async () => {
+  const { okFor } = await import('../../proxy');
+  const { definiteGuideIds } = await import('./guide-page');
+  // An empty list is a failed read: it throws, so no cache keeps it.
+  await assert.rejects(definiteGuideIds(new Date(), async () => []), /no guide ids/);
+  assert.ok((await definiteGuideIds()).includes('zz-page-open'));
+  // The proxy's minute cache keeps only a success: a failure throws (the gate lets the request through) and is retried.
+  let t = 0;
+  let calls = 0;
+  let fail = true;
+  const ids = okFor(async () => {
+    calls++;
+    if (fail) throw new Error('db down');
+    return new Set(['zz-page-open']);
+  }, 60_000, () => t);
+  await assert.rejects(ids());
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/nope'), ids), null, 'a failed read is never a 404');
+  fail = false;
+  assert.ok((await ids()).has('zz-page-open'));
+  assert.equal(calls, 3, 'retried on the next request');
+  t = 59_000;
+  await ids();
+  assert.equal(calls, 3, 'a success is kept for a minute');
+  // The page's gate: a failed id read throws (getGuidePage answers 'error', uncached), never null (a 404).
+  await assert.rejects(gatedGuidePage('zz-page-open', async () => { throw new Error('db down'); }, guideTextById));
+  const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
+  assert.match(src, /cachedRead\(\(\) => definiteGuideIds\(\), \['guide-ids-v6'\]\)/);
+  assert.match(src, /await connection\(\);\n    return 'error';/);
+});

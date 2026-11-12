@@ -22,7 +22,7 @@ import { NextResponse } from 'next/server';
 import { notAllowed } from './lib/v5/http';
 import { meGet } from './lib/v6/me-routes';
 import { publicOrigin } from './lib/v5/oauth';
-import { listGuideIds } from './lib/v5/guide-page';
+import { definiteGuideIds } from './lib/v5/guide-page';
 import { allowOf, serves } from './lib/v5/route-methods';
 
 /** The methods a route handler can be asked for; any other never reaches one. */
@@ -63,13 +63,22 @@ export async function guideGate(url: URL, ids: () => Promise<ReadonlySet<string>
   return known.has(m[1]) ? null : new URL(NOT_A_ROUTE, url);
 }
 
-/** The listed guide ids, read at most once a minute per process (a new program shows within a minute). */
-let guideCache: { at: number; ids: ReadonlySet<string> } | null = null;
-async function guideIds(): Promise<ReadonlySet<string>> {
-  if (guideCache && Date.now() - guideCache.at < 60_000) return guideCache.ids;
-  guideCache = { at: Date.now(), ids: new Set(await listGuideIds()) };
-  return guideCache.ids;
+/**
+ * A read kept for `ttl` ms after it succeeds (N3, v6.1.17 Task 4): a failed read (an empty id list throws, see
+ * definiteGuideIds) keeps nothing and throws, so the gate lets that request through and the next one reads again.
+ */
+export function okFor<T>(read: () => Promise<T>, ttl: number, clock: () => number = Date.now): () => Promise<T> {
+  let kept: { at: number; value: T } | null = null;
+  return async () => {
+    if (kept && clock() - kept.at < ttl) return kept.value;
+    const value = await read();
+    kept = { at: clock(), value };
+    return value;
+  };
 }
+
+/** The listed guide ids, read at most once a minute per process (a new program shows within a minute). */
+const guideIds = okFor(async (): Promise<ReadonlySet<string>> => new Set(await definiteGuideIds()), 60_000);
 
 export async function proxy(request: Request) {
   const url = new URL(request.url);
