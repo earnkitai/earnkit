@@ -5,6 +5,7 @@
  */
 import { inTx, sql, type Db } from './db';
 import { ProgramFile, categoryOf, type Program } from './program-file';
+import { quoteName } from './controls';
 
 export type ProgramRow = {
   id: string;
@@ -124,9 +125,12 @@ export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
 /** L1i-8 (v6.1.16.1): at most this many programs a lookup offers to pick from. */
 export const SUGGESTED = 3;
 /** The builder line for a name that is no one program (L1i-8, v6.1.16.1): up to three titles to pick from, as one
- *  question ("Which program do you mean: A, B or C?"); with none, "Which program do you mean? Say its name.". Pure. */
-export function unknownProgramLine(suggest: readonly string[]): string {
+ *  question ("Which program do you mean: A, B or C?"); with none, L1j-2 (v6.1.17): the name given, through quoteName
+ *  ('I do not know a program called "zzqx". Say its full name.'), or with no name "Which program do you mean? Say its
+ *  name.". Pure. */
+export function unknownProgramLine(suggest: readonly string[], name?: string): string {
   const shown = suggest.slice(0, SUGGESTED);
+  if (shown.length === 0 && name !== undefined && name.trim()) return `I do not know a program called ${quoteName(name.trim())}. Say its full name.`;
   if (shown.length === 0) return 'Which program do you mean? Say its name.';
   return `Which program do you mean: ${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`}?`;
 }

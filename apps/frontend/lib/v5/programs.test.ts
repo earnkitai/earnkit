@@ -146,6 +146,10 @@ test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any
   assert.equal(unknownProgramLine(['A', 'B']), 'Which program do you mean: A or B?');
   assert.equal(unknownProgramLine(['A', 'B', 'C', 'D']), 'Which program do you mean: A, B or C?');
   assert.equal(unknownProgramLine([]), 'Which program do you mean? Say its name.');
+  // L1j-2 (v6.1.17): with no candidates, the name given, through quoteName; with candidates, the question stays.
+  assert.equal(unknownProgramLine([], 'zzqx'), 'I do not know a program called "zzqx". Say its full name.');
+  assert.equal(unknownProgramLine([], 'say "hi"'), 'I do not know a program called "say \'hi\'". Say its full name.');
+  assert.equal(unknownProgramLine(['A', 'B'], 'zzqx'), 'Which program do you mean: A or B?');
   // Several: the first three by rank (open first, then the larger award, the sooner close), as a question.
   assert.deepEqual(await one('Base'), { id: null, line: "Which program do you mean: Base Builder Grant Program, Base Ecosystem Fund or Base Batches 005?" });
   // Lane 20 (v6.1.16): Monad Blitz Oregon is closed, so the open ones lead.

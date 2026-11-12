@@ -241,7 +241,8 @@ test('started for an unknown program refuses and records nothing', async () => {
   const c = await ctx();
   const r = await track(c, { program_id: 'nope-started', status: 'started' });
   assert.equal(r.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.');
+  // L1j-2 (v6.1.17): the name it was given.
+  assert.equal(r.show_to_builder, 'I do not know a program called "nope-started". Say its full name.');
   const bad = await track(c, { program_id: 't6-a', status: 'applied', submitted_by: 'robot' });
   // L29-10 (v6.1.16 Task 15): an input error has no builder text; the note says what to fix.
   assert.equal(bad.show_to_builder, '');
@@ -983,8 +984,8 @@ test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program 
   // Fix round 1b: in any case; an English word never names a program.
   assert.match((await track(c, { program_id: 'YC', status: 'skipped' })).agent_note, /^Matched y-combinator\. /);
   await sql()`DELETE FROM applications WHERE program_id = 'y-combinator'`;
-  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.', w);
-  assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.');
+  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, `I do not know a program called "${w}". Say its full name.`, w);
+  assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'I do not know a program called "Thiel Foundation". Say its full name.');
   const started = await track(c, { program_id: 'Y Combinator Winter 2027 Batch', status: 'started' });
   assert.equal(started.show_to_builder, '');
   assert.match(started.agent_note, /^Matched y-combinator\. /);
@@ -994,7 +995,7 @@ test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program 
   const several = await track(c, { program_id: 'uniswap', status: 'applied', submitted_by: 'builder' });
   assert.equal(several.show_to_builder, "Which program do you mean: Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
   assert.equal(several.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.');
+  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, 'I do not know a program called "qqq-zzz". Say its full name.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 2);
 });
 
@@ -1017,7 +1018,7 @@ test('final fix (v6.1.12, I2), re-pinned by L24-3 (v6.1.16 Task 11): loose names
   const count = async () => (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
   // A parent organizer in brackets, two letters, the start of a title: no program, nothing written.
   for (const name of ['aws', 'fi', 'kiro'])
-    assert.equal((await track(c, { program_id: name, status: 'applied', submitted_by: 'builder' })).show_to_builder, 'Which program do you mean? Say its name.', name);
+    assert.equal((await track(c, { program_id: name, status: 'applied', submitted_by: 'builder' })).show_to_builder, `I do not know a program called "${name}". Say its full name.`, name);
   assert.equal(await count(), 0);
   // A whole title word that is one program resolves, and the line names it.
   const sent = await track(c, { program_id: 'kiroween', status: 'applied', submitted_by: 'builder' });
@@ -1523,7 +1524,7 @@ test('L24-3: next, build, start and first name no program on any status; nothing
   for (const word of ['next', 'build', 'start', 'first'])
     for (const status of ['applied', 'won', 'rejected', 'started']) {
       const r = await track(c, { program_id: word, status, ...(status === 'won' ? { amount_usd: 100 } : {}), project: { name: 'Neutral Tool' } });
-      assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.', `${word} ${status}`);
+      assert.equal(r.show_to_builder, `I do not know a program called "${word}". Say its full name.`, `${word} ${status}`);
     }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 0);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n, 0);
@@ -1609,7 +1610,7 @@ test('L29-3: a win on a program with no application records the builder\'s own s
   // Fix round 1 (N4): no send date was given, so none is kept; the line says when it was recorded.
   assert.equal(row.sent_at, null);
   const { applicationsOf, applicationsLine } = await import('./ledger');
-  assert.equal(applicationsLine(await applicationsOf(`i:${c.installationId}`), NOW), 'Your applications: PayPal Like Hackathon (recorded Nov 4, won $5,000).');
+  assert.equal(applicationsLine(await applicationsOf(`i:${c.installationId}`), NOW), 'Your applications: PayPal Like Hackathon (won $5,000).');
   const hist = await sql()`SELECT status FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 'l293-pp' ORDER BY id`;
   assert.deepEqual(hist.map((h) => h.status), ['applied', 'won']);
   assert.equal(r.ledger.won, 1);
@@ -1638,7 +1639,7 @@ test('L29-15, L29-21, L29-23, L29-32: a list number, any case, agent by default;
   assert.equal(row.submitted_by, 'agent');
   // A number past the list asks which; started has no builder text, its note names it.
   const far = await track(c, { program_id: '9', status: 'started' });
-  assert.equal(far.show_to_builder, 'Which program do you mean? Say its name.');
+  assert.equal(far.show_to_builder, 'I do not know a program called "9". Say its full name.');
   const s = await track(c, { program_id: '1', status: 'STARTED', submitted_by: 'Agent' });
   assert.equal(s.show_to_builder, '');
   assert.match(s.agent_note, /^Matched list number 1 to l2915-a\. Started Number One Grant\. /);
@@ -2155,7 +2156,7 @@ test('L35-6 (v6.1.16.1 Task 2, Review Focus 10): #3, 3., No. 3, three and 3 mean
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-err-two'`)[0].n, 0);
   for (const ref of ['twenty-one', '#99']) {
     const r = await track(c, { program_id: ref, status: 'skipped' });
-    assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.', ref);
+    assert.equal(r.show_to_builder, `I do not know a program called "${ref}". Say its full name.`, ref);
     assert.equal(r.refused, true, ref);
   }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId} AND status = 'skipped'`)[0].n, 1);
@@ -2349,4 +2350,33 @@ test('M3 (Task 2 fix round 2): a join answer for one name on a repo never covers
   const r = await find({ ...at(b, 3), linkUrl: async () => null }, { project: { name: 'Bar', description: 'B.', repo_url: 'https://github.com/m3j/x' } });
   assert.equal(r.show_to_builder, JOIN_QUESTION('Bar', 'github.com/m3j/x'));
   assert.deepEqual((await rowsOf(b.owner, 'm3-g2')).map((x) => x.project_id), ['name:bar']);
+});
+
+test('L35-22 (v6.1.17): a send on an in-person program carries no fields_used note; a remote one still does', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l179-room', title: 'L179 Room', in_person: true }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l179-remote', title: 'L179 Remote' }), 'file', NOW);
+  try {
+    const room = await track(c, { program_id: 'l179-room', status: 'applied', submitted_by: 'builder' });
+    assert.equal(room.refused, undefined, room.agent_note);
+    assert.doesNotMatch(room.agent_note, /fields_used/);
+    const remote = await track(c, { program_id: 'l179-remote', status: 'applied', submitted_by: 'builder' });
+    assert.match(remote.agent_note, /Pass fields_used next time; nothing was checked against your record\./);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('l179-room', 'l179-remote')`;
+  }
+});
+
+test('L1j-2, L1j-5 (v6.1.17): track names the program it was given and the project keys it did not read', async () => {
+  const c = await ctx();
+  const r = await track(c, { program_id: 'zzqx', status: 'skipped' });
+  assert.equal(r.show_to_builder, 'I do not know a program called "zzqx". Say its full name.');
+  await upsertProgram(programFixture({ id: 'l179-keys', title: 'L179 Keys' }), 'file', NOW);
+  try {
+    const k = await track(c, { program_id: 'l179-keys', status: 'skipped', project: { name: 'Keys', bogus: 1 } });
+    assert.match(k.agent_note, / project\.bogus was not read\.$/);
+    assert.doesNotMatch(k.agent_note, /Some arguments were not read/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l179-keys'`;
+  }
 });
