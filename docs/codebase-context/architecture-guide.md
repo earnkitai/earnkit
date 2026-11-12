@@ -189,7 +189,22 @@ The pipeline, in order:
    failing block as `{title}: the form says it is closed ({url})`; it never marks the program stale and never changes
    `submit_ok`. A redirect to another host is followed only for this read (`landingPage` in safe-fetch: https, public
    addresses, at most `LANDING_MAX_REDIRECTS` (3) hops), so forms.gle reaches the Google form; the link check itself still never follows. A program unverified or stale for `STALE_DAYS`
-   (12, v6.1.17 Task 3) leaves the open list, so a page that stays down leaves within 14 days of its first failure. The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
+   (12, v6.1.17 Task 3) leaves the open list, so a page that stays down leaves within 14 days of its first failure.
+   v6.1.19 (lane 44): the closed read (`closedRead` in `health.ts`) covers the usual wordings (`applications are (now)
+   closed`, `this form is closed`, `submissions are closed`, `applications closed`, `registration is closed`, `the call
+   for proposals is closed`, `applications for ... have closed`, `not accepting submissions`, `no longer accepting`,
+   `the application period has ended`, `closed for submissions`, `is now closed`; L44-1), on visible text only
+   (`visibleText(html, { dropHidden: true })` drops `hidden`, `aria-hidden="true"` and `display:none` elements) with the
+   program's own description and rules sentences taken out (L44-7); a page whose every closed sentence names a round or
+   a region while it also says something is open (`is open`, `now open`, `apply now`) reads `round` (`closed_round`).
+   The source page is read the same way when it is another link (L44-19; `closed_on` says `form` or `source`, the
+   form's own read first), and `closed_since` keeps the day it first said the same. A link that redirects to another
+   host is judged on its landing page (L44-4): `probeLink` returns the Location and the redirects it took, and
+   `landingPage` starts there (L44-15: no hop fetched twice), every hop guarded as before; a landing that is a 4xx, 5xx,
+   an error page or a name that does not resolve makes the link fail (stale after 20 hours, as a direct link), a 401,
+   403 or 429 is up, and the landing's text is the source's `body_text` (so a change shows). A landing the guarded read
+   refuses or cannot finish leaves the link up and is counted (`health.form_unread`, `[health] {id} form not read past
+   its redirect`; L44-16). The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
    an upcoming one past `starts_at` active with opens_note dropped, one warning each), so a deploy never undoes a move. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
    `stats.ts` feed the site. A program card shows the summary's money phrase whenever it has a figure ("$250,000 over two years", "Up to $100,000 by tier, more by DAO vote", v6.1.15 fix round 2), never a threshold the builder must reach (" at $10M USDG TVL" is cut); with no figure in the phrase, the pool (`pool_usd`, as "$N in grants" or "$N in prizes"), then the per-winner `max_award_usd` ("$10,000 to $900,000" with a `min_award_usd`), else the phrase's words; a big tile, one lone figure, draws "Up to" small above it (`moneyOf` in `programs-read.ts`). v6.1.15 (lane 22, #12): money is in full figures on every surface (tile, list API, guide, reply), never K or M; only the hero chip rounds, down, to one decimal (`heroUsdText`, "$3.1M"). The tile, the list API, the guide header and the find reply share `moneyOf`'s string: with a capital on the tile and guide, and lowercase mid-sentence in the reply (find's `moneyOf` is `moneyAt(moneyOf(p), 'mid')`), keeping "EUR", "NYC", "$", "iOS", "DeFi" and chain names (`lowerFirst`, one rule wherever a phrase is lower-cased). `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M; v6.1.16 (L1h-1) also K or M (any case: `$325k`, `2M ARB`) in the description, the reward, every past round (label, themes, examples) and each requirement's `todo`, so the guide, the lookup JSON and the needs lists carry full figures; a requirement's `label` is the program's own question and keeps its words. v6.1.16 Task 8 (lane 22): one money format for the ledger too: `moneyText(amount, currency)` in `programs-read.ts` (`$5,000`, `$2,500.50` with cents only when given, `EUR 2,000` code first and never converted; `usdFull` is `moneyText` in USD) and `totalText` for totals (`$3,500.50 and EUR 2,000`, `$5,000, one amount not given`); find's applications line, track's lines, /me's rows and totals and the screen's notes all use them. `/api/stats` keeps `won_usd` (the US dollar part only) and adds `won_other` (`[{ currency, amount }]`) and `won_without_amount`; the landing reads `open_money_usd` only. Every catalog write (the API's, `syncFiles`, the cron's status flip) calls `revalidateCatalog()` (`programs-read.ts`), which expires the shared `PROGRAMS_TAG` (stats, landing, list, guides) and the catalog paths at once. v6.1.16 (L21-2): `programs:check` refuses a closed program whose description or rules carry an open-window sentence (`OPEN_WINDOW` in `program-checks.ts`: "applications are open", "apply now", "open until"); a closed program's guide (status closed, or `ends_at` passed) reads `Closed on 1 Nov 2026.` (`closedOn`: the `ends_at` day in the program's zone, else `verified_at`) as its window line, and its description and rules drop each open-window sentence, so a date-closed file still marked active reads right. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). v6.1.16 (Task 7): an open guide's close reads the one closes wording (`closesSentence` over `closesWords`, v6.1.16 Task 9: `Closes in under an hour.`, `Closes today.`, `Closes tomorrow.`, `Closes in {n} days.` within 14 calendar days, else `Closes Nov 30.`), its meta description is `guideMeta` ("$67,500 in prizes, closes Nov 12. ..."), its description ends as a sentence, and an in-person program's first pill is `In person: {city}.` (`city` on the file; `programs:check` refuses an in-person file without one). An unknown guide id renders the site's not-found content in the server HTML with noindex (HTTP 200; notFound() left the production body empty on Next 16.4.1). The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M. v6.1.16 (L21-2): `programs:check` refuses a closed program whose description or rules carry an open-window sentence (`OPEN_WINDOW` in `program-checks.ts`: "applications are open", "apply now", "open until"); a closed program's guide (status closed, or `ends_at` passed) reads `Closed on 1 Nov 2026.` (`closedOn`: the `ends_at` day in the program's zone, else `verified_at`) as its window line, and its description and rules drop each open-window sentence, so a date-closed file still marked active reads right. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). v6.1.16 (Task 7): an open guide's close reads the one closes wording (`closesSentence` over `closesWords`, v6.1.16 Task 9: `Closes in under an hour.`, `Closes today.`, `Closes tomorrow.`, `Closes in {n} days.` within 14 calendar days, else `Closes Nov 30.`), its meta description is `guideMeta` ("$67,500 in prizes, closes Nov 12. ..."), its description ends as a sentence, and an in-person program's first pill is `In person: {city}.` (`city` on the file; `programs:check` refuses an in-person file without one). An unknown guide id is a true 404 (v6.1.16 Task 13, L27-3): `proxy.ts` (`guideGate`, the listed ids read at most once a minute) rewrites `/programs/<id>` for an id no list shows to a path no route serves (`NOT_A_ROUTE`), so `app/not-found.tsx` renders inside the layout (lang, main, the h1) with status 404; the page's own `notFound()` stays only as the fallback, because on Next 16.4.1 a thrown `notFound()` reaches the browser as the empty `__next_error__` shell. The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment An unknown guide id is a true 404 (v6.1.16 Task 13, L27-3): `proxy.ts` (`guideGate`, the listed ids read at most once a minute) rewrites `/programs/<id>` for an id no list shows to a path no route serves (`NOT_A_ROUTE`), so `app/not-found.tsx` renders inside the layout (lang, main, the h1) with status 404; the page's own `notFound()` stays only as the fallback, because on Next 16.4.1 a thrown `notFound()` reaches the browser as the empty `__next_error__` shell. The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment
@@ -400,7 +415,7 @@ that never exchanged a code (`oauth_clients.used_at`), `sweep_evidence` the evid
 `SCREEN_BATCH` 200 until `min(start + 300 s, deadline - 20 s)`), then `digest`. One `deadline = start +
 RUN_BUDGET_MS` (420 s; curl waits 540), the walk's own share `HEALTH_BUDGET_MS` 180 s (fix round 1, so the queue keeps at least 220 s): health and the queue start only before it, else they are listed with error
 `budget`; a probe starts only when it can finish before it; the sweeps and the digest always run. The answer is
-`{ health: { checked, stale, changed, closed, opened, unreadable }, swept: { repo_cache, reports, screens, link_codes,
+`{ health: { checked, stale, changed, closed, opened, unreadable, form_unread }, swept: { repo_cache, reports, screens, link_codes,
 sessions, oauth_codes, oauth_clients, evidence, windows, outcome_asks }, screen: { read, requeued, left, jobs_finished },
 digest, failed: [{ id, step, error }] }` (v6.1.17 Task 3, L30-13: the shape is pinned in `cron.test.ts`; `requeued`
 counts reads put back for a retry, never in `read`; `sweep_asks` drops `outcome_asks` rows asked over 30 days before
@@ -430,6 +445,35 @@ L18-5, v6.1.19 L42-7: when the previous UTC day had sends, a `{n} sent yesterday
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
 day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
 JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minutes), no probe, sweep or digest.
+
+v6.1.19 Task 6 (lane 44), the daily run round 3. A run whose link check failed (the walk threw, or `budget`) builds
+no digest (`digest: 'no check'`, one `[cron]` log line; it counts with the failed steps for the 500 rule) and stores
+only `cron_state.last_check_failed_at` (L44-3, L44-10): `last_run_at`, `prev_run_at` and `day_first_at` stay, so a
+same-day rerun that fails never mails a smaller digest, and the next run that finishes its check starts the day and
+mails once (an A, fail, A day is one email). `last_run_at` is null until a run finishes its check. `/api/stats` adds
+`last_check_ok` (false while the latest failed check is after `last_run_at`). The digest reads only stored rows: the
+unreadable list comes from `programs` (L44-20: a saved entry that no longer parses, by id, under `Programs the run
+could not read`; an upcoming program at its start with no form, by title, under `Programs to fix`, L44-13), and
+`sendOwnerDigest(now, mailer)` takes nothing from the run. The body, in order:
+- `The link check failed on {Nov 12}; this digest covers {two} days.` when the last failed check was on an earlier UTC
+  day with no digest and after the last digest sent (L44-10);
+- the gap line, only when the true hours (rounded to the nearest) are over 26 (L44-12);
+- the sends line, with the days since the last digest's day that no digest reported carried in, at most `MISSED_DAYS`
+  (14) back: `{n} sent yesterday: {a} by agents, {d} drafted here, {r} from outside (and {k} on {Nov 10}, missed).
+  {total} to date.` (`0 sent yesterday (and ...).` when only missed days had sends; L44-9), then `- {title}: {k} sent`
+  per program (L44-18); an outside win has no send time, so it is never a send on any day (L44-2);
+- `Results: $5,000 won at {title}; {title} said no.` from `application_history` wins and rejections since the last
+  digest (a further payment adds its money again; money as given, `2,000 EUR` for another currency; never who; L44-11);
+- `Programs the run could not read`, `Programs to fix`, the deadline closes and the openings as before;
+- `Links that did not load`: `- {title}: down {since today | 1 day | 4 days} ({url})`, from `first_failed_at`;
+- `Forms that say they are closed` (L44-6, active programs only): `- {title}: the form says it is closed, {age} ({url})`
+  (`the page says` and the source link when the source page said it), and `- {title}: the form says one round is closed
+  ({url}); check it.` on the day `closed_since` began only (L44-7);
+- a program no longer on the builders' list (`listListedPrograms`: stale over `STALE_DAYS`, unverified) reads
+  `{title} (not listed)` in both blocks (L44-8);
+- the changed pages and the changes to live programs as before.
+The workflow removes `body.json` before each try, so a failed retry never prints the first try's body (L44-14). The
+`sent_asks` sweep is Task 4's (`sweepAsks`).
 
 ## The site
 
@@ -541,8 +585,8 @@ keys from tool-call bodies before anything sees them.
 | `programs` | Every program: the whole record in `file`, plus mirrored columns and source (`file` or `api`) |
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
-| `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at, `first_failed_at` (v6.1.17: stale at 20 hours of failing) |
-| `cron_state` | v6.1.17 Task 3: one row, `last_run_at` of the last daily run that answered 200 (`/api/stats`, the digest's gap line) |
+| `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at, `first_failed_at` (v6.1.17: stale at 20 hours of failing); `submit_closed` (v6.1.18), `closed_round`, `closed_on` and `closed_since` (v6.1.19: the closed read, its page and its age) |
+| `cron_state` | v6.1.17 Task 3: one row, `last_run_at` of the last daily run that answered 200 and (v6.1.19) finished its link check (`/api/stats`, the digest's gap line); `last_check_failed_at` of the last run whose check failed (`last_check_ok`, the digest's opening line) |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
