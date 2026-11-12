@@ -21,12 +21,12 @@ import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './pre
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
-import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -41,7 +41,7 @@ export const FindArgs = z.object({
   filter: z
     .object({
       category: z.enum(PROGRAM_CATEGORIES).optional(),
-      all: z.boolean().optional().describe('true for every program, including the ones that do not fit, with the reason'),
+      all: z.boolean().optional().describe('true for every program that fits or nearly fits, names and money for the builder (not_fit gives the rest with the reason); for all of them, call find with no project'),
     })
     .optional(),
 });
@@ -74,6 +74,8 @@ export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unr
   const category = (raw.filter as { category?: unknown } | undefined)?.category;
   const problems = read.problems.map((p) =>
     p.startsWith('filter.category dropped') ? `category ${JSON.stringify(cleanText(String(category), 40))} was not read: use ${PROGRAM_CATEGORIES.slice(0, -1).join(', ')} or ${PROGRAM_CATEGORIES.at(-1)}` : p);
+  // L1j-5 (v6.1.17): a key inside project that is no project field is named, never refused.
+  problems.push(...unknownProjectKeys(p));
   // L29-14 (v6.1.16 Task 15): a project fact passed beside project, never read there, is named.
   for (const k of Object.keys(raw)) if (k !== 'project' && Object.hasOwn(ProjectArg.shape, k)) problems.push(`${k} belongs inside project`);
   let r = FindInput.safeParse(args);
@@ -372,14 +374,16 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   if (v.status === 'no') return { lines: [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules], offer: null };
   if (v.status === 'gap') {
     const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
-    // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once, last; when it is the only step it is the action.
-    const signLast = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
+    // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once; when it is the only step it is the action. L1j-6
+    // (v6.1.17): the action is last, so the sign-in beside other gaps comes before it.
+    const signFirst = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
     const action = gapAction(g, o.signIn);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
-    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn)), ...o.rules, action, signLast].filter((l): l is string => l !== null), offer: actionOffer(action) };
+    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn)), ...o.rules, signFirst, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
   }
   const r = { ...ready(), n: 0 };
-  if (r.in_person) return { lines: [inPersonLine(r, true), ...o.rules], offer: null };
+  // L1j-7 (v6.1.17): an in-person program closes on its one action too.
+  if (r.in_person) return { lines: [inPersonLine(r, true), ...o.rules, IN_PERSON_ONE], offer: null };
   if (o.standing) return { lines: [readyLine(r, o.linked, o.now, true), ...o.rules, STANDING_ONE], offer: 'stop' };
   // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you. L1e-3 (v6.1.13): one
   // the builder submits too, in the draft wording. L24-2 (v6.1.16 Task 11): only after an apply offer.
@@ -393,6 +397,9 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   const c = closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands: yesStandsFor, draftStands, yesWaits, title: r.title });
   return { lines: [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, c.text], offer: c.offer };
 }
+
+/** L1j-7 (v6.1.17): the one action of an in-person program's own reply. */
+export const IN_PERSON_ONE = 'You apply in person; the guide has the steps.';
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string, given: string[] = []): Promise<ProgramReply> {
@@ -408,7 +415,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // L29-9, L29-15 (v6.1.16 Task 15): a refusal (isError), a question for the builder and the way on for the agent.
   if (!row)
     return refuse({
-      show_to_builder: unknownProgramLine(suggest),
+      // L1j-2 (v6.1.17): with no program to offer, the name the builder gave.
+      show_to_builder: unknownProgramLine(suggest, id),
       agent_note: 'program_id takes the id or the name; a list number maps to the id in the JSON. Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [], linked: ctx.builderId !== null,
     });
   // Final fix (v6.1.12, I2): matched by another name, the first line names the program (every line here leads with it).
@@ -467,7 +475,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && hasProof(verdict.gaps);
   const link = signStep ? await linkOf(ctx) : null;
   // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
-  const signIn = signStep ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), true) : null;
+  const signIn = signStep ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), proofBarOf(verdict.gaps) ?? true) : null;
   // L23-18 (v6.1.16): a closed program the builder sent says when, and when results come.
   const sent = closed ? await sentOf(ownerOf(ctx), id, key) : null;
   const due = sent ? resultsDateOf(row) : null;
@@ -551,6 +559,9 @@ export const openLine = (p: Program, now: Date): string => {
   return `${p.title}, ${moneyOf(p)}${closes ? `, ${closes}` : ''}${p.in_person ? ', in person' : ''}.`;
 };
 
+/** L35-9 (v6.1.17): the agent line when the yes covers ready programs past the listed ones. */
+export const PAST_LIST_NOTE = (k: number): string =>
+  `The yes covers ${k} more ready ${k === 1 ? 'program' : 'programs'} past this list: on yes, call find with filter.all for their fields before you send them.`;
 /** L1i-5 (v6.1.16.1): the agent line beside the full list's number ask. */
 export const FULL_NUMBER_NOTE = "When the builder says a number from the full list, call find with that item's program_id.";
 /** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
@@ -666,14 +677,6 @@ function rawName(project: unknown): string | null {
   return t || null;
 }
 
-/** The agent's line for arguments find could not read (L13-4, v6.1.14), or ''. Pure. */
-/** Fix round 1 (N6, v6.1.16 Task 15): an item that says itself what was not read (L29-13, L29-14) is its own sentence. */
-const OWN_SENTENCE = / was not read: | belongs inside project$/;
-const unreadNote = (unread: string[]) => {
-  const own = unread.filter((u) => OWN_SENTENCE.test(u));
-  const rest = unread.filter((u) => !OWN_SENTENCE.test(u));
-  return [...(rest.length > 0 ? [`Some arguments were not read: ${rest.join('; ')}.`] : []), ...own.map((u) => `${u}.`)].join(' ');
-};
 
 /** Whether the project report gives a shortened link in any link field (L16-8, v6.1.16). Pure. */
 function shortLinkIn(project: unknown): boolean {
@@ -1178,7 +1181,10 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // default view's Say; `said` writes the reply from the final numbers.
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
-  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer).shown;
+  // L35-9 (v6.1.17): every ready program the yes covers, the ones past the default caps too, so the default view's count
+  // is the full list's Ready count.
+  const readyAll = readyV.filter((v) => !attending(v) && !holds.has(v.program_id) && !builderHeld.has(v.program_id)).length;
+  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer, { readyAll }).shown;
   const prevIds = all && (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
   const stable = stableNumbers(prevIds, [...laid, ...byN.filter((id) => !laid.includes(id))]);
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
@@ -1186,7 +1192,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L1i-5: the full list closes on the default view's Say, from the programs the default view lists.
   const defaultSay = all ? (() => {
     const ids = defaultIdsOf();
-    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true }).say;
+    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true, readyAll }).say;
   })() : undefined;
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
@@ -1198,12 +1204,15 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
   // L1i-6 (v6.1.16.1): the full list says every close, beyond the gap lines' own window (the JSON keeps closes_at).
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
-  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
+  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, readyAll, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
+  // L35-9 (v6.1.17): the yes covers ready programs this reply does not list.
+  const listedFree = r.ready.filter((p) => !p.in_person && !p.claimed_since && !p.held).length;
+  const pastList = !all && listedFree > 0 && readyAll > listedFree ? PAST_LIST_NOTE(readyAll - listedFree) : '';
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), pastList, said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
     more: more > 0 || said.hidden.length > 0,
   };
