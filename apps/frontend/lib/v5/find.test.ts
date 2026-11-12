@@ -1408,6 +1408,82 @@ test('L1j-1, L1j-3, L1j-6 (v6.1.17, Review Focus 1 and 3): the lane 1j personas:
   assert.deepEqual(vr.split('\n').slice(-2), ['And 2 more in the full list.', 'Sign in once and I check the repo is yours; then say yes.']);
 });
 
+/**
+ * v6.1.17 Task 5 (v6.1.16 Task 15 M5, Task 8 N4): lane 1h's personas as named replays, their own words on a recorded
+ * repo of the same kind (a Solana repo, a Base app, an archived, an empty or a public Next.js repo; no repo stays none),
+ * signed out with a link, as lanes 1h and 1j ran them.
+ */
+const LANE_1H: Record<string, { project: Record<string, unknown>; repo?: string }> = {
+  2: { repo: 'saber-distributor', project: { name: 'Orca Whirlpools', description: 'Concentrated liquidity DEX on Solana with a TypeScript and Rust SDK', live_url: 'https://www.orca.so', chains: [{ chain: 'solana', mainnet: true, contract: 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc' }], users: true } },
+  3: { repo: 'onchain-reaction', project: { name: 'Arkanoid Breakout Orchestrator', description: 'ERC-8004 compliant AI agent on Base that orchestrates Arkanoid Breakout game sessions', live_url: 'https://arkanoid-breakout-five.vercel.app', chains: [{ chain: 'base', mainnet: true }] } },
+  6: { repo: 'nextjs-dashboard', project: { name: 'VoteChain', description: 'Hackathon project: private onchain voting built this weekend on Scaffold-ETH', first_commit_at: '2026-11-07T10:00:00Z', last_commit_at: '2026-11-09T22:00:00Z', chains: [{ chain: 'base', mainnet: false }] } },
+  8: { project: { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' } },
+  9: { repo: 'nextjs-dashboard', project: { name: 'Billing Core', description: 'Usage-based billing engine for B2B APIs, private repo', private: true, users: true } },
+  12: { repo: 'archived-dashboard', project: { name: 'Atom', description: 'The hackable text editor' } },
+  15: { repo: 'empty-repo', project: { name: 'LibreDesktop project list', description: 'A list of LibreDesktop projects' } },
+  18: { repo: 'nextjs-dashboard', project: { name: 'Chainlink price feeds', description: 'Decentralized oracle network delivering price data onchain; ETH/USD feed on Ethereum', chains: [{ chain: 'ethereum', mainnet: true, contract: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419' }], users: true } },
+  24: { repo: 'nextjs-dashboard', project: { name: 'Onchain Tipjar', description: 'Tip jar contract for creators on Base', chains: [{ chain: 'base' }] } },
+  26: { repo: 'nextjs-dashboard', project: { name: 'Sepolia Escrow', description: 'Escrow contract deployed on Sepolia testnet only', chains: [{ chain: 'ethereum', mainnet: false, contract: '0x1111111111111111111111111111111111111111' }] } },
+  29: { project: { name: 'BaseMint', description: 'NFT mint page on Base', chains: [{ chain: 'base', mainnet: true, contract: '0x4200000000000000000000000000000000000006' }] } },
+  30: { project: { name: 'Roomly', description: 'A booking app for coworking rooms', users: true } },
+  31: { project: { name: 'SolTip', description: 'Tipping app on Solana', chains: [{ chain: 'solana', mainnet: true }] } },
+};
+const LANE_1H_LINK = 'https://earnkit.com/link/lane1h';
+async function lane1hAll(id: number): Promise<Record<string, unknown>> {
+  const p = LANE_1H[id];
+  const rr = p.repo ? replayFetch(p.repo) : null;
+  const c = { installationId: await installation(), builderId: null, now: NOW, ...(rr ? { gh: rr.fetch } : {}), linkUrl: async () => LANE_1H_LINK };
+  return (await mcpCall(c, 'find', { project: { ...p.project, ...(rr ? { repo_url: `https://github.com/${rr.repo}` } : {}) }, filter: { all: true } })).reply!;
+}
+async function lane1h(id: number, all = false): Promise<string> {
+  const p = LANE_1H[id];
+  const rr = p.repo ? replayFetch(p.repo) : null;
+  const c = { installationId: await installation(), builderId: null, now: NOW, ...(rr ? { gh: rr.fetch } : {}), linkUrl: async () => LANE_1H_LINK };
+  const project = { ...p.project, ...(rr ? { repo_url: `https://github.com/${rr.repo}` } : {}) };
+  const r = await mcpCall(c, 'find', { project, ...(all ? { filter: { all: true } } : {}) });
+  assert.equal(r.isError, false, r.text);
+  return r.reply!.show_to_builder as string;
+}
+
+const SOLANA_MOBILE = 'Solana Mobile Builder Grants, milestone grants, requests of $10,000 to $50,000';
+const MWA = 'use Mobile Wallet Adapter and Seed Vault in an Android app. Their rule: a mobile-focused dApp for the Solana Mobile ecosystem.';
+
+test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15, 30 and 31 name the gap once in line 1 and the closing names only the step', async () => {
+  const signIn = (proof = false) => `Sign in once at ${LANE_1H_LINK} and I ${proof ? 'read your repo for proof and remember you' : 'remember you across agents'}.`;
+  const CODE = 'Nothing is ready yet. Tell me when the code is in a repo and I look again.';
+  const futo = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
+  const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}. First: publish a funding manifest on your site or repo.`;
+  const want: [number, string, string[], string][] = [
+    [8, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE],
+    [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), 'Private repo: matched on what you told me.', signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.'],
+    [12, 'the repo is archived', ['One step away (1):', floss('the repo is archived'), ...inPersonBlock(2), signIn(true)], 'Nothing is ready yet. Tell me the live repo and I look again.'],
+    [15, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), 'The repo is empty, so I matched on what you told me.', signIn()], CODE],
+    [30, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE],
+    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], CODE],
+  ];
+  for (const [id, gap, head, closing] of want) {
+    const show = await lane1h(id);
+    assert.equal(show, [...head, closing].join('\n'), `persona ${id}`);
+    const lines = show.split('\n');
+    // The gap words once, in line 1; no other line but the closing's step speaks of the same gap.
+    assert.equal(lines[1].split(gap).length, 2, `persona ${id}`);
+    assert.ok(lines.slice(2, -1).every((l) => !l.includes(gap) && !/^Tell me|First:.*repo is|code in a repo/i.test(l.replace(/^\d+\. [^:]+: /, ''))), `persona ${id}`);
+    assert.equal(show.split(LANE_1H_LINK).length, 2, `persona ${id}`);
+  }
+});
+
+test('L1h-3 (v6.1.17 Task 5, v6.1.16 Task 8 N4): lane 1h\'s filter.all for personas 2, 3, 6, 18, 24, 26, 29 and 31 never reads "on Solana and Mobile Wallet Adapter"', async () => {
+  for (const id of [2, 3, 6, 18, 24, 26, 29, 31]) {
+    const r = await lane1hAll(id);
+    const text = [listText(r), r.agent_note as string].join('\n');
+    assert.doesNotMatch(text, /on Solana and Mobile Wallet Adapter/, `persona ${id}`);
+    const line = listText(r).split('\n').find((l) => l.includes(`${SOLANA_MOBILE}:`))!;
+    // A Solana project needs only the feature; any other the contract first, joined with ", and".
+    const solana = id === 2 || id === 31;
+    assert.equal(line.replace(/^\d+\. /, ''), `${SOLANA_MOBILE}: ${solana ? '' : 'deploy the contract on Solana, and '}${MWA}`, `persona ${id}`);
+  }
+});
+
 test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full replies hold no chain step; contract programs are not a fit', async () => {
   const d = await mcpCall(await dashCtx(), 'find', { project: SAAS });
   assert.equal(d.isError, false, d.text);
@@ -3031,6 +3107,15 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
   // Another list: not said.
   const other = await mcpCall(ctx(id, new Date(NOW.getTime() + 11 * H)), 'find', { project: { name: 'Notes', description: 'Personal markdown notes' } });
   assert.equal(other.reply!.nothing_new_since, undefined);
+  // v6.1.17 Task 5 (v6.1.16 Task 9 N3): the nothing-new line itself, exactly. This find's reply, cut to its first ready
+  // row so the 10 lines leave room and with its since line empty (nothing else moved; this file's catalog moved Alliance),
+  // reads it: the same day `your last look`, a later day the date.
+  const { replyText } = await import('./reply');
+  const since = again.reply!.since as Record<string, unknown>;
+  const short = { ...again.reply!, since: { ...since, new: [], changed: [], closing: [] }, ready: (again.reply!.ready as unknown[]).slice(0, 1), gaps: [], in_person: [], you_send: [] };
+  const sinceOf = (now: Date) => replyText(short as never, false, now).split('\n').filter((l) => /^Nothing new since|^Since /.test(l));
+  assert.deepEqual(sinceOf(new Date(NOW.getTime() + 10 * H)), ['Nothing new since your last look.']);
+  assert.deepEqual(sinceOf(new Date(NOW.getTime() + 48 * H)), ['Nothing new since Nov 4.']);
 });
 
 /** Every string literal on an assert line of a test file: the pinned replies and their parts. */
@@ -3138,6 +3223,31 @@ test('L24-2 (Review Focus 14): a yes to a question settles only the question; th
     for (const r of [list, again]) assert.doesNotMatch(r.reply!.agent_note as string, /without asking again/);
   } finally {
     await sql()`DELETE FROM programs WHERE id IN ('l24-us', 'l24-rule')`;
+  }
+});
+
+test('L23-12 K7 (v6.1.17 Task 5, v6.1.16 Task 9 N3): 181 days and a sweep later, a name-only find keeps the repo, the confirmed rule and its standing yes', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { ruleItem } = await import('./eligibility');
+  const { resolvedKey, sweepReports } = await import('./ledger');
+  const ends = new Date(NOW.getTime() + 365 * 24 * H).toISOString();
+  await upsertProgram(programFixture({ id: 'k7-rule', title: 'K7 Rule Grant', ends_at: ends, eligibility: [{ kind: 'rule', note: 'a first-time founder' }] }), 'file', NOW);
+  try {
+    const { id: lid, builderId: lb } = await linkedWith({}, [], 'BurntSushi');
+    const at = (days: number) => ({ ...ctx(lid, new Date(NOW.getTime() + days * 24 * H)), builderId: lb }) as unknown as ReturnType<typeof ctx>;
+    const last = async (days: number, project: Record<string, unknown>) => ((await mcpCall(at(days), 'find', { program_id: 'k7-rule', project })).reply!.show_to_builder as string).split('\n').at(-1);
+    assert.equal(await last(0, L24_CLI), 'Say yes if that is you and I draft it.');
+    const yes = await mcpCall(at(0), 'track', { program_id: 'k7-rule', status: 'gap_done', item: ruleItem('a first-time founder'), project: L24_CLI });
+    assert.equal(yes.isError, false, yes.text);
+    assert.equal(await last(0, L24_CLI), 'Say yes and I apply to K7 Rule Grant.');
+    const later = new Date(NOW.getTime() + 181 * 24 * H);
+    await sweepReports(later);
+    const owner = `b:${lb}`;
+    assert.equal(await resolvedKey(owner, 'name:ripgrep'), 'https://github.com/burntsushi/ripgrep');
+    // The name alone, after the sweep: the rule yes and the apply offer still stand.
+    assert.equal(await last(181, { name: L24_CLI.name, description: L24_CLI.description }), 'Your yes stands for K7 Rule Grant: I apply now.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'k7-rule'`;
   }
 });
 
@@ -3368,6 +3478,31 @@ test('Review Focus 17 (L26-4): a one-program find is under 20 KB for each of the
     for (const g of all.reply!.gaps as GapProgram[]) assert.ok(g.money && g.gap.what, g.program_id);
     for (const p of allReady(all.reply!) as ReadyProgram[]) assert.ok(p.money, p.program_id);
   }
+});
+
+test('L35-9 (v6.1.17 Task 5, Task 1 re-review): a default reply over the 30 KB cap keeps the ready programs\' fields and empties the other lists\' first', async () => {
+  const { findReplyCap, MORE_THAN_FITS } = await import('./find');
+  const fields = (k: number, tag: string) => Array.from({ length: k }, (_, i) => ({ key: `${tag}${i}`, label: `F ${i}`, value: 'x'.repeat(4_000), from: 'agent', sources: ['s'] }));
+  const row = (n: number, id: string, k: number) => ({ n, program_id: id, money: '$5,000', fields: fields(k, id) });
+  // The ready program has the highest number, so a cap by number alone would empty it first.
+  const reply = {
+    show_to_builder: 'Say yes and I apply to all 1 ready.', agent_note: 'note',
+    ready: [row(9, 'r9', 2)],
+    in_person: [row(3, 'p3', 6)],
+    gaps: [{ ...row(2, 'g2', 6), gap: { kind: 'rule', item: 'rule', what: 'a rule', effort: 'low', agent_can: false, docs: 'd'.repeat(500) }, also: [{ kind: 'users' }], rules: ['r'], setup: ['s'], needs: ['n'] }],
+  };
+  const cap = 30_720;
+  assert.ok(Buffer.byteLength(JSON.stringify(reply)) > cap);
+  const out = findReplyCap(reply as never, cap, true) as unknown as typeof reply;
+  assert.ok(Buffer.byteLength(JSON.stringify(out)) <= cap);
+  assert.deepEqual(out.ready[0].fields, reply.ready[0].fields);
+  assert.equal(out.in_person[0].fields.length, 0);
+  assert.equal(out.gaps[0].fields.length, 0);
+  assert.equal(out.gaps[0].money, '$5,000');
+  assert.ok(out.agent_note.endsWith(MORE_THAN_FITS));
+  // Without keepReady (filter.all), the highest number goes first: the ready program's fields.
+  const byNumber = findReplyCap(reply as never, cap) as unknown as typeof reply;
+  assert.equal(byNumber.ready[0].fields.length, 0);
 });
 
 test('L26-4: a one-program reply carries two guide rules and points at the guide page; one past its cap names the page', async () => {
