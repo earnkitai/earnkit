@@ -1961,7 +1961,7 @@ test('L38-30 (v6.1.18): a ready program whose setup step is the builder\'s own c
 test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I note it." and sits before the Say (or is it, last)', async () => {
   const { sentLines, replyParts: parts } = await import('./reply');
   const NOW = new Date('2026-11-12T12:00:00Z');
-  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-12T10:00:00.000Z', project_id: null };
+  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-12T10:00:00.000Z', project_id: null, project: null };
   assert.deepEqual(sentLines({ ask_sent: [kiro] }), ['Did you send Kiroween 2026? Say sent and I note it.']);
   const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
   // ONE_SAY_ORDER: after the started lines, before the closing; alone, the sent question is the reply's one Say, last.
@@ -1973,9 +1973,9 @@ test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I no
   const t = renderReply({ ...one, ask_sent: [kiro], released: [started] }, false, NOW);
   assert.ok(t.endsWith('\nDid you send Kiroween 2026?\nA Grant: started Nov 10, nothing sent. Say yes to apply or say skip.'), t);
   assert.equal(t.match(/\bSay\b/g)?.length, 1, t);
-  // Two asks: the first keeps the Say.
+  // L41-11 (v6.1.19): two asks are one line, one Say for both.
   const two = renderReply({ ...one, ask_sent: [kiro, { ...kiro, program_id: 'b', title: 'Beta Jam' }] }, false, NOW);
-  assert.ok(two.endsWith('\nDid you send Beta Jam?\nDid you send Kiroween 2026? Say sent and I note it.'), two);
+  assert.ok(two.endsWith('\n1. Alpha Grant, $1K.\nDid you send Kiroween 2026 and Beta Jam? Say which you sent and I note them.'), two);
   // The agent note says how to record each answer, also when nothing is listed.
   const note = 'The reply asks whether each was sent: Kiroween 2026. "sent" is track applied with submitted_by builder; "not yet" needs no call.';
   assert.ok(agentNote({ ...one, ask_sent: [kiro] }, { more: 0 }).split('\n').includes(note));
@@ -1983,12 +1983,31 @@ test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I no
   assert.equal(renderReply(base({ ask_sent: [kiro] }), false, NOW).split('\n').at(-1), 'Did you send Kiroween 2026? Say sent and I note it.');
 });
 
+test('L41-11 (v6.1.19): every sent question in a reply is one line; a released row that asks has no line of its own', async () => {
+  const { sentLines } = await import('./reply');
+  const NOW = new Date('2026-11-12T12:00:00Z');
+  const ask = (id: string, title: string) => ({ program_id: id, title, started_at: '2026-11-12T10:00:00.000Z', project_id: null, project: null });
+  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-11T09:00:00.000Z', ask: true as const };
+  const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
+  const t = renderReply({ ...one, ask_sent: [ask('code', 'Codegeist 2026')], released: [kiro] }, false, NOW);
+  assert.equal(t.split('\n').at(-1), 'Did you send Codegeist 2026 and Kiroween 2026? Say which you sent and I note them.');
+  assert.doesNotMatch(t, /started Nov 11/);
+  assert.equal(t.match(/Did you send/g)?.length, 1, t);
+  assert.ok(t.split('\n').length <= 10);
+  // Three named, then the count.
+  const five = ['A', 'B', 'C', 'D', 'E'].map((x) => ask(x, `${x} Jam`));
+  assert.deepEqual(sentLines({ ask_sent: five }), ['Did you send A Jam, B Jam, C Jam and 2 more? Say which you sent and I note them.']);
+  // A sent question offers nothing to apply.
+  assert.equal(replyParts({ ...base({}), ask_sent: five.slice(0, 2) }, false, NOW).offer, null);
+});
+
 test('L36-2: a builder-sent claim past 24 hours asks instead of saying nothing sent; its agent note is the sent note', () => {
   const NOW = new Date('2026-11-12T12:00:00Z');
   const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
   const futo = { program_id: 'futo', title: 'FUTO Microgrants', started_at: '2026-11-11T09:00:00.000Z', ask: true as const };
   const t = renderReply({ ...one, released: [futo] }, false, NOW);
-  assert.equal(t.split('\n').at(-1), 'FUTO Microgrants: started Nov 11; did you send it? Say sent and I note it.');
+  // L41-11 (v6.1.19): asked in the one sent question.
+  assert.equal(t.split('\n').at(-1), 'Did you send FUTO Microgrants? Say sent and I note it.');
   assert.doesNotMatch(t, /nothing sent/);
   const n = agentNote({ ...one, released: [futo] }, { more: 0 });
   assert.match(n, /The reply asks whether each was sent: FUTO Microgrants\./);

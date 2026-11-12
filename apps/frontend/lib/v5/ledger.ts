@@ -33,6 +33,8 @@ export const WHICH_CHANGE = 'Which change did you finish? Say the program and th
 export const OTHER_AGENT_HOLDS = 'Your other agent is handling that one; nothing recorded.';
 /** L23-3 (v6.1.16): the agent note when a send landed over another agent's live claim: recorded, the claim cleared. */
 export const OTHER_CLAIM_NOTE = 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.';
+/** L41-11 (v6.1.19): the agent note when the live claim was the same builder's other agent's: that start is closed. */
+export const OWN_CLAIM_NOTE = "Recorded; the builder's other agent had started it, and that start is closed.";
 
 /** L17-2 (v6.1.16): a correction whose event time is before the stored result's: nothing changes. */
 export const EARLIER_RESULT = 'An earlier result; nothing changed.';
@@ -574,6 +576,9 @@ export async function record(
     const heldSend = status === 'applied' && row?.status === 'started' && row.held_at !== null;
     const otherClaim = status === 'applied' && row?.status === 'started' && !heldSend && row.claimed_by !== null && row.claimed_by !== installationId
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000;
+    // L41-11 (v6.1.19): that claim is the same builder's other agent's (its installation is linked to this owner).
+    const ownClaim = otherClaim && owner.startsWith('b:')
+      && (await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${row!.claimed_by}`)[0]?.builder_id === Number(owner.slice(2));
     const outside = status === 'won' && o.outsideWin === true && !o.fromScreen && program !== null && (!row || row.status === 'skipped' || row.status === 'started');
     if (outside) {
       // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
@@ -657,12 +662,12 @@ export async function record(
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source, project_id)
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source}, ${status === 'gap_done' ? null : rk || null})`;
-    const other = otherClaim ? ({ other_claim: true } as const) : heldSend ? ({ held: true } as const) : {};
+    const other = otherClaim ? ({ other_claim: true, ...(ownClaim ? { own_claim: true as const } : {}) } as const) : heldSend ? ({ held: true } as const) : {};
     // L35-4 (v6.1.16.1 Task 2): what the agent tells the builder about a co-founder on this repo.
     const cofounder = { ...(cofounderSent ? { cofounder_sent: true as const } : cofounderClaim ? { cofounder_claim: true as const } : {}), ...(offHostSeen ? { off_host_sent: true as const } : {}) };
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other, ...cofounder } as const) : closed ? ({ ok: true, closed: true, ...other, ...cofounder } as const)
       : outside ? ({ ok: true, outside: true } as const)
-      : otherClaim ? ({ ok: true, other_claim: true, ...cofounder } as const)
+      : otherClaim ? ({ ok: true, ...other, ...cofounder } as const)
       : heldSend ? ({ ok: true, held: true, ...cofounder } as const)
       : cofounderSent || cofounderClaim || offHostSeen ? ({ ok: true, ...cofounder } as const)
       : total !== null ? ({ ok: true, total } as const)
@@ -676,7 +681,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; own_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true; taken?: { day: string; login: string | null } };
 
 /**
@@ -1158,7 +1163,9 @@ export const SENT_ASK_CLOSED_NO_DATE_DAYS = 14;
 
 /** A program the builder sends themselves, started and not yet sent (L18-4): its title, when it was started and the
  *  project key its started row carries (null for a row with none). */
-export type SentAsk = { program_id: string; title: string; started_at: string; project_id: string | null };
+/** L41-7 (v6.1.19): `project` is the started row's project as the builder reads it: its name in the record, else its
+ *  key's own name (a name key's name, a repo's last segment); null with no project. */
+export type SentAsk = { program_id: string; title: string; started_at: string; project_id: string | null; project: string | null };
 
 /**
  * L18-4, L36-1 (v6.1.18 Task 4): every started row (not one the builder held) at least SENT_ASK_AFTER_HOURS old whose
@@ -1179,6 +1186,7 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     if (!first.has(r.program_id)) first.set(r.program_id, { at: r.started, project: r.project_id });
   }
   const byId = await withOwn([...first.keys()], programs);
+  const names = first.size > 0 ? await recordProjectNames(owner) : new Map<string, string>();
   return [...first]
     .map(([id, x]) => ({ p: byId.get(id), ...x }))
     .filter((x): x is { p: ProgramRow; at: Date; project: string | null } => x.p?.file.submit === 'builder')
@@ -1188,7 +1196,29 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     .filter(({ p, at }) => p.file.ends_at
       ? Date.parse(p.file.ends_at) > now.getTime() - SENT_ASK_AFTER_CLOSE_DAYS * 86_400_000
       : p.file.status !== 'closed' || at.getTime() > now.getTime() - SENT_ASK_CLOSED_NO_DATE_DAYS * 86_400_000)
-    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project }));
+    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project, project: projectLabel(project, names) }));
+}
+
+/** L41-7 (v6.1.19): the record's project names by project key, for a builder owner; none else. */
+async function recordProjectNames(owner: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!owner.startsWith('b:')) return out;
+  const { getRecord } = await import('../v6/builders');
+  for (const p of (await getRecord(Number(owner.slice(2)))).projects) {
+    if (!p.name?.trim()) continue;
+    const key = projectKeyOf({ name: p.name, repo_url: p.repo_url });
+    if (key && !out.has(key)) out.set(key, p.name.trim());
+  }
+  return out;
+}
+/** L41-7 (v6.1.19): a project key as a short label: the record's name, else a name key's name or a repo's last
+ *  segment; null with no key. Pure. */
+export function projectLabel(key: string | null, names: Map<string, string> = new Map()): string | null {
+  if (!key) return null;
+  const named = names.get(key);
+  if (named) return named;
+  if (key.startsWith('name:')) return key.slice(5) || null;
+  return key.replace(/^https:\/\//, '').split('/').filter(Boolean).at(-1) ?? null;
 }
 
 /**

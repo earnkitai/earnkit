@@ -839,21 +839,39 @@ export function notSentLine(r: Pick<R, 'not_sent'>, now: Date): string | null {
 
 /** L23-7 (v6.1.16): at most this many started-not-sent lines, the rest counted. */
 const RELEASED_SHOWN = 3;
-/** L23-7 (v6.1.16): a claim left unsent for 24 hours, one line per program (at most three, the rest counted). Pure. */
+/** L23-7 (v6.1.16): a claim left unsent for 24 hours, one line per program (at most three, the rest counted). L41-11
+ *  (v6.1.19): a program the builder sends themselves is asked in the one sent question (`sentLines`), never here. Pure. */
 export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[] {
-  // L36-2 (v6.1.18 Task 4): a program the builder sends themselves is asked about, never said unsent.
-  const shown = r.released.slice(0, RELEASED_SHOWN).map((p) => p.ask
-    ? `${p.title}: started ${dayWords(new Date(p.started_at), now)}; did you send it? ${SENT_SAY}`
-    : `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
-  const rest = r.released.length - shown.length;
-  return rest > 0 ? [...shown, r.released.slice(RELEASED_SHOWN).some((p) => p.ask) ? `And ${rest} more started.` : `And ${rest} more started, nothing sent.`] : shown;
+  const unsent = r.released.filter((p) => !p.ask);
+  const shown = unsent.slice(0, RELEASED_SHOWN).map((p) => `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
+  const rest = unsent.length - shown.length;
+  return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
 }
 
 /** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
 const SENT_SAY = 'Say sent and I note it.';
-/** L18-4, L36-1 (v6.1.18 Task 4): whether each form the builder sends themselves went out. Pure. */
-export const sentLines = (r: Pick<R, 'ask_sent'>): string[] =>
-  (r.ask_sent ?? []).map((a) => `Did you send ${a.title}? ${SENT_SAY}`);
+/** L41-11 (v6.1.19): the Say of the one question about several forms. */
+const SENT_MANY_SAY = 'Say which you sent and I note them.';
+/** L41-11 (v6.1.19): whether a line ends on a sent question's Say (it offers nothing to apply). Pure. */
+export const endsOnSentSay = (line: string): boolean => line.endsWith(SENT_SAY) || line.endsWith(SENT_MANY_SAY);
+/** L41-11 (v6.1.19): every form the builder sends themselves and the reply asks about: the sent asks, then the
+ *  released rows that ask. Pure. */
+export const sentTitles = (r: Pick<R, 'ask_sent'> & { released?: R['released'] }): string[] =>
+  [...(r.ask_sent ?? []), ...(r.released ?? []).filter((p) => p.ask)].map((a) => a.title);
+/** L41-11 (v6.1.19): the one sent question, without its Say: "Did you send A and B?" (three named, then the count);
+ *  null when none. Pure. */
+export function sentQuestion(titles: string[]): string | null {
+  return titles.length === 0 ? null : `Did you send ${listWords(titles)}?`;
+}
+/** L41-11 (v6.1.19): the sent question's Say for this many forms. Pure. */
+export const sentSay = (n: number): string => (n === 1 ? SENT_SAY : SENT_MANY_SAY);
+/** L18-4, L36-1 (v6.1.18 Task 4); L41-11 (v6.1.19): one line for every sent question in the reply:
+ *  "Did you send Codegeist 2026 and Kiroween 2026? Say which you sent and I note them." Pure. */
+export function sentLines(r: Pick<R, 'ask_sent'> & { released?: R['released'] }): string[] {
+  const titles = sentTitles(r);
+  const q = sentQuestion(titles);
+  return q ? [`${q} ${sentSay(titles.length)}`] : [];
+}
 /** L18-4 (v6.1.18 Task 4): the agent note for the sent questions (the ask lines and the release lines that ask); null when none. Pure. */
 export function sentNote(r: Pick<R, 'ask_sent' | 'released'>): string | null {
   const titles = [...(r.ask_sent ?? []), ...r.released.filter((p) => p.ask)].map((a) => a.title);
@@ -1090,7 +1108,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
   const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
   // L18-4 (v6.1.18 Task 4): the sent question after the started lines (ONE_SAY_ORDER).
-  const sent = sentLines(r);
+  // L41-11 (v6.1.19): every sent question in one line, the released rows that ask included.
+  const sent = sentLines({ ask_sent: r.ask_sent, released: r.released.filter((p) => !notSentIds.has(p.program_id)) });
   const sayFirst = [notSent, ...started, ...sent].some((x) => x !== null && carriesSay(x));
   const proofWaits = !r.linked && !asksSignIn && tonight === 0 && closingOf.offer !== 'apply' && !sayFirst;
   const proofCheck = signInCheck(r.sign_in ?? null, o.repo ?? true, proofBarOf(r.gaps.flatMap((g) => [g.gap, ...g.also])) ?? 'used');
@@ -1112,7 +1131,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const early = sayLine !== closingOf.text;
   const plain = (x: string | null) => (x === null || x === sayLine ? null : carriesSay(x) ? withoutSay(x) || null : x);
   // L18-4: a sent question offers nothing to apply.
-  const offer = early ? (sayLine.endsWith(SENT_SAY) ? null : 'apply') : closingOf.offer;
+  const offer = early ? (endsOnSentSay(sayLine) ? null : 'apply') : closingOf.offer;
 
   const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(notice ? [notice] : [])];
   // L1i-5 (v6.1.16.1): the full view closes on the default view's Say, never on a rule it does not show.

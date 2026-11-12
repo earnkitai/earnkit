@@ -767,11 +767,19 @@ test('L18-4: askSent lists a builder-submit program started 2 days ago with no s
   assert.equal(SENT_ASK_AFTER_HOURS, 1);
   assert.deepEqual(await claim(o(i), 'l-sent-new', 'p1', i, new Date(NOW.getTime() - 0.5 * H)), { ok: true });
   const all = [own, fresh, agent, done, held];
-  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString(), project_id: 'p1' }]);
+  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString(), project_id: 'p1', project: 'p1' }]);
   assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent', 'l-sent-new']);
   // The builder says sent: the ask ends.
   await record(o(i), 'l-sent', 'applied', { now: NOW, submitted_by: 'builder', projectKey: 'p1', project_id: 'p1' });
   assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent-new']);
+});
+
+test('L41-7 (v6.1.19): projectLabel names a project by the record, else its key', async () => {
+  const { projectLabel } = await import('./ledger');
+  assert.equal(projectLabel(null), null);
+  assert.equal(projectLabel('https://github.com/lane41/sa-app'), 'sa-app');
+  assert.equal(projectLabel('name:rent split'), 'rent split');
+  assert.equal(projectLabel('https://github.com/lane41/sa-app', new Map([['https://github.com/lane41/sa-app', 'SA App']])), 'SA App');
 });
 
 test('L41-10 (v6.1.18.1): a builder-submits program started, then closed an hour later, is still asked about for 7 days after the close', async () => {
@@ -783,7 +791,7 @@ test('L41-10 (v6.1.18.1): a builder-submits program started, then closed an hour
   // The claim was taken while the program was open.
   await sql()`INSERT INTO applications (owner, installation_id, program_id, project_id, status, at, claimed_at) VALUES (${o(i)}, ${i}, 'l-sent-closed', 'p1', 'started', ${started}, ${started})`;
   // An hour after the close, a find reads the open list only (the closed program is not in it): still asked.
-  assert.deepEqual(await askSent(o(i), [], NOW), [{ program_id: 'l-sent-closed', title: 'Late Hackathon', started_at: started.toISOString(), project_id: 'p1' }]);
+  assert.deepEqual(await askSent(o(i), [], NOW), [{ program_id: 'l-sent-closed', title: 'Late Hackathon', started_at: started.toISOString(), project_id: 'p1', project: 'p1' }]);
   assert.deepEqual((await askSent(o(i), [], NOW, (p) => p === 'p1')).map((x) => x.program_id), ['l-sent-closed']);
   // Seven days after the close it is no longer asked.
   assert.deepEqual(await askSent(o(i), [], new Date(close.getTime() + 7 * 24 * H + H)), []);

@@ -14,7 +14,7 @@ import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffe
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
+import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, unreadNote } from './reply';
 import { codeChecked, evaluate, itemKey, licenseRead, repoGaps } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -849,6 +849,8 @@ async function act(
   const closed = closedDay ? `${row!.file.title} closed on ${closedDay}; recorded anyway.` : null;
   // L23-3 (v6.1.16): a send over another agent's live claim is recorded; the agent hears to tell the builder.
   const otherClaim = res.ok && 'other_claim' in res;
+  // L41-11 (v6.1.19): the builder's own other agent's start says so; another builder's keeps OTHER_CLAIM_NOTE.
+  const claimNote = res.ok && 'own_claim' in res ? OWN_CLAIM_NOTE : OTHER_CLAIM_NOTE;
   // L24-4 (v6.1.16 Task 11): a send on a held program is recorded; the agent tells the builder.
   const heldSent = res.ok && 'held' in res;
   // L35-4 (v6.1.16.1 Task 2): a co-founder on the same repo: a claim cleared, or a send that went out twice.
@@ -865,7 +867,7 @@ async function act(
       show_to_builder: outside === HAD_CLOSED && closedDay
         ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
         : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: [...(nameOnly ? [nameOnly] : []), ...(cofounder ? [cofounder] : []), ...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.', ...(unknownFields.length > 0 ? [droppedFieldsNote(unknownFields)] : [])].join(' '),
+      agent_note: [...(nameOnly ? [nameOnly] : []), ...(cofounder ? [cofounder] : []), ...(otherClaim ? [claimNote] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.', ...(unknownFields.length > 0 ? [droppedFieldsNote(unknownFields)] : [])].join(' '),
       ledger: await summary(owner, programs, ctx.now),
     });
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
@@ -876,7 +878,7 @@ async function act(
     agent_note: cofounder
       ? cofounder
       : otherClaim
-      ? OTHER_CLAIM_NOTE
+      ? claimNote
       : heldSent
         ? HELD_SENT_NOTE
       : i.status === 'held'

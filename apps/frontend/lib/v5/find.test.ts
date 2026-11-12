@@ -4218,7 +4218,7 @@ test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago 
     // Once an hour has passed: asked on the next find, and not offered as a draft while the ask is open.
     const at = new Date(NOW.getTime() + H);
     const r = await find(at);
-    assert.deepEqual(r.ask_sent, [{ program_id: 'tt-sent', title: 'Kiroween 2026', started_at: new Date(NOW.getTime() - 0.5 * H).toISOString(), project_id: (r.ask_sent as { project_id: string }[])[0].project_id }]);
+    assert.deepEqual(r.ask_sent, [{ program_id: 'tt-sent', title: 'Kiroween 2026', started_at: new Date(NOW.getTime() - 0.5 * H).toISOString(), project_id: (r.ask_sent as { project_id: string }[])[0].project_id, project: 'EarnKit' }]);
     assert.match((r.ask_sent as { project_id: string }[])[0].project_id, /earnkit/);
     assert.match(r.show_to_builder as string, /Did you send Kiroween 2026\?/);
     assert.match(r.agent_note as string, /The reply asks whether each was sent: Kiroween 2026\. "sent" is track applied with submitted_by builder; "not yet" needs no call\./);
@@ -4235,7 +4235,9 @@ test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago 
     const week = await find(new Date(NOW.getTime() + 8 * 24 * H));
     assert.deepEqual((week.released as { program_id: string; ask?: true }[]).map((p) => [p.program_id, p.ask]), [['tt-sent', true]]);
     assert.deepEqual(week.ask_sent, []);
-    assert.match(week.show_to_builder as string, /Kiroween 2026: started Nov 4; did you send it\? Say sent and I note it\./);
+    // L41-11 (v6.1.19): asked in the one sent question.
+    assert.match(week.show_to_builder as string, /Did you send Kiroween 2026\? Say sent and I note it\./);
+    assert.doesNotMatch(week.show_to_builder as string, /started Nov 4/);
     assert.doesNotMatch(week.show_to_builder as string, /nothing sent/);
     // The builder says sent: the agent records it, and the ask ends.
     const t = await mcpCall({ ...ctx(id, new Date(NOW.getTime() + 8 * 24 * H)), builderId }, 'track', { program_id: 'tt-sent', status: 'applied', submitted_by: 'builder', project: PROJECT });
@@ -4273,7 +4275,7 @@ test('L41-10 (v6.1.18.1): a builder-sent program started in its last hour is sti
   }
 });
 
-test('L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked on its own project only, marked only when the builder text shows it; the open list asks every one', async () => {
+test('L18-4 fix round 1 (v6.1.18 Task 4), L41-7 (v6.1.19): a sent question is asked on its own project only, marked only when shown; a no-project find names its project and closes "Say sent, or tell me which project and I match it."', async () => {
   const { programFixture } = await import('./fixtures/program');
   const { claim } = await import('../v6/claims');
   await upsertProgram(programFixture({ id: 'tt-sent2', title: 'Kiroween Two', submit: 'builder' }), 'file', NOW);
@@ -4308,7 +4310,10 @@ test('L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked on its own pr
     const week = new Date(NOW.getTime() + 8 * 24 * H);
     const list = await find(week, null);
     const lines = (list.show_to_builder as string).split('\n');
-    assert.equal(lines.at(-2), 'Did you send Kiroween Two?');
+    // L41-7 (v6.1.19): the question names its project; the closing carries both answers in one Say.
+    assert.equal(lines.at(-2), 'Did you send Kiroween Two (EarnKit)?');
+    assert.equal(lines.at(-1), 'Say sent, or tell me which project and I match it.');
+    assert.equal((list.show_to_builder as string).match(/\bSay\b/g)?.length, 1);
     assert.ok(lines.length <= 10);
     assert.match(list.agent_note as string, /The reply asks whether each was sent: Kiroween Two\. .* Pass the project each was started for\./);
     assert.deepEqual((await find(week, null)).ask_sent, []);

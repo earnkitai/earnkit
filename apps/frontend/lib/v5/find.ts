@@ -11,7 +11,7 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
@@ -681,15 +681,20 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   // L18-4 fix round 1 (v6.1.18 Task 4): a find with no project asks about every open sent question, as plain questions
   // before the ask (which stays last, L1j-6), within the 10 lines; only the ones shown are marked.
   const sentAll = await sentAsksOpen(ctx.installationId, await askSent(ownerOf(ctx), programs, ctx.now), ctx.now);
-  const sentShown = sentAll.slice(0, Math.max(0, OPEN_LINES - 1 - before.length));
+  // L41-11 (v6.1.19): one line for them all, three named; L41-7: each with its project.
+  const sentShown = OPEN_LINES - 1 - before.length > 0 ? sentAll.slice(0, 3) : [];
   await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => a.program_id), ctx.now);
+  const sentAsk = sentQuestion(sentShown.map((a) => (a.project ? `${a.title} (${a.project})` : a.title)));
   const sentNoteOpen = sentNote({ ask_sent: sentShown, released: [] });
   const reply = {
     // One line each, no blank lines (fix round 1, M4).
     // L1j-6 (v6.1.17 fix round 1 I3): the ask is last; the sign-in, the notice or the report before it.
     // L38-31 (v6.1.18): no sign-in line: with no project, signing in buys the builder nothing yet (sign_in stays in the JSON).
     // L18-4 (v6.1.18 Task 4): the open sent questions after it, before the ask.
-    show_to_builder: [...before, ...sentShown.map((a) => `Did you send ${a.title}?`), action].join('\n'),
+    // L41-7 (v6.1.19): the closing carries both answers in one Say.
+    show_to_builder: (!sentAsk ? [...before, action]
+      : action === ask ? [...before, sentAsk, `Say ${sentShown.length === 1 ? 'sent' : 'which you sent'}, or ${lowerFirst(ask)}`]
+      : [...before, action, `${sentAsk} ${sentSay(sentShown.length)}`]).join('\n'),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
@@ -1379,12 +1384,15 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked only when the builder text shows it; one the full view
   // or the line cap left out is not marked, not named to the agent, and comes back on the next find.
-  const shownSent = (r.ask_sent ?? []).filter((a) => said.text.includes(`Did you send ${a.title}?`));
-  const shownRel = r.released.filter((p) => p.ask && said.text.includes(`${p.title}: started`));
+  // L41-11 (v6.1.19): one sent line; a program is shown when that line names it (three named, the rest counted).
+  const sentShownLine = said.text.split('\n').find((l) => l.startsWith('Did you send ')) ?? '';
+  const namedIn = (title: string) => sentShownLine.replace(/ and \d+ more\?.*$/, '?').includes(title);
+  const shownSent = (r.ask_sent ?? []).filter((a) => namedIn(a.title));
+  const shownRel = r.released.filter((p) => p.ask && namedIn(p.title));
   await markSentAsked(ctx.installationId, owner, [...shownSent, ...shownRel].map((x) => x.program_id), ctx.now);
   const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
   const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
-  const hiddenOut = said.hidden.filter((l) => !unshown.some((a) => l.startsWith(`Did you send ${a.title}?`) || l.startsWith(`${a.title}: started`)));
+  const hiddenOut = said.hidden.filter((l) => !(l.startsWith('Did you send ') && unshown.some((a) => l.includes(a.title))));
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,

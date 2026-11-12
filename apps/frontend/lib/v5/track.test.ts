@@ -107,7 +107,7 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): won $100, rejected, a further paym
   assert.deepEqual(rows.map((x) => [x.status, Number(x.amount_usd), x.corrected]), [['won', 150, true]]);
 });
 
-test('Review Focus 1, re-pinned by L23-3 (v6.1.16): A started, B applied is recorded with the warning and clears the claim; A hears it was already sent', async () => {
+test('Review Focus 1, re-pinned by L23-3 (v6.1.16), L41-11 (v6.1.19): A started, B applied is recorded with the same-builder claim note and clears the claim; A hears it was already sent', async () => {
   const { a, c, owner } = await twoAgents();
   await sql()`UPDATE installations SET client_name = 'Codex' WHERE id = ${c.installationId}`;
   await upsertProgram(programFixture({ id: 't7-rf1', title: 'Focus Grant' }), 'file', NOW);
@@ -115,7 +115,8 @@ test('Review Focus 1, re-pinned by L23-3 (v6.1.16): A started, B applied is reco
   const over = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   // L23-3 (v6.1.16): a real send is never refused or lost.
   assert.equal(over.show_to_builder, 'Sent Focus Grant.');
-  assert.equal(over.agent_note, 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.');
+  // L41-11 (v6.1.19): both agents are the same builder's: the start is closed, said as such.
+  assert.equal(over.agent_note, "Recorded; the builder's other agent had started it, and that start is closed.");
   assert.equal(over.ledger.applied, 1);
   const again = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   assert.equal(again.show_to_builder, 'Already sent on Nov 4.');
@@ -1127,10 +1128,13 @@ test('B3 (v6.1.13), re-pinned by L23-3 (v6.1.16): applied over another agent\'s 
   assert.equal((await track(a, { program_id: 'b3-claim', status: 'started', project: { name: 'Xproj' } })).show_to_builder, '');
   const history = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = 'b3-claim'`)[0].n;
   const before = await history();
+  // L41-11 (v6.1.19): the claiming agent is no longer this builder's (unlinked since), so the warning stays.
+  await sql()`UPDATE installations SET builder_id = NULL WHERE id = ${a.installationId}`;
   // L28-4 (v6.1.16 Task 14): the same project (another project is another application).
   const other = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Xproj' }, fields_used: ['project_name'] });
   assert.equal(other.show_to_builder, 'Sent Claim Grant.');
   assert.equal(other.agent_note, 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.');
+  await sql()`UPDATE installations SET builder_id = ${Number(owner.slice(2))} WHERE id = ${a.installationId}`;
   assert.equal(other.ledger.applied, 1);
   assert.equal(await history(), before + 1);
   const [sent] = await sql()`SELECT status, installation_id, claimed_by, project_id FROM applications WHERE owner = ${owner} AND program_id = 'b3-claim'`;
