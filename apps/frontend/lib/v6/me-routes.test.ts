@@ -222,13 +222,18 @@ test('a /me/policy post with one bad value changes nothing and names the field (
   const r = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps);
   refused(b.id, r, 'Most a day: a whole number from 1 to 20.');
   assert.deepEqual(await getRecord(b.id), before, 'auto apply, categories and the rest stay as they were');
-  for (const bad of ['2.5', 'abc', '0']) {
+  // L45-7 (v6.1.19): a decimal comma is refused, never read as 10 or 15.
+  for (const bad of ['2.5', 'abc', '0', '1,0', '1,5']) {
     refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: bad, 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps), 'Most a day: a whole number from 1 to 20.');
   }
   // Every bad field gets its own line, in the page's labels.
   const two = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', max_ask_usd: '-5', 'categories[]': ['grant', '<script>'], agent_may_submit: 'on' }, { cookie }), deps);
   refused(b.id, two, 'Most a day: a whole number from 1 to 20.\nAsk me first above (USD): a number of 0 or more.\nCategories: pick one of the options.');
   assert.deepEqual(await getRecord(b.id), before);
+  // L45-7 (v6.1.19): an amount with a decimal comma is refused; a thousands comma reads as one.
+  refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '3', max_ask_usd: '1,5', 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps), 'Ask me first above (USD): a number of 0 or more.');
+  await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '3', max_ask_usd: '$1,000', 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps);
+  assert.deepEqual([(await getRecord(b.id)).policy.max_per_night, (await getRecord(b.id)).policy.max_ask_usd], [3, 1000]);
 });
 
 test('edit problems read as plain words, never the checker\'s (v6.1.7 C4)', async () => {

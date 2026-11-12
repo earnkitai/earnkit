@@ -293,7 +293,8 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   plain(long, true);
   // L1j-2 (v6.1.17): each names what it was given, through quoteName (cut to 40 characters).
   assert.equal(num.reply!.show_to_builder, 'I do not know a program called "12345". Say its full name.');
-  assert.equal(long.reply!.show_to_builder, `I do not know a program called "${'x'.repeat(40)}". Say its full name.`);
+  // L45-14 (v6.1.19): a cut echo is marked.
+  assert.equal(long.reply!.show_to_builder, `I do not know a program called "${'x'.repeat(40)}...". Say its full name.`);
   // A string filter.all reads as the boolean; a category that is not one is dropped and named for the agent.
   const P = { name: 'Lenient App', description: 'An app for lenient tests.' };
   const all = await mcpCall(c, 'find', { project: P, filter: { all: 'true' } });

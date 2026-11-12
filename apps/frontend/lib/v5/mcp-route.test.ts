@@ -238,3 +238,40 @@ test('L45-19 (v6.1.19): bytes that are not UTF-8 in a tool call answer one plain
   assert.equal(m.result.isError, true);
   assert.deepEqual(plain(m), { show_to_builder: 'I could not read that.', agent_note: 'Nothing was done. Part of the arguments was not valid UTF-8; send the text as UTF-8 and call again.', refused: true });
 });
+
+test('L45-8 (v6.1.19): a batch whose members share an id answers each of them', async () => {
+  await saveInstallation(token, null);
+  const r = await post([{ jsonrpc: '2.0', id: 5, method: 'ping' }, { jsonrpc: '2.0', id: 5, method: 'tools/list' }]);
+  assert.equal(r.status, 200);
+  const body = (await r.json()) as { id: number; result: { tools?: unknown[] } }[];
+  assert.ok(Array.isArray(body), JSON.stringify(body));
+  assert.equal(body.length, 2);
+  assert.deepEqual(body.map((m) => m.id), [5, 5]);
+  assert.equal(body.filter((m) => Array.isArray(m.result.tools)).length, 1);
+});
+
+test('L45-17 (v6.1.19): bad params are -32602, a boolean id -32600, and an unknown tool names the four tools', async () => {
+  await saveInstallation(token, null);
+  for (const body of [
+    { jsonrpc: '2.0', id: 41, method: 'tools/call' },
+    { jsonrpc: '2.0', id: 42, method: 'tools/call', params: { arguments: {} } },
+    { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 7, arguments: {} } },
+    { jsonrpc: '2.0', id: 44, method: 'initialize', params: { protocolVersion: 20250618, capabilities: {}, clientInfo: { name: 't', version: '0' } } },
+    { jsonrpc: '2.0', id: 45, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } },
+  ]) {
+    const m = (await (await post(body)).json()) as { id: number; error: { code: number; message: string } };
+    assert.deepEqual([m.id, m.error.code, m.error.message], [body.id, -32602, 'I could not read that request.'], JSON.stringify(body));
+  }
+  const b = await post({ jsonrpc: '2.0', id: true, method: 'ping' });
+  assert.equal(b.status, 400);
+  assert.deepEqual(await b.json(), { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'I could not read that request.' } });
+  for (const [name, text] of [
+    ['apply', 'No tool apply. The tools are find, track, record and screen.'],
+    ['Find', 'No tool Find. The tools are find, track, record and screen.'],
+    ['fin​d', 'No tool by that name. The tools are find, track, record and screen.'],
+  ]) {
+    const m = (await (await post(call(46, name))).json()) as Msg;
+    assert.equal(m.result.isError, true);
+    assert.equal(m.result.content[0].text, text, name);
+  }
+});

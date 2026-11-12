@@ -116,16 +116,28 @@ const LOOKALIKES: Record<string, string> = {
 
 /**
  * Whether a client name is EarnKit's own (L13-16, T6-F1): NFKC (widths), NFKD with combining marks dropped (accents),
- * Cyrillic and Greek look-alikes folded to Latin, lower case, letters and digits only, then digits and `l` read as
- * letters and the rest dropped (L16-10), holding `earnkit`. A trailing `(server name)` is dropped first (L25-1). Pure.
+ * Cyrillic and Greek look-alikes folded to Latin, lower case, then digits and `l` read as letters (L16-10). L45-16
+ * (v6.1.19): read as words (split at anything that is not a letter or digit, and where a lower-case letter meets an
+ * upper-case one; hidden characters dropped), the name is EarnKit's when `earnkit` starts at a word, the words after
+ * it joined (`EarnKit`, `earn-kit`, `Earn Kit`, `EarnKitBot`, a 40-character cut `earnkitxxx`), never inside one
+ * (`LearnKit`, `Yearn Kit`, `Learn Kit Pro`). A trailing `(server name)` is dropped first (L25-1). Pure.
  */
 export function reservedClientName(v: unknown): boolean {
   if (typeof v !== 'string') return false;
   // L25-1 (v6.1.14.1): Claude Code registers as `Claude Code (<server name>)` and the docs name the server
   // `earnkit`, so a trailing parenthetical is the builder's server label, not the agent's name. Drop one before
   // the check, unless fewer than two letters or digits would be left (so `x (EarnKit)` is still refused).
-  const own = fold(v.replace(/\s*\([^()]*\)\s*$/u, ''));
-  return leet(own.length >= 2 ? own : fold(v)).includes('earnkit');
+  const stripped = v.replace(/\s*\([^()]*\)\s*$/u, '');
+  const ws = nameWords(fold(stripped).length >= 2 ? stripped : v);
+  return ws.some((_, i) => ws.slice(i).join('').startsWith('earnkit'));
+}
+
+/** L45-16 (v6.1.19): a client name as folded words (see reservedClientName), each read through `leet`. Pure. */
+function nameWords(v: string): string[] {
+  const split = v.replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
+  const bare = split.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '').replace(/\p{Cf}/gu, '');
+  const latin = [...bare].map((ch) => LOOKALIKES[ch] ?? CONFUSABLES.get(ch) ?? ch).join('').toLowerCase();
+  return latin.split(/[^\p{L}\p{N}]+/u).map(leet).filter(Boolean);
 }
 
 /** L16-10 (v6.1.16): digits and `l` that read as letters (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i), then letters only. */
@@ -265,6 +277,8 @@ export function redirectClass(uri: string): { cls: RedirectClass; host: string |
 
 /** The page text for a client ID metadata document that fails any check (v6.1.15 Task 14). Builder text. */
 export const CIMD_FAILED = "Connecting EarnKit failed. Your agent's client document could not be read.";
+/** L45-16 (v6.1.19): the client document's refusal when its name is EarnKit's own, with the reason. */
+export const CIMD_RESERVED = "Connecting EarnKit failed. Your agent's client document uses EarnKit's own name; it needs the agent's name.";
 
 /** A client_id that names a URL (http or https): a client ID metadata document, never a registered id. Pure. */
 export function isCimdClientId(clientId: string): boolean {
@@ -295,7 +309,7 @@ const CIMD_FAILED_MS = 5 * 60 * 1000;
 const CIMD_STALE_MS = 6 * 60 * 60 * 1000;
 const CIMD_CACHE_MAX = 1_000;
 /** `at`: when it was last read good; `failedAt`: the last refetch that could not be made, while the good copy is served. */
-type CimdEntry = { at: number; ok: ClientPayload; failedAt?: number } | { at: number; failed: true };
+type CimdEntry = { at: number; ok: ClientPayload; failedAt?: number } | { at: number; failed: true; why?: string };
 const cimdCache = new Map<string, CimdEntry>();
 
 /** Empties the document cache (tests only). */
@@ -364,6 +378,12 @@ async function dropDocument(url: string): Promise<void> {
 /** Empties the stored documents (tests only). */
 export const clearCimdStore = () => sql()`DELETE FROM cimd_documents`;
 
+/** L45-16 (v6.1.19): whether a fetched document's client name is EarnKit's own (as the stored form reads too). Pure. */
+const reservedDocName = (doc: unknown): boolean => {
+  const n = doc && typeof doc === 'object' ? (doc as { client_name?: unknown }).client_name : undefined;
+  return reservedClientName(n) || reservedClientName(clientNameOf(n));
+};
+
 /** A fetched document's client, or null when any check fails. Pure. */
 function cimdPayload(url: string, doc: unknown): ClientPayload | null {
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return null;
@@ -398,7 +418,7 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   const hit = cimdCache.get(url);
   const good = hit && 'ok' in hit && now - hit.at < CIMD_STALE_MS ? hit : null;
   if (good && (now - good.at < CIMD_OK_MS || (good.failedAt !== undefined && now - good.failedAt < CIMD_FAILED_MS))) return good.ok;
-  if (hit && 'failed' in hit && now - hit.at < CIMD_FAILED_MS) throw new OAuthError('invalid_client', CIMD_FAILED);
+  if (hit && 'failed' in hit && now - hit.at < CIMD_FAILED_MS) throw new OAuthError('invalid_client', hit.why ?? CIMD_FAILED);
   const refused = () => new OAuthError('invalid_client', CIMD_FAILED);
   // Security review (round 2): only a refetch of a URL with a good copy is exempt from the per-host cap; a URL
   // with a failed entry counts again, so failed cache-busting URLs cannot be refetched for free every 5 minutes.
@@ -426,10 +446,11 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   }
   const client = cimdPayload(url, doc);
   if (!client) {
-    // The vendor's document now fails a check: it replaces any good copy.
-    remember(url, { at: now, failed: true });
+    // The vendor's document now fails a check: it replaces any good copy. L45-16 (v6.1.19): EarnKit's own name says so.
+    const why = reservedDocName(doc) ? CIMD_RESERVED : undefined;
+    remember(url, { at: now, failed: true, ...(why && { why }) });
     if (good && deps.store !== false) await dropDocument(url);
-    throw refused();
+    throw new OAuthError('invalid_client', why ?? CIMD_FAILED);
   }
   remember(url, { at: now, ok: client });
   if (deps.store !== false) await storeDocument(url, doc, now);

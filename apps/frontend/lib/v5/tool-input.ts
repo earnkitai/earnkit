@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import { tooDeep } from './secrets';
 import { cleanText } from './controls';
+import { OLD_TOOLS as OLD_TOOL_NAMES } from './old-tools';
 
 /**
  * L45-19 (v6.1.19): a further payment's key as compared: hidden and control characters removed and the ends trimmed, so
@@ -191,6 +192,75 @@ export function answerUnreadable(body: unknown, max: number): { answers: unknown
   }
   if (rest.length === items.length) return { answers, rest: body };
   return { answers, rest: rest.length === 0 ? null : Array.isArray(body) ? rest : rest[0] };
+}
+
+/** L45-17 (v6.1.19): EarnKit's tools, as an unknown tool's reply names them. */
+export const TOOL_NAMES = ['find', 'track', 'record', 'screen'] as const;
+/** L45-17 (v6.1.19): the reply to a tool EarnKit has not. */
+export const NO_TOOL = (name: string): string =>
+  name ? `No tool ${name}. The tools are find, track, record and screen.` : 'No tool by that name. The tools are find, track, record and screen.';
+
+/**
+ * L45-17 (v6.1.19): JSON-RPC params checked before the library: a `tools/call` with no params object or no text name,
+ * and an `initialize` with no text protocolVersion or no clientInfo object, are -32602 (invalid params); a tools/call
+ * of a name that is none of EarnKit's tools (nor an old one, answered by old-tools.ts) is answered with the four. The
+ * rest goes on (null when nothing is left). Pure.
+ */
+export function answerParams(body: unknown, old: readonly string[] = OLD_TOOL_NAMES): { answers: unknown[]; rest: unknown | null } {
+  const items = Array.isArray(body) ? body : [body];
+  const answers: unknown[] = [];
+  const rest: unknown[] = [];
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  for (const raw of items) {
+    const m = (isObj(raw) ? raw : {}) as Msg & { params?: Record<string, unknown> };
+    const id = idOf(m);
+    const p = m.params;
+    const badParams = (m.method === 'tools/call' && (!isObj(p) || typeof p.name !== 'string'))
+      || (m.method === 'initialize' && (!isObj(p) || typeof p.protocolVersion !== 'string' || !isObj(p.clientInfo)));
+    if (badParams) {
+      if (id !== null) answers.push({ jsonrpc: '2.0', id, error: { code: -32602, message: UNREADABLE_REQUEST } });
+      continue;
+    }
+    const name = m.method === 'tools/call' && isObj(p) && typeof p.name === 'string' ? p.name : null;
+    if (name !== null && !(TOOL_NAMES as readonly string[]).includes(name) && !old.includes(name)) {
+      const shown = cleanText(name, 40);
+      const text = NO_TOOL(shown === name || !(TOOL_NAMES as readonly string[]).includes(shown) ? shown : '');
+      if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } });
+      continue;
+    }
+    rest.push(raw);
+  }
+  if (rest.length === items.length) return { answers, rest: body };
+  return { answers, rest: rest.length === 0 ? null : Array.isArray(body) ? rest : rest[0] };
+}
+
+/**
+ * L45-8 (v6.1.19): a batch whose members share an id: each repeat gets a stand-in id the transport answers by, and
+ * `back` gives each answer its own id again, so every member is answered (the library keys answers by id). Pure.
+ */
+export function distinctIds(body: unknown): { body: unknown; back: (answer: unknown) => unknown } {
+  if (!Array.isArray(body)) return { body, back: (a) => a };
+  const seen = new Set<string>();
+  const stand = new Map<string, Id>();
+  let n = 0;
+  const out = body.map((m) => {
+    const id = m && typeof m === 'object' ? idOf(m as Msg) : null;
+    if (id === null) return m;
+    const k = `${typeof id}:${id}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      return m;
+    }
+    const s = `earnkit-repeat-${++n}-${Math.random().toString(36).slice(2, 10)}`;
+    stand.set(s, id);
+    return { ...(m as object), id: s };
+  });
+  if (stand.size === 0) return { body, back: (a) => a };
+  const one = (a: unknown) => {
+    const id = a && typeof a === 'object' ? (a as { id?: unknown }).id : undefined;
+    return typeof id === 'string' && stand.has(id) ? { ...(a as object), id: stand.get(id) } : a;
+  };
+  return { body: out, back: (a) => (Array.isArray(a) ? a.map(one) : one(a)) };
 }
 
 /** The library codes whose messages carry its parse or validation detail: parse, invalid request, params, internal. */

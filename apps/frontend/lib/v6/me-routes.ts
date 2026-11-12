@@ -360,9 +360,13 @@ const on = (v: string | null) => v === 'on' || v === 'true';
 export async function policyPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
+  // L45-7 (v6.1.19): digits only (a dollar sign and spaces aside); a comma only between thousands groups, so a decimal
+  // comma (`1,0`, `1,5`) is refused, never read as 10 or 15.
   const num = (k: string) => {
-    const v = (g.form.get(k) ?? '').replace(/[$,\s]/g, '');
-    return v === '' ? null : Number(v);
+    const v = (g.form.get(k) ?? '').replace(/[$\s]/g, '');
+    if (v === '') return null;
+    if (/^\d{1,3}(,\d{3})+$/.test(v)) return Number(v.replace(/,/g, ''));
+    return /^\d+(\.\d+)?$/.test(v) ? Number(v) : Number.NaN;
   };
   const policy = {
     auto_apply: on(g.form.get('auto_apply')),

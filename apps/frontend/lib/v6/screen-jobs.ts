@@ -24,12 +24,15 @@ import { listWords } from './reply-words';
 import { currentReviewerLine } from './tier-words';
 import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
 
+/** L45-9 (v6.1.19): how an outcome's ref that is empty after cleaning is named. */
+export const EMPTY_REF = '(empty name)';
 /** An applicant's ref, as the program gives it and as an outcome names it (screen-tool's outcome ref cap). */
 export const REF_MAX = 60;
 
 export const ScreenApplicant = z
   .object({
-    ref: z.string().trim().min(1).max(REF_MAX).describe("The program's own id for the applicant"),
+    // L45-9 (v6.1.19): a ref empty once hidden and control characters are gone is refused, never stored as a placeholder.
+    ref: z.string().max(REF_MAX).transform((x) => cleanText(x, REF_MAX)).pipe(z.string().min(1, 'empty after removing hidden characters')).describe("The program's own id for the applicant"),
     name: z.string().trim().max(120).optional(),
     repo_url: z.string().trim().max(300).optional(),
     live_url: z.string().trim().max(300).optional(),
@@ -743,8 +746,9 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     const [a] = await sql()<{ application_id: string | null; name: string; repo_url: string | null }[]>`
       SELECT application_id, name, repo_url FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
-      once(notFound, o.ref);
-      miss(o.ref, NOT_PASSED.notFound, false);
+      // L45-9 (v6.1.19): a ref empty after cleaning is named as such, never as nothing.
+      once(notFound, o.ref || EMPTY_REF);
+      miss(o.ref || EMPTY_REF, NOT_PASSED.notFound, false);
       continue;
     }
     const app = a.application_id ? await applicationOf(a.application_id, job.program_id, builderId) : undefined;
