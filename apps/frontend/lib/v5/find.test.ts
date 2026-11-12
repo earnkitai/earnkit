@@ -1752,9 +1752,30 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   const c = await dashCtx();
   const project = { ...RIPGREP, users: true };
   const RAW = `https://raw.githubusercontent.com/${dash.repo}/HEAD/funding.json`;
-  const one = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project });
-  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. I add the funding file to your repo, then apply.', 'Sign in so I know the repo is yours, then say yes and I apply to FLOSS/fund.'].join('\n'));
-  assert.doesNotMatch(one.reply!.show_to_builder as string, /You give|funding manifest|First:/);
+  // Final fix (M3): signed out, the gate holds the send back, so the agent gets no step and no manifest note.
+  const out = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project });
+  assert.equal(out.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. I add the funding file to your repo, then apply.', 'Sign in so I know the repo is yours, then say yes and I apply to FLOSS/fund.'].join('\n'));
+  assert.doesNotMatch(out.reply!.show_to_builder as string, /You give|funding manifest|First:/);
+  assert.equal(out.reply!.agent_step, undefined);
+  assert.ok(!(out.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
+  const outList = await mcpCall(await dashCtx(), 'find', { project });
+  assert.equal((allReady(outList.reply!) as ReadyProgram[]).find((p) => p.program_id === 'floss-fund-zerodha')?.agent_step, undefined, outList.reply!.show_to_builder as string);
+  assert.ok(!(outList.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  // Signed in as someone the repo does not show: the ownership gate holds it back the same way.
+  const stranger = await upsertBuilder({ github_id: 951_380, login: 'not-the-owner-951380', name: 'Stranger', avatar_url: null }, NOW);
+  const s = await dashCtx();
+  await linkInstallation(s.installationId, stranger.id, NOW);
+  const theirs = await mcpCall({ ...s, builderId: stranger.id as number | null }, 'find', { program_id: 'floss-fund-zerodha', project });
+  assert.doesNotMatch(theirs.reply!.show_to_builder as string, /I apply/, theirs.reply!.show_to_builder as string);
+  assert.equal(theirs.reply!.agent_step, undefined);
+  assert.ok(!(theirs.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
+  // The builder signs in as the repo's owner.
+  const owner = await upsertBuilder({ github_id: 951_381, login: dash.repo.split('/')[0], name: 'Owner', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, owner.id, NOW);
+  const signed = { ...c, builderId: owner.id as number | null };
+  const one = await mcpCall(signed, 'find', { program_id: 'floss-fund-zerodha', project });
+  assert.match(one.reply!.show_to_builder as string, /^FLOSS\/fund, \$10,000 to \$100,000\. I add the funding file to your repo, then apply\.$/m);
   const step = one.reply!.agent_step as ManifestStep;
   assert.equal(step.kind, 'funding_manifest');
   assert.equal(step.url, RAW);
@@ -1766,13 +1787,15 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   assert.deepEqual([m.projects[0].guid, m.projects[0].name, m.projects[0].description], ['nextjs-dashboard', 'ripgrep', RIPGREP.description]);
   assert.deepEqual(m.funding.plans.map((x) => [x.amount, x.currency, x.frequency, x.channels]), [[10000, 'USD', 'yearly', ['bank']]]);
   assert.equal(step.files[1].text, `${RAW}\n`);
-  // Unlinked, the agent knows who it works for: the name and email are its to fill, with no license and no topics read.
+  // The name and email are always the builder's to confirm (final fix, I3); no license and no topics were read.
   assert.deepEqual(step.fill, ['entity.name', 'entity.email', 'projects[0].licenses', 'projects[0].tags']);
   const field = (one.reply!.fields as Field[]).find((f) => f.key === 'funding_json_url')!;
   assert.deepEqual([field.from, field.value, field.sources], ['agent', null, [MANIFEST_SOURCE]]);
   assert.ok((one.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
   // The list's ready row says it too, and its JSON carries the step.
-  const list = await mcpCall(await dashCtx(), 'find', { project });
+  const d = await dashCtx();
+  await linkInstallation(d.installationId, owner.id, NOW);
+  const list = await mcpCall({ ...d, builderId: owner.id as number | null }, 'find', { project });
   assert.match(list.reply!.show_to_builder as string, /^1\. FLOSS\/fund, \$10,000 to \$100,000\. I add the funding file to your repo, then apply\.$/m);
   assert.equal(((list.reply!.ready as ReadyProgram[]).find((p) => p.program_id === 'floss-fund-zerodha')!.agent_step as ManifestStep).url, RAW);
   assert.ok((list.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
@@ -1780,17 +1803,12 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   const pushed = replayFetch('nextjs-dashboard', (u, b) =>
     /\/git\/trees\//.test(u) ? b.replace('"tree":[', '"tree":[{"path":"funding.json","mode":"100644","type":"blob","sha":"f","size":900},')
     : /api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace(/"pushed_at":"[^"]+"/, '"pushed_at":"2026-11-04T12:05:00Z"') : b);
-  const later = { ...c, now: new Date(NOW.getTime() + 10 * 60_000), gh: pushed.fetch };
+  const later = { ...signed, now: new Date(NOW.getTime() + 10 * 60_000), gh: pushed.fetch };
   const before = await mcpCall(later, 'find', { program_id: 'floss-fund-zerodha', project });
   assert.ok(before.reply!.agent_step, 'a cached read within the hour is trusted until the start');
-  // The builder signs in as the repo's owner and says yes.
-  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
-  const owner = await upsertBuilder({ github_id: 951_381, login: dash.repo.split('/')[0], name: 'Owner', avatar_url: null }, NOW);
-  await linkInstallation(c.installationId, owner.id, NOW);
-  const signed = { ...later, builderId: owner.id as number | null };
-  const started = await mcpCall(signed, 'track', { program_id: 'floss-fund-zerodha', status: 'started', project });
+  const started = await mcpCall(later, 'track', { program_id: 'floss-fund-zerodha', status: 'started', project });
   assert.equal(started.isError, false, started.text);
-  const after = await mcpCall({ ...signed, now: new Date(NOW.getTime() + 11 * 60_000) }, 'find', { program_id: 'floss-fund-zerodha', project });
+  const after = await mcpCall({ ...later, now: new Date(NOW.getTime() + 11 * 60_000) }, 'find', { program_id: 'floss-fund-zerodha', project });
   const filled = (after.reply!.fields as Field[]).find((f) => f.key === 'funding_json_url')!;
   assert.deepEqual([filled.from, filled.value], ['earnkit', RAW]);
   assert.equal(after.reply!.agent_step, undefined);

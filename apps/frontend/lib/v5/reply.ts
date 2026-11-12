@@ -258,7 +258,8 @@ export function doUsersOf(gaps: GapProgram[]): { program: GapProgram; verb: stri
     if (all.some((x) => x.kind === 'rule')) continue;
     if (!canDoWithUsers(all)) continue;
     const made = all.filter((x) => x.agent_can);
-    const verb = made.length > 1 ? 'make both changes' : made[0].kind === 'builder_codes' ? 'add Base Builder Codes' : made[0].what;
+    const verb = made.length > 1 ? 'make both changes' : made[0].kind === 'builder_codes' ? 'add Base Builder Codes' : (made[0].do ?? made[0].what);
+    // Final fix (I2): a change with its own verb ("add an MIT license file") says it, never "I a license file".
     return { program: g, verb };
   }
   return null;

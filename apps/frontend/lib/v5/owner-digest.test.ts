@@ -273,6 +273,20 @@ test('L39-5: the daily run reads the closed phrase on a submission page that ans
   assert.doesNotMatch(text, /Open Form Grants/);
 });
 
+test('v6.1.18 final fix (M1): an upcoming program whose form says it is closed is not listed; an active one is', async () => {
+  await sql()`DELETE FROM programs WHERE id LIKE 'od-%'`;
+  await upsertProgram(programFixture({ id: 'od-soon', title: 'Next Round Grants', status: 'upcoming', opens_note: 'Round 3 opens in January.', starts_at: '2027-01-15T00:00:00Z', source_url: 'https://soon.example/about', submission_url: 'https://soon.example/form' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'od-shut2', title: 'Shut Now Grants', source_url: 'https://shut2.example/about', submission_url: 'https://shut2.example/form' }), 'file', NOW);
+  const link: LinkCheck = async (u) => ({ ok: true, page: u.endsWith('/form') ? CLOSED_FORM : '<p>About the grants.</p>' });
+  await runHealth(NOW, { link });
+  const [soon] = await sql()`SELECT submit_closed FROM program_health WHERE program_id = 'od-soon'`;
+  assert.equal(soon?.submit_closed, true, 'the upcoming form was read as closed');
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  const text = sent[0]!.text;
+  assert.match(text, /- Shut Now Grants: the form says it is closed \(https:\/\/shut2\.example\/form\)/);
+  assert.doesNotMatch(text, /Next Round Grants/);
+});
+
 test('L39-5 fix round 1: a forms.gle-style link that redirects to a closed form on another host is in the failing block', async () => {
   await sql()`DELETE FROM programs`;
   await upsertProgram(programFixture({ id: 'od-gle', title: 'Gle Form Grants', source_url: 'https://gle.example/about', submission_url: 'https://forms.gle/xyz' }), 'file', NOW);

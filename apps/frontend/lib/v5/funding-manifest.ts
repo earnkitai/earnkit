@@ -54,7 +54,8 @@ export type ManifestStep = {
   /** The URL the manifest is read at once pushed: what `funding_json_url` takes. */
   url: string;
   spec: string;
-  /** Manifest paths left null: the agent fills each from its sources, never invents. */
+  /** Manifest paths left null, which the agent fills from its sources, never invents; and always entity.name and
+   *  entity.email (final fix, I3): the file is public, so the builder confirms both before it is written. */
   fill: string[];
   note: string;
 };
@@ -124,9 +125,10 @@ export function manifestStep(p: Program, facts: RepoFacts, rec: RecordContext | 
       plans: [{ guid: 'support', status: 'active', name: 'Project support', amount, currency: 'USD', frequency: 'yearly', channels: ['bank'] }],
     },
   };
+  // Final fix (I3): the name and email go into a public repo, so both are always the builder's to confirm.
   const fill = [
-    ...(json.entity.name === null ? ['entity.name'] : []),
-    ...(json.entity.email === null ? ['entity.email'] : []),
+    'entity.name',
+    'entity.email',
     ...(description === null ? ['projects[0].description'] : []),
     ...(license === null ? ['projects[0].licenses'] : []),
     ...(tags.length === 0 ? ['projects[0].tags'] : []),
@@ -144,8 +146,10 @@ export function manifestStep(p: Program, facts: RepoFacts, rec: RecordContext | 
 /** The agent's steps for a manifest step (also in the find agent note when a ready program carries one). */
 export const MANIFEST_NOTE =
   'On yes, for a ready program with agent_step funding_manifest: write agent_step.files at those paths from the repo root ' +
-  '(funding.json as the JSON, then the .well-known file), filling each path in agent_step.fill from your sources (git config, ' +
+  '(funding.json as the JSON, then the .well-known file), filling each null path in agent_step.fill from your sources (git config, ' +
   'the README, the GitHub profile; licenses as spdx:<id>, tags lower-case with dashes) or by asking the builder once, never ' +
-  'inventing. The plan\'s amount and yearly frequency are a starting value: before writing the file, tell the builder ' +
-  'what it asks and let them change either; never present the amount as a fact about the builder. Commit and push, call track started for the ' +
+  'inventing. The file is public: before writing it, tell the builder it names them as entity.name with the email ' +
+  'entity.email (agent_step.fill always lists both) and let them change either. The plan\'s amount and yearly frequency ' +
+  'are a starting value: before writing the file, tell the builder what it asks and let them change either; never ' +
+  'present the amount as a fact about the builder. Commit and push, call track started for the ' +
   'program, then call find with its program_id: once the file is in the repo, funding_json_url carries agent_step.url to send.';

@@ -164,11 +164,13 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
     WHERE c.at > ${since} AND c.at <= ${now} AND c.fields = ARRAY['status']::text[]
       AND p.status = 'closed' AND p.ends_at IS NOT NULL AND p.ends_at <= c.at ORDER BY p.id`;
-  const healthRows = await db<(TitleRow & { source_ok: boolean; submit_ok: boolean; submit_closed: boolean; changed_day: boolean })[]>`
-    SELECT p.id, p.file, h.source_ok, h.submit_ok, h.submit_closed, (h.changed_at >= ${dayStart} AND h.changed_at < ${dayEnd}) AS changed_day
+  // Final fix (M1): a form that says it is closed is news for an active program only; an upcoming one's form is closed
+  // until it opens (Base Builder Grants between rounds), so it is never listed every day.
+  const healthRows = await db<(TitleRow & { status: string; source_ok: boolean; submit_ok: boolean; submit_closed: boolean; changed_day: boolean })[]>`
+    SELECT p.id, p.file, p.status, h.source_ok, h.submit_ok, h.submit_closed, (h.changed_at >= ${dayStart} AND h.changed_at < ${dayEnd}) AS changed_day
     FROM program_health h JOIN programs p ON p.id = h.program_id
     WHERE p.status IN ('active', 'upcoming') AND h.checked_at >= ${dayStart} AND h.checked_at < ${dayEnd}
-      AND (NOT h.source_ok OR NOT h.submit_ok OR h.submit_closed OR h.changed_at >= ${dayStart})
+      AND (NOT h.source_ok OR NOT h.submit_ok OR (h.submit_closed AND p.status = 'active') OR h.changed_at >= ${dayStart})
     ORDER BY p.id`;
   const openedRows = await db<TitleRow[]>`
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
@@ -198,7 +200,7 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     if (!f) continue;
     if (!r.source_ok) health.failing.push({ id: r.id, title: f.title, url: f.source_url });
     if (!r.submit_ok) health.failing.push({ id: r.id, title: f.title, url: f.submission_url });
-    else if (r.submit_closed) health.failing.push({ id: r.id, title: f.title, url: f.submission_url, closed: true });
+    else if (r.submit_closed && r.status === 'active') health.failing.push({ id: r.id, title: f.title, url: f.submission_url, closed: true });
     if (r.changed_day) health.changed.push({ id: r.id, title: f.title, url: f.source_url });
   }
   const links = new Map<string, Link>();

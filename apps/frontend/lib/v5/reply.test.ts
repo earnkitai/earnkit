@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
+import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendGap, closingLine, doUsersOf, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
 import { LICENSE_FILE, NEEDS_CODE, PUBLIC_REPO } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
@@ -1629,6 +1629,15 @@ test('L38-27 (v6.1.18 Task 11): the license file gap reads "a license file" and 
   const list = replyText(base({ gaps: [hero] }), true);
   assert.equal(list, ['One step away (1):', '1. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.', 'Nothing is ready yet. Say "do 1" and I add an MIT license file.'].join('\n'));
   assert.doesNotMatch(list, /\u2014|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
+});
+
+test('v6.1.18 final fix (I2): the users-plus-change closing says a change with its own verb, never "I a license file"', () => {
+  const USERS = { kind: 'users' as const, item: 'users', what: 'real users', effort: 'hours' as const, agent_can: false };
+  const hero = gap({ title: 'HeroDevs Open Source Sustainability Fund', money: '$2,500 to $15,000', gap: USERS, also: [LICENSE_FILE] });
+  assert.deepEqual(doUsersOf([hero])?.verb, 'add an MIT license file');
+  const end = replyText(base({ linked: true, gaps: [hero] }), true).split('\n').at(-1)!;
+  assert.equal(end, 'Nothing is ready yet. Do real people use it? Say yes and I add an MIT license file, then apply to HeroDevs Open Source Sustainability Fund.');
+  assert.doesNotMatch(end, /I a license file|\u2014/);
 });
 
 test('Task 10 fix round 1 (I1, M3, M6): a proof sign-in only when the closing keeps the Say; step blocks leave room; the check names the bar with no repo', () => {

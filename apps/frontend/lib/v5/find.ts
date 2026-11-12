@@ -999,9 +999,12 @@ function programCap(reply: ProgramReply, cap: number): ProgramReply {
  * (only when signed in and the repo is the builder's); a linked builder whose login has no public tie to the repo hears so
  * first. A question replaces the builder text and offers no apply yes.
  */
-async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, projectId: string | undefined, project: Project | null, pre: BeforeSend, r: T): Promise<T> {
+async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, projectId: string | undefined, project: Project | null, pre: BeforeSend, given: T): Promise<T> {
   const key = project ? projectKeyOf(project) : '';
-  if (!repoKeyOf(key)) return r;
+  if (!repoKeyOf(key)) return given;
+  // Final fix (M3): every branch below that takes the apply offer away also takes the agent step and its note away,
+  // so no agent writes and pushes a funding file for a send the gate holds back.
+  const r = withoutSteps(given);
   const ask = async (line: string, note: string): Promise<T> => {
     await markOffer(ctx.installationId, null, ctx.now);
     return { ...r, show_to_builder: line, agent_note: [note, r.agent_note].filter(Boolean).join('\n') };
@@ -1012,7 +1015,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   }
   if (ctx.builderId === null) {
     // FR-1 (fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked.
-    if (!offersApply(r.show_to_builder)) return r;
+    if (!offersApply(r.show_to_builder)) return given;
     await markOffer(ctx.installationId, null, ctx.now);
     // Fix round 2 (N5): one sign-in line: the reply's own sign-in sentence gives way to this one, its link kept.
     // Fix round 3 (N5a): the closing always carries the sign-in link when one can be made, a proof gap or not.
@@ -1035,9 +1038,9 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // track judge the same evidence.
   const { tie, against } = await repoEvidence(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) });
   if (pre.join && tie !== null) return ask(pre.join, JOIN_NOTE(project!.name));
-  if (tie !== null) return sentByAnother(ctx, key, tie, r);
+  if (tie !== null) return sentByAnother(ctx, key, tie, given);
   // Not shown to be theirs: no apply yes. Evidence against them says so; none says it could not confirm, never "not yours".
-  if (!against && !offersApply(r.show_to_builder)) return r;
+  if (!against && !offersApply(r.show_to_builder)) return given;
   await markOffer(ctx.installationId, null, ctx.now);
   const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l)));
   return {
@@ -1045,6 +1048,18 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     show_to_builder: (against ? [NOT_YOUR_REPO, ...kept, SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO(key)]).join('\n'),
     agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE].filter(Boolean).join('\n'),
   };
+}
+
+/** Final fix (M3): a reply without its agent steps (the one program's, and every ready row's in each JSON list) and
+ *  without the manifest note. Pure. */
+function withoutSteps<T extends FindReply | ProgramReply>(r: T): T {
+  const { agent_step: _step, ...rest } = r as T & { agent_step?: ManifestStep };
+  const bare = (xs: unknown) => (Array.isArray(xs) ? xs.map((x: { agent_step?: ManifestStep }) => {
+    const { agent_step: _s, ...p } = x;
+    return p;
+  }) : xs);
+  const lists = Object.fromEntries((['ready', 'in_person', 'you_send'] as const).filter((k) => k in r).map((k) => [k, bare((r as Record<string, unknown>)[k])]));
+  return { ...rest, ...lists, agent_note: r.agent_note.split('\n').filter((l) => l !== MANIFEST_NOTE).join('\n') } as T;
 }
 
 /**
@@ -1061,10 +1076,12 @@ async function sentByAnother<T extends FindReply | ProgramReply>(ctx: FindContex
   if (!other) return r;
   await markOffer(ctx.installationId, null, ctx.now);
   const login = (tie === 'owner' || tie === 'committer') && other.by === 'key' ? other.login : null;
+  // Final fix (M3): no apply offer, so no agent step either.
+  const bare = withoutSteps(r);
   return {
-    ...r,
+    ...bare,
     show_to_builder: [r.show_to_builder.split('\n')[0], ALREADY_SENT_REPO(dayWords(other.at, ctx.now), login)].join('\n'),
-    agent_note: ['Do not submit this one: another EarnKit account already sent this repo to the program.', r.agent_note].filter(Boolean).join('\n'),
+    agent_note: ['Do not submit this one: another EarnKit account already sent this repo to the program.', bare.agent_note].filter(Boolean).join('\n'),
   };
 }
 

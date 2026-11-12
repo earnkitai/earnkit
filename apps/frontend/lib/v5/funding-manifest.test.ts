@@ -27,7 +27,8 @@ test('L38-1 (v6.1.18 Task 11): the manifest step is built from the record and th
   assert.deepEqual([m.entity.type, m.entity.name, m.entity.email, m.entity.description], ['individual', 'Ada Lovelace', 'ada@example.com', 'Maintainer of Quill.']);
   assert.deepEqual([m.projects[0].guid, m.projects[0].licenses, m.projects[0].tags], ['quill', ['spdx:Apache-2.0'], ['markdown', 'desktop-app']]);
   assert.deepEqual(m.funding.plans[0].amount, 10_000);
-  assert.deepEqual(step.fill, []);
+  // Final fix (I3): the name and email are always the builder's to confirm, filled or not.
+  assert.deepEqual(step.fill, ['entity.name', 'entity.email']);
   // A company in the record is the entity.
   const org = mergeRecord(record, { company: { name: 'Acme Labs' } }, 'builder', NOW).record;
   const o = manifestStep(floss, READ, { record: org, projectId: null, verifiedUsage: null })!.files[0].json.entity;
@@ -58,9 +59,11 @@ test('Task 11 fix round 1 (I2, I3, M5, M8): the amount starts from the record wi
   // The note: a starting amount and frequency the builder can change before the file is written, never their fact.
   assert.equal(MANIFEST_NOTE,
     'On yes, for a ready program with agent_step funding_manifest: write agent_step.files at those paths from the repo root ' +
-    '(funding.json as the JSON, then the .well-known file), filling each path in agent_step.fill from your sources (git config, ' +
+    '(funding.json as the JSON, then the .well-known file), filling each null path in agent_step.fill from your sources (git config, ' +
     'the README, the GitHub profile; licenses as spdx:<id>, tags lower-case with dashes) or by asking the builder once, never ' +
-    'inventing. The plan\'s amount and yearly frequency are a starting value: before writing the file, tell the builder ' +
-    'what it asks and let them change either; never present the amount as a fact about the builder. Commit and push, call track started for the ' +
+    'inventing. The file is public: before writing it, tell the builder it names them as entity.name with the email ' +
+    'entity.email (agent_step.fill always lists both) and let them change either. The plan\'s amount and yearly frequency ' +
+    'are a starting value: before writing the file, tell the builder what it asks and let them change either; never ' +
+    'present the amount as a fact about the builder. Commit and push, call track started for the ' +
     'program, then call find with its program_id: once the file is in the repo, funding_json_url carries agent_step.url to send.');
 });

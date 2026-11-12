@@ -184,7 +184,8 @@ The pipeline, in order:
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
    listed in the owner's digest and never marks the program stale. v6.1.18 (L39-5): a submission page that answers but
    whose text says it is closed (`is now closed`, `applications are closed`, `no longer accepting`, `closed for
-   submissions`, any case; `formSaysClosed` in `health.ts`) is stored as `submit_closed` and listed in the digest's
+   submissions`, any case; `formSaysClosed` in `health.ts`) is stored as `submit_closed` and, for an active program
+   only (an upcoming program's form is closed until it opens; v6.1.18 final fix, M1), listed in the digest's
    failing block as `{title}: the form says it is closed ({url})`; it never marks the program stale and never changes
    `submit_ok`. A redirect to another host is followed only for this read (`landingPage` in safe-fetch: https, public
    addresses, at most `LANDING_MAX_REDIRECTS` (3) hops), so forms.gle reaches the Google form; the link check itself still never follows. A program unverified or stale for `STALE_DAYS`
@@ -1385,7 +1386,10 @@ means what the last `Say` offered.
   other-claim note, not sent twice) names the next program of the last find's list for this project that is open,
   remote, ready by find's gate (`readyAtSend`), not sent, skipped, held or claimed by another agent, needs nothing
   from the builder and has no find blocker (a sign-in, a document the record lacks, outside the standing approval:
-  `blockersOf`; fix round 1, I2): `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
+  `blockersOf`; fix round 1, I2), and, for a program that takes a funding file, only once a read found the file in the
+  repo (`funding_json_url`; final fix, M2). Never on a repo not shown to be the builder's (`repoNotMine`), so never
+  after a send kept under the project's name only (`nameOnly`) or a rejection on such a repo (final fix, I1):
+  `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
   builder submits; `NEXT_LINE`). The result carries `next` ({ program_id, title, money, draft, fields }) and the note
   starts `Next ready: program_id {id}. On the builder's yes, call track started with that program_id and fill the form
   from next.fields (keys: ...); no find needed.` (`NEXT_NOTE`, `nextReady` in track.ts). The Next line stores the `apply` offer (`markOffer`). List numbers parse
@@ -1401,7 +1405,9 @@ means what the last `Say` offered.
   many, title)`, closingLine's `ruleTitle`). With nothing ready, a step program with a stated amount whose one yes is the
   users answer and EarnKit's change (`doUsersOf`, `canDoWithUsers`: every other real gap `agent_can`, no rule, no setup)
   closes ahead of the rule of a program with no stated amount, and ahead of its own change step: `Nothing is ready yet.
-  Do real people use it? Say yes and I add Base Builder Codes, then apply to {title}.` (`doUsersClosing`, offer
+  Do real people use it? Say yes and I add Base Builder Codes, then apply to {title}.` (a change with its own verb says
+  it, `do` before `what`: `Say yes and I add an MIT license file, then apply to HeroDevs ...`; final fix, I2)
+  (`doUsersClosing`, offer
   `apply`; the users agent line adds `DO_USERS_NOTE` only when the Say is that closing, `isDoUsersSay`). Linked only:
   signed out it closes on `USERS_UNLINKED` (the sign-in that checks users, with its link), and find's `APPLY_OFFER` and
   `TAIL_OFFER` read `..., then apply` so an unconfirmed repo strips it (Task 9 fix round 1). Every ready program on hold closes on `Say go and I apply.`
@@ -1499,7 +1505,11 @@ means what the last `Say` offered.
   `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
   projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,
   topics as tags), every URL the GitHub repo with a `wellKnown` at `.well-known/funding-manifest-urls`, the plan the
-  program's minimum a year by bank; nulls listed in `fill`. It rides on the ready program (list JSON) and the
+  program's minimum a year by bank; nulls listed in `fill`, and always `entity.name` and `entity.email` (final fix, I3):
+  the file is public, so `MANIFEST_NOTE` has the agent tell the builder it names them and that email, and let them
+  change either, before writing it. Where find's gate takes the apply offer away (signed out, a repo not confirmed or
+  not theirs, the join or which-project question, a repo another builder sent), the reply carries no `agent_step` in
+  any list or alone and no `MANIFEST_NOTE` (`withoutSteps` in `beforeSend`; final fix, M3). It rides on the ready program (list JSON) and the
   one-program reply, only on a read GitHub repo without the file; the ready row says `I add the funding file to your
   repo, then apply.` and prefill gives the field to the agent (vouched). The read marks `funding.json` at the tree root
   and gives `funding_json_url`, the raw URL (`raw.githubusercontent.com/<owner>/<repo>/HEAD/funding.json`), which

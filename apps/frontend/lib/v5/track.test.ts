@@ -2552,6 +2552,46 @@ test('L36-12 fix round 1 (I2): the Next line skips a program find would hold bac
   }
 });
 
+test('v6.1.18 final fix (I1, M2): no Next line after a send or a rejection on a repo not shown to be the builder\'s; a funding-file program only once the file is in the repo', async () => {
+  const c = await signedIn('fi1-me');
+  await seedRead('fi1-other/r', ['fi1-other']);
+  await seedRead('fi1-me/m', ['fi1-me']);
+  const ids = ['fi1-a', 'fi1-b', 'fi1-c', 'fi1-e', 'fi1-f', 'fi1-fund'];
+  for (const id of ids.filter((x) => x !== 'fi1-fund')) await upsertProgram(programFixture({ id, title: `${id.toUpperCase()} Grant` }), 'file', NOW);
+  const fundField = { key: 'funding_json_url', label: 'funding.json manifest URL', type: 'url', required: true, from: 'project', kind: 'links', todo: 'the funding manifest link' };
+  await upsertProgram(programFixture({ id: 'fi1-fund', title: 'File Fund', submission_requirements: [fundField] as never }), 'file', NOW);
+  try {
+    const { markFind, markList } = await import('./installations');
+    const { projectKeyOf } = await import('./project-input');
+    const THEIRS = { name: 'Theirs', description: 'Keeps time.', repo_url: 'https://github.com/fi1-other/r' };
+    const MINE = { name: 'Mine', description: 'Keeps time.', repo_url: 'https://github.com/fi1-me/m' };
+    // I1: the builder sent it themselves with a repo that is not theirs: kept under the name, no apply offer after it.
+    await markFind(c.installationId, NOW, undefined, projectKeyOf(THEIRS));
+    await markList(c.installationId, 'h', NOW, ['fi1-a', 'fi1-b']);
+    const sent = await send(c, 'fi1-a', THEIRS, 'builder');
+    assert.match(sent.agent_note, /recorded under the project name only/, sent.agent_note);
+    assert.equal(sent.show_to_builder, 'Sent FI1-A Grant.');
+    assert.equal((sent as { next?: unknown }).next, undefined);
+    // I1: a rejection on that repo never checks the tie, so the Next line does.
+    const no = await track(c, { program_id: 'fi1-a', status: 'rejected', project: THEIRS });
+    assert.doesNotMatch(no.show_to_builder, /Next:|Say yes/, no.show_to_builder);
+    assert.equal((no as { next?: unknown }).next, undefined);
+    // The same send on the builder's own repo names the next one.
+    await markFind(c.installationId, NOW, undefined, projectKeyOf(MINE));
+    await markList(c.installationId, 'h', NOW, ['fi1-c', 'fi1-b']);
+    assert.equal((await send(c, 'fi1-c', MINE, 'builder')).show_to_builder, 'Sent FI1-C Grant. Next: FI1-B Grant, up to $5,000. Say yes and I apply.');
+    // M2: a program that takes a funding file is skipped while the file is not in the repo.
+    await markList(c.installationId, 'h', NOW, ['fi1-e', 'fi1-fund']);
+    assert.equal((await send(c, 'fi1-e', MINE, 'builder')).show_to_builder, 'Sent FI1-E Grant.');
+    // Once a read finds the file, it is the Next line.
+    await sql()`UPDATE repo_cache SET facts = facts || ${sql().json({ funding_json: true })} WHERE repo = 'fi1-me/m'`;
+    await markList(c.installationId, 'h', NOW, ['fi1-f', 'fi1-fund']);
+    assert.equal((await send(c, 'fi1-f', MINE, 'builder')).show_to_builder, 'Sent FI1-F Grant. Next: File Fund, up to $5,000. Say yes and I apply.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ${sql()(ids)}`;
+  }
+});
+
 test('L38-16 (v6.1.18): the rejected reply names the next ready program as the applied one does, else "Tracked."', async () => {
   const c = await signedIn('l3816');
   await upsertProgram(programFixture({ id: 'l3816-a', title: 'Turned Down Grant' }), 'file', NOW);

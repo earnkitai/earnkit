@@ -8,6 +8,7 @@ import { DELETED_NOTICE } from '../v6/reply-words';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
+import { wantsManifest } from './funding-manifest';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
@@ -864,7 +865,8 @@ async function act(
   const base: Result = unknownFields.length > 0 ? { ...done, agent_note: `${done.agent_note} ${droppedFieldsNote(unknownFields)}` } : done;
   // L36-12 (v6.1.18): a plain send names the next ready program and its one ask; its id and fields go to the agent.
   // L38-16 (v6.1.18): a rejection names the next ready program the same way.
-  const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice)
+  // Final fix (I1): never after a send kept under the project's name only (the repo is not shown to be theirs).
+  const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice && !nameOnly)
     || (i.status === 'rejected' && res.ok && !('repeated' in res));
   const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id) : null;
   // Fix round 1 (M1): the Next line is an apply offer.
@@ -908,6 +910,8 @@ export const NEXT_NOTE = (n: NextReady): string =>
  */
 async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKey: string, sentId: string): Promise<NextReady | null> {
   if (ctx.builderId === null || !projectKey || (await lastProjectKey(ctx.installationId)) !== projectKey) return null;
+  // Final fix (I1): no apply offer on a repo that is not shown to be the builder's (a rejection never checks the tie).
+  if (await repoNotMine(ctx, projectKey)) return null;
   const ids = [...new Set((await lastListIds(ctx.installationId)).filter((x) => x && x !== sentId))];
   if (ids.length === 0) return null;
   const { facts, rec } = await sendFacts(ctx, i, projectKey);
@@ -916,6 +920,9 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
   for (const id of ids) {
     const row = await getProgram(id);
     if (!row || row.file.in_person || !isOpenAt(row.file, ctx.now)) continue;
+    // Final fix (M2): a program that takes a funding file only once the file is in the repo; before that its step
+    // comes from find (the Next line carries none, and its note says no find is needed).
+    if (wantsManifest(row.file) && !facts.funding_json_url) continue;
     const here = await rowHere(owner, id, projectKey);
     if (here && here.status !== 'started') continue;
     const c = claims.get(id);
