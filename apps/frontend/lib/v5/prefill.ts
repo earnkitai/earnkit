@@ -39,14 +39,17 @@ export type Field = {
 
 /** L18-4 (v6.1.18 Task 4): what a how-you-heard field says. */
 export const HEARD_VALUE = 'EarnKit (earnkit.com)';
-/** L18-4: beside the option a how-you-heard choice picks. */
-export const HEARD_OTHER_NOTE = 'If the form has an "other" box, write EarnKit (earnkit.com).';
+/** L18-4: beside the option a how-you-heard choice picks. L41-5 (v6.1.19): the "Other" option, whose box carries the
+ *  name. */
+export const HEARD_OTHER_NOTE = 'If "Other" opens a box, write EarnKit (earnkit.com).';
+/** L41-5 (v6.1.19): beside a referral option, when the choice has no "Other". */
+export const HEARD_REFERRAL_NOTE = 'If the form asks who referred you, write EarnKit (earnkit.com).';
 const HEARD_KEYS = new Set(['referral', 'heard_from', 'how_did_you_hear', 'hear_about', 'referral_source']);
 const HEARD_LABEL = /^(how did you (hear|find|learn)( about us)?|referral|where did you hear)/i;
 
 /**
  * L18-4 (v6.1.18 Task 4): a field that asks only how the builder heard of the program says EarnKit: the text, or for
- * a choice the referral option, else the other one, with HEARD_OTHER_NOTE. A field about a partner or alumni referral,
+ * a choice the "Other" option with HEARD_OTHER_NOTE, else the referral one with HEARD_REFERRAL_NOTE (L41-5, v6.1.19). A field about a partner or alumni referral,
  * or one that asks for more than the source (its need holds "with"), is left as it is; so is a choice with neither
  * option. Null when the field is not one. Pure.
  */
@@ -55,8 +58,11 @@ export function heardFrom(r: Pick<SubmissionRequirement, 'key' | 'label' | 'type
   if (/partner|alumni/i.test(r.label) || /\bwith\b/i.test(r.need ?? '')) return null;
   if (r.type === 'text') return { value: HEARD_VALUE };
   if (r.type !== 'choice' && r.type !== 'multi_choice') return null;
-  const pick = r.options?.find((x) => /referr/i.test(x)) ?? r.options?.find((x) => /^other/i.test(x));
-  return pick ? { value: pick, note: HEARD_OTHER_NOTE } : null;
+  // L41-5 (v6.1.19): "Other" first, so its box names EarnKit; a referral option alone loses the name.
+  const other = r.options?.find((x) => /^other/i.test(x));
+  if (other) return { value: other, note: HEARD_OTHER_NOTE };
+  const referral = r.options?.find((x) => /referr/i.test(x));
+  return referral ? { value: referral, note: HEARD_REFERRAL_NOTE } : null;
 }
 
 /** L38-1 (v6.1.18 Task 11): where the agent gets the manifest's URL before the read finds the file. */

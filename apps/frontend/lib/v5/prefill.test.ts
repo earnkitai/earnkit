@@ -630,11 +630,14 @@ test('L18-4d: the Arbitrum Security Program\'s referral field is from earnkit wi
   }
 });
 
-test('L18-4e: the Arbitrum Stablecoin heard_from choice picks "Referral" with the other-box note', async () => {
+test('L41-5 (v6.1.19): Arbitrum Stablecoin heard_from picks Other with the box note', async () => {
   const facts = await factsOf('earnkit');
   const p = prefill(fromFile('arbitrum-stablecoin-growth-program'), facts);
   const f = p.fields.find((x) => x.key === 'heard_from')!;
-  assert.deepEqual([f.from, f.value, f.note], ['earnkit', 'Referral', 'If the form has an "other" box, write EarnKit (earnkit.com).']);
+  assert.deepEqual([f.from, f.value, f.note], ['earnkit', 'Other', 'If "Other" opens a box, write EarnKit (earnkit.com).']);
+  // With no "Other", the referral option and who referred them.
+  const { heardFrom } = await import('./prefill');
+  assert.deepEqual(heardFrom({ key: 'heard_from', label: 'How did you hear?', type: 'choice', options: ['Referral', 'Twitter / X'] }), { value: 'Referral', note: 'If the form asks who referred you, write EarnKit (earnkit.com).' });
   assert.ok(!p.need_you.includes('referral source'));
   // With no referral option, the other one (SPC).
   const spc = prefill(fromFile('spc-founder-fellowship-spring-2027'), facts).fields.find((x) => x.key === 'heard_from')!;
