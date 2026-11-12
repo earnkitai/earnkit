@@ -25,7 +25,7 @@ import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, proj
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
-import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
@@ -452,6 +452,10 @@ export const IN_PERSON_ONE = 'You apply in person; the guide has the steps.';
 export const IN_PERSON_DRAFT = 'Say yes and I draft it for you to send.';
 /** L38 big 2: an online form EarnKit can draft: a submission link with fields to fill (every program has the link). Pure. */
 const hasForm = (row: ProgramRow): boolean => !!row.file.submission_url && row.file.submission_requirements.length > 0;
+/** L1l-4 (v6.1.19): an in-person program's own reply with no project and a form says so before its closing. */
+export const ATTEND_ONE = 'You attend in person.';
+/** L1l-8 (v6.1.19): the closing of a closed program's own reply when it was not sent here. */
+export const CLOSED_ONE = 'It is closed; say its name again when it reopens, or tell me about your project and I find what is open.';
 /** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. */
 export const NO_PROJECT_ONE = 'Tell me about your project and I check the fit.';
 
@@ -565,7 +569,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     // Low 20 (v6.1.13), L23-20 (v6.1.16): closed is said once, and a closed program's rules are not listed.
     ? sent
       ? [`${p.title}, ${moneyOf(p)}.`, `Closed. You applied ${dayWords(sent, ctx.now)}; results ${due ? dayWords(due, ctx.now) : 'not announced'}.`]
-      : [`${p.title}, ${moneyOf(p)}, ${when}.`]
+      // L1l-8 (v6.1.19): a closed program not sent here ends on what to do next; closed is still said once.
+      : [`${p.title}, ${moneyOf(p)}.`, CLOSED_ONE]
     : upcoming
       ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
       : said
@@ -573,7 +578,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too. L1k-4
         // (v6.1.18): an online one ends on the ask for the project, never on a rules bullet.
         // L38 big 2 (v6.1.18 Task 10): an in-person one with an online form asks for the project, as an online one does.
-        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
+        // L1l-4 (v6.1.19): an in-person one with a form still says so before the project ask.
+        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
@@ -1027,7 +1033,8 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     const kept = withoutApply(r.show_to_builder).map(withoutSignIn).filter((l) => l !== '');
     return {
       ...r,
-      show_to_builder: [...kept, signInFirst(link, applyOfferOf(r.show_to_builder))].join('\n'),
+      // L1l-6 (v6.1.19): a repo not on GitHub: the sign-in checks users, never that the repo is theirs.
+      show_to_builder: [...kept, signInFirst(link, applyOfferOf(r.show_to_builder), repoKey(project!.repo_url) ? undefined : 'so I can check your users')].join('\n'),
       ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };

@@ -433,17 +433,17 @@ export function stepItems(g: GapProgram): string[] {
   const listed = [...real.filter((x) => !readingGap(x)), ...real.filter(readingGap)].map((x) => x.what);
   return [...listed, ...g.setup, ...all.filter((x) => x.kind === 'rule').map((x) => x.what)];
 }
-/** L38 big 3: one step means one step: a rule-only row (one yes), or a row whose only item is one gap or one setup step. Pure. */
-export const oneStep = (g: GapProgram): boolean => ruleOnlyGap(g) || stepItems(g).length === 1;
+/** L38 big 3: one step means one step: a rule-only row with no setup step (one yes), or a row whose only item is one
+ *  gap or one setup step. L1l-3 (v6.1.19): a setup step beside a rule is two things to do, so More to do first. Pure. */
+export const oneStep = (g: GapProgram): boolean => (ruleOnlyGap(g) && g.setup.length === 0) || stepItems(g).length === 1;
 /** L38 big 3 (v6.1.18 Task 10): a row under "More to do first": the first thing to do, then how many more:
- *  "2. Colosseum Eternal, $25,000 award: a demo video, then 4 more steps." The one-program reply keeps the whole line. Pure. */
-export function moreStepsLine(g: GapProgram, closed: Gap | null = null): string {
+ *  "2. Colosseum Eternal, $25,000 award: a demo video link (...), then 4 more steps." L1l-2 (v6.1.19): the row always
+ *  names its first step, even when the closing repeats it. The one-program reply keeps the whole line. Pure. */
+export function moreStepsLine(g: GapProgram): string {
   const [head, ...rest] = stepItems(g);
-  // Fix round 1 (M4): the step the closing names (`closed`) is said there only; the row points at it.
-  const first = closed && head === closed.what ? 'the step below' : head;
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
   const more = rest.length === 0 ? '' : `, then ${rest.length} more ${rest.length === 1 ? 'step' : 'steps'}`;
-  return `${g.n}. ${g.title}, ${money}: ${first}${more}.`;
+  return `${g.n}. ${g.title}, ${money}: ${head}${more}.`;
 }
 /** L38 big 3: the default view's step headings, and the full list's one heading for every row not ready. */
 export const ONE_STEP_HEAD = 'One step away';
@@ -1162,10 +1162,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // go under More to do first, each as its first step and how many more. The row a rule Say names keeps its whole line,
   // so the rules it asks about are on screen.
   const ruleNamed = closingOf.offer === 'rule' ? steps.find((g) => g.n === (firstRule ?? stepRule)) : undefined;
-  // Fix round 1 (M4): the gap a single-step closing names, said there only.
-  const stepNamed = firstStep && !firstStep.users && firstStep.gap && closingOf.text.endsWith(singleStepClosing(firstStep.gap)) ? firstStep : null;
   const stepLine = (g: GapProgram): string =>
-    (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g, stepNamed?.program_id === g.program_id ? stepNamed.gap ?? null : null));
+    (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g));
   const stepBlock = (head: string, gs: GapProgram[]): Block | null => {
     if (gs.length === 0) return null;
     const lines = gs.map(stepLine);

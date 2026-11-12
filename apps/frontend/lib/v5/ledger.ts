@@ -159,8 +159,10 @@ export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
  * stays between them ("..., then publish X, then say yes and I apply."); an offer it cannot read closes on the plain yes.
  * With no link to give, the same words without one. Pure.
  */
-export function signInFirst(link: string | null, offer: string | null = null): string {
-  const head = link ? `Sign in at ${link} so I know the repo is yours` : 'Sign in so I know the repo is yours';
+export function signInFirst(link: string | null, offer: string | null = null, why = 'so I know the repo is yours'): string {
+  // L1l-6 (v6.1.19): a repo not on GitHub cannot be shown to be theirs by a GitHub sign-in; find passes the reason
+  // that holds there (`so I can check your users`).
+  const head = link ? `Sign in at ${link} ${why}` : `Sign in ${why}`;
   let o = (offer ?? '').trim();
   // An offer that already signs in first (a reply gated twice) keeps only its action.
   const merged = /^Sign in\b[^,]*, then (.+)$/.exec(o);

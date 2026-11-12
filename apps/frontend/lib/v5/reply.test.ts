@@ -171,14 +171,14 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet.');
   assert.equal(one(SW, [{ ...SW, item: 'integration:x', what: 'add X' }]), '1. G, $1K: add Smart Wallet and add X.');
   assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video link (a short screen recording of it working).');
-  assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: ARC, also: [DEMO] })] }), false).split('\n').slice(0, 2).join('\n'), 'More to do first (1):\n1. G, $1K: the step below, then 1 more step.');
+  assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: ARC, also: [DEMO] })] }), false).split('\n').slice(0, 2).join('\n'), 'More to do first (1):\n1. G, $1K: a contract on Arc, then 1 more step.');
   // v6.1.14 (was C57): the unlinked proof is a gap after the colon; its sign-in is asked once, in the closing.
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof of real users', effort: 'weeks' as const, agent_can: false };
   assert.equal(one(TIER), '1. G, $1K: proof of real users.');
   assert.equal(one(TIER, [DEMO]), '1. G, $1K: proof of real users and a demo video link (a short screen recording of it working).');
   const two = base({ gaps: [gap({ title: 'G', money: '$1K', also: [{ kind: 'live_product', item: 'live_product', what: 'put a live link up', effort: 'hours', agent_can: false }] })] });
-  // Task 10 fix round 1 (M4): the closing names the deploy, so the row points at it.
-  assert.match(replyText(two, false), /^1\. G, \$1K: the step below, then 1 more step\.\nNothing is ready yet\. Tell me when the contract is on Arc and I look again\.$/m);
+  // L1l-2 (v6.1.19): the row names the deploy too.
+  assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc, then 1 more step\.\nNothing is ready yet\. Tell me when the contract is on Arc and I look again\.$/m);
   assert.equal(gapLine(two.gaps[0]), '1. G, $1K: deploy the contract on Arc and put a live link up.');
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   // L29-18 (v6.1.16 Task 15): "You give:", the words as the form names them, at most three and the count.
@@ -1127,8 +1127,8 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   // L38 big 3 (v6.1.18 Task 10): each row has more than one step: the first, then the count.
   assert.equal(both, [
     'More to do first (2):',
-    // Task 10 fix round 1 (M4): the row the closing names points at the step below.
-    '1. FLOSS/fund, $1K: the step below, then 1 more step.',
+    // L1l-2 (v6.1.19): a More row names its first step even when the closing repeats it.
+    '1. FLOSS/fund, $1K: a public repo, then 1 more step.',
     '2. HeroDevs, $1K: a public repo, then 1 more step.',
     'Nothing is ready yet. Tell me when the repo is public and I look again.',
   ].join('\n'));
@@ -1140,7 +1140,7 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   assert.equal(gapLine(atom, true), 'FLOSS/fund, $1K: a live repo. First: tell me the live repo; publish a funding manifest on your site or repo.');
   const archived = replyText(base({ gaps: [atom] }), true);
   // L38 big 3 (v6.1.18 Task 10): a live repo and the manifest are two steps.
-  assert.equal(archived, ['More to do first (1):', '1. FLOSS/fund, $1K: the step below, then 1 more step.', 'Nothing is ready yet. Tell me the live repo and I look again.'].join('\n'));
+  assert.equal(archived, ['More to do first (1):', '1. FLOSS/fund, $1K: a live repo, then 1 more step.', 'Nothing is ready yet. Tell me the live repo and I look again.'].join('\n'));
   assert.equal(end(base({ gaps: [atom] })), 'Nothing is ready yet. Tell me the live repo and I look again.');
   assert.equal(gapAction({ ...atom, setup: [] }), 'Tell me the live repo and I look again.');
   // M3: the code closing is picked by the gap's kind.
@@ -1580,6 +1580,21 @@ test('L38 big 2 (v6.1.18 Task 10): the default In person block is one line, numb
   assert.deepEqual(p.shown.slice(-2), [yc.program_id, alliance.program_id]);
 });
 
+test('L1l-3 (v6.1.19): a setup step plus a rule is More to do first', async () => {
+  const { oneStep } = await import('./reply');
+  const essp = gap({
+    title: 'Ethereum Security Subsidy Program', money: 'up to 30% of audit cost', gap: ruleGap('a defined audit scope: lines of code and contract count'),
+    setup: ['set aside a security budget to co-fund the audit'], rules: ['a defined audit scope: lines of code and contract count'],
+  });
+  assert.equal(oneStep(essp), false);
+  assert.equal(oneStep({ ...essp, setup: [] }), true);
+  const text = replyText(base({ linked: true, gaps: [essp] }), true);
+  const lines = text.split('\n');
+  assert.equal(lines[0], 'More to do first (1):', text);
+  assert.doesNotMatch(text, /One step away/);
+  assert.ok(lines.length <= 10 && /^(Nothing|Say)/.test(lines.at(-1)!), text);
+});
+
 test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under More to do first as the first step and the count', async () => {
   const { stepItems, oneStep, moreStepsLine } = await import('./reply');
   const colosseum = gap({
@@ -1591,6 +1606,8 @@ test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under Mo
   assert.equal(stepItems(colosseum).length, 5);
   assert.equal(oneStep(colosseum), false);
   assert.equal(moreStepsLine({ ...colosseum, n: 2 }), '2. Colosseum Eternal, $25,000 award: a demo video, then 4 more steps.');
+  // L1l-2 (v6.1.19): the row always names its first step, even when the closing repeats it.
+  assert.equal(moreStepsLine({ ...colosseum, gap: VIDEO, n: 2 }), '2. Colosseum Eternal, $25,000 award: a demo video link (a short screen recording of it working), then 4 more steps.');
   // One real gap alone is one step; a rule-only row is one yes (every rule in one ask), so one step too.
   const solana = gap({ title: 'Solana Foundation Grants', money: 'milestone grants', gap: ruleGap('a public good'), also: [ruleGap('open source', 'rule:0000000b')] });
   assert.equal(oneStep(solana), true);
