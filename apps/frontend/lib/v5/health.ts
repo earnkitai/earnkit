@@ -33,6 +33,9 @@ export type Health = {
   closed_on: 'form' | 'source' | null;
   /** v6.1.19 (L44-16): the form redirects elsewhere and its landing could not be read (refused or unfinished). */
   form_unread: boolean;
+  /** v6.1.19 fix round 1 (M1): nothing read says closed, but the form or the source page was not read this run, so the
+   *  stored closed state and `closed_since` stay (a flap never restarts the age or announces a round again). */
+  closed_unread: boolean;
   /** The other hosts the links redirected to (never requested). */
   redirects: string[];
 };
@@ -225,6 +228,7 @@ export async function probeProgram(p: Program | { file: Program }, deps: HealthD
     source_ok: src.ok, submit_ok: form.ok, body_text, redirects,
     submit_closed: closed?.kind === 'closed', closed_round: closed?.kind === 'round', closed_on: closed?.on ?? null,
     form_unread: form.unread,
+    closed_unread: closed === null && (form.html === null || (sub !== null && src.html === null)),
     body_hash: body_text === null ? null : hashOf(body_text),
     changed: body_text !== null && prev !== null && pageChanged(prev, body_text),
   };
@@ -331,9 +335,12 @@ export async function runHealth(
           VALUES (${r.id}, ${now}, ${h.source_ok}, ${h.submit_ok}, ${h.body_hash}, ${h.body_text}, ${h.changed ? now : null}, ${failDays}, ${failed ? now : null}, ${h.submit_closed},
             ${h.closed_round}, ${h.closed_on}, ${h.submit_closed || h.closed_round ? now : null})
           ON CONFLICT (program_id) DO UPDATE SET
-            checked_at = EXCLUDED.checked_at, source_ok = EXCLUDED.source_ok, submit_ok = EXCLUDED.submit_ok, submit_closed = EXCLUDED.submit_closed,
-            closed_round = EXCLUDED.closed_round, closed_on = EXCLUDED.closed_on,
-            closed_since = CASE WHEN program_health.submit_closed = EXCLUDED.submit_closed AND program_health.closed_round = EXCLUDED.closed_round
+            checked_at = EXCLUDED.checked_at, source_ok = EXCLUDED.source_ok, submit_ok = EXCLUDED.submit_ok,
+            submit_closed = CASE WHEN ${h.closed_unread} THEN program_health.submit_closed ELSE EXCLUDED.submit_closed END,
+            closed_round = CASE WHEN ${h.closed_unread} THEN program_health.closed_round ELSE EXCLUDED.closed_round END,
+            closed_on = CASE WHEN ${h.closed_unread} THEN program_health.closed_on ELSE EXCLUDED.closed_on END,
+            closed_since = CASE WHEN ${h.closed_unread} THEN program_health.closed_since
+              WHEN program_health.submit_closed = EXCLUDED.submit_closed AND program_health.closed_round = EXCLUDED.closed_round
               AND program_health.closed_on IS NOT DISTINCT FROM EXCLUDED.closed_on THEN COALESCE(program_health.closed_since, EXCLUDED.closed_since) ELSE EXCLUDED.closed_since END,
             body_hash = COALESCE(EXCLUDED.body_hash, program_health.body_hash),
             body_text = COALESCE(EXCLUDED.body_text, program_health.body_text),

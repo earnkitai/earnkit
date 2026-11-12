@@ -339,17 +339,22 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
   }
   // L44-8: each failing or closed line's age, and whether builders still see the program.
   const listed = healthRows.length > 0 ? new Set((await listListedPrograms(now)).map((r) => r.id)) : new Set<string>();
-  const daysSince = (at: Date | null) => (at ? Math.floor((now.getTime() - at.getTime()) / DAY_MS) : 0);
+  // Fix round 1 (I2): an age counts UTC calendar days from each day's start, as `fail_days` does, never elapsed 24 hours.
+  const daysSince = (at: Date | null) => (at ? Math.max(0, Math.round((dayStart.getTime() - Date.parse(`${at.toISOString().slice(0, 10)}T00:00:00Z`)) / DAY_MS)) : 0);
   for (const r of healthRows) {
     const f = ProgramFile.safeParse(r.file).data;
     if (!f) continue;
     const base = { id: r.id, title: f.title, ...(!listed.has(r.id) && { unlisted: true }) };
     if (!r.source_ok) health.failing.push({ ...base, url: f.source_url, days: daysSince(r.first_failed_at) });
     if (!r.submit_ok) health.failing.push({ ...base, url: f.submission_url, days: daysSince(r.first_failed_at) });
-    if (r.status === 'active' && r.closed_on && (r.submit_closed || r.closed_round)) {
+    // Fix round 1 (I1): one round closed only on the day it first appeared, whatever else lists the program; (M1) a
+    // closed state kept over an unread run is listed only while the link it names loads.
+    const roundToday = r.closed_round && r.closed_since !== null && r.closed_since >= dayStart;
+    const loads = r.closed_on === 'form' ? r.submit_ok : r.source_ok;
+    if (r.status === 'active' && r.closed_on && loads && (r.submit_closed || roundToday)) {
       health.formsClosed!.push({
         ...base, url: r.closed_on === 'form' ? f.submission_url : f.source_url, on: r.closed_on, days: daysSince(r.closed_since),
-        ...(r.closed_round && { round: true }),
+        ...(roundToday && { round: true }),
       });
     }
     if (r.changed_day) health.changed.push({ id: r.id, title: f.title, url: f.source_url });

@@ -161,13 +161,14 @@ function hidesElement(attrs: string): boolean {
  * nested elements of the same name counted; one never closed hides the rest of the page. Pure.
  */
 function dropHiddenElements(html: string): string {
-  const open = /<([a-z][\w-]*)\b([^>]*)>/gi;
+  // Fix round 1 (M2): a `>` inside a quoted attribute value does not end the tag.
+  const open = /<([a-z][\w-]*)\b((?:"[^"]*"|'[^']*'|[^'">])*)>/gi;
   let out = '';
   let from = 0;
   for (let m = open.exec(html); m; m = open.exec(html)) {
     const name = m[1].toLowerCase();
     if (VOID_TAGS.has(name) || m[2].trim().endsWith('/') || !hidesElement(m[2])) continue;
-    const tag = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
+    const tag = new RegExp(`<(/?)${name}\\b(?:"[^"]*"|'[^']*'|[^'">])*>`, 'gi');
     tag.lastIndex = open.lastIndex;
     let depth = 1;
     let end = html.length;

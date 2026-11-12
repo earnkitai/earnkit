@@ -468,3 +468,45 @@ test('L44-7, L44-8: one round closed is named on its first day only; a failing l
     await resetDigest();
   }
 });
+
+// v6.1.19 Task 6 fix round 1.
+test('fix round 1 (I1): the round line never comes back on a later day when a down source link pulls the program in', async () => {
+  const db = sql();
+  await resetDigest();
+  await db`DELETE FROM programs`;
+  await upsertProgram(programFixture({ id: 'od-r4', title: 'Round Four Grants', source_url: 'https://r4.example/about', submission_url: 'https://r4.example/form' }), 'file', NOW);
+  const form = '<p>Round 1 applications are closed. Round 2 is open now: apply below.</p>';
+  const day = (n: number) => new Date(NOW.getTime() + n * 86_400_000);
+  try {
+    await runHealth(NOW, { link: async (u) => ({ ok: true, page: u.endsWith('/form') ? form : '<p>About</p>' }) });
+    assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+    assert.match(sent[0].text, /one round is closed/);
+    await runHealth(day(3), { link: async (u) => (u.endsWith('/about') ? { ok: false, why: '4xx' } : { ok: true, page: form }) });
+    assert.equal(await sendOwnerDigest(day(3), mailer), 'sent');
+    assert.match(sent[1].text, /Links that did not load\n- Round Four Grants: down since today \(https:\/\/r4\.example\/about\)/);
+    assert.doesNotMatch(sent[1].text, /one round is closed|Forms that say/);
+  } finally {
+    await db`DELETE FROM programs WHERE id LIKE 'od-%'`;
+    await resetDigest();
+  }
+});
+
+test('fix round 1 (I2): ages count UTC days: a run 5 seconds earlier the next day reads 1 day, not since today', async () => {
+  const db = sql();
+  await resetDigest();
+  await db`DELETE FROM programs`;
+  await upsertProgram(programFixture({ id: 'od-age', title: 'Age Grants', source_url: 'https://age.example/about', submission_url: 'https://age.example/form' }), 'file', NOW);
+  const first = new Date('2026-11-04T06:15:05Z');
+  const next = new Date('2026-11-05T06:15:00Z');
+  const link: LinkCheck = async (u) => (u.endsWith('/about') ? { ok: false, why: '4xx' } : { ok: true, page: '<p>Applications are closed.</p>' });
+  try {
+    await runHealth(first, { link });
+    await runHealth(next, { link });
+    assert.equal(await sendOwnerDigest(next, mailer), 'sent');
+    assert.ok(sent[0].text.includes('- Age Grants: down 1 day (https://age.example/about)'), sent[0].text);
+    assert.ok(sent[0].text.includes('- Age Grants: the form says it is closed, 1 day (https://age.example/form)'), sent[0].text);
+  } finally {
+    await db`DELETE FROM programs WHERE id LIKE 'od-%'`;
+    await resetDigest();
+  }
+});

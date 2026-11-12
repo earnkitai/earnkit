@@ -612,3 +612,29 @@ test('L44-8: closed_since keeps the day the page first said it; a change of what
   h = await row('h-since');
   assert.deepEqual([h.submit_closed, h.closed_round, h.closed_on, h.closed_since], [false, false, null, null]);
 });
+
+// v6.1.19 Task 6 fix round 1.
+test('fix round 1 (M2): a `>` inside a quoted attribute value does not end the tag, so a later `hidden` still hides', async () => {
+  const { closedRead } = await import('./health');
+  assert.equal(closedRead('<div data-x="a>b" hidden>Applications are closed.</div><p>Apply below.</p>'), null);
+  assert.equal(closedRead("<div title='x>y' aria-hidden=\"true\"><div>in</div>This form is closed.</div><p>Apply.</p>"), null);
+  assert.equal(closedRead('<div data-x="a>b">Applications are closed.</div>'), 'closed');
+});
+
+test('fix round 1 (M1): a run where the form or the page could not be read keeps the closed state and closed_since', async () => {
+  const p = programFixture({ id: 'h-flap', source_url: 'https://flap.example/a', submission_url: 'https://flap.example/form' });
+  await upsertProgram(p, 'file', D1);
+  await only('h-flap');
+  const says = (form: ProbeResult) => links('<p>About</p>', { 'https://flap.example/form': form });
+  await runHealth(D1, { link: says({ ok: true, page: '<p>Round 1 applications are closed. Round 2 is open now.</p>' }) });
+  await runHealth(D2, { link: says({ ok: false, why: '5xx' }) });
+  let h = await row('h-flap');
+  assert.deepEqual([h.submit_ok, h.closed_round, h.closed_on, h.closed_since], [false, true, 'form', D1]);
+  await runHealth(D3, { link: says({ ok: true, page: '<p>Round 1 applications are closed. Round 2 is open now.</p>' }) });
+  h = await row('h-flap');
+  assert.deepEqual([h.closed_round, h.closed_since], [true, D1]);
+  // A page read that says nothing closed still clears it.
+  await runHealth(new Date(D3.getTime() + DAY), { link: says({ ok: true, page: '<p>Apply</p>' }) });
+  h = await row('h-flap');
+  assert.deepEqual([h.closed_round, h.closed_on, h.closed_since], [false, null, null]);
+});
