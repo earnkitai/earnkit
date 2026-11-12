@@ -358,7 +358,7 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const info = await mcpServerInfo(await ctx());
   assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
-  assert.equal(pkg.version, '6.1.18.1');
+  assert.equal(pkg.version, '6.1.18');
 });
 
 /**
@@ -383,10 +383,7 @@ test('L1j-8 (v6.1.17 Task 5): the release gate bumped the package version to the
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const dir = join(import.meta.dirname, '..', '..', '..', '..', 'docs', 'design-docs-and-implementation-plans');
   const newest = releaseVersionOf(readdirSync(dir));
-  // v6.1.18.1: a patch plan of the newest release asks for its four-part version (6.1.18.1); with none, the release's.
-  const patches = readdirSync(dir).map((f) => /^v(6\.1\.\d+\.\d+)-.*plan\.md$/.exec(f)?.[1]).filter((v): v is string => !!v && v.startsWith(`${newest}.`));
-  const wanted = patches.sort((a, b) => Number(a.split('.')[3]) - Number(b.split('.')[3])).at(-1) ?? newest;
-  assert.equal(pkg.version, wanted, `apps/frontend/package.json is ${pkg.version}; the newest plan is v${wanted}`);
+  assert.equal(pkg.version, newest, `apps/frontend/package.json is ${pkg.version}; the newest plan is v${newest}`);
   // v6.1.17 final round: a patch plan's fourth part is ignored, so v6.1.17.1 still asks for 6.1.17.
   assert.equal(releaseVersionOf(['v6.1.16.1-patch-plan.md', 'v6.1.17-journeys-11-plan.md', 'v6.1.17.1-patch-plan.md']), '6.1.17');
   assert.equal(releaseVersionOf(['v6.1.16-journeys-10-plan.md', 'v6.1.16.1-patch-plan.md']), '6.1.16');

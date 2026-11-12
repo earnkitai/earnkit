@@ -616,8 +616,8 @@ also pins the package version equal to the newest `v6.1.*` plan file in
 `docs/design-docs-and-implementation-plans/` (for example `v6.1.17-journeys-11-plan.md` gives 6.1.17), so a release
 whose plan is written but whose package is not bumped fails the suite. Only major.minor.patch is compared (v6.1.17
 final round, `releaseVersionOf`): a four-part patch plan (`v6.1.17.1-patch-plan.md`) is a patch of 6.1.17 and asks
-for 6.1.17, since a fourth part is not semver. Since v6.1.18.1 a patch plan of the newest release
-(`v6.1.18.1-patch-plan.md`) asks for its four-part version (6.1.18.1); pnpm and turbo accept it.
+for 6.1.17, since a fourth part is not semver. A patch release keeps its release's version (v6.1.18.1 ships as
+6.1.18, as v6.1.14.1 and v6.1.16.1 did).
 
 Releases under this gate: 6.1.17 (`v6.1.17-journeys-11-plan.md`), 6.1.18 (`v6.1.18-journeys-12-plan.md`: the more line
 and what closes this week, code in a public repo as the step, the builder-sent closing, the sent ask and how-you-heard
