@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { RateLimitError } from './rate-limit';
-import { CIMD_FETCH_KEY, cimdClient, clearCimdCache, clearCimdStore, registerClient, registrationLimitKey, type ClientDeps } from './oauth';
+import { CIMD_FETCH_KEY, CIMD_HOST_KEY, cimdClient, clearCimdCache, clearCimdStore, registerClient, registrationLimitKey, type ClientDeps } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { connectInstallation } from './installations';
 import { type CimdResponse, cimdFixture } from './fixtures/cimd';
@@ -19,7 +19,7 @@ const clearAll = async () => {
 };
 beforeEach(async () => {
   await clearAll();
-  await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch:%'`;
+  await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch%'`;
 });
 
 const DOC_URL = 'https://client.example/cimd.json';
@@ -233,7 +233,7 @@ test('fix round 1, M1: at most 30 uncached document fetches per host an hour; ov
   await assertFailed(await authorize(`${DOC_URL}?n=31`, later), 'a new URL is still capped');
   assert.equal(f.requests.length, 32);
   // A refusal by the cap is not cached as the document's failure: once the window allows, it is fetched.
-  await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch:%'`;
+  await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch%'`;
   assert.equal((await authorize(`${DOC_URL}?n=30`, f)).status, 302);
   assert.equal(f.requests.length, 33);
 });
@@ -351,4 +351,17 @@ test('L35-5 (v6.1.16.1 Task 2, Review Focus 9): 31 cache-busting reads from one 
   assert.deepEqual((await cimdClient(VENDOR, from('10.35.0.0/16'))).r, [CALLBACK]);
   assert.equal(f.requests.length, before);
   assert.equal((await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_FETCH_KEY('l35-vendor.test', '10.35.0.0/16')}`)[0].count, 31);
+});
+
+test('L35-5 controller ruling (v6.1.16.1 Task 2): a total of 300 uncached fetches an hour per host across every block; many blocks never multiply them', async () => {
+  const f = cimdFixture((u) => ({ body: doc({}, u.href) }));
+  const URL0 = 'https://l35-total.test/client.json';
+  for (let b = 0; b < 10; b++)
+    for (let n = 0; n < 30; n++) await cimdClient(`${URL0}?b=${b}&n=${n}`, { ...f, block: `10.${100 + b}.0.0/16` });
+  assert.equal(f.requests.length, 300);
+  await assert.rejects(cimdClient(`${URL0}?b=10`, { ...f, block: '10.120.0.0/16' }));
+  assert.equal(f.requests.length, 300, 'no fetch over the host total');
+  assert.equal((await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_HOST_KEY('l35-total.test')}`)[0].count, 301);
+  // A document already good still serves.
+  assert.deepEqual((await cimdClient(`${URL0}?b=0&n=0`, { ...f, block: '10.120.0.0/16' })).r, [CALLBACK]);
 });

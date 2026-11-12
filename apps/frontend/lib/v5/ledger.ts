@@ -208,21 +208,20 @@ export type ParentRepo = { id: number | null; key: string | null };
 /**
  * L28-1 (v6.1.16 Task 14): another owner's application of this repo to the program (sent: applied or a result), the
  * earliest, with that owner's GitHub login (null for an unlinked installation's) and its send time; null when none.
- * Read under the repo's lock (`repoLock`), taken in `record` and `claim` before any write. L35-3, L35-11, L35-20
- * (v6.1.16.1 Task 2): also by the fork's parent (its repo id or key); a repo off GitHub also by a send kept off it
- * (`off_repo`, as every send of such a repo is); a match by id alone is `by: 'id'`.
+ * Read under the repo's lock (`repoLock`), taken in `record` and `claim` before any write. L35-3, L35-20 (v6.1.16.1
+ * Task 2): also by the fork's parent (its repo id or key); a match by id alone is `by: 'id'`. A send kept off a repo
+ * (`off_repo`) never counts here (controller ruling: an unverified link never blocks another builder; `offHostSent`).
  */
 export async function sentForRepo(tx: Db, programId: string, repoKey: string, ownerExcept: string, repoId: number | null = null, parent: ParentRepo | null = null): Promise<SentRepo | null> {
   // Fix round 1 (M2): by GitHub's repo id when known (a rename keeps it), the link as the fallback.
-  const offHost = !repoKey.startsWith('https://github.com/');
   const parentId = parent?.id ?? null;
   const parentKey = parent?.key ?? null;
   const [r] = await tx<{ owner: string; login: string | null; at: Date; status: string; repo_key: string | null; by_key: boolean }[]>`
     SELECT a.owner, b.login, COALESCE(a.sent_at, a.at) AS at, a.status, a.repo_key,
-      (a.repo_key = ${repoKey} OR (${offHost} AND a.off_repo = ${repoKey})) AS by_key FROM applications a
+      a.repo_key = ${repoKey} AS by_key FROM applications a
       LEFT JOIN builders b ON a.owner = 'b:' || b.id
     WHERE a.program_id = ${programId}
-      AND (a.repo_key = ${repoKey} OR (${offHost} AND a.off_repo = ${repoKey})
+      AND (a.repo_key = ${repoKey}
         OR (${repoId}::bigint IS NOT NULL AND a.repo_id = ${repoId}::bigint)
         OR (${parentId}::bigint IS NOT NULL AND a.repo_id = ${parentId}::bigint)
         OR (${parentKey}::text IS NOT NULL AND a.repo_key = ${parentKey}::text))
@@ -239,6 +238,18 @@ export async function sentForRepo(tx: Db, programId: string, repoKey: string, ow
   }
   return { owner: r.owner, login: r.login, at: r.at, status: r.status, by: byKey ? 'key' : 'id' };
 }
+
+/**
+ * L35-11, controller ruling (v6.1.16.1 Task 2): whether another owner recorded a send kept under its name with this
+ * repo link off GitHub (a link EarnKit could not check). Advisory only: it never refuses (`OFF_HOST_SENT_NOTE`).
+ */
+export async function offHostSent(tx: Db, programId: string, link: string, ownerExcept: string): Promise<boolean> {
+  const rows = await tx`SELECT 1 FROM applications WHERE program_id = ${programId} AND off_repo = ${link} AND owner <> ${ownerExcept}
+    AND status = ANY(${['applied', ...RESULTS]}) LIMIT 1`;
+  return rows.length > 0;
+}
+/** L35-11, controller ruling: the agent note beside a send another builder recorded with the same unchecked link. */
+export const OFF_HOST_SENT_NOTE = 'Another builder recorded a send with this link; it could not be checked.';
 
 /** L35-4 (v6.1.16.1 Task 2): the earliest live claim (under 24 hours, not a hold) another owner holds on this repo for
  *  the program, or null. Read under the repo's lock. */
@@ -389,34 +400,45 @@ export async function record(
     const exactOnly = repoKeyOf(key) !== null && (status === 'applied' || status === 'held');
     // Fix round 3 (M4): once the tie is shown, the owner's own keyless row is this project's.
     // L35-2 (v6.1.16.1 Task 2): the row with this project's identity first (a rename, a dropped repo), then by its key.
-    const row = (identity ? rows.find((r) => r.identity === identity) : undefined) ?? (exactOnly
+    // Controller ruling: only when that row's key gives the same repo key as this call's.
+    const row = (identity ? rows.find((r) => r.identity === identity && repoKeyOf(r.project_id) === repoKeyOf(key)) : undefined) ?? (exactOnly
       ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined)
       : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip'));
     if (!program && !row) return unknown;
+    // An identity another of the owner's rows of this program holds (under another repo key) is never written twice.
+    const ident = identity && rows.some((r) => r.identity === identity && r !== row) ? null : identity;
     // The key every write below uses: the row's own when one was picked, else this project's.
     let rk = row ? (row.project_id ?? '') : key;
     const repoKey = repoKeyOf(rk || key);
     // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, decided under the repo's lock.
-    // L35-11 (v6.1.16.1 Task 2): a builder's send of a repo off GitHub, kept under its name, is held to it as well.
-    // L35-13: a hold too.
-    const offHost = o.offRepo && !o.offRepo.startsWith('https://github.com/') ? o.offRepo : null;
-    const checkKey = repoKey ?? (status === 'applied' ? offHost : null);
+    // Controller ruling (v6.1.16.1 Task 2): the repo key from this call's own key always, and the picked row's too when
+    // it names another; L35-13: a hold too.
+    const checkKeys = [...new Set([repoKeyOf(key), repoKeyOf(rk)].filter((x): x is string => x !== null))];
     let cofounderSent = false;
     let cofounderClaim = false;
-    if (checkKey && (status === 'applied' || status === 'held' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || row.status === 'started' || row.status === 'skipped')) {
-      await repoLock(tx, checkKey, programId, repoKey ? o.repoId ?? null : null);
-      // L35-3: a fork's parent is locked too (a parent's send never locks its forks, so the order cannot cross).
-      if (repoKey && o.parentRepo?.key) await repoLock(tx, o.parentRepo.key, programId, o.parentRepo.id);
-      const other = await sentForRepo(tx, programId, checkKey, owner, repoKey ? o.repoId ?? null : null, repoKey ? o.parentRepo ?? null : null);
-      // L35-4 (v6.1.16.1 Task 2): this agent's own claim, taken before the co-founder's send: the form went out; recorded.
-      if (other && status === 'applied' && o.tied === true && row?.status === 'started' && row.at.getTime() < other.at.getTime()) cofounderSent = true;
-      else if (other && status === 'held') return { ok: false, note: NOTHING_TO_HOLD_REPO } as const;
-      // Controller ruling: never the other builder's result; their login only on the caller's strong tie, and (L35-20)
-      // only when the match is by this repo's key.
-      else if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin && other.by === 'key' ? other.login : null), repo_taken: true } as const;
+    let offHostSeen = false;
+    if (checkKeys.length > 0 && (status === 'applied' || status === 'held' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || row.status === 'started' || row.status === 'skipped')) {
+      for (const k of checkKeys) {
+        const id = k === repoKeyOf(key) ? o.repoId ?? null : null;
+        const parent = k === repoKeyOf(key) ? o.parentRepo ?? null : null;
+        await repoLock(tx, k, programId, id);
+        // L35-3: a fork's parent is locked too (a parent's send never locks its forks, so the order cannot cross).
+        if (parent?.key) await repoLock(tx, parent.key, programId, parent.id);
+        const other = await sentForRepo(tx, programId, k, owner, id, parent);
+        // L35-4 (v6.1.16.1 Task 2): this agent's own claim, taken before the co-founder's send: the form went out; recorded.
+        if (other && status === 'applied' && o.tied === true && row?.status === 'started' && row.at.getTime() < other.at.getTime()) cofounderSent = true;
+        else if (other && status === 'held') return { ok: false, note: NOTHING_TO_HOLD_REPO } as const;
+        // Controller ruling: never the other builder's result; their login only on the caller's strong tie, and (L35-20)
+        // only when the match is by this repo's key.
+        else if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin && other.by === 'key' ? other.login : null), repo_taken: true } as const;
+      }
       // L35-4: a send over a co-founder's live claim is recorded and clears it (below, on the recording path).
       if (status === 'applied' && repoKey) cofounderClaim = (await claimedForRepo(tx, programId, repoKey, owner, o.repoId ?? null, now)) !== null;
     }
+    // L35-11, controller ruling: a send kept under the name with a link off GitHub is never refused for another
+    // builder's send with that link; the agent hears it.
+    const offHost = status === 'applied' && o.offRepo && !o.offRepo.startsWith('https://github.com/') ? o.offRepo : null;
+    if (offHost) offHostSeen = await offHostSent(tx, programId, offHost, owner);
     // L28-10 (v6.1.16 Task 14): an unlinked agent never sends again what the builder it was linked to sent.
     if (status === 'applied' && (!row || row.status === 'started' || row.status === 'skipped')) {
       if (await formerSentAt(tx, owner, programId, rk)) return { ok: false, note: ALREADY_SENT_UNLINKED } as const;
@@ -430,7 +452,7 @@ export async function record(
     let pk = rk || null;
     const takeOverNow = async () => {
       if (!takeOver) return;
-      await tx`UPDATE applications SET project_id = ${key}, repo_key = COALESCE(${repoKeyOf(key)}, repo_key), repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id), identity = COALESCE(identity, ${identity})
+      await tx`UPDATE applications SET project_id = ${key}, repo_key = COALESCE(${repoKeyOf(key)}, repo_key), repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id), identity = COALESCE(identity, ${ident})
         WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
       rk = key;
       pk = key;
@@ -446,7 +468,7 @@ export async function record(
       if (row) await tx`UPDATE applications SET held_at = ${now} WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
       else
         await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, project_id, claimed_at, claimed_by, application_id, held_at, repo_key, repo_id, identity)
-          VALUES (${owner}, ${installationId}, ${programId}, 'started', ${note}, ${now}, ${pk}, ${now}, ${installationId}, ${newApplicationId()}, ${now}, ${repoKey}, ${o.repoId ?? null}, ${identity})`;
+          VALUES (${owner}, ${installationId}, ${programId}, 'started', ${note}, ${now}, ${pk}, ${now}, ${installationId}, ${newApplicationId()}, ${now}, ${repoKey}, ${o.repoId ?? null}, ${ident})`;
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, source, project_id)
         VALUES (${owner}, ${installationId}, ${programId}, 'held', ${note}, ${now}, ${source}, ${pk})`;
       return { ok: true } as const;
@@ -520,7 +542,7 @@ export async function record(
       // L29-3 (v6.1.16 Task 15): the send the builder made outside EarnKit, so the win below lands on an application;
       // fix round 1 (N4): its send date is not known, so none is kept (the line says when it was recorded).
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, sent_at, submitted_by, project_id, title, application_id, repo_key, repo_id, off_repo, identity)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${identity})
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${now}, NULL, 'builder', ${pk}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = 'applied', at = EXCLUDED.at, sent_at = NULL, identity = COALESCE(applications.identity, EXCLUDED.identity),
           submitted_by = 'builder', title = EXCLUDED.title, held_at = NULL, claimed_at = NULL, claimed_by = NULL,
           application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
@@ -560,7 +582,7 @@ export async function record(
       // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
       await takeOverNow();
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo, identity)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${identity})
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
@@ -587,7 +609,7 @@ export async function record(
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, project_id, identity)
-        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${money?.USD ?? null}, ${money ? tx.json(money) : null}, ${note}, ${now}, ${pk}, ${row ? null : identity})
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${money?.USD ?? null}, ${money ? tx.json(money) : null}, ${note}, ${now}, ${pk}, ${row ? null : ident})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, amounts = EXCLUDED.amounts, note = EXCLUDED.note, at = EXCLUDED.at,
             identity = COALESCE(applications.identity, EXCLUDED.identity)`;
@@ -598,12 +620,12 @@ export async function record(
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source}, ${status === 'gap_done' ? null : rk || null})`;
     const other = otherClaim ? ({ other_claim: true } as const) : heldSend ? ({ held: true } as const) : {};
     // L35-4 (v6.1.16.1 Task 2): what the agent tells the builder about a co-founder on this repo.
-    const cofounder = cofounderSent ? ({ cofounder_sent: true } as const) : cofounderClaim ? ({ cofounder_claim: true } as const) : {};
+    const cofounder = { ...(cofounderSent ? { cofounder_sent: true as const } : cofounderClaim ? { cofounder_claim: true as const } : {}), ...(offHostSeen ? { off_host_sent: true as const } : {}) };
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other, ...cofounder } as const) : closed ? ({ ok: true, closed: true, ...other, ...cofounder } as const)
       : outside ? ({ ok: true, outside: true } as const)
       : otherClaim ? ({ ok: true, other_claim: true, ...cofounder } as const)
       : heldSend ? ({ ok: true, held: true, ...cofounder } as const)
-      : cofounderSent || cofounderClaim ? ({ ok: true, ...cofounder } as const)
+      : cofounderSent || cofounderClaim || offHostSeen ? ({ ok: true, ...cofounder } as const)
       : total !== null ? ({ ok: true, total } as const)
       : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced: replacedFrom }) } as const)
       : ({ ok: true } as const);
@@ -615,7 +637,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true };
 
 /**
@@ -872,11 +894,11 @@ async function rekeyIn(tx: Db, owner: string, from: string, to: string, o: { joi
 
 /**
  * L35-1 (v6.1.16.1 Task 2): a tied builder's yes to the join question, in one transaction under the owner's lock for
- * each program the name holds and the repo's: when another owner already sent the repo to any of those programs,
+ * each program the name holds and the repo's (and a fork's parent's, `parent`): when another owner already sent the repo to any of those programs,
  * nothing moves (`taken`, that send's time; its sends are marked kept off the repo); else every row under the name moves onto the repo key (kept off it or
  * not), with the repo's identity, and its steps and report follow (`moved`, the application rows moved).
  */
-export async function joinRows(owner: string, from: string, to: string, repoId: number | null): Promise<{ moved: number } | { taken: Date }> {
+export async function joinRows(owner: string, from: string, to: string, repoId: number | null, parent: ParentRepo | null = null): Promise<{ moved: number } | { taken: Date }> {
   if (!from || !repoKeyOf(to) || from === to) return { moved: 0 };
   return sql().begin(async (tx) => {
     const programs = (await tx<{ program_id: string }[]>`SELECT DISTINCT program_id FROM applications WHERE owner = ${owner} AND project_id = ${from} ORDER BY program_id`).map((r) => r.program_id);
@@ -884,7 +906,9 @@ export async function joinRows(owner: string, from: string, to: string, repoId: 
     let taken: Date | null = null;
     for (const p of programs) {
       await repoLock(tx, to, p, repoId);
-      const other = await sentForRepo(tx, p, to, owner, repoId);
+      // Controller ruling: a fork's parent too, as record and claim read it.
+      if (parent?.key) await repoLock(tx, parent.key, p, parent.id);
+      const other = await sentForRepo(tx, p, to, owner, repoId, parent);
       if (other && (taken === null || other.at < taken)) taken = other.at;
     }
     // Nothing moves; the name's sends are marked kept off the repo (N1, Task 14 fix round 1), as a re-key would.

@@ -73,25 +73,35 @@ export async function claim(owner: string, programId: string, projectId: string 
     // Fix round 2 (C3): a claim keyed by a repo takes only that key's own row, never a keyless one.
     const read = async () => {
       const rows = await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at, identity FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
-      const same = identity ? rows.find((r) => r.identity === identity) : undefined;
+      // Controller ruling: an identity match only when that row's key gives the same repo key as this call's.
+      const same = identity ? rows.find((r) => r.identity === identity && repoKeyOf(r.project_id) === repoKeyOf(key)) : undefined;
       if (same) return same;
       // Fix round 3 (M4): with the tie shown, the owner's own keyless row is this project's.
       return repoKeyOf(key) ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined) : pickRow(rows, key);
     };
     const row = await read();
+    // An identity another of the owner's rows of this program holds (under another repo key) is never written twice.
+    const holders = identity ? await tx<{ project_id: string | null }[]>`SELECT project_id FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND identity = ${identity}` : [];
+    const ident = holders.some((h) => !row || (h.project_id ?? '') !== (row.project_id ?? '')) ? null : identity;
     let rk = row ? (row.project_id ?? '') : key;
     const repoKey = repoKeyOf(rk || key);
     // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, under the repo's lock.
+    // Controller ruling (v6.1.16.1 Task 2): the repo key from this call's own key always, and the row's when it names another.
+    const checkKeys = [...new Set([repoKeyOf(key), repoKeyOf(rk)].filter((x): x is string => x !== null))];
     if (repoKey && (!row || row.status === 'started')) {
-      await repoLock(tx, repoKey, programId, o.repoId ?? null);
-      // L35-3 (v6.1.16.1 Task 2): a fork's parent too.
-      if (o.parentRepo?.key) await repoLock(tx, o.parentRepo.key, programId, o.parentRepo.id);
-      const other = await sentForRepo(tx, programId, repoKey, owner, o.repoId ?? null, o.parentRepo ?? null);
-      // L35-20: the other builder's login only when the match is by this repo's key.
-      if (other) return { repo: { at: other.at, login: other.by === 'key' ? other.login : null } };
-      // L35-4 (v6.1.16.1 Task 2): another builder tied to this repo is filling the form now; nothing is written.
-      const co = await claimedForRepo(tx, programId, repoKey, owner, o.repoId ?? null, now);
-      if (co) return { cofounder: { at: co.at } };
+      for (const k of checkKeys) {
+        const id = k === repoKeyOf(key) ? o.repoId ?? null : null;
+        const parent = k === repoKeyOf(key) ? o.parentRepo ?? null : null;
+        await repoLock(tx, k, programId, id);
+        // L35-3 (v6.1.16.1 Task 2): a fork's parent too.
+        if (parent?.key) await repoLock(tx, parent.key, programId, parent.id);
+        const other = await sentForRepo(tx, programId, k, owner, id, parent);
+        // L35-20: the other builder's login only when the match is by this repo's key.
+        if (other) return { repo: { at: other.at, login: other.by === 'key' ? other.login : null } };
+        // L35-4 (v6.1.16.1 Task 2): another builder tied to this repo is filling the form now; nothing is written.
+        const co = await claimedForRepo(tx, programId, k, owner, id, now);
+        if (co) return { cofounder: { at: co.at } };
+      }
     }
     // Fix round 3 (M4): the keyless row taken over carries this project's key and repo, under the repo's lock (as
     // record takes it), so two takeovers never both hold the repo. L35-7 (v6.1.16.1 Task 2): decided here, written only
@@ -108,7 +118,7 @@ export async function claim(owner: string, programId: string, projectId: string 
     const renews = row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId;
     if (row && !lifts && !renews && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row), sent: row.status !== 'started' };
     if (takeOver) {
-      await tx`UPDATE applications SET project_id = ${key}, repo_key = ${repoKeyOf(key)}, repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id), identity = COALESCE(identity, ${identity})
+      await tx`UPDATE applications SET project_id = ${key}, repo_key = ${repoKeyOf(key)}, repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id), identity = COALESCE(identity, ${ident})
         WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
       rk = key;
     }
@@ -129,7 +139,7 @@ export async function claim(owner: string, programId: string, projectId: string 
     // T5-F1 (v6.1.14): the application's own id is issued with the claim, before the form is filled, so the agent
     // can put it in the form; a stale claim taken over keeps its id; the send keeps it (ledger.record).
     const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by, application_id, repo_key, repo_id, identity)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, ${rk || null}, ${now}, ${installationId}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${row ? null : identity})
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, ${rk || null}, ${now}, ${installationId}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${row ? null : ident})
       ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
         SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
             application_id = COALESCE(applications.application_id, EXCLUDED.application_id),

@@ -309,9 +309,16 @@ const NO_BLOCK = 'none';
  * authorize page to make EarnKit hammer a public site (a query string per request misses the cache). A refetch of a
  * URL already in the cache never counts, so cache-busting URLs can never stop a vendor's own document being read. Over
  * it: no fetch, the failure page, nothing cached. L35-5 (v6.1.16.1 Task 2): per host and caller address block, so one
- * network's cache-busting never stops anyone else's sign-in through that host.
+ * network's cache-busting never stops anyone else's sign-in through that host; and (controller ruling) at most 300 an
+ * hour per host across every block, so many blocks never multiply the fetches.
  */
-const cimdFetchLimit = (host: string, block: string) => enforce('cimdFetch', `${host}:${block}`, 'Too many client document reads for this host.');
+const cimdFetchLimit = async (host: string, block: string) => {
+  await enforce('cimdFetch', `${host}:${block}`, 'Too many client document reads for this host.');
+  // Controller ruling: a total per host beside it; both must pass before a fetch.
+  await enforce('cimdFetchHost', host, 'Too many client document reads for this host.');
+};
+/** The window of the total per-host cap (`cimdFetchHost`, 300 an hour). */
+export const CIMD_HOST_KEY = (host: string) => `cimdFetchHost:${host}`;
 
 /** L35-5: the stored good copy of a document URL (its document and when it was read), or null; never a failure. */
 async function storedDocument(url: string): Promise<{ doc: unknown; at: number } | null> {

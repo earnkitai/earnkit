@@ -13,7 +13,7 @@ import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNi
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { closedAt, statusAt, getProgram, listOpenPrograms, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SIGN_IN_FIRST, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
+import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SIGN_IN_FIRST, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -150,7 +150,7 @@ async function joinProject(ctx: TrackContext, owner: string, name: string, proje
   if (!repoKeyOf(to) || !from) return refuse('Tell me the repo link and I join them.', 'Nothing was joined. Call track with program_id join, status gap_done, item join:<name> and the project with its repo_url.');
   if (await repoNotMine(ctx, to)) return refuse(NOT_YOUR_REPO, 'Nothing was joined: the repo is not the builder\'s.');
   const repo = to.replace(/^https:\/\//, '');
-  const res = await joinRows(owner, from, to, await repoIdOf(to));
+  const res = await joinRows(owner, from, to, await repoIdOf(to), await parentOf(to));
   const decision = 'taken' in res ? 'kept_apart' as const : 'joined' as const;
   if (decision === 'joined') {
     const report = await reportOf(owner, to);
@@ -768,7 +768,11 @@ async function act(
   // L24-4 (v6.1.16 Task 11): a send on a held program is recorded; the agent tells the builder.
   const heldSent = res.ok && 'held' in res;
   // L35-4 (v6.1.16.1 Task 2): a co-founder on the same repo: a claim cleared, or a send that went out twice.
-  const cofounder = res.ok && 'cofounder_sent' in res ? COFOUNDER_SENT_NOTE : res.ok && 'cofounder_claim' in res ? COFOUNDER_CLAIM_NOTE : null;
+  const cofounder = [
+    ...(res.ok && 'cofounder_sent' in res ? [COFOUNDER_SENT_NOTE] : res.ok && 'cofounder_claim' in res ? [COFOUNDER_CLAIM_NOTE] : []),
+    // L35-11, controller ruling: advisory only.
+    ...(res.ok && 'off_host_sent' in res ? [OFF_HOST_SENT_NOTE] : []),
+  ].join(' ') || null;
   // L29-9 (v6.1.16 Task 15): a send outside the standing approval is recorded, and answered as a refusal (isError).
   if (i.status === 'applied' && outside)
     return refused({

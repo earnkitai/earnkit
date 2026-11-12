@@ -635,7 +635,7 @@ test('N2 (Task 14 fix round 1): the record-id backfill keeps the newest of two r
 });
 
 test('L35-2, L35-3, L35-11, L35-20 (v6.1.16.1 Task 2): sentForRepo by key, id, parent and an off-GitHub key; a row found by identity; formerSentAt with no key', async () => {
-  const { sentForRepo, formerSentAt } = await import('./ledger');
+  const { sentForRepo, formerSentAt, offHostSent } = await import('./ledger');
   await prog('l35-sfr');
   const a = await install();
   const b = await install();
@@ -649,13 +649,18 @@ test('L35-2, L35-3, L35-11, L35-20 (v6.1.16.1 Task 2): sentForRepo by key, id, p
   assert.equal((await sentForRepo(sql(), 'l35-sfr', 'https://github.com/l35/fork', o(b), 35801, { id: null, key: repo }))?.by, 'id');
   assert.equal(await sentForRepo(sql(), 'l35-sfr', 'https://github.com/l35/fork', o(b), 35801), null);
   assert.equal(await sentForRepo(sql(), 'l35-sfr', repo, o(a)), null);
-  // The same owner by the identity alone (another link with the same id): the one row, already sent.
-  const again = await record(o(a), 'l35-sfr', 'applied', { installationId: a, now: NOW, project_id: 'https://github.com/l35/sfr-renamed', repoId: 35800 });
-  assert.deepEqual(again, { ok: false, note: 'Already sent on Nov 4.' });
-  // Off GitHub, a send kept under the name holds the canonical key.
+  // Controller ruling: a row with this identity under another repo key is never this call's row; the identity is not
+  // written twice (a rename is re-keyed before, by track's followRepoId).
+  const other = await record(o(a), 'l35-sfr', 'applied', { installationId: a, now: NOW, project_id: 'https://github.com/l35/sfr-renamed', repoId: 35800 });
+  assert.deepEqual(other, { ok: true });
+  assert.deepEqual((await sql()`SELECT project_id, identity FROM applications WHERE owner = ${o(a)} AND program_id = 'l35-sfr' ORDER BY project_id`).map((r) => [r.project_id, r.identity]),
+    [['https://github.com/l35/sfr', 'gh:35800'], ['https://github.com/l35/sfr-renamed', null]]);
+  // Off GitHub, a send kept under the name never blocks another builder: advisory only.
   await prog('l35-gl');
   assert.deepEqual(await record(o(a), 'l35-gl', 'applied', { installationId: a, now: NOW, project_id: 'name:gl', offRepo: 'https://gitlab.com/l35/gl' }), { ok: true });
-  assert.equal((await sentForRepo(sql(), 'l35-gl', 'https://gitlab.com/l35/gl', o(b)))?.by, 'key');
+  assert.equal(await sentForRepo(sql(), 'l35-gl', 'https://gitlab.com/l35/gl', o(b)), null);
+  assert.equal(await sql().begin((tx) => offHostSent(tx, 'l35-gl', 'https://gitlab.com/l35/gl', o(b))), true);
+  assert.deepEqual(await record(o(b), 'l35-gl', 'applied', { installationId: b, now: NOW, project_id: 'name:gl2', offRepo: 'https://gitlab.com/l35/gl' }), { ok: true, off_host_sent: true });
   // An unlinked installation's former builder: with no key, any send of that program counts.
   const { upsertBuilder, linkInstallation, unlinkInstallation } = await import('../v6/builders');
   const bd = await upsertBuilder({ github_id: 935_801, login: 'l35-former', name: null, avatar_url: null }, NOW);

@@ -2186,7 +2186,7 @@ test('L35-10 (v6.1.16.1 Task 2, lifted): a one-program find for a repo another b
   assert.ok(!/\bSay\b/.test(r.show_to_builder), r.show_to_builder);
 });
 
-test('L35-11 (v6.1.16.1 Task 2, lifted): two builder sends with one GitLab repo make one application; the note says could not confirm', async () => {
+test('L35-11 (v6.1.16.1 Task 2, lifted; controller ruling): a GitLab link EarnKit cannot check never blocks another builder; the note says could not confirm, and the second agent hears of the first send', async () => {
   await upsertProgram(programFixture({ id: 'l35-gl', title: 'L35 GitLab' }), 'file', NOW);
   const alice = await signedIn('ali-gl');
   const bob = await signedIn('bob-gl');
@@ -2194,10 +2194,26 @@ test('L35-11 (v6.1.16.1 Task 2, lifted): two builder sends with one GitLab repo 
   const a = await send(alice, 'l35-gl', GL, 'builder');
   assert.equal(a.show_to_builder, 'Sent L35 GitLab.');
   assert.match(a.agent_note, /^I could not confirm this repo is yours; recorded under the project name only\. /);
+  assert.ok(!a.agent_note.includes('Another builder recorded'), a.agent_note);
   const b = await send(at(bob, 1), 'l35-gl', { ...GL, name: 'GL2' }, 'builder');
-  assert.equal(b.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
-  assert.equal(b.refused, true);
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-gl'`)[0].n, 1);
+  assert.equal(b.show_to_builder, 'Sent L35 GitLab.');
+  assert.equal(b.refused, undefined);
+  assert.match(b.agent_note, /^I could not confirm this repo is yours; recorded under the project name only\. Another builder recorded a send with this link; it could not be checked\./);
+  assert.ok(!JSON.stringify(b).includes('ali-gl'));
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-gl'`)[0].n, 2);
+});
+
+test('Controller ruling (v6.1.16.1 Task 2): a join yes onto a fork whose parent another builder sent keeps the send under its name', async () => {
+  await seedRead('lane35/j-parent', ['ali-jf'], 358001);
+  await seedFacts('dan-jf/j-fork', { fork: true, contributors: ['dan-jf'], repo_id: 358002, parent_repo_id: 358001, parent_full_name: 'lane35/j-parent' });
+  await upsertProgram(programFixture({ id: 'l35-jf', title: 'L35 Join Fork' }), 'file', NOW);
+  const alice = await signedIn('ali-jf');
+  const dan = await signedIn('dan-jf');
+  assert.equal((await send(alice, 'l35-jf', { name: 'P', description: 'P.', repo_url: 'https://github.com/lane35/j-parent' })).show_to_builder, 'Sent L35 Join Fork.');
+  assert.equal((await send(at(dan, 1), 'l35-jf', { name: 'Forky', description: 'F.' }, 'builder')).show_to_builder, 'Sent L35 Join Fork.');
+  const yes = await track(at(dan, 2), { program_id: 'join', status: 'gap_done', item: 'join:Forky', project: { name: 'Forky', description: 'F.', repo_url: 'https://github.com/dan-jf/j-fork' } });
+  assert.equal(yes.show_to_builder, 'Already sent for this repo by another builder on Nov 4; your send stays under "Forky".');
+  assert.deepEqual((await rowsOf(dan.owner, 'l35-jf')).map((r) => [r.project_id, r.repo_key]), [['name:forky', null]]);
 });
 
 test('L35-13 (v6.1.16.1 Task 2, lifted): a hold on a program already sent for this repo writes nothing', async () => {
