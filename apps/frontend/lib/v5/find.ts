@@ -15,7 +15,7 @@ import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInSentence, un
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
+import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
@@ -424,6 +424,12 @@ export const IN_PERSON_ONE = 'You apply in person; the guide has the steps.';
 /** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. */
 export const NO_PROJECT_ONE = 'Tell me about your project and I check the fit.';
 
+/** Fix round 1 (I1, v6.1.18 Task 8): a verdict's rule items, as a remembered gap's `rules` (left out when none). Pure. */
+const ruleItemsOf = (gaps: Gap[]): { rules?: string[] } => {
+  const items = gaps.filter((g) => g.kind === 'rule').map((g) => g.item);
+  return items.length > 0 ? { rules: items } : {};
+};
+
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string, given: string[] = []): Promise<ProgramReply> {
   // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
@@ -478,6 +484,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const guideRules = !project || ask === 'rules' ? guideLines(guide) : [];
   // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
   const rules = ruleNotes(p);
+  // Fix round 1 (I1, v6.1.18 Task 8): this look lists the program's open rules; a yes to it confirms those.
+  if (project && verdict?.status === 'gap' && verdict.gaps.some((g) => g.kind === 'rule') && key === (await lastProjectKey(ctx.installationId)))
+    await rememberGap(ctx.installationId, id, { what: verdict.gaps[0].what, kind: verdict.gaps[0].kind, item: verdict.gaps[0].item, rules: ruleItemsOf(verdict.gaps).rules });
   // L16-7 (v6.1.16): a program with a result shows the result, never a yes, a step or a sign-in.
   // L28-4 (v6.1.16 Task 14): this project's result only.
   const result = project ? await resultOf(ownerOf(ctx), id, key) : null;
@@ -1237,7 +1246,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
   const remembered = i.filter?.category === undefined
-    ? Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, { what: v.gaps[0].what, kind: v.gaps[0].kind, item: v.gaps[0].item }]))
+    // Fix round 1 (I1, v6.1.18 Task 8): with the rule items the row lists, so one rule yes confirms those only.
+    ? Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, { what: v.gaps[0].what, kind: v.gaps[0].kind, item: v.gaps[0].item, ...ruleItemsOf(v.gaps) }]))
     : undefined;
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';

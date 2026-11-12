@@ -372,10 +372,16 @@ export function looksLikeListRef(raw: string): boolean {
  * null, so the caller falls to the name lookup. Pure.
  */
 export function listRef(raw: string, lastList: string[]): string | null {
+  const n = listNumber(raw, lastList.length);
+  return n === null ? null : lastList[n - 1] || null;
+}
+
+/** Fix round 1 (M4, v6.1.18 Task 8): a list reference's number, from 1 to `length` (digits or a number word), else
+ *  null; the one parse `listRef` and `listHole` share. Pure. */
+function listNumber(raw: string, length: number): number | null {
   const b = refBody(raw);
   const n = /^\d{1,4}$/.test(b) ? Number(b) : NUMBER_WORDS.indexOf(b) + 1;
-  if (!Number.isInteger(n) || n < 1 || n > lastList.length) return null;
-  return lastList[n - 1] || null;
+  return Number.isInteger(n) && n >= 1 && n <= length ? n : null;
 }
 
 /**
@@ -383,9 +389,8 @@ export function listRef(raw: string, lastList: string[]): string | null {
  * one does): its number, else null. Pure.
  */
 export function listHole(raw: string, lastList: string[]): number | null {
-  const b = refBody(raw);
-  const n = /^\d{1,4}$/.test(b) ? Number(b) : NUMBER_WORDS.indexOf(b) + 1;
-  return Number.isInteger(n) && n >= 1 && n <= lastList.length && !lastList[n - 1] ? n : null;
+  const n = listNumber(raw, lastList.length);
+  return n !== null && !lastList[n - 1] ? n : null;
 }
 /** L36-10 (v6.1.18): the line for a list number no longer in the list. */
 export const LIST_GONE = (n: number): string => `Number ${n} is not in the list now (already sent). Say a number from the last list.`;

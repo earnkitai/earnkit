@@ -93,7 +93,9 @@ export async function builderOf(installationId: number): Promise<number | null> 
 }
 
 /** A remembered gap: the first gap's what, its kind ('rule' for a rule to confirm) and its item (none in rows before v6.1.7). */
-export type RememberedGap = { what: string; kind: string; item?: string };
+/** Fix round 1 (I1, v6.1.18 Task 8): `rules`, the rule items the program's row (or its rule ask) listed, so one rule
+ *  yes confirms those and no other. */
+export type RememberedGap = { what: string; kind: string; item?: string; rules?: string[] };
 
 /**
  * Stamps a find: last_find_at and last_seen_at; with `gaps` (a find without a category filter, v6.1.7 C24a) also its gaps
@@ -169,6 +171,16 @@ export async function lastGaps(id: number): Promise<Record<string, RememberedGap
 }
 
 /** Drops one program from the last find's gaps: the builder reported that gap done (track gap_done). */
+/**
+ * Fix round 1 (I1, v6.1.18 Task 8): one program's remembered gap, set (or its `rules` merged into the one kept) after a
+ * reply listed its rules: the one-program look, or track's rule ask. The caller checks the project is the last find's.
+ */
+export async function rememberGap(id: number, programId: string, gap: RememberedGap): Promise<void> {
+  await sql()`UPDATE installations SET last_gaps = COALESCE(last_gaps, '{}'::jsonb) || jsonb_build_object(${programId}::text,
+    COALESCE(last_gaps -> ${programId}::text, ${sql().json(gap)}::jsonb) || jsonb_build_object('rules', ${sql().json(gap.rules ?? [])}::jsonb))
+    WHERE id = ${id}`;
+}
+
 export async function forgetGap(id: number, programId: string): Promise<void> {
   await sql()`UPDATE installations SET last_gaps = last_gaps - ${programId}::text WHERE id = ${id} AND last_gaps IS NOT NULL`;
 }

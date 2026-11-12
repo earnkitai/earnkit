@@ -125,10 +125,13 @@ test('first find has no since', async () => {
 });
 
 test('find saves every gap it found for track to read (last_gaps: what, kind and item)', async () => {
-  type G = { program_id: string; gap: { what: string; kind: string; item: string } };
-  // Every gap of this project, with its first gap's what, kind and item, as filter.all lists them.
+  type X = { what: string; kind: string; item: string };
+  type G = { program_id: string; gap: X; also: X[] };
+  // Every gap of this project, with its first gap's what, kind and item, as filter.all lists them; fix round 1 (I1,
+  // v6.1.18 Task 8): and the rule items its row lists.
   const every = (await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } })).reply!.gaps as G[];
-  const want = Object.fromEntries(every.map((g) => [g.program_id, { what: g.gap.what, kind: g.gap.kind, item: g.gap.item }]));
+  const rulesOf = (g: G) => [g.gap, ...g.also].filter((x) => x.kind === 'rule').map((x) => x.item);
+  const want = Object.fromEntries(every.map((g) => [g.program_id, { what: g.gap.what, kind: g.gap.kind, item: g.gap.item, ...(rulesOf(g).length > 0 ? { rules: rulesOf(g) } : {}) }]));
   assert.ok(Object.values(want).some((g) => g.kind === 'rule'), 'fixture needs a rule gap');
   // A default find shows only some of them, and still saves them all.
   const id = await installation();

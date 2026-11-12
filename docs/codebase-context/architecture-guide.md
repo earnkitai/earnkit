@@ -1323,8 +1323,10 @@ means what the last `Say` offered.
 - **Every rule in one ask (L36-5).** A gap row already lists every open rule (`Their rules: a; b.`); its ask now covers
   them all: the one-program action `Say yes if all of that is you and I draft it.` (`RULES_ACTION`) and the list closing
   `Say "yes n" if all of that is you and I get it ready.` (`ruleSay(n, many)`, closingLine's `ruleMany`). `track`
-  `gap_done` with a rule item confirms every other open rule of that program for the project too (`Tracked. Those rules
-  count as confirmed.`, `RULES_CONFIRMED`), so `started` never asks for a rule the row showed. `started` or an agent's
+  `gap_done` with a rule item confirms the other rules that program's row listed (`Tracked: those rules fit you.`,
+  `RULES_CONFIRMED`), so `started` never asks for a rule the row showed. Fix round 1 (I1): the rows' rule items are kept
+  in `last_gaps` (`RememberedGap.rules`: the list find for every gap, the one-program look and track's rule ask through
+  `rememberGap`); a rule added after the ask, or any rule with nothing remembered, is still asked. `started` or an agent's
   `applied` with several open rules says `Confirm the rules first: a; b. Say yes if all of that is you.`
   (`CONFIRM_RULES`), its note naming the first item only. `RULE_NOTE` says one gap_done confirms the row.
 - **The usage bar first (L36-7).** Linked with no record project and a `used` bar, the tier gap reads `Needs about 25
@@ -1343,11 +1345,13 @@ means what the last `Say` offered.
 - **Before line (L36-11).** A ready program with `claimed_since` is left out of `Before applying:`.
 - **Next ready (L36-12).** A plain `applied` (linked, not closed, not under standing approval, no co-founder or held or
   other-claim note, not sent twice) names the next program of the last find's list for this project that is open,
-  remote, ready by find's gate (`readyAtSend`), not sent, skipped, held or claimed by another agent, and needs nothing
-  from the builder: `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
+  remote, ready by find's gate (`readyAtSend`), not sent, skipped, held or claimed by another agent, needs nothing
+  from the builder and has no find blocker (a sign-in, a document the record lacks, outside the standing approval:
+  `blockersOf`; fix round 1, I2): `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
   builder submits; `NEXT_LINE`). The result carries `next` ({ program_id, title, money, draft, fields }) and the note
   starts `Next ready: program_id {id}. On the builder's yes, call track started with that program_id and fill the form
-  from next.fields (keys: ...); no find needed.` (`NEXT_NOTE`, `nextReady` in track.ts).
+  from next.fields (keys: ...); no find needed.` (`NEXT_NOTE`, `nextReady` in track.ts). The Next line stores the `apply` offer (`markOffer`). List numbers parse
+  once (`listNumber` in programs.ts, shared by `listRef` and `listHole`).
 - **Demo video (L36-13).** The gap reads `a demo video link (a short screen recording of it working)`
   (`DEMO_VIDEO_WHAT`); its closing is `Send me the demo video link and I fill it in.` (`DEMO_CLOSING`); the agent note
   adds `DEMO_NOTE` (pass it as `project.demo_url`, find again); a `demo_url` with the project settles the gap.

@@ -6,10 +6,10 @@ import { z } from 'zod';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
-import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
+import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
-import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNightFind } from './installations';
+import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listHole, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
@@ -235,7 +235,7 @@ export const CONFIRM_RULE = (rule: string) => `Confirm the rule first: ${rule}. 
 export const CONFIRM_RULES = (rules: string[]) =>
   rules.length === 1 ? CONFIRM_RULE(rules[0]) : `Confirm the rules first: ${rules.join('; ')}. Say yes if all of that is you.`;
 /** L36-5 (v6.1.18): a gap_done on a row's first rule item confirmed every rule that row listed. */
-export const RULES_CONFIRMED = 'Tracked. Those rules count as confirmed.';
+export const RULES_CONFIRMED = 'Tracked: those rules fit you.';
 /** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. */
 export const OUTSIDE_WIN = (title: string, money: string) => `Recorded: ${title} won, ${money}. Noted as sent by you outside EarnKit.`;
 /** L29-27 (v6.1.16 Task 15): the agent note wherever the builder hears "Say bring it back". */
@@ -563,9 +563,15 @@ async function act(
    *  and an agent's send; nothing is written. */
   const ruleFirst = async (): Promise<Result | null> => {
     const rules = await openRules(owner, i.program_id, project.key);
-    // L36-5 (v6.1.18): one gap_done with the first item confirms them all.
-    return rules.length === 0 ? null : refuse(CONFIRM_RULES(rules.map((r) => r.note)),
-      `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules[0].item}${rules.length > 1 ? ' (it confirms every rule named)' : ''}, then track ${i.status} again.`);
+    if (rules.length === 0) return null;
+    // L36-5 (v6.1.18): one gap_done with the first item confirms them all; fix round 1 (I1): the ones this ask listed,
+    // remembered for the last find's project (another project's ask names only the item it passes).
+    if (sameAsLast) {
+      const g = (await lastGaps(ctx.installationId))[i.program_id];
+      await rememberGap(ctx.installationId, i.program_id, { what: g?.what ?? rules[0].note, kind: g?.kind ?? 'rule', item: g?.item ?? rules[0].item, rules: rules.map((r) => r.item) });
+    }
+    return refuse(CONFIRM_RULES(rules.map((r) => r.note)),
+      `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules[0].item}${rules.length > 1 && sameAsLast ? ' (it confirms every rule named)' : rules.length > 1 ? ' and each other item' : ''}, then track ${i.status} again.`);
   };
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
@@ -743,15 +749,19 @@ async function act(
       : res.repo_taken ? refuse(res.note, 'Nothing was recorded. Another EarnKit account already sent this repo to the program; tell the builder.')
       : refuse(res.note);
   if (i.status === 'applied') await rememberName();
+  // Fix round 1 (I1, v6.1.18 Task 8): the rule items the program's row (or rule ask) listed, read before they are forgotten.
+  const shownRules = i.status === 'gap_done' && sameAsLast ? (await lastGaps(ctx.installationId))[i.program_id]?.rules ?? [] : [];
   if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
     // N2 (v6.1.8): the program comes back ready only when no other rule of it is left to confirm.
     // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
-    // L36-5 (v6.1.18): the row and its one ask list every open rule, so the first rule item confirms them all.
+    // L36-5 (v6.1.18): a row's one ask covers every rule it listed, so its first rule item confirms them all.
+    // Fix round 1 (I1): only the rules that row listed (remembered with the last find's gaps); a rule it did not show,
+    // added since, is still asked. With nothing remembered, only the item passed.
     let also = 0;
-    if (i.item!.startsWith('rule:') && !('repeated' in res))
-      for (const r of await openRules(owner, i.program_id, project.key)) {
+    if (i.item!.startsWith('rule:') && !('repeated' in res) && shownRules.includes(i.item!))
+      for (const r of (await openRules(owner, i.program_id, project.key)).filter((x) => shownRules.includes(x.item))) {
         const more = await record(owner, i.program_id, 'gap_done', { installationId: ctx.installationId, item: r.item, projectKey: project.key, now: ctx.now });
         if (more.ok) also++;
       }
@@ -857,6 +867,8 @@ async function act(
   const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice)
     || (i.status === 'rejected' && res.ok && !('repeated' in res));
   const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id) : null;
+  // Fix round 1 (M1): the Next line is an apply offer.
+  if (next) await markOffer(ctx.installationId, 'apply', ctx.now);
   const withNext: Result = next
     ? {
       ...base,
@@ -909,6 +921,10 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
     const c = claims.get(id);
     if (c && (c.held || (c.by !== ctx.installationId && Date.parse(c.since) > stale))) continue;
     if (!readyAtSend(row, facts, await doneItems(owner, id, projectKey), storedSide(rec), ctx.now)) continue;
+    // Fix round 1 (I2): never a program find would hold back: a sign-in, a document the record lacks, or outside the
+    // standing approval (its categories or its limit), as `blockersOf` says.
+    const block = blockersOf([row], rec.record)[0];
+    if (block && (block.sign_in || block.needs.length > 0 || block.outside_approval)) continue;
     const filled = prefill(row, facts, rec);
     if (filled.need_you.length > 0) continue;
     return {
