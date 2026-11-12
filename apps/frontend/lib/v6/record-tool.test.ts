@@ -101,7 +101,8 @@ test('L29-11 (v6.1.16 Task 15): after a find, record get and set ask for at most
   await markNextNeeds(c.installationId, ['your email', 'the problem', 'your deck']);
   const g = await mcpCall(c, 'record', { get: true });
   assert.deepEqual(g.reply!.missing, ['your email', 'the problem']);
-  assert.match(g.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\. The next application needs your email and the problem\.$/);
+  // L38-15 (v6.1.18): no count; what the next application needs and the one action.
+  assert.equal(g.reply!.show_to_builder, 'The next application needs your email and the problem. Tell me them and I save them.');
   assert.doesNotMatch(g.reply!.show_to_builder as string, /and \d+ more/);
   assert.equal(g.reply!.agent_note, 'The next application needs your email and the problem: ask the builder for them and save with record set. Ask for nothing else now.');
   assert.doesNotMatch(g.reply!.agent_note as string, /all together/);
@@ -416,7 +417,7 @@ test('Review Focus 17 (L26-2, L26-7): a 154-answer record: get under 20 KB, brie
   assert.deepEqual(sum.answers[0], { kind: 'one_liner', length: 2000, start: text('one_liner', 0).slice(0, 120).trim(), approved: false });
   assert.equal(sum.facts.projects.length, 10);
   // L26-7: saved answers waiting for approval are not missing; the wait is named.
-  assert.match(g.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\. 154 answers wait for your approval\. The next application needs your email\.$/);
+  assert.equal(g.reply!.show_to_builder, '154 answers wait for your approval. The next application needs your email. Tell me it and I save it.');
   assert.deepEqual(g.reply!.missing, ['your email']);
   const br = await mcpCall(c, 'record', { brief: 'problem' });
   assert.ok(Buffer.byteLength(br.text) < 8_192, `${Buffer.byteLength(br.text)}`);

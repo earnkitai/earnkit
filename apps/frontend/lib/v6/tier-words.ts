@@ -25,12 +25,25 @@ const READS: Record<Tier, (p: Placement) => string> = {
   live: (p) => (p.gap === 'funded_senders' ? 'Your project is live, with no verified usage yet.' : 'Your project is live.'),
   // L15-7 (v6.1.14): building on verified onchain users alone (no recent push, or no repo).
   building: (p) => (p.on_users ? 'Your project has people using it live, with no recent code.' : 'Your project has code, with nothing live yet.'),
-  unverified: () => 'Your project is unverified, with nothing recent EarnKit could check.',
-  flagged: (p) => {
-    const words = ruleList(p);
-    return `Your project is flagged on the ${words.join(', ')} rule${words.length > 1 ? 's' : ''}.`;
-  },
+  // L38-21 (v6.1.18): first person, never the tier's name.
+  unverified: () => UNVERIFIED_READ,
+  flagged: (p) => flaggedRead(ruleList(p)),
 };
+
+/** L38-21 (v6.1.18): the unverified read. */
+export const UNVERIFIED_READ = 'I found nothing recent to check yet.';
+/** L38-20 (v6.1.18): the self-funded users flag, with its reason. */
+export const SELF_FUNDED_READ = 'Most of your users are wallets your team funded, so programs will not count them.';
+/** The flag sentence from its rule words: the self-funded users rule says its reason (L38-20, v6.1.18); any other rule
+ *  keeps "Your project is flagged on the {words} rule". Pure. */
+function flaggedRead(words: string[]): string {
+  const self = words.includes(RULE_WORDS.self_funded_users);
+  const others = words.filter((w) => w !== RULE_WORDS.self_funded_users);
+  return [
+    ...(others.length > 0 ? [`Your project is flagged on the ${others.join(', ')} rule${others.length > 1 ? 's' : ''}.`] : []),
+    ...(self ? [SELF_FUNDED_READ] : []),
+  ].join(' ');
+}
 
 /**
  * "Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4." Reads the
@@ -54,10 +67,14 @@ const LEGACY_BUILDER: [RegExp, string][] = [
   [/ Next: a live product: a site that loads or a mainnet contract in use\./, ' Next: a live product: a site that loads or a contract in use.'],
   [/ Next: at least ([\d.]+%) of sampled wallets not funded by the deployer; ([\d,]+) of ([\d,]+) are\./, ' Next: at least $1 of sampled users from outside the team; I count $2 of $3.'],
   [/^(Your project is flagged on the [^.]*?)\bunfunded\b/, '$1self-funded users'],
+  // L38-21 (v6.1.18).
+  [/^Your project is unverified, with nothing recent EarnKit could check\./, UNVERIFIED_READ],
 ];
-/** A stored builder line in today's words (unchanged when it is already). Pure. */
+/** A stored builder line in today's words (unchanged when it is already). L38-20 (v6.1.18): a stored flag sentence is
+ *  rebuilt from its rule words, so the self-funded users rule says its reason. Pure. */
 export function currentBuilderLine(line: string): string {
-  return LEGACY_BUILDER.reduce((l, [from, to]) => l.replace(from, to), line);
+  return LEGACY_BUILDER.reduce((l, [from, to]) => l.replace(from, to), line)
+    .replace(/^Your project is flagged on the ([^.]*?) rules?\./, (_, list: string) => flaggedRead(list.split(', ')));
 }
 /** A stored reviewer line in today's words: the old flag rule `unfunded` in its head reads `self-funded users`. Pure. */
 export function currentReviewerLine(line: string): string {

@@ -414,6 +414,8 @@ export function namedFirst(show: string, title: string): string {
   // L29-32 (v6.1.16 Task 15): started has no builder text, and stays so.
   if (show === '' || show.includes(title)) return show;
   const named = show
+    // L38-18 (v6.1.18): "Tracked: that rule fits you." names the program before its colon.
+    .replace(/^Tracked: /, `Tracked for ${title}: `)
     .replace(/^(Started|Tracked)\./, `$1: ${title}.`)
     .replace(/^Already (skipped|tracked)\./, `Already $1: ${title}.`)
     .replace(/^You skipped that one\./, `You skipped ${title}.`)
@@ -611,7 +613,8 @@ async function act(
           ? sentAlready
           : {
               // L24-1 (v6.1.16 Task 11): another agent's own name through quoteName.
-              show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ? quoteName(c.already.by) : 'another agent'}.`,
+              // L38-19 (v6.1.18): who has it, then when it started.
+              show_to_builder: `${c.already.by ? `Your agent ${quoteName(c.already.by)}` : 'Another of your agents'} started ${program.file.title} ${atClock(c.already.since, ctx.now)} and has it.`,
               agent_note: 'Do not submit this one; call find again later.',
             }),
         ledger: await summary(owner, programs, ctx.now),
@@ -756,7 +759,8 @@ async function act(
     const [show, note] = 'repeated' in res
       ? ['Already tracked.', 'Call find again for the updated applications.']
       : i.item!.startsWith('rule:')
-        ? [also > 0 ? RULES_CONFIRMED : 'Tracked. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
+        // L38-18 (v6.1.18): the builder's words, not EarnKit's bookkeeping.
+        ? [also > 0 ? RULES_CONFIRMED : 'Tracked: that rule fits you.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
         : codeChecked(i.item!) && !repoLess(project.key)
           ? ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']
           : codeChecked(i.item!)
@@ -788,12 +792,14 @@ async function act(
       : 'replaced' in res && res.replaced !== undefined
         ? `Tracked: ${wonText} from ${title}. Replaced the earlier amount.`
         : `Tracked: ${wonText} from ${title}.`,
-    rejected: 'Tracked. On to the next one.',
+    // L38-16 (v6.1.18): the next ready program follows, as after a send (NEXT_LINE); none, the line ends here.
+    rejected: 'Tracked.',
     no_result: 'Tracked.',
     // L24-4 (v6.1.16 Task 11): a skip is for good, and says so.
     // L29-27 (v6.1.16 Task 15): the builder's words, never the status name.
     skipped: `Skipped ${title} for good. Say bring it back and I list it again.`,
-    unskip: `Unskipped ${title}. It can come back in the list.`,
+    // L38-17 (v6.1.18): it is back, said as a fact.
+    unskip: `${title} is back in your list.`,
   };
   // v6.1.9: a send after the program closed is still recorded, and says so. L23-2 (v6.1.16): closed from the clock.
   const closedDay = i.status === 'applied' && row && closedAt(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
@@ -847,7 +853,9 @@ async function act(
   // L36-8 (v6.1.18): the dropped keys are named last.
   const base: Result = unknownFields.length > 0 ? { ...done, agent_note: `${done.agent_note} ${droppedFieldsNote(unknownFields)}` } : done;
   // L36-12 (v6.1.18): a plain send names the next ready program and its one ask; its id and fields go to the agent.
-  const plain = i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice;
+  // L38-16 (v6.1.18): a rejection names the next ready program the same way.
+  const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice)
+    || (i.status === 'rejected' && res.ok && !('repeated' in res));
   const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id) : null;
   const withNext: Result = next
     ? {
@@ -867,6 +875,12 @@ export function droppedFieldsNote(keys: string[]): string {
   const more = keys.length > 5 ? ` and ${keys.length - 5} more` : '';
   return keys.length === 1 ? `fields_used: ${named} is not this form's field; dropped.` : `fields_used: ${named}${more} are not this form's fields; dropped.`;
 }
+
+/** L38-19 (v6.1.18): "at 09:14 UTC", "at Nov 10, 09:14 UTC", or "earlier today" when the time is unreadable. Pure. */
+const atClock = (iso: string, now: Date): string => {
+  const c = clock(iso, now);
+  return c === 'earlier today' ? c : `at ${c}`;
+};
 
 /** L36-12 (v6.1.18): the builder's line for the next ready program. Pure. */
 export const NEXT_LINE = (n: Pick<NextReady, 'title' | 'money' | 'draft'>): string =>

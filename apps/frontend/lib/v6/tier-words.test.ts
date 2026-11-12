@@ -80,13 +80,14 @@ test('#15 (v6.1.15): the flag rule reads self-funded users, and a stored unfunde
   const p = place(e, X, undefined, NOW);
   assert.deepEqual(p.flags.map((f) => f.rule), ['self_funded_users']);
   assert.match(reviewerLine(p, e), /^flagged \(self-funded users\): /);
-  assert.equal(builderLine(p).split(' Next: ')[0], 'Your project is flagged on the self-funded users rule.');
+  // L38-20 (v6.1.18): the reason, never "flagged" or "rule".
+  assert.equal(builderLine(p).split(' Next: ')[0], 'Most of your users are wallets your team funded, so programs will not count them.');
   const legacy: Placement = { ...p, flags: p.flags.map((f) => ({ ...f, rule: 'unfunded' })) };
   assert.equal(reviewerLine(legacy, e), reviewerLine(p, e));
   assert.equal(builderLine(legacy), builderLine(p));
   // Both ids together are one rule, never "rules".
   const both: Placement = { ...p, flags: [...p.flags, ...legacy.flags] };
-  assert.equal(builderLine(both).split(' Next: ')[0], 'Your project is flagged on the self-funded users rule.');
+  assert.equal(builderLine(both).split(' Next: ')[0], 'Most of your users are wallets your team funded, so programs will not count them.');
   assert.deepEqual(RULE_WORDS, { self_funded_users: 'self-funded users', unfunded: 'self-funded users' });
   // Any other id reads with _ as a space.
   assert.match(reviewerLine({ ...p, flags: [{ rule: 'identical_pitch', detail: 'x' }] }, e), /^flagged \(identical pitch\): /);
@@ -140,9 +141,12 @@ test('I1/M2 (v6.1.15 fix round 1): lines stored before v6.1.15 read in today\'s 
     ['Your project has onchain users, with no recent code. Next: a push to the repo in the last 60 days; the last was 200 days ago.',
       'Your project has people using it live, with no recent code. Next: a push to the repo in the last 60 days; the last was 200 days ago.'],
     ['Your project is flagged on the unfunded rule. Next: at least 20% of sampled wallets not funded by the deployer; 5 of 50 are.',
-      'Your project is flagged on the self-funded users rule. Next: at least 20% of sampled users from outside the team; I count 5 of 50.'],
+      'Most of your users are wallets your team funded, so programs will not count them. Next: at least 20% of sampled users from outside the team; I count 5 of 50.'],
     ['Your project is flagged on the identical pitch, unfunded rules. Next: a pitch in your own words; 3 other applicants sent the same text.',
-      'Your project is flagged on the identical pitch, self-funded users rules. Next: a pitch in your own words; 3 other applicants sent the same text.'],
+      'Your project is flagged on the identical pitch rule. Most of your users are wallets your team funded, so programs will not count them. Next: a pitch in your own words; 3 other applicants sent the same text.'],
+    // L38-21 (v6.1.18): the unverified read in the first person.
+    ['Your project is unverified, with nothing recent EarnKit could check. Next: a public repo EarnKit can read.',
+      'I found nothing recent to check yet. Next: a public repo EarnKit can read.'],
   ];
   for (const [old, now] of legacy) {
     assert.equal(currentBuilderLine(old), now);

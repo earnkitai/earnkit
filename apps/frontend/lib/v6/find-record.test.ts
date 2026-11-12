@@ -54,6 +54,12 @@ test('L12-7 (v6.1.14): with no tier, a building bar on an own-chain or keyword-h
   assert.equal(gate({ program_id: 'own', status: 'gap', gaps: [feature, rule], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false })).status, 'no');
   assert.equal(gate({ program_id: 'own', status: 'ready', gaps: [], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false, min_tier: 'live' })).status, 'no');
   assert.equal(gate({ program_id: 'any', status: 'gap', gaps: [rule], reason: null, long_shot: null, rules: [] }, prog('any', {})).status, 'no');
+  // Task 9 (v6.1.18, Task 2 review minor): the verdict's own repo gap stands, and an open source program with none asks
+  // for code in a public repo.
+  const { NEEDS_PUBLIC_CODE } = await import('../v5/eligibility');
+  const os = prog('os', { chains: ['solana'], any_chain: false, open_source: true });
+  assert.deepEqual(gate({ program_id: 'os', status: 'gap', gaps: [NEEDS_PUBLIC_CODE, rule], reason: null, long_shot: null, rules: [] }, os).gaps, [NEEDS_PUBLIC_CODE, rule]);
+  assert.deepEqual(gate({ program_id: 'os', status: 'ready', gaps: [], reason: null, long_shot: null, rules: [] }, os).gaps, [NEEDS_PUBLIC_CODE]);
 });
 
 test('#6 (v6.1.15): the tier gap takes the builder form from the stored line, one full stop; the fallback is unchanged', async () => {
