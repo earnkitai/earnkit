@@ -347,7 +347,8 @@ test('L24-5, L24-16: inherited names and every policy spelling are refused in pl
   const r = await mcpCall(c, 'record', { set });
   const show = r.reply!.show_to_builder as string;
   // L29-4 (v6.1.16 Task 15): the policy line is the ruled one, last, with no missing list; nothing saved is a refusal.
-  assert.equal(show, 'Not saved: "__proto__" is not something I keep and "constructor" is not something I keep. Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.');
+  // L35-14 (v6.1.17): standing approval is off, so the line says where to turn it on.
+  assert.equal(show, 'Not saved: "__proto__" is not something I keep and "constructor" is not something I keep. Standing approval is yours to turn on at earnkit.com/me.');
   assert.equal(r.isError, true);
   assert.equal(show.match(/[Ss]tanding approval/g)?.length, 1);
   assert.doesNotMatch(show, /\[object Object\]|native code|function/);
@@ -377,8 +378,15 @@ test('L29-4, L29-5, L29-20 (v6.1.16 Task 15): an agent\'s policy set, linked and
   await markNextNeeds(c.installationId, ['your email']);
   const r = await mcpCall(c, 'record', { set: { policy: { auto_apply: false } } });
   assert.equal(r.isError, true);
-  assert.equal(r.reply!.show_to_builder, 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.');
-  assert.equal(r.reply!.agent_note, 'Nothing was saved. On stop, call track with status held for each program named.');
+  // L35-14 (v6.1.17): off, where to turn it on; on, how to turn it off and hold one.
+  assert.equal(r.reply!.show_to_builder, 'Standing approval is yours to turn on at earnkit.com/me.');
+  assert.equal(r.reply!.agent_note, 'Nothing was saved.');
+  const on = await linked();
+  const rec = await getRecord(on.builderId);
+  await saveRecord(on.builderId, { ...rec, policy: { ...rec.policy, auto_apply: true } }, NOW);
+  const r2 = await mcpCall(on, 'record', { set: { policy: { auto_apply: false } } });
+  assert.equal(r2.reply!.show_to_builder, 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.');
+  assert.equal(r2.reply!.agent_note, 'Nothing was saved. On stop, call track with status held for each program named.');
   assert.equal('missing' in r.reply!, false);
   const u = await mcpCall({ installationId: await installation(), builderId: null, now: NOW }, 'record', { set: { policy: { auto_apply: false } } });
   assert.equal(u.isError, true);
@@ -444,4 +452,19 @@ test('L26-2: recordReplyCap cuts the longest texts first, never the builder or a
   assert.equal(cut.b[0], r.b[0]);
   assert.equal(cut.show_to_builder, r.show_to_builder);
   assert.equal(cut.agent_note, `Note. ${RECORD_CUT_NOTE}`);
+});
+
+test('L35-16 (v6.1.17): a page past the end says how many; page without a kind and get with brief are input errors', async () => {
+  const c = await linked();
+  await mcpCall(c, 'record', { set: { answers: { problem: { text: 'We fix slow builds.' } } } });
+  const past = await mcpCall(c, 'record', { get: 'problem', page: 99 });
+  assert.equal(past.isError, false, past.text);
+  assert.ok((past.reply!.agent_note as string).startsWith('There is 1 page of problem.'), past.reply!.agent_note as string);
+  const page = await mcpCall(c, 'record', { page: 2 });
+  assert.equal(page.isError, true);
+  assert.equal(page.reply!.show_to_builder, '');
+  assert.match(page.reply!.agent_note as string, /page: only with get and an answer kind/);
+  const both = await mcpCall(c, 'record', { get: 'problem', brief: 'risks' });
+  assert.equal(both.isError, true);
+  assert.match(both.reply!.agent_note as string, /get, brief: one of get or brief per call/);
 });

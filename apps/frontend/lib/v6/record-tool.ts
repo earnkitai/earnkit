@@ -174,8 +174,15 @@ const SIGN_IN_NOTE = 'Show the link once. Ask for a personal fact only when the 
 export const REMEMBER_YOU = 'Sign in once and I remember you.';
 /** L29-20: an unlinked policy set. */
 export const NO_STANDING_HERE = 'There is no standing approval on this agent.';
-/** L29-4 (v6.1.16 Task 15): a linked policy set, with no missing list. */
-export const STANDING_YOURS = 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.';
+/** L29-4 (v6.1.16 Task 15): a linked policy set, with no missing list. L35-14 (v6.1.17): by the approval's state: on, how
+ *  to turn it off and hold one; off, where to turn it on. Pure. */
+export const STANDING_YOURS = (on: boolean): string =>
+  on ? 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.' : 'Standing approval is yours to turn on at earnkit.com/me.';
+/** L35-16 (v6.1.17): the input errors of a record call whose read arguments do not go together. */
+export const PAGE_WITHOUT_KIND = 'page: only with get and an answer kind';
+export const GET_AND_BRIEF = 'get, brief: one of get or brief per call';
+/** L35-16 (v6.1.17): the agent line for a page past the last of a kind's answers. */
+export const PAGES_OF = (n: number, kind: string): string => `There ${n === 1 ? 'is 1 page' : `are ${n} pages`} of ${kind}.`;
 /** L29-5: what stop is. */
 export const STOP_HELD_NOTE = 'On stop, call track with status held for each program named.';
 const NOT_READY = "I can't save that yet, so I keep it for this chat.";
@@ -376,7 +383,9 @@ export function kindPage(reply: RecordReply, kind: string, page: number, cap = R
   }
   const at = Math.min(page, pages.length);
   const more = page < pages.length ? [KIND_MORE(kind, page + 1)] : [];
-  return { ...reply, answers: page > pages.length ? [] : pages[at - 1], page, pages: pages.length, agent_note: [reply.agent_note, ...more].filter(Boolean).join(' ') };
+  // L35-16 (v6.1.17): a page past the last says how many there are.
+  const past = page > pages.length ? [PAGES_OF(pages.length, kind)] : [];
+  return { ...reply, answers: page > pages.length ? [] : pages[at - 1], page, pages: pages.length, agent_note: [...past, reply.agent_note, ...more].filter(Boolean).join(' ') };
 }
 
 async function recordReply(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
@@ -385,6 +394,9 @@ async function recordReply(ctx: { installationId: number; builderId: number | nu
   // L29-10 (v6.1.16 Task 15): an input error has no builder text.
   if (!parsed.success) return { ...inputError(`Nothing was saved. ${inputDetail(parsed.error)}`), linked: ctx.builderId !== null };
   const i = parsed.data;
+  // L35-16 (v6.1.17): page reads one kind's answers, and one call reads either the record or a brief.
+  if (i.page !== undefined && typeof i.get !== 'string') return { ...inputError(`Nothing was saved. ${PAGE_WITHOUT_KIND}.`), linked: ctx.builderId !== null };
+  if (i.get !== undefined && i.get !== false && i.brief !== undefined) return { ...inputError(`Nothing was saved. ${GET_AND_BRIEF}.`), linked: ctx.builderId !== null };
   if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now, i.set !== undefined, i.set !== undefined && setsPolicy(i.set));
   const asks = await programAsks(ctx.now);
   let record: BuilderRecord;
@@ -438,8 +450,8 @@ async function recordReply(ctx: { installationId: number; builderId: number | nu
     if (policy) {
       const head = facts.length > 0 || others.length > 0 || secrets > 0 ? `${savedLine(counts, others, secrets)} ` : '';
       const r: RecordReply = {
-        show_to_builder: `${head}${STANDING_YOURS}`,
-        agent_note: `${facts.length > 0 ? '' : 'Nothing was saved. '}${STOP_HELD_NOTE}`,
+        show_to_builder: `${head}${STANDING_YOURS(record.policy.auto_apply === true)}`,
+        agent_note: `${facts.length > 0 ? '' : 'Nothing was saved. '}${record.policy.auto_apply === true ? STOP_HELD_NOTE : ''}`.trim(),
         linked: true,
         problems: m.problems,
         ...read,
