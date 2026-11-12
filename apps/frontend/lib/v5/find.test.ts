@@ -8,7 +8,7 @@ import { guideText } from './guide';
 import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
-import { shownReadyOf } from './find';
+import { APPLY_OFFER, shownReadyOf } from './find';
 import { parseProject } from './project-input';
 import { FULL_LIST_STYLE_NOTE, FULL_RULE_SAY, REPO_STEP_NOTE, gapLine, inPersonLine, readyLine } from './reply';
 import type { GapProgram, ReadyProgram } from './find';
@@ -3789,4 +3789,18 @@ test('L18-2 (v6.1.18): the PayPal one-program look for a project with no repo na
   const lines = (r.reply!.show_to_builder as string).split('\n');
   assert.equal(lines[0], "PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: code in a public repo and a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.", lines.join('\n'));
   assert.equal(lines.at(-1), 'Tell me when the code is in a public repo and I look again.', lines.join('\n'));
+});
+
+test('L18-3 (v6.1.18): a builder-sent program with two or more real gaps closes on the draft, never on apply', async () => {
+  // The repo's first commit moved after Kiroween's start, so its new-work rule fits and the read gaps are the work left.
+  const fresh = replayFetch('earnkit', (url, body) => (url.includes('&page=') ? body.replaceAll('2024-12-26', '2026-11-01') : body));
+  const r = await mcpCall({ ...ctx(await installation()), gh: fresh.fetch }, 'find', { program_id: 'kiroween-2026', project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  const lines = (r.reply!.show_to_builder as string).split('\n');
+  const g = (r.reply!.verdict as { status: string; gaps: { kind: string }[] });
+  assert.equal(g.status, 'gap', lines.join('\n'));
+  assert.ok(g.gaps.filter((x) => x.kind !== 'rule').length >= 2, lines.join('\n'));
+  assert.equal(lines[0], 'Kiroween 2026, $100,000 in prizes: a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.', lines.join('\n'));
+  assert.equal(lines.at(-1), 'Tell me when that is done and I draft it for you to send.', lines.join('\n'));
+  assert.ok(!lines.some((l) => APPLY_OFFER.test(l)), lines.join('\n'));
 });

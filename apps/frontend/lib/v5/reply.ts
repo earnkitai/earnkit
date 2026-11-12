@@ -275,10 +275,11 @@ const STARTED_CLOSING = 'Tell me when you started and I check it.';
  * The one action under a one-program gap line (v6.1.8, 1b), or null, with the gap whose step it closes on (L1g-5,
  * v6.1.16): rules only, a yes that drafts; EarnKit can make every real gap, "do" and it makes that change first; the
  * users question, a yes; the started question; one real step (code in a repo, the repo public, a single change),
- * `singleStepClosing`; else the builder makes the changes and says when. Signing in is the only real step and there is
+ * `singleStepClosing`; else the builder makes the changes and says when, and EarnKit applies, or drafts it for the
+ * builder to send when they press submit (`draftOnly`, L18-3 v6.1.18). Signing in is the only real step and there is
  * a link (`signIn`, fix round 1): the sign-in sentence with the link. In person: none. Pure.
  */
-function gapActionOf(g: GapProgram, signIn: string | null): { action: string | null; step?: Gap } {
+function gapActionOf(g: GapProgram, signIn: string | null, draftOnly = false): { action: string | null; step?: Gap } {
   if (g.in_person) return { action: null };
   if (ruleOnlyGap(g)) return { action: 'Say yes if that is you and I draft it.' };
   const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
@@ -291,18 +292,18 @@ function gapActionOf(g: GapProgram, signIn: string | null): { action: string | n
   // L18-2 (v6.1.18): with no code yet, the code is the step whatever else is left (the rest waits on it).
   const step = real.find(needsCode) ?? real.find((x) => x.item === 'repo:public') ?? (real.length === 1 ? real[0] : null);
   if (step) return { action: singleStepClosing(step), step };
-  return { action: 'Tell me when that is done and I apply.' };
+  return { action: draftOnly ? 'Tell me when that is done and I draft it for you to send.' : 'Tell me when that is done and I apply.' };
 }
 
 /** The one action under a one-program gap line, or null (see `gapActionOf`). Pure. */
-export const gapAction = (g: GapProgram, signIn: string | null = null): string | null => gapActionOf(g, signIn).action;
+export const gapAction = (g: GapProgram, signIn: string | null = null, draftOnly = false): string | null => gapActionOf(g, signIn, draftOnly).action;
 
 /**
  * FR-1 (v6.1.14 final fix), L1g-5 (v6.1.16): the gap's own setup step that `gapAction` closes on (make the repo public,
  * a telling step, any setup step it names), so the one-program line leaves it out and the reply says it once. Else null. Pure.
  */
-export function gapActionStep(g: GapProgram, signIn: string | null = null): string | null {
-  return gapActionOf(g, signIn).step?.setup ?? null;
+export function gapActionStep(g: GapProgram, signIn: string | null = null, draftOnly = false): string | null {
+  return gapActionOf(g, signIn, draftOnly).step?.setup ?? null;
 }
 
 /** Whether every real gap (rules aside) is the unlinked proof, settled by signing in. Pure. */

@@ -379,9 +379,10 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
     // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once; when it is the only step it is the action. L1j-6
     // (v6.1.17): the action is last, so the sign-in beside other gaps comes before it.
     const signFirst = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
-    const action = gapAction(g, o.signIn);
+    // L18-3 (v6.1.18): a program the builder sends closes on the draft, never on apply.
+    const action = gapAction(g, o.signIn, o.draftOnly);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
-    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn)), ...o.rules, signFirst, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
+    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn, o.draftOnly)), ...o.rules, signFirst, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
   }
   const r = { ...ready(), n: 0 };
   // L1j-7 (v6.1.17): an in-person program closes on its one action too.

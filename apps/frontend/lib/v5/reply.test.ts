@@ -1589,3 +1589,32 @@ test('L18-1e: the agent note says how many more the full list holds', () => {
   assert.ok(note.split('\n').includes('The full list holds 18 more; show it when the builder asks for all, more or the full list. Call find with filter.all for it.'), note);
   assert.doesNotMatch(agentNote(l18Rows(), { more: 0 }), /full list holds/);
 });
+
+// L18-3 (v6.1.18): Kiroween is a Devpost hackathon the builder submits, so its one-program closing never says apply.
+const KIRO_GAPS = (): GapProgram => gap({
+  title: 'Kiroween 2026',
+  money: '$100K',
+  gap: VIDEO,
+  also: [
+    { kind: 'feature', item: 'feature:kiro', what: 'a Kiro folder in the repo', effort: 'days', agent_can: false },
+    { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false },
+    ruleGap('built with Kiro'),
+  ],
+});
+
+test('L18-3: Kiroween (builder submits) with three real gaps closes "Tell me when that is done and I draft it for you to send."', () => {
+  const g = KIRO_GAPS();
+  assert.equal(gapAction(g, null, true), 'Tell me when that is done and I draft it for you to send.');
+  assert.equal(gapActionStep(g, null, true), null);
+  // The rule-only and users closings stay as they were for a builder-sent program.
+  assert.equal(gapAction(gap({ title: 'Fund', gap: ruleGap('a seed stage startup') }), null, true), 'Say yes if that is you and I draft it.');
+  const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
+  assert.equal(gapAction(gap({ title: 'Used', gap: USERS }), null, true), 'Say yes if they do and I draft it.');
+  // A single step still closes on the step.
+  assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO }), null, true), 'Tell me when the demo video is ready and I look again.');
+});
+
+test('L18-3b: the same gaps on an agent-sent program still close "Tell me when that is done and I apply."', () => {
+  assert.equal(gapAction(KIRO_GAPS()), 'Tell me when that is done and I apply.');
+  assert.equal(gapAction(KIRO_GAPS(), null, false), 'Tell me when that is done and I apply.');
+});

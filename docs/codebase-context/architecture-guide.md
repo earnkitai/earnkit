@@ -805,7 +805,8 @@ again."), the same in the list closing ("Nothing is ready yet. " before it) and 
 question is "Tell me when you started and I check it."; fix round 1 gives the last three kinds their clause too (a
 below-bar tier gap "people outside the team use it live", a feature "{feature} is in", a users gap of weeks "it has been
 live for {n} weeks", or "real people use it" when no number is given); several real changes keep "Tell me when that is done and I
-apply."; the archived repo note is left out when a shown line reads `the repo is archived`. A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
+apply.", or "Tell me when that is done and I draft it for you to send." on a program the builder sends (`draftOnly`, L18-3
+v6.1.18); the archived repo note is left out when a shown line reads `the repo is archived`. A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
 the one-program line keeps it), and the code closing is picked by the gap's kind (`FirstStep.code`, M3). A repo the
 read itself finds private (`RepoPrivateError` from `github.ts`, fresh or on the cached row's re-check) is private, never
 gone (M1); neither is closed by gap_done: the agent passes `private: false` or the live `repo_url` (`REPO_STEP_NOTE`).
