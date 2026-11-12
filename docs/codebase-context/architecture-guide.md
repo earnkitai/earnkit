@@ -1353,6 +1353,49 @@ means what the last `Say` offered.
   adds `DEMO_NOTE` (pass it as `project.demo_url`, find again); a `demo_url` with the project settles the gap.
 - **Record id (L36-14).** A projects entry with no valid id: `Not saved: each project needs an id (a short lowercase name).`
 
+## v6.1.18 Task 9: every builder string read as a tired builder (lane 38)
+
+- **Closings.** The rule Say names its draft: `Say "yes n" if that rule fits you and I draft {title}.` (`ruleSay(n,
+  many, title)`, closingLine's `ruleTitle`). With nothing ready, a step program with a stated amount whose one yes is the
+  users answer and EarnKit's change (`doUsersOf`, `canDoWithUsers`: every other real gap `agent_can`, no rule, no setup)
+  closes ahead of the rule of a program with no stated amount, and ahead of its own change step: `Nothing is ready yet.
+  Do real people use it? Say yes and I add Base Builder Codes, then apply to {title}.` (`doUsersClosing`, offer
+  `apply`; the users agent line adds `DO_USERS_NOTE`). Every ready program on hold closes on `Say go and I apply.`
+  (`HOLD_CLOSING`). The one ready program whose setup has steps of the builder's own (`ownSteps`: not a thing to have,
+  not in person) closes on them, and its row leaves them out: `{Step} first, then say yes and I apply.` (named `to
+  {title}` when other blocks are listed; the one-program reply too). `SAY_SENTENCE` and find's `APPLY_OFFER` read that
+  shape, so it is the reply's one Say and the signed-out sign-in still replaces it.
+- **Gap and note words.** The users gap reads `real users` (`USERS_UNKNOWN`); the unlinked used bar `proof of real
+  users` (`confirmLine`); the archived repo gap `a live repo`. The read notes end `so this is from what you told me.`
+  (slow, paused, other host, unread, private, empty); the fork reads `This repo is a fork, and programs fund the
+  original.` The private note is left out when a shown gap asks for the public repo (`repo:public`), the empty note when
+  one asks for code in a repo (`repo`), as the archived one is. `lookedAgain` reads a repo gap's own words.
+- **Rows and lists.** A held application reads `(on hold, say go to send)`. The answers waiting again read `One answer
+  you changed waits for your approval at earnkit.com/me.` The open full list (`openList` with `all`) numbers its rows
+  1..N and its agent note maps them (`openNumbersNote`); the open list never shows a sign-in line (the link stays in
+  `sign_in`). An in-person Needs list of things reads each field's to-do (`ReadyProgram.todos`, set only on an in-person
+  program whose setup is a thing and only when a to-do differs from its need word): `Needs a YC account, your answers
+  and the batch you want.` Alliance's setup is `your email` (`Needs your email.`).
+- **Money.** No list row or one-program line says `amount not stated`: the seven summaries that said it leave it out,
+  and `programs:check` accepts a figureless summary only when the reward says `amount not stated`, and refuses the words
+  in the summary.
+- **track and record.** `rejected` names the next ready program as `applied` does (`Tracked. Next: {title}, {money}. Say
+  yes and I apply.`), else `Tracked.`; unskip reads `{title} is back in your list.`; a confirmed rule `Tracked: that rule
+  fits you.` (`namedFirst`: `Tracked for {title}: ...`); a live claim `Your agent "{name}" started {title} at {time} UTC
+  and has it.` (`Another of your agents ...` with no name). `record get` with something missing drops the count:
+  `The next application needs {items}. Tell me them and I save them.` (`nextNeedsLine`).
+- **Tier words.** The unverified read is `I found nothing recent to check yet.` (`UNVERIFIED_READ`); the self-funded
+  users flag `Most of your users are wallets your team funded, so programs will not count them.` (`SELF_FUNDED_READ`);
+  other flag rules keep `Your project is flagged on the {words} rule.`; stored lines are reworded on read.
+- **Site copy.** `CONNECTOR_LINE` reads `A connector lets your AI use EarnKit. It connects at once, with no account.`
+  and the Grok Bot prompt says `connect it`; reviewer access is `message EarnKit on X (link below) for reviewer access.`
+  (the screen tool: `from earnkit.com/docs`); `/me` delete: `Programs keep what they already screened.`; the docs screen
+  sorts `by public evidence into five groups`.
+- **Catalog.** Colosseum's rule `a crypto product, new in the sprint`; Meta VR's `a hands-first experience for Meta VR
+  devices`; Ethereum security's `a defined audit scope: lines of code and contract count` (rule item ids follow the
+  note, so a builder who confirmed the old wording is asked once more). HeroDevs' users note no longer repeats its end
+  of life rule. `programs:check` refuses an open source file's public repo rule item with keywords too.
+
 ## What v5 deliberately does not do
 
 - Submit any form, hold or ask for a wallet, pay anyone, launch or offer a token.
