@@ -553,10 +553,6 @@ export const openLine = (p: Program, now: Date): string => {
 
 /** L1i-5 (v6.1.16.1): the agent line beside the full list's number ask. */
 export const FULL_NUMBER_NOTE = "When the builder says a number from the full list, call find with that item's program_id.";
-/** L1i-2 (v6.1.16.1): the agent line when the builder's text numbers rows other than by their stable n. Pure. */
-export const shownNumbersNote = (moved: { shown: number; n: number }[]): string =>
-  `The builder's text numbers its rows as shown: ${moved.map((m) => `${m.shown} is n ${m.n}`).join(', ')}. When the builder says one of those numbers, pass that item's program_id.`;
-
 /** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
  *  be read still gave, so the closing asks for what it does by that name. */
 async function openList(ctx: FindContext, problem: string | null, name: string | null = null, all = false): Promise<FindReply> {
@@ -1040,36 +1036,36 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const pinned = (v: Verdict) => acted.has(v.program_id);
   // Remote and in-person ready programs are capped apart, each in rank order (acted-on first), so the default list
   // always leads with something the builder can apply to now.
-  const readyOrder = all ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
   // O1 (v6.1.10): a program closing within 7 days that the project fits is always listed, ahead of the caps.
   const soon = (v: Verdict) => closingSoon(byId.get(v.program_id)!.file, ctx.now);
   const attending = (v: Verdict) => byId.get(v.program_id)!.file.in_person;
-  const shownReady = shownReadyOf(readyOrder, all, attending, soon);
   // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
+  const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
+  /** What the list shows, by default or (`every`) in the full list: one function for both (fix round 1, M1). */
+  const selectionOf = (every: boolean) => {
+    const readyOrder = every ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
+    const shownReady = shownReadyOf(readyOrder, every, attending, soon);
   // Acted-on programs first, then those closing soon, then real changes and at most one rule-bearing program by default
   // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
   // the last slot only (N-2); a keyword hit takes its own slot in rank order (N1, v6.1.12). In-person programs are
   // never in the default step list (R18d, R18f); `more` counts them.
   // L12-7 (v6.1.14): a project with a chain never sees a deploy on another chain by default; filter.all shows it.
-  const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned,
-    { unlikely: unlikelyV, soon, hit, offChain: (v) => offChain(v, byId, projectChains) });
-  // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
-  // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
-  const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
-  const attendV = gapV.filter((v) => attendRule(v) && (all || !unlikelyV(v)));
-  const attendShown = all ? attendV : cappedOf(attendV, Math.max(0, MAX_IN_PERSON - shownReady.filter(attending).length), soon);
-  const shownGaps = [...stepGaps.filter((v) => !attendRule(v)), ...attendShown];
-  const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
-  /** L1i-5 (v6.1.16.1): the programs the default view would list (for the full list's closing Say). */
-  const defaultIdsOf = (): Set<string> => {
-    const dReady = shownReadyOf([...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))], false, attending, soon);
-    const dSteps = shownGapsOf(gapV, false, MAX_GAPS, attending, projectChains,
+    const stepGaps = shownGapsOf(gapV, every, MAX_GAPS, attending, projectChains,
       (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned,
       { unlikely: unlikelyV, soon, hit, offChain: (v) => offChain(v, byId, projectChains) });
-    const dAttend = cappedOf(gapV.filter((v) => attendRule(v) && !unlikelyV(v)), Math.max(0, MAX_IN_PERSON - dReady.filter(attending).length), soon);
-    return new Set([...dReady, ...dSteps.filter((v) => !attendRule(v)), ...dAttend].map((v) => v.program_id));
+    // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
+    // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
+    const attendV = gapV.filter((v) => attendRule(v) && (every || !unlikelyV(v)));
+    const attendShown = every ? attendV : cappedOf(attendV, Math.max(0, MAX_IN_PERSON - shownReady.filter(attending).length), soon);
+    return { shownReady, shownGaps: [...stepGaps.filter((v) => !attendRule(v)), ...attendShown] };
+  };
+  const { shownReady, shownGaps } = selectionOf(all);
+  const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
+  /** L1i-5 (v6.1.16.1): the programs the default view lists (for the full list's closing Say). */
+  const defaultIdsOf = (): Set<string> => {
+    const d = selectionOf(false);
+    return new Set([...d.shownReady, ...d.shownGaps].map((v) => v.program_id));
   };
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send. A claim on another
@@ -1148,12 +1144,15 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     ...(notSent.length > 0 ? { not_sent: { programs: notSent, since: promise!.at.toISOString() } } : {}),
     ...(prevList && prevList.hash === hash ? { nothing_new_since: prevList.at.toISOString() } : {}),
   };
-  // L1i-2, L1i-5 (v6.1.16.1): the session's stable numbers. The default view's shown rows come first (so a first find
-  // numbers them 1, 2, 3 as shown), the rest after; a program the last list of this project held keeps its number.
+  // L1i-2, L1i-5 (v6.1.16.1); fix round 1 (I4 ruling): the numbers the builder sees are the numbers the JSON and track
+  // read. The default view numbers its shown rows 1, 2, 3 (the rest after them). The full list keeps the numbers the
+  // last reply of this project gave (`last_list`, cleared when another project is found) and numbers new ones on.
+  // Passes: `laid` lays the default view out once for its shown order; `defaultSay` (full list only) writes the
+  // default view's Say; `said` writes the reply from the final numbers.
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
   const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer).shown;
-  const prevIds = (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
+  const prevIds = all && (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
   const stable = stableNumbers(prevIds, [...laid, ...byN.filter((id) => !laid.includes(id))]);
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = { ...r0, ready: r0.ready.map(renum), gaps: r0.gaps.map(renum) };
@@ -1173,13 +1172,11 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L1i-6 (v6.1.16.1): the full list says every close, beyond the gap lines' own window (the JSON keeps closes_at).
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
   const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
-  // L1i-2: when the shown numbers are not the stable ones (the list changed this session), the agent hears which is which.
-  const renumbered = said.shown.map((id, i) => ({ shown: i + 1, n: stable.get(id)! })).filter((x) => x.shown !== x.n);
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), renumbered.length > 0 ? shownNumbersNote(renumbered) : '', said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
     more: more > 0 || said.hidden.length > 0,
   };

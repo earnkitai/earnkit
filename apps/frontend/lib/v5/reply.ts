@@ -730,6 +730,9 @@ export type ReplyParts = Closing & { hidden: string[]; shown: string[]; say: str
  */
 export type ReplyOptions = { all?: boolean; asShown?: boolean; defaultSay?: string; closes?: Map<string, string> };
 
+/** Fix round 1 (I1): a line that carries a link. */
+const LINK = /https?:\/\/\S+/;
+
 /** L1i-2 (v6.1.16.1): the line under a block whose rows the default view leaves out. Pure. */
 export const moreInFull = (n: number): string => `And ${n} more in the full list.`;
 
@@ -872,7 +875,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const proof = showsProof(r.gaps);
   // L1i-3 (v6.1.16.1): one sign-in sentence per reply. When the closing's Say already asks to sign in (the unlinked
   // users question), the link goes into it and the proof line says only what the sign-in lets EarnKit read.
-  const asksSignIn = !r.linked && closingOf.text.includes(USERS_UNLINKED);
+  // Fix round 1 (I2): judged on the Say the reply ends on; the full view ends on the default view's.
+  const endsOn = o.all && o.defaultSay !== undefined ? o.defaultSay : closingOf.text;
+  const asksSignIn = !r.linked && /Do real people use it\? Say yes, sign in once\b/.test(endsOn);
   // Task 2 (v6.1.16.1, Task 1 leftover): with the unlinked notice too, the closing still carries the link and the
   // notice keeps only its first sentence, so the reply has one sign-in sentence.
   if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
@@ -942,26 +947,30 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     { block: readyBlock, lines: [], rank: 1 },
     // L1i-2: one step row (and its more line) right after the ready rows; the rest of the rows before the repo notes
     // and the sign-in.
-    { block: gapBlock, lines: [], rank: 2, min: steps.length > 1 ? 3 : 2, grow: 7.5 },
+    // Fix round 1 (I1): when lines are short, the since line gives way first, then the results question, then these.
+    { block: gapBlock, lines: [], rank: 2, min: steps.length > 1 ? 3 : 2, grow: 5.7 },
     { block: attendBlock, lines: [], rank: 2 },
     { lines: apps ? [apps] : [], rank: 3 },
     { lines: [plain(notSent)].filter((x): x is string => !!x), rank: 4 },
     { lines: started.map(plain).filter((x): x is string => !!x), rank: 5 },
     { lines: [since ?? nothingNew].filter((x): x is string => !!x), rank: 6 },
     // L1i-2 (v6.1.16.1): the results question is asked once a day, so it stays ahead of what moved since.
-    { lines: outcomeLines(r, now), rank: 3.5 },
+    { lines: outcomeLines(r, now), rank: 5.8 },
     // What was sent under standing approval meanwhile is the applications' news: kept beside Task 9's lines.
-    { lines: reportLines(r), rank: 6.5 },
+    // Fix round 1 (I1): ahead of the step rows past the first, as the Before line.
+    { lines: reportLines(r), rank: 5.5 },
     // L1i-2 (v6.1.16.1): what a send waits on stays ahead of the step rows past the first.
-    { lines: before ? [before] : [], rank: 7.4 },
+    { lines: before ? [before] : [], rank: 5.85 },
     { lines: r.evidence_summary ? [r.evidence_summary.line] : [], rank: 13 },
     { lines: (l.results_soon ?? []).length > 0 ? [`Results due soon: ${listWords(l.results_soon!.map((x) => x.title), l.results_soon!.length)}.`] : [], rank: 14 },
     { lines: notes.length > 0 ? [repoNoteText(notes)] : [], rank: 8 },
     // L29-33: before the Say; with no Say at all the closing line comes first and these follow it (`tail`).
     // L1i-3 (v6.1.16.1): the reply's one sign-in carries the link (or settles a proof gap), so it stays ahead of the
     // step rows past the first.
-    { lines: signIn && saysAny ? [signIn] : [], rank: 7.45 },
-    { lines: notice && saysAny ? [notice] : [], rank: 10 },
+    // Fix round 1 (I1): the line carrying the reply's only link outranks every line but the Say; a linkless sign-in
+    // still stays ahead of the step rows past the first.
+    { lines: signIn && saysAny ? [signIn] : [], rank: signIn && LINK.test(signIn) ? 0 : 5.65 },
+    { lines: notice && saysAny ? [notice] : [], rank: notice && LINK.test(notice) ? 0 : 10 },
     // The closing's fact sentence when another line keeps the Say ("Nothing is ready yet.").
     { lines: [plain(closingOf.text)].filter((x): x is string => !!x), rank: 15 },
   ];

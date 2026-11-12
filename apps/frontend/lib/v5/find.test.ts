@@ -1363,6 +1363,12 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, show);
   assert.ok(!show.includes(`Sign in once at ${link} and I read your repo for proof and remember you.`));
   assert.equal(show.split(link).length, 2, show);
+  // Fix round 1 (I2): the full list too (personas 4, 11, 13, 14, 16, 25, 26): one sign-in sentence, one link.
+  const full = (await mcpCall(c, 'find', { project: SAAS, filter: { all: true } })).reply!.show_to_builder as string;
+  assert.equal(full.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, full);
+  assert.equal(full.split(link).length, 2, full);
+  assert.ok(full.includes('\nI read your repo for proof once you sign in.\n'), full);
+  assert.ok(full.endsWith(`Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`), full);
 });
 
 // Placed beside L1i-3, so it sees the same catalog (later tests add ready programs).
@@ -2905,7 +2911,9 @@ test('L23-4 (v6.1.16): two agents of one builder each ask about a result past du
     const t = await mcpCall({ ...ctx(id), builderId }, 'track', { program_id: 'tt-due', status: 'applied' });
     assert.equal(t.isError, false, t.text);
     const LINE = /\nResults for Due Two Grant were due Nov 1\. Did you hear back\?\n/;
-    const at = (inst: number, now: Date) => mcpCall({ ...ctx(inst, now), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+    // Fix round 1 (I1, v6.1.16.1): in a full 10 lines the results question gives way to the step rows past the first;
+    // then it is the agent's, under "Not shown to the builder".
+    const at = async (inst: number, now: Date) => ({ reply: { show_to_builder: seen((await mcpCall({ ...ctx(inst, now), builderId, evidence: LIVE }, 'find', { project: PROJECT })).reply!) } });
     const later = new Date(NOW.getTime() + H);
     assert.match((await at(id, NOW)).reply!.show_to_builder as string, LINE);
     assert.doesNotMatch((await at(id, later)).reply!.show_to_builder as string, LINE);
@@ -3412,4 +3420,43 @@ test('L35-6 (v6.1.16.1 Task 2): find\'s program_id takes a list reference as the
   }
   const none = await mcpCall(ctx(id), 'find', { program_id: '#99' });
   assert.equal(none.reply!.show_to_builder, 'Which program do you mean? Say its name.');
+});
+
+test('Fix round 1 (I3, v6.1.16.1): a one-program lookup for another project leaves the last project\'s numbers out of the next list', async () => {
+  const saber = replayFetch('saber-distributor');
+  const id = await installation();
+  const orca = { name: 'Orca Whirlpools', description: 'Concentrated liquidity DEX on Solana', repo_url: `https://github.com/${saber.repo}`, live_url: 'https://www.orca.so', users: true, chains: [{ chain: 'solana', mainnet: true }] };
+  const oc = { installationId: id, builderId: null, now: NOW, gh: saber.fetch };
+  await mcpCall(oc, 'find', { project: orca });
+  await mcpCall(oc, 'find', { project: orca, filter: { all: true } });
+  const rc = { installationId: id, builderId: null, now: NOW, gh: dash.fetch };
+  await mcpCall(rc, 'find', { program_id: 'floss', project: RIPGREP });
+  const fresh = { installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch };
+  for (const args of [{ project: RIPGREP, filter: { all: true } }, { project: RIPGREP }]) {
+    const a = await mcpCall(rc, 'find', args);
+    const b = await mcpCall(fresh, 'find', args);
+    const nums = (x: typeof a) => [...(x.reply!.gaps as G[]), ...(allReady(x.reply!) as G[])].map((g) => `${g.n} ${g.program_id}`).sort();
+    assert.deepEqual(nums(a), nums(b), JSON.stringify(args));
+  }
+});
+
+test('Fix round 1 (I4, v6.1.16.1): the numbers the builder sees are the JSON\'s and track\'s: after a category find, "3" is the program shown as 3', async () => {
+  const c = await dashCtx();
+  await mcpCall(c, 'find', { project: RIPGREP, filter: { category: 'grant' } });
+  const d = await mcpCall(c, 'find', { project: RIPGREP });
+  const show = d.reply!.show_to_builder as string;
+  const three = show.split('\n').find((l) => l.startsWith('3. '))!;
+  assert.ok(three, show);
+  const items = [...(d.reply!.gaps as G[]), ...(allReady(d.reply!) as G[])];
+  // Every row of the text carries its JSON n.
+  for (const l of show.split('\n').filter((x) => /^\d+\. /.test(x))) {
+    const n = Number(l.split('.')[0]);
+    const item = items.find((x) => x.n === n) as (G & { title?: string }) | undefined;
+    assert.ok(item && l.startsWith(`${n}. ${(item as unknown as { title: string }).title}, `), `${l} vs ${JSON.stringify(item?.program_id)}`);
+  }
+  const title = (items.find((x) => x.n === 3) as unknown as { title: string }).title;
+  assert.ok(three.startsWith(`3. ${title}, `), three);
+  const t = await mcpCall(c, 'track', { program_id: '3', status: 'skipped', project: RIPGREP });
+  assert.equal(t.isError, false, t.text);
+  assert.ok((t.reply!.show_to_builder as string).startsWith(`Skipped ${title} for good.`), `${t.reply!.show_to_builder} / ${three}`);
 });

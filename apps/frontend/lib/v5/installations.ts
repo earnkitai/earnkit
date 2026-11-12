@@ -148,7 +148,9 @@ export async function findAutoWas(id: number): Promise<boolean> {
  * Another project than the last drops the last gaps in the same statement: they were that project's (final round).
  */
 export async function rememberProject(id: number, projectKey: string): Promise<void> {
+  // Fix round 1 (I3, v6.1.16.1): another project's list numbers are not this one's.
   await sql()`UPDATE installations SET last_gaps = CASE WHEN last_project_key IS DISTINCT FROM ${projectKey} THEN NULL ELSE last_gaps END,
+    last_list = CASE WHEN last_project_key IS DISTINCT FROM ${projectKey} THEN NULL ELSE last_list END,
     last_project_key = ${projectKey} WHERE id = ${id}`;
 }
 

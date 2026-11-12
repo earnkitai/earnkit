@@ -1399,3 +1399,27 @@ test('L1i-6 (v6.1.16.1): the full view carries closes and in person; a hidden re
   assert.match(text, /^4\. Step Grant, \$1K: deploy the contract on Arc\.$/m);
   assert.match(replyText(r, true, new Date(), null, { all: true }), /^1\. A Grant, \$1K, closes Dec 6\.$/m);
 });
+
+test('Fix round 1 (I1, v6.1.16.1): the line carrying the only link outranks every line but the Say; since, results, then extra rows give way', async () => {
+  const { unlinkedNoticeLine } = await import('../v6/reply-words');
+  const link = 'https://earnkit.com/link/abc';
+  const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
+  const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
+  const steps = [gap({ title: 'Rule Grant', gap: ruleGap('a rule'), rules: ['a rule'] }), gap({ title: 'Two Grant' }), gap({ title: 'Three Grant' })];
+  const busy = {
+    ready: [yc, alliance], gaps: steps, sign_in: link,
+    applications: [{ program_id: 'a', title: 'A Grant', status: 'waiting' as const, sent_at: '2026-11-03T10:00:00.000Z', result_at: null, amount: null }],
+    ask_outcome: [{ program_id: 'z', title: 'Zeta Grant', due_at: '2026-11-01T00:00:00Z' }],
+    nothing_new_since: '2026-11-03T10:00:00.000Z',
+  };
+  for (const over of [{}, { linked_notice: unlinkedNoticeLine(link) }]) {
+    const p = replyParts(base({ ...busy, ...over }), false, MON);
+    const lines = p.text.split('\n');
+    assert.ok(lines.length <= 10, p.text);
+    assert.equal(p.text.split(link).length, 2, p.text);
+    assert.ok(!p.hidden.some((h) => h.includes(link)), p.hidden.join('\n'));
+    assert.match(lines.at(-1)!, /^Nothing is ready yet\. Say "yes 1" if that rule fits you and I get it ready\.$/);
+    // The since line gives way first, then the results question; the extra step rows last.
+    assert.ok(!lines.some((l) => l.startsWith('Nothing new since')), p.text);
+  }
+});

@@ -1119,20 +1119,25 @@ means what the last `Say` offered.
 - **Find after the 10-line cap (v6.1.16.1, lane 1i).** The step block shows as many rows as the budget allows, at least
   one (`defaultRows`; the row the closing speaks to first); its heading keeps the true count and, when rows are left
   out, it ends on `And {n} more in the full list.` (`moreInFull`). `fit` takes the step block's first row and more line
-  at rank 2 and its other rows at rank 7.5: after the applications, the results question (3.5), Task 9's lines, the
-  Before line (7.4) and the sign-in (7.45), ahead of the repo notes, the linked notice and the rest. Shown rows are
-  numbered 1, 2, 3 in display order: `replyParts` lays the view out once (`asShown`), renumbers the shown ids first and
-  the rest after, and writes the reply (and its Say's "yes n" / "do n") from those numbers; it returns `shown` and
-  `say`. Find keeps stable numbers per session (`stableNumbers` over `installations.last_list` when
-  `last_project_key` is this project's): the first find numbers the default's shown rows first, so the text and the
-  JSON `n` agree; later finds of the project keep each listed program's number and number new ones on after them;
-  when the shown numbers are not the stable ones the agent note says which is which (`shownNumbersNote`). The full
+  at rank 2. Fix round 1: the line carrying the reply's only link (the sign-in sentence, or the unlink notice with its
+  link) ranks 0, ahead of every line but the Say; then the ready block, the step block's first row, the in-person
+  block, the applications line, Task 9's not-sent and started lines, the overnight report (5.5), a linkless sign-in
+  (5.65), the other step rows (5.7), the results question (5.8), the Before line (5.85) and the since line (6); when
+  lines are short the since line gives way first, then the results question, then the extra step rows (a line left out
+  is the agent's, under "Not shown to the builder"). Shown rows are numbered 1, 2, 3 in display order: `replyParts`
+  lays the view out once (`asShown`), renumbers the shown ids first and the rest after, and writes the reply (and its
+  Say's "yes n" / "do n") from those numbers; it returns `shown` and `say`. The numbers the builder sees are the JSON's
+  `n` and track's (fix round 1, I4): a default find numbers its shown rows 1..k (the rest after) and stores that as
+  `installations.last_list`; the full list keeps the numbers of the last reply of the same project (`stableNumbers`)
+  and numbers new ones on; `rememberProject` clears `last_list` when another project is found (a one-program lookup
+  too). The default view's selection is one function in find (`selectionOf`), used for the list and for the full
+  list's closing Say. The full
   view lists every program the list holds as `{n}. {title}, {money}, closes {when}, in person.` (closes from
   `closesWords` beyond the gap lines' own window, passed as `closes`), closes on the default view's Say (`defaultSay`,
   from the programs the default view lists), and never asks a rule it does not show: a rule Say becomes `Say a number
   and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
   closes and in person per line (`openLine`); with `filter.all` it lists every open program, for no project and a
-  name-only project. One sign-in sentence per reply: when the closing's Say is the unlinked users question, the link
+  name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on): when the closing's Say is the unlinked users question, the link
   goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and the proof line reads `I read
   your repo for proof once you sign in.` (`SIGN_IN_PROOF`, only when there is a link). `findInputOf` returns an input
   error (isError, no builder text, the field named) for an unknown top-level key and a project with no name; an
