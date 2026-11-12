@@ -12,6 +12,7 @@ import { GitHubError, GitHubSlow, RepoPrivateError, gh, isPublicMember, readBudg
 import { LIMITS, hit, uncountHit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 import { cleanText } from './controls';
+import { MANIFEST_PATH, manifestUrl } from './funding-manifest';
 
 export type Basis = 'code' | 'reported';
 /**
@@ -61,6 +62,8 @@ export type RepoFacts = {
   /** L38-27 (v6.1.18 Task 11): the license GitHub detects, its SPDX id ("MIT", "NOASSERTION" for a license file it
    *  does not recognize); null when the read found no license file; none when not read (unknown). */
   license?: string | null;
+  /** L38-1 (v6.1.18 Task 11): the raw GitHub URL of the funding manifest the read found at the repo root; none else. */
+  funding_json_url?: string;
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
@@ -86,6 +89,8 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   parent_full_name?: string;
   /** L38-27 (v6.1.18 Task 11): the detected license's SPDX id, null for none; a row cached before has none (unknown). */
   license?: string | null;
+  /** L38-1 (v6.1.18 Task 11): a funding.json at the repo root. */
+  funding_json?: boolean;
 };
 type Fetch = typeof fetch;
 
@@ -253,6 +258,7 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     ...(r.repo.fork === true && typeof r.repo.parent?.id === 'number' ? { parent_repo_id: r.repo.parent.id } : {}),
     ...(r.repo.fork === true && typeof r.repo.parent?.full_name === 'string' ? { parent_full_name: r.repo.parent.full_name } : {}),
     license: licenseOf(r.repo.license),
+    funding_json: paths.includes(MANIFEST_PATH),
   };
 }
 
@@ -495,6 +501,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: Unread): 
     ...(code && Array.isArray(code.contributors) ? { contributors: code.contributors.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()) } : {}),
     ...(code?.owner_type ? { owner_type: code.owner_type } : {}),
     ...(code && code.license !== undefined ? { license: code.license === null ? null : licenseOf({ spdx_id: code.license }) } : {}),
+    ...(code?.funding_json === true && manifestUrl(code.html_url) ? { funding_json_url: manifestUrl(code.html_url)! } : {}),
   };
 }
 

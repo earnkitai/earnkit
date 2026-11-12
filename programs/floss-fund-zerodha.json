@@ -23,9 +23,7 @@
   "eligibility": [
     { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" }
   ],
-  "setup": [
-    "publish a funding manifest on your site or repo"
-  ],
+  "setup": [],
   "each_time": [],
   "rules": [
     "Applications stay open all year; the committee evaluates applications at the end of every quarter and sends decisions by email. A fresh $1,000,000 was planned for 2026.",

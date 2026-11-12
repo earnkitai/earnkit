@@ -6,6 +6,7 @@
 import { EARNKIT_CUT_NOTE } from './prefill';
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, signInSentence, type ProofBar } from '../v6/reply-words';
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
+import { MANIFEST_LINE } from './funding-manifest';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { applicationsLine } from './ledger';
@@ -124,7 +125,9 @@ export function readyLine(p: ReadyProgram, linked: boolean, _now: Date, alone = 
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
   // C1 (v6.1.13), ruling 12 (v6.1.16 Task 11, L24-1): no project name and no time, one sentence.
   const held = p.claimed_since ? ' Being handled by your other agent.' : '';
-  return `${head}.${youGive(waits ? [] : own)}${first}${held}`;
+  // L38-1 (v6.1.18 Task 11): EarnKit writes the funding manifest into the repo before it applies.
+  const writes = p.agent_step ? ` ${MANIFEST_LINE}` : '';
+  return `${head}.${youGive(waits ? [] : own)}${first}${writes}${held}`;
 }
 
 /** L29-18 (v6.1.16 Task 15): " You give: your email and the problem." (at most NEEDS_SHOWN, then "{n} more"), or ''. Pure. */

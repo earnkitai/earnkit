@@ -1304,6 +1304,28 @@ means what the last `Say` offered.
   " and " ("submission_requirements.{key}.need: one need, no \"and\"; ..."); 55 catalog fields carry a `need` with
   "with" (Solana Incubator's `active users with 6-month growth`).
 
+## v6.1.18 Task 11: the license read and the funding manifest (lane 38)
+
+- **License (L38-27).** The repo read keeps GitHub's detected license (`license.spdx_id`) as `RepoFacts.license`
+  (`licenseOf` in repo-facts.ts: the SPDX id, `NOASSERTION` for a license file GitHub does not recognize, null for
+  none; absent when not read, and on rows cached before, which read as unknown until their next read). A program
+  rule with `"check": "license"` (HeroDevs, GitHub Secure Open Source Fund, PayPal, QNX, Sovereign Tech Fund) is
+  settled by it in `evaluate`: an OSI SPDX id (`licenseRead`, a small allow list) confirms it and asks nothing; none is
+  `LICENSE_FILE` (`feature:license`, minutes, agent_can, `do: 'add an MIT license file'`, closing `Say "do" and I add
+  an MIT license file first.`; track gap_done accepts the item on these programs); an unknown or other license, a repo
+  not read, or an archived repo keeps the rule question. The do offer reads a gap's `do` before its `what`.
+- **Funding manifest (L38-1).** FLOSS/fund's form takes `funding_json_url` and its file has no setup step any more.
+  `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
+  projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,
+  topics as tags), every URL the GitHub repo with a `wellKnown` at `.well-known/funding-manifest-urls`, the plan the
+  program's minimum a year by bank; nulls listed in `fill`. It rides on the ready program (list JSON) and the
+  one-program reply, only on a read GitHub repo without the file; the ready row says `I add the funding file to your
+  repo, then apply.` and prefill gives the field to the agent (vouched). The read marks `funding.json` at the tree root
+  and gives `funding_json_url`, the raw URL (`raw.githubusercontent.com/<owner>/<repo>/HEAD/funding.json`), which
+  prefill then fills as EarnKit's. A one-program find on a manifest program the builder started re-checks the push
+  (the claim's time joins `codeDoneAt` as `staleAfter`). With no read (a report, a send's check) the link stays the
+  builder's, so a send under standing approval is outside it until a read finds the file.
+
 ## What v5 deliberately does not do
 
 - Submit any form, hold or ask for a wallet, pay anyone, launch or offer a token.

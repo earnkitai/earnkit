@@ -13,6 +13,9 @@ import { shownReadyOf } from './find';
 import { parseProject } from './project-input';
 import { FULL_LIST_STYLE_NOTE, FULL_RULE_SAY, REPO_STEP_NOTE, gapLine, inPersonLine, readyLine } from './reply';
 import type { GapProgram, ReadyProgram } from './find';
+import type { Field } from './prefill';
+import { MANIFEST_SOURCE } from './prefill';
+import { MANIFEST_NOTE, type ManifestStep } from './funding-manifest';
 /** L29-7 (v6.1.16 Task 15): every ready program of a find reply: what the agent may send, in person and the builder's to send. */
 const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unknown[]) ?? []), ...((r.in_person as unknown[]) ?? []), ...((r.you_send as unknown[]) ?? [])];
 /**
@@ -115,7 +118,7 @@ test('first find has no since', async () => {
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
       "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
       "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
-      "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.",
       // L1j-3 (v6.1.17): the in-person rows left out are counted.
       'And 2 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
@@ -356,14 +359,15 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   // L16-8 (v6.1.16): a live site alone never clears FLOSS/fund's code step, so the CLI names its repo (not read here).
   const SITE = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
   const site = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: SITE });
-  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a repo and tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Tell me when that is done and I apply.'].join('\n'));
+  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a repo and tell me if real people use it.', 'Tell me when that is done and I apply.'].join('\n'));
   const CLI = { ...SITE, repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const ask = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Say yes if they do and I draft it.'].join('\n'));
+  assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', 'Say yes if they do and I draft it.'].join('\n'));
   const yes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...CLI, users: true } });
   // F3 fix round 1 (v6.1.10): the users yes stands only for a fully ready program; FLOSS still needs its manifest link.
   assert.equal((yes.reply!.verdict as { status: string }).status, 'ready');
-  assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
+  // L38-1 (v6.1.18 Task 11): the repo was not read, so EarnKit cannot check a funding file pushed to it: the link stays the builder's.
+  assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
   // With no live link and the repo not read, nothing EarnKit can see exists (B20c, v6.1.9): not a fit, even on a yes.
   const { live_url: _l, repo_url: _r, ...bare } = CLI;
   const bareYes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...bare, users: true } });
@@ -380,7 +384,7 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   const live = { ...CLI, live_url: 'https://ripgrep.dev', repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const gap = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: live });
   // F2 (fix round 1, v6.1.14): no link in this context and nothing read: the sign-in is the one action, without a link.
-  assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof that real people use it. First: publish a funding manifest on your site or repo.', 'Sign in once and I remember you.'].join('\n'));
+  assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof that real people use it.', 'Sign in once and I remember you.'].join('\n'));
   // Linked, with the used tier stored: ready, the list's ready line and the one yes.
   const { getRecord, saveRecord } = await import('../v6/builders');
   // L28-3 (v6.1.16 Task 14): signed in as the repo's owner.
@@ -395,7 +399,8 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   assert.equal((r.reply!.verdict as { status: string }).status, 'ready', JSON.stringify(r.reply!.verdict));
   const lines = (r.reply!.show_to_builder as string).split('\n');
   assert.equal(lines.length, 2, r.reply!.show_to_builder as string);
-  assert.equal(lines[0], 'FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.');
+  // L38-1 (v6.1.18 Task 11): the repo is not read here, so the manifest link stays the builder's.
+  assert.equal(lines[0], 'FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.');
   assert.equal(lines[1], 'Say yes and I apply to FLOSS/fund.');
 });
 
@@ -450,7 +455,9 @@ test('I1 (v6.1.15 fix round 1): a public GitLab repo with users is the builder\'
   const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project });
   const show = r.reply!.show_to_builder as string;
   assert.notEqual((r.reply!.verdict as { status: string }).status, 'no', show);
-  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
+  // L38-1 (v6.1.18 Task 11): no GitHub repo to put the funding file in, so the manifest link stays the builder's.
+  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
+  assert.equal(r.reply!.agent_step, undefined);
   // The project reply: the host said once, and nothing says the code is missing.
   const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
   const text = listText(all.reply!);
@@ -1294,7 +1301,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
       "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
       "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
-      "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.",
       // L1j-3 (v6.1.17): the in-person rows left out are counted.
       'And 2 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
@@ -1330,7 +1337,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
     paused.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'Repo reads are paused until tomorrow; matched on what you told me.', USERS_FIRST].join('\n'),
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', ...inPersonBlock(2), 'Repo reads are paused until tomorrow; matched on what you told me.', USERS_FIRST].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
@@ -1369,7 +1376,7 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   const show = d.reply!.show_to_builder as string;
   assert.equal(show, [
     "One step away (3):",
-    "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+    "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.",
     // L38-27 (v6.1.18 Task 11): no license file in the repo.
     "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it and a license file.",
     "3. GitHub Secure Open Source Fund, $10,000 per project: tell me if real people use it and a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
@@ -1463,7 +1470,7 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   const signIn = (proof = false) => `Sign in once at ${LANE_1H_LINK} and I ${proof ? 'read your repo for proof and remember you' : 'remember you across agents'}.`;
   const CODE = 'Nothing is ready yet. Tell me when the code is in a repo and I look again.';
   const futo = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
-  const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}. First: publish a funding manifest on your site or repo.`;
+  const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}.`;
   const want: [number, string, string[], string][] = [
     [8, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE],
     [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), 'Private repo: matched on what you told me.', signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.'],
@@ -1505,7 +1512,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
     d.reply!.show_to_builder,
     [
       "One step away (3):",
-      "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.",
       // L38-27 (v6.1.18 Task 11): the repo has no license file, so the license rules are a license file EarnKit adds.
       "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it and a license file.",
       "3. GitHub Secure Open Source Fund, $10,000 per project: tell me if real people use it and a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
@@ -1538,7 +1545,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
     r.reply!.show_to_builder,
     [
       "Ready to apply (1):",
-      "1. FLOSS/fund, $10,000 to $100,000. First: publish a funding manifest on your site or repo.",
+      "1. FLOSS/fund, $10,000 to $100,000. I add the funding file to your repo, then apply.",
       "One step away (3):",
       // L38-27 (v6.1.18 Task 11): no license file in the repo: the license rules are a license file, minutes, EarnKit's.
       "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.",
@@ -1563,7 +1570,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
     hidden.reply!.show_to_builder,
     [
       "One step away (3):",
-      "1. FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.",
+      "1. FLOSS/fund, $10,000 to $100,000: a public repo.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: an OSI-approved open source license.",
@@ -1583,7 +1590,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
   assert.doesNotMatch(fullShow, /Say "yes/);
   assert.ok((full.reply!.gaps as { public_first?: true }[]).some((g) => g.public_first), fullShow);
   const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss', project: { ...VR, private: true } });
-  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.', 'Tell me when the repo is public and I look again.'].join('\n'));
+  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: a public repo.', 'Tell me when the repo is public and I look again.'].join('\n'));
   // FR-1 (final fix): the one-program reply names the step once too.
   assert.doesNotMatch(one.reply!.show_to_builder as string, /make the repo public/);
   assert.ok((hidden.reply!.agent_note as string).split('\n').includes(REPO_STEP_NOTE));
@@ -1693,6 +1700,55 @@ test('L38-27 (v6.1.18 Task 11): HeroDevs on a repo with no license file asks for
   assert.ok(ns.length >= 3, text);
   for (const n of ns) assert.doesNotMatch(lineOf(text, n), /licen[cs]e/i, text);
   assert.ok(allReady(list.reply!).some((p) => (p as G).program_id === 'herodevs-sustainability-fund'), listText(list.reply!));
+});
+
+test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding file; the agent gets the manifest, and after the push and the start the field carries its URL', async () => {
+  const c = await dashCtx();
+  const project = { ...RIPGREP, users: true };
+  const RAW = `https://raw.githubusercontent.com/${dash.repo}/HEAD/funding.json`;
+  const one = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project });
+  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. I add the funding file to your repo, then apply.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
+  assert.doesNotMatch(one.reply!.show_to_builder as string, /You give|funding manifest|First:/);
+  const step = one.reply!.agent_step as ManifestStep;
+  assert.equal(step.kind, 'funding_manifest');
+  assert.equal(step.url, RAW);
+  assert.deepEqual(step.files.map((f) => f.path), ['funding.json', '.well-known/funding-manifest-urls']);
+  const m = step.files[0].json;
+  assert.equal(m.$schema, 'https://fundingjson.org/schema/v1.1.0.json');
+  assert.deepEqual([m.entity.type, m.entity.role, m.entity.description], ['individual', 'owner', 'Maintainer of ripgrep.']);
+  assert.deepEqual(m.entity.webpageUrl, { url: `https://github.com/${dash.repo}`, wellKnown: `https://github.com/${dash.repo}/blob/HEAD/.well-known/funding-manifest-urls` });
+  assert.deepEqual([m.projects[0].guid, m.projects[0].name, m.projects[0].description], ['nextjs-dashboard', 'ripgrep', RIPGREP.description]);
+  assert.deepEqual(m.funding.plans.map((x) => [x.amount, x.currency, x.frequency, x.channels]), [[10000, 'USD', 'yearly', ['bank']]]);
+  assert.equal(step.files[1].text, `${RAW}\n`);
+  // Unlinked, the agent knows who it works for: the name and email are its to fill, with no license and no topics read.
+  assert.deepEqual(step.fill, ['entity.name', 'entity.email', 'projects[0].licenses', 'projects[0].tags']);
+  const field = (one.reply!.fields as Field[]).find((f) => f.key === 'funding_json_url')!;
+  assert.deepEqual([field.from, field.value, field.sources], ['agent', null, [MANIFEST_SOURCE]]);
+  assert.ok((one.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
+  // The list's ready row says it too, and its JSON carries the step.
+  const list = await mcpCall(await dashCtx(), 'find', { project });
+  assert.match(list.reply!.show_to_builder as string, /^1\. FLOSS\/fund, \$10,000 to \$100,000\. I add the funding file to your repo, then apply\.$/m);
+  assert.equal(((list.reply!.ready as ReadyProgram[]).find((p) => p.program_id === 'floss-fund-zerodha')!.agent_step as ManifestStep).url, RAW);
+  assert.ok((list.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
+  // The agent writes and pushes the file, then starts the program: the next find reads the push and fills the field.
+  const pushed = replayFetch('nextjs-dashboard', (u, b) =>
+    /\/git\/trees\//.test(u) ? b.replace('"tree":[', '"tree":[{"path":"funding.json","mode":"100644","type":"blob","sha":"f","size":900},')
+    : /api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace(/"pushed_at":"[^"]+"/, '"pushed_at":"2026-11-04T12:05:00Z"') : b);
+  const later = { ...c, now: new Date(NOW.getTime() + 10 * 60_000), gh: pushed.fetch };
+  const before = await mcpCall(later, 'find', { program_id: 'floss-fund-zerodha', project });
+  assert.ok(before.reply!.agent_step, 'a cached read within the hour is trusted until the start');
+  // The builder signs in as the repo's owner and says yes.
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const owner = await upsertBuilder({ github_id: 951_381, login: dash.repo.split('/')[0], name: 'Owner', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, owner.id, NOW);
+  const signed = { ...later, builderId: owner.id as number | null };
+  const started = await mcpCall(signed, 'track', { program_id: 'floss-fund-zerodha', status: 'started', project });
+  assert.equal(started.isError, false, started.text);
+  const after = await mcpCall({ ...signed, now: new Date(NOW.getTime() + 11 * 60_000) }, 'find', { program_id: 'floss-fund-zerodha', project });
+  const filled = (after.reply!.fields as Field[]).find((f) => f.key === 'funding_json_url')!;
+  assert.deepEqual([filled.from, filled.value], ['earnkit', RAW]);
+  assert.equal(after.reply!.agent_step, undefined);
+  assert.doesNotMatch(after.reply!.show_to_builder as string, /funding file/);
 });
 
 test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule yes, the idea and the empty repo read one line and a closing that names the answers', async () => {
@@ -1884,7 +1940,7 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   assert.doesNotMatch(show, /real people use it/);
   assert.equal(show, [
     'One step away (1):',
-    '1. FLOSS/fund, $10,000 to $100,000: the repo is archived. First: publish a funding manifest on your site or repo.',
+    '1. FLOSS/fund, $10,000 to $100,000: the repo is archived.',
     ...inPersonBlock(2),
     // L1g-5 (v6.1.16): the line reads the archive, so the archived note is left out.
     'Nothing is ready yet. Tell me the live repo and I look again.',
@@ -1982,7 +2038,7 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       "One step away (3):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
-      "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.",
       "3. GitHub Secure Open Source Fund, $10,000 per project: tell me if real people use it and a license file. First: sign up for GitHub Sponsors if you have not. Their rule: maintainer lives in a region supported by GitHub Sponsors.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
@@ -2692,9 +2748,10 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   assert.equal((ask.reply!.show_to_builder as string).split('\n').at(-1), 'Say yes if they do and I draft it.');
   await mcpCall(c, 'track', { program_id: 'floss-fund-zerodha', status: 'gap_done', item: 'users', project: CLI });
   // L24-2 (v6.1.16 Task 11): the yes answered the users question only ("I draft it"); the next reply offers apply
-  // afresh. After that offer the list's closing names the manifest link (N3, v6.1.12) and line 1 does not.
+  // afresh. After that offer the list's closing names the manifest link (N3, v6.1.12) and line 1 does not. L38-1
+  // (v6.1.18 Task 11): the repo is not read here, so the link stays the builder's (a read repo gets the agent step).
   const floss = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.', 'Say yes and I apply to FLOSS/fund.'].join('\n'));
+  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Say yes and I apply to FLOSS/fund.'].join('\n'));
   const listed = await mcpCall(c, 'find', { project: CLI });
   assert.match((listed.reply!.show_to_builder as string), /FLOSS\/fund needs your funding manifest link; then I apply\./);
   assert.equal((listed.reply!.show_to_builder as string).match(/funding manifest link/g)!.length, 1, listed.reply!.show_to_builder as string);

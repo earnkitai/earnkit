@@ -28,6 +28,7 @@ import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
+import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
 /**
  * find as agents see it (v6.1.14 T5: track's project schema), registered leniently (L13-4): `find` reads the arguments
@@ -138,6 +139,8 @@ export type ReadyProgram = {
   /** The builder confirmed its rules (track gap_done) or, F3 (v6.1.10), said real people use it: that yes stands, so
    *  the closing asks for no second one (v6.1.9). */
   rule_yes?: true;
+  /** L38-1 (v6.1.18 Task 11): what the agent writes into the repo on yes before it applies (the funding manifest). */
+  agent_step?: ManifestStep;
 };
 export type GapProgram = {
   program_id: string;
@@ -232,6 +235,8 @@ export type ProgramReply = {
   linked: boolean;
   /** L24-29 (v6.1.16 Task 11): what the project report had dropped or cut, as the list reply names them. */
   problems?: string[];
+  /** L38-1 (v6.1.18 Task 11): a ready program's funding manifest for the agent to write and push before it applies. */
+  agent_step?: ManifestStep;
 };
 export type FindContext = {
   installationId: number;
@@ -316,9 +321,11 @@ const EMPTY_FACTS: RepoFacts = {
 
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
  *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
-async function factsOf(project: Project, ctx: FindContext, key: string): Promise<RepoFacts> {
+async function factsOf(project: Project, ctx: FindContext, key: string, startedAt: Date | null = null): Promise<RepoFacts> {
   try {
-    const staleAfter = await codeDoneAt(ownerOf(ctx), key);
+    const done = await codeDoneAt(ownerOf(ctx), key);
+    // L38-1 (v6.1.18 Task 11): a start since the read (`startedAt`) checks for a push too.
+    const staleAfter = done && startedAt ? new Date(Math.max(done.getTime(), startedAt.getTime())) : (done ?? startedAt);
     return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
     // v6.1.14 (L1f-1): the report alone, never marked private for a failed read (a private repo is a step from open source programs).
@@ -346,8 +353,11 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     setup: p.setup,
     rules: v.rules,
     ...((v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:'))) || usersYes(p, facts, done) ? { rule_yes: true as const } : {}),
+    ...withStep(manifestStep(p, facts, rec)),
   };
 }
+/** L38-1: the agent step, when there is one. Pure. */
+const withStep = (step: ManifestStep | null): { agent_step?: ManifestStep } => (step ? { agent_step: step } : {});
 
 const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date, hit = false, unlikelyHere = false): Omit<GapProgram, 'n'> => {
   const again = lookedAgain(v.gaps, done);
@@ -430,7 +440,10 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
-  const facts = project ? await factsOf(project, ctx, key) : EMPTY_FACTS;
+  // L38-1 (v6.1.18 Task 11): a manifest program the builder started is read again for a push since (the agent wrote the
+  // funding file, pushed, then called track started), so its URL fills the field.
+  const startedAt = project && wantsManifest(p) ? (await claimed(ownerOf(ctx), (x) => x === key || (x !== null && x === projectId))).get(id)?.since : undefined;
+  const facts = project ? await factsOf(project, ctx, key, startedAt ? new Date(startedAt) : null) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match. With a project, the same record side the list reads (the
   // 24-hour rule), so the two gate on the same tier (v6.1.8 final fix, I3); with none, the stored record alone.
   const side = ctx.builderId !== null && project
@@ -521,6 +534,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     else show.push(heldLine);
   }
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
+  // L38-1 (v6.1.18 Task 11): a ready program whose form takes a manifest not yet in the repo: what the agent writes.
+  const step = open && verdict?.status === 'ready' && !heldSince ? manifestStep(p, facts, rec) : null;
   if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
   await markOffer(ctx.installationId, offer, ctx.now);
   const dropped = droppedNote(problems);
@@ -541,6 +556,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
+              ...(step ? [MANIFEST_NOTE] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
               ...(verdict?.status === 'gap' && contractLookedAgain(gapOf(row, verdict, done)) ? [CONTRACT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
@@ -553,6 +569,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     fields,
     guide,
     ...(verdict ? { verdict } : {}),
+    ...withStep(step),
     rules,
     ...(problems.length > 0 ? { problems } : {}),
     ...(link ? { sign_in: link } : {}),
@@ -1243,7 +1260,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(rOut, { more, description, hidden: hiddenOut, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(rOut, { more, description, hidden: hiddenOut, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread), rOut.ready.some((p) => p.agent_step) ? MANIFEST_NOTE : ''].filter(Boolean).join('\n'),
     ...jsonLists(rOut),
     more: more > 0 || said.hidden.length > 0,
   };

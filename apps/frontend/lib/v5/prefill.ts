@@ -10,6 +10,7 @@ import { chainName } from './chains';
 import { ANSWER_KINDS, TEAM_KINDS, teamKindOf, type SubmissionRequirement, type TeamKind } from './program-file';
 import type { ProgramRow } from './programs';
 import type { Basis, RepoFacts } from './repo-facts';
+import { MANIFEST_FIELD, manifestUrl } from './funding-manifest';
 
 export type Field = {
   key: string;
@@ -57,6 +58,9 @@ export function heardFrom(r: Pick<SubmissionRequirement, 'key' | 'label' | 'type
   const pick = r.options?.find((x) => /referr/i.test(x)) ?? r.options?.find((x) => /^other/i.test(x));
   return pick ? { value: pick, note: HEARD_OTHER_NOTE } : null;
 }
+
+/** L38-1 (v6.1.18 Task 11): where the agent gets the manifest's URL before the read finds the file. */
+export const MANIFEST_SOURCE = 'agent_step.url, once you push the funding.json the agent_step gives';
 
 /** L28-8 (v6.1.16 Task 14): the to-do on a team question with no matching record fact. */
 export const NEEDS_ANSWER = 'Needs your answer.';
@@ -397,6 +401,17 @@ export function prefill(
     if (r.kind === 'contact') {
       if (rec) return { ...base, value: null, from: 'builder' };
       return { ...base, value: null, from: 'agent', sources: [...CONTACT_SOURCES] };
+    }
+    // L38-1 (v6.1.18 Task 11): the funding manifest's URL: EarnKit's once the read finds the file in the repo; until
+    // then the agent writes it (the ready program's agent_step) and sends its URL, never the builder. Only on a repo
+    // read: with none (a send's report, a paused read) the URL is unvouched, the builder's as before.
+    if (r.key === MANIFEST_FIELD && (facts.funding_json_url || (!facts.as_reported && manifestUrl(facts.repo_url)))) {
+      if (facts.funding_json_url) {
+        facts_from_repo++;
+        if (r.required) repo_required++;
+        return { ...base, value: facts.funding_json_url, from: 'earnkit' };
+      }
+      return { ...base, value: null, from: 'agent', sources: [MANIFEST_SOURCE] };
     }
     const filled = valueOf(r, file, facts);
     // S12 (v6.1.9): with no repo read to confirm it (none, or an empty repo), what the agent reported is never EarnKit's
