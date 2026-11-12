@@ -59,6 +59,18 @@ export type ManifestStep = {
   note: string;
 };
 
+/**
+ * Fix round 1 (I3): the plan's starting amount: the record's most the builder asks (`policy.max_ask_usd`), kept within
+ * the program's award floor and ceiling, else the floor; null with no floor. Pure.
+ */
+export function planAmount(p: Pick<Program, 'min_award_usd' | 'max_award_usd'>, rec: RecordContext | null): number | null {
+  const floor = p.min_award_usd;
+  if (floor === undefined) return null;
+  const ask = rec?.record.policy.max_ask_usd;
+  if (ask === undefined) return floor;
+  return Math.round(Math.min(Math.max(ask, floor), p.max_award_usd ?? Infinity));
+}
+
 /** A guid: lower-case letters, digits and dashes, at most 32. Pure. */
 const guidOf = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/, '') || 'project';
 const TAG = /^[a-z0-9-]{1,32}$/;
@@ -72,6 +84,9 @@ const TAG = /^[a-z0-9-]{1,32}$/;
 export function manifestStep(p: Program, facts: RepoFacts, rec: RecordContext | null): ManifestStep | null {
   // Only on a repo read: with none, EarnKit cannot check the file once pushed, so the link stays the builder's.
   if (!wantsManifest(p) || facts.funding_json_url || facts.as_reported) return null;
+  // Fix round 1 (M8): no award floor, no amount to start from: never a silent 0 (the spec's "any amount").
+  const amount = planAmount(p, rec);
+  if (amount === null) return null;
   const url = manifestUrl(facts.repo_url);
   const key = ownerRepo(facts.repo_url);
   if (!url || !key) return null;
@@ -85,7 +100,8 @@ export function manifestStep(p: Program, facts: RepoFacts, rec: RecordContext | 
   const tags = (facts.topics ?? []).filter((t) => TAG.test(t)).slice(0, 10);
   const json: FundingManifest = {
     $schema: MANIFEST_SCHEMA,
-    version: 'v1.0.0',
+    // Fix round 1 (M5): the manifest's version agrees with its schema.
+    version: 'v1.1.0',
     entity: {
       type: company ? 'organisation' : 'individual',
       role: 'owner',
@@ -105,7 +121,7 @@ export function manifestStep(p: Program, facts: RepoFacts, rec: RecordContext | 
     }],
     funding: {
       channels: [{ guid: 'bank', type: 'bank', description: 'Bank transfer.' }],
-      plans: [{ guid: 'support', status: 'active', name: 'Project support', amount: p.min_award_usd ?? 0, currency: 'USD', frequency: 'yearly', channels: ['bank'] }],
+      plans: [{ guid: 'support', status: 'active', name: 'Project support', amount, currency: 'USD', frequency: 'yearly', channels: ['bank'] }],
     },
   };
   const fill = [
@@ -130,5 +146,6 @@ export const MANIFEST_NOTE =
   'On yes, for a ready program with agent_step funding_manifest: write agent_step.files at those paths from the repo root ' +
   '(funding.json as the JSON, then the .well-known file), filling each path in agent_step.fill from your sources (git config, ' +
   'the README, the GitHub profile; licenses as spdx:<id>, tags lower-case with dashes) or by asking the builder once, never ' +
-  'inventing; the plan asks the fund\'s minimum, more only if the builder says. Commit and push, call track started for the ' +
+  'inventing. The plan\'s amount and yearly frequency are a starting value: before writing the file, tell the builder ' +
+  'what it asks and let them change either; never present the amount as a fact about the builder. Commit and push, call track started for the ' +
   'program, then call find with its program_id: once the file is in the repo, funding_json_url carries agent_step.url to send.';

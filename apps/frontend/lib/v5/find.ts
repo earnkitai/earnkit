@@ -356,6 +356,12 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     ...withStep(manifestStep(p, facts, rec)),
   };
 }
+/** Fix round 1 (M6): a ready program another agent holds, without its agent step. Pure. */
+const withoutStep = (r: Omit<ReadyProgram, 'n'>, held: boolean): Omit<ReadyProgram, 'n'> => {
+  if (!held) return r;
+  const { agent_step: _step, ...rest } = r;
+  return rest;
+};
 /** L38-1: the agent step, when there is one. Pure. */
 const withStep = (step: ManifestStep | null): { agent_step?: ManifestStep } => (step ? { agent_step: step } : {});
 
@@ -509,7 +515,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ready: [{ ...readyOf(row, verdict, facts, ctx.now, rec, ownDone), n: 1 }], blockers: blockersOf([row], rec.record),
     }).list.length === 1;
   const said = !closed && !upcoming && verdict
-    ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done, lastOffer, standing })
+    ? verdictText(row, verdict, () => withoutStep(readyOf(row, verdict, facts, ctx.now, rec, ownDone), heldSince !== null), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done, lastOffer, standing })
     : null;
   let offer: OfferKind | null = said?.offer ?? null;
   const show = closed
@@ -1155,7 +1161,12 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const builderHeld = new Set([...allClaims].filter(([, h]) => h.held).map(([id]) => id));
   const marked = (id: string, r: Omit<ReadyProgram, 'n'>): Omit<ReadyProgram, 'n'> => {
     const hold = holds.get(id);
-    return hold ? { ...r, claimed_since: hold.since } : builderHeld.has(id) ? { ...r, held: true } : r;
+    // Fix round 1 (M6): a program another agent holds carries no agent step, as on the one-program reply.
+    if (hold) {
+      const { agent_step: _step, ...rest } = r;
+      return { ...rest, claimed_since: hold.since };
+    }
+    return builderHeld.has(id) ? { ...r, held: true } : r;
   };
   const { ready, gaps } = numbered(
     shownReady.map((v) => marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)))),

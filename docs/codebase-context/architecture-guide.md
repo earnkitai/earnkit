@@ -1325,6 +1325,11 @@ means what the last `Say` offered.
   prefill then fills as EarnKit's. A one-program find on a manifest program the builder started re-checks the push
   (the claim's time joins `codeDoneAt` as `staleAfter`). With no read (a report, a send's check) the link stays the
   builder's, so a send under standing approval is outside it until a read finds the file.
+- **Fix round 1.** CC0-1.0 is off the OSI list. A repo body with no `license` key leaves the license unknown. The
+  plan amount is the record's `policy.max_ask_usd` kept within the award floor and ceiling, else the floor
+  (`planAmount`), and there is no step for a program with no floor. The manifest version is v1.1.0, matching its
+  schema. A program another agent holds carries no step, in the list or alone. A truncated tree that does not list
+  funding.json leaves the file unknown (`RepoRead.truncated`); the read never fetches the raw URL, which can lag a push.
 
 ## What v5 deliberately does not do
 

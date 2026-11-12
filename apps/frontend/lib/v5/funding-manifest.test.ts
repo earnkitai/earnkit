@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MANIFEST_FIELD, manifestStep, manifestUrl, wantsManifest } from './funding-manifest';
+import { MANIFEST_FIELD, MANIFEST_NOTE, manifestStep, manifestUrl, planAmount, wantsManifest } from './funding-manifest';
 import { ProgramFile } from './program-file';
 import type { RepoFacts } from './repo-facts';
 import { EMPTY_RECORD, mergeRecord } from '../v6/record';
@@ -38,4 +38,29 @@ test('L38-1 (v6.1.18 Task 11): the manifest step is built from the record and th
   assert.equal(manifestStep(floss, { ...READ, repo_url: 'https://gitlab.com/acme/quill' }, null), null);
   // An unrecognized license is not written: the agent fills it.
   assert.ok(manifestStep(floss, { ...READ, license: 'NOASSERTION' }, null)!.fill.includes('projects[0].licenses'));
+});
+
+test('Task 11 fix round 1 (I2, I3, M5, M8): the amount starts from the record within the award range; the builder may change it; no floor, no step', () => {
+  const rec = (max_ask_usd?: number) => ({ record: mergeRecord(EMPTY_RECORD, max_ask_usd === undefined ? {} : { policy: { max_ask_usd } }, 'builder', NOW).record, projectId: null, verifiedUsage: null });
+  assert.equal(planAmount(floss, null), 10_000);
+  assert.equal(planAmount(floss, rec()), 10_000);
+  assert.equal(planAmount(floss, rec(35_000)), 35_000);
+  assert.equal(planAmount(floss, rec(2_000)), 10_000);
+  assert.equal(planAmount(floss, rec(500_000)), 100_000);
+  assert.equal(manifestStep(floss, READ, rec(35_000))!.files[0].json.funding.plans[0].amount, 35_000);
+  assert.equal(manifestStep(floss, READ, null)!.files[0].json.funding.plans[0].amount, 10_000);
+  // No award floor: no step, never the spec's "any amount" 0.
+  assert.equal(planAmount({ ...floss, min_award_usd: undefined }, null), null);
+  assert.equal(manifestStep({ ...floss, min_award_usd: undefined }, READ, null), null);
+  // The version agrees with the schema.
+  const m = manifestStep(floss, READ, null)!.files[0].json;
+  assert.deepEqual([m.$schema, m.version], ['https://fundingjson.org/schema/v1.1.0.json', 'v1.1.0']);
+  // The note: a starting amount and frequency the builder can change before the file is written, never their fact.
+  assert.equal(MANIFEST_NOTE,
+    'On yes, for a ready program with agent_step funding_manifest: write agent_step.files at those paths from the repo root ' +
+    '(funding.json as the JSON, then the .well-known file), filling each path in agent_step.fill from your sources (git config, ' +
+    'the README, the GitHub profile; licenses as spdx:<id>, tags lower-case with dashes) or by asking the builder once, never ' +
+    'inventing. The plan\'s amount and yearly frequency are a starting value: before writing the file, tell the builder ' +
+    'what it asks and let them change either; never present the amount as a fact about the builder. Commit and push, call track started for the ' +
+    'program, then call find with its program_id: once the file is in the repo, funding_json_url carries agent_step.url to send.');
 });

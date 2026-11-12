@@ -257,14 +257,19 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     // L35-3 (v6.1.16.1 Task 2): a fork keeps its parent, so the one-per-repo rule reads the parent's repo too.
     ...(r.repo.fork === true && typeof r.repo.parent?.id === 'number' ? { parent_repo_id: r.repo.parent.id } : {}),
     ...(r.repo.fork === true && typeof r.repo.parent?.full_name === 'string' ? { parent_full_name: r.repo.parent.full_name } : {}),
-    license: licenseOf(r.repo.license),
-    funding_json: paths.includes(MANIFEST_PATH),
+    // Fix round 1 (I4): a repo body with no license key says nothing about the license (unknown, left out).
+    ...('license' in r.repo ? { license: r.repo.license === null ? null : licenseOf(r.repo.license) } : {}),
+    // Fix round 1 (M7): found at the root, the file is there; not found in a truncated tree, it is unknown (left out),
+    // so the step is still offered and nothing is claimed done. The read lists the tree through the API and never
+    // fetches the raw URL, which can lag a push by a few minutes: the agent sends it only after it pushed.
+    ...(paths.includes(MANIFEST_PATH) ? { funding_json: true } : r.truncated ? {} : { funding_json: false }),
   };
 }
 
-/** L38-27 (v6.1.18 Task 11): the SPDX id of the license GitHub detects, cleaned; null for none (no license file). Pure. */
-export function licenseOf(l: unknown): string | null {
-  if (!l || typeof l !== 'object') return null;
+/** L38-27 (v6.1.18 Task 11): the SPDX id of a license object GitHub detects, cleaned; `NOASSERTION` for one it does
+ *  not name. Fix round 1 (I4): only for a license object; the read sets null itself for a null license. Pure. */
+export function licenseOf(l: unknown): string {
+  if (!l || typeof l !== 'object') return 'NOASSERTION';
   const id = (l as { spdx_id?: unknown }).spdx_id;
   return typeof id === 'string' && /^[A-Za-z0-9.+-]{1,64}$/.test(id) ? id : 'NOASSERTION';
 }
@@ -500,7 +505,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: Unread): 
     ...(code && repoIdIn(code) !== null ? { repo_id: repoIdIn(code)! } : {}),
     ...(code && Array.isArray(code.contributors) ? { contributors: code.contributors.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()) } : {}),
     ...(code?.owner_type ? { owner_type: code.owner_type } : {}),
-    ...(code && code.license !== undefined ? { license: code.license === null ? null : licenseOf({ spdx_id: code.license }) } : {}),
+    ...(code && code.license !== undefined ? { license: code.license === null ? null : typeof code.license === 'string' ? licenseOf({ spdx_id: code.license }) : 'NOASSERTION' } : {}),
     ...(code?.funding_json === true && manifestUrl(code.html_url) ? { funding_json_url: manifestUrl(code.html_url)! } : {}),
   };
 }

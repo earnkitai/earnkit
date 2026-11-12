@@ -94,6 +94,8 @@ export type RepoRead = {
   first_commit_at: string | null;
   /** A tree or file read failed: the facts are incomplete and must not be cached. */
   partial: boolean;
+  /** Task 11 fix round 1 (M7): GitHub cut the recursive tree short, so a path not in it may still be in the repo. */
+  truncated?: true;
   /** L28-3 (v6.1.16 Task 14): the logins of the repo's contributors (the first 100), lower-case; null when not read. */
   contributors?: string[] | null;
 };
@@ -222,9 +224,14 @@ export async function readRepo(fullName: string, o: { token?: string; fetch?: Fe
   const repo = await readRepoObject(fullName, token, f, signal);
   if (repo.private) throw new RepoPrivateError();
   let partial = false;
+  // Task 11 fix round 1 (M7): GitHub cuts a very large recursive tree short (`truncated`); what it leaves out is unknown.
+  let truncated = false;
   const treeAndFiles = async () => {
-    const tree = await gh<{ tree: TreeEntry[] }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f, signal).then(
-      (t) => t.tree ?? [],
+    const tree = await gh<{ tree: TreeEntry[]; truncated?: boolean }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f, signal).then(
+      (t) => {
+        truncated = t.truncated === true;
+        return t.tree ?? [];
+      },
       () => {
         partial = true;
         return [] as TreeEntry[];
@@ -249,5 +256,5 @@ export async function readRepo(fullName: string, o: { token?: string; fetch?: Fe
   };
   const [{ tree, readme, files }, first, contributors] = await Promise.all([treeAndFiles(), firstCommit(fullName, token, f, signal), repo.size === 0 ? null : contributorsOf(fullName, token, f, signal)]);
   if (signal.aborted) throw new GitHubSlow();
-  return { repo, tree, readme, files, first_commit_at: first, partial, contributors };
+  return { repo, tree, readme, files, first_commit_at: first, partial, contributors, ...(truncated ? { truncated: true as const } : {}) };
 }

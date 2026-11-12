@@ -626,7 +626,8 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   assert.deepEqual(none.gaps.map((g) => [g.kind, g.item, g.what, g.effort, g.agent_can, g.do]), [['feature', 'feature:license', 'a license file', 'minutes', true, 'add an MIT license file']]);
   assert.deepEqual(items(null, ['feature:license']), []);
   // A license GitHub does not recognize, one not on the list, or no read: the rule question, as before.
-  for (const id of ['NOASSERTION', 'BUSL-1.1', undefined]) assert.deepEqual(items(id), [RULE], String(id));
+  // Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it keeps the question too.
+  for (const id of ['NOASSERTION', 'BUSL-1.1', 'CC0-1.0', undefined]) assert.deepEqual(items(id), [RULE], String(id));
   assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
   // An archived repo: its license is not the live repo's, so the rule stays a question beside the live repo step.
   assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set(), NOW).gaps.map((g) => g.what), ['the repo is archived', RULE]);
@@ -637,4 +638,22 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   for (const slug of ['neon-open-source-program', 'nlnet-open-call', 'floss-fund-zerodha']) assert.deepEqual(checked(slug), [], slug);
   // Only a rule takes check.
   assert.throws(() => ProgramFile.parse({ ...hero.file, eligibility: [{ kind: 'feature', value: 'x', check: 'license' }] }));
+});
+
+test('Task 11 fix round 1 (I4, M7): a repo body with no license key is unknown; a truncated tree without funding.json claims nothing', async () => {
+  const REPO = /api\.github\.com\/repos\/[^/]+\/[^/]+$/;
+  const noKey = replayFetch('nextjs-dashboard', (u, b) => (REPO.test(u) ? b.replace('"license":null,', '') : b));
+  const r = parseProject({ name: 'App', description: 'An app.', repo_url: `https://github.com/${noKey.repo}`, users: true });
+  assert.ok(r.ok);
+  const facts = await repoFacts(r.project, { gh: noKey.fetch, now: NOW });
+  assert.equal(facts.public, true);
+  assert.equal('license' in facts, false);
+  assert.deepEqual(evaluate(fromFile('herodevs-sustainability-fund'), facts, new Set(), NOW).gaps.map((g) => g.what), ['an OSI-approved open source license']);
+  // A truncated tree that does not list funding.json: unknown, so no URL is claimed; one that lists it: the URL.
+  await sql()`DELETE FROM repo_cache`;
+  const cut = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,') : b));
+  assert.equal((await repoFacts(r.project, { gh: cut.fetch, now: NOW })).funding_json_url, undefined);
+  await sql()`DELETE FROM repo_cache`;
+  const listed = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,').replace('"tree":[', '"tree":[{"path":"funding.json","mode":"100644","type":"blob","sha":"f","size":900},') : b));
+  assert.equal((await repoFacts(r.project, { gh: listed.fetch, now: NOW })).funding_json_url, `https://raw.githubusercontent.com/${noKey.repo}/HEAD/funding.json`);
 });

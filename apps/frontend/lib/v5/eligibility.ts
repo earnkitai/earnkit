@@ -111,7 +111,8 @@ export const LICENSE_FILE: Gap = {
  * L38-27: the SPDX ids GitHub reports for common OSI-approved licenses (GitHub reports `GPL-3.0`, `LGPL-2.1`,
  * `AGPL-3.0` without `-only`; the `-only` and `-or-later` spellings are kept for safety).
  */
-const OSI = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0', 'MPL-2.0', 'ISC', 'Unlicense', 'CC0-1.0', 'EPL-2.0', '0BSD']);
+// Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it reads as unknown and the rule question stays.
+const OSI = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0', 'MPL-2.0', 'ISC', 'Unlicense', 'EPL-2.0', '0BSD']);
 const osiId = (id: string) => OSI.has(id.replace(/-(only|or-later)$/, ''));
 /** L38-27: what the read says of a license rule: an OSI license, no license file, or nothing to go on (not read, or a
  *  license GitHub does not recognize or that is not on the list). Pure. */

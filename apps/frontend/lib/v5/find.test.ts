@@ -1751,6 +1751,32 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   assert.doesNotMatch(after.reply!.show_to_builder as string, /funding file/);
 });
 
+test('Task 11 fix round 1 (M6): a ready FLOSS/fund another agent of the builder holds carries no funding file step in the list', async () => {
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  // The L38-1 test's start on this repo is another builder's claim: cleared, so only this builder's agents hold it.
+  await sql()`DELETE FROM applications WHERE program_id = 'floss-fund-zerodha'`;
+  const project = { ...RIPGREP, users: true };
+  const owner = await upsertBuilder({ github_id: 951_382, login: dash.repo.split('/')[0], name: 'Owner', avatar_url: null }, NOW);
+  const a = await dashCtx();
+  const b = await dashCtx();
+  for (const x of [a, b]) await linkInstallation(x.installationId, owner.id, NOW);
+  const ca = { ...a, builderId: owner.id as number | null };
+  const cb = { ...b, builderId: owner.id as number | null };
+  const free = await mcpCall(cb, 'find', { project });
+  assert.ok((free.reply!.ready as ReadyProgram[]).find((p) => p.program_id === 'floss-fund-zerodha')?.agent_step, free.reply!.show_to_builder as string);
+  const started = await mcpCall(ca, 'track', { program_id: 'floss-fund-zerodha', status: 'started', project });
+  assert.equal(started.isError, false, started.text);
+  const held = await mcpCall(cb, 'find', { project });
+  const row = allReady(held.reply!).find((p) => (p as ReadyProgram).program_id === 'floss-fund-zerodha') as ReadyProgram;
+  assert.ok(row?.claimed_since, held.reply!.show_to_builder as string);
+  assert.equal(row.agent_step, undefined);
+  assert.doesNotMatch(held.reply!.show_to_builder as string, /funding file/);
+  assert.ok(!(held.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
+  const one = await mcpCall(cb, 'find', { program_id: 'floss-fund-zerodha', project });
+  assert.equal(one.reply!.agent_step, undefined);
+  assert.doesNotMatch(one.reply!.show_to_builder as string, /funding file/);
+});
+
 test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule yes, the idea and the empty repo read one line and a closing that names the answers', async () => {
   const emptyRec = replayFetch('empty-repo');
   const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
