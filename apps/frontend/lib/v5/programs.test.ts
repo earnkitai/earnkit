@@ -246,3 +246,27 @@ test('L35-6 (v6.1.16.1 Task 2): listRef reads #N, N., No. N, no N and number wor
   for (const ref of ['#3', 'twenty-one', 'No. 99', 'seven.']) assert.equal(looksLikeListRef(ref), true, ref);
   for (const ref of ['L35 Err Two', 'base batches', 'no code grant']) assert.equal(looksLikeListRef(ref), false, ref);
 });
+
+test('L45-11 (v6.1.19): any number the last list does not hold reads the list line, 0, negatives and decimals too', async () => {
+  const { LIST_GONE, listMiss, listRef } = await import('./programs');
+  const list = ['a', 'b', 'c', 'd'];
+  assert.equal(LIST_GONE(99), "Number 99 is not in the list. Say a number from the last list or the program's name.");
+  for (const [raw, n] of [['99', 99], ['0', 0], ['-1', -1], ['1.5', 1.5], ['#7', 7]] as const) {
+    assert.equal(listMiss(raw, list), n, raw);
+    assert.equal(listRef(raw, list), null, raw);
+  }
+  assert.equal(listMiss('1', []), 1);
+  assert.equal(listRef('2', list), 'b');
+  assert.equal(listMiss('2', list), null);
+});
+
+test('L45-14 (v6.1.19): EarnKit\'s own program page link is the id; a long echo is cut on a word boundary', async () => {
+  const { echoName, programIdOf } = await import('./programs');
+  for (const raw of ['https://earnkit.com/programs/kiroween-2026', 'earnkit.com/programs/kiroween-2026/', 'https://www.earnkit.com/programs/Kiroween-2026?ref=x'])
+    assert.equal(programIdOf(raw), 'kiroween-2026', raw);
+  assert.equal(programIdOf('https://example.com/programs/x'), 'https://example.com/programs/x');
+  assert.equal(programIdOf('kiroween-2026'), 'kiroween-2026');
+  assert.equal(echoName('Short Name'), '"Short Name"');
+  assert.equal(echoName('https://example.org/programs/kiroween-2026-extra'), '"https://example.org/programs/kiroween..."');
+  assert.equal(unknownProgramLine([], 'the very long program name that keeps going on and on'), 'I do not know a program called "the very long program name that keeps...". Say its full name.');
+});

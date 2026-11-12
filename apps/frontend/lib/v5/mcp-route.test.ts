@@ -226,3 +226,15 @@ test('L19-10: a /mcp body that sends one byte and stalls answers 408 within 6 s,
   assert.deepEqual(await r.json(), { error: 'request_timeout', error_description: 'The request body came too slowly.' });
   assert.deepEqual(logs, ['[http] body read timed out']);
 });
+
+test('L45-19 (v6.1.19): bytes that are not UTF-8 in a tool call answer one plain line, never an echo', async () => {
+  await saveInstallation(token, null);
+  const head = Buffer.from('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"track","arguments":{"program_id":"');
+  const tail = Buffer.from('","status":"skipped"}}}');
+  const body = Buffer.concat([head, Buffer.from([0xff, 0xfe, 0xfd]), tail]);
+  const r = await POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }));
+  assert.equal(r.status, 200);
+  const m = (await r.json()) as Msg;
+  assert.equal(m.result.isError, true);
+  assert.deepEqual(plain(m), { show_to_builder: 'I could not read that.', agent_note: 'Nothing was done. Part of the arguments was not valid UTF-8; send the text as UTF-8 and call again.', refused: true });
+});

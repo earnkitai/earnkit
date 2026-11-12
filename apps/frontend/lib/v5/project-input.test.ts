@@ -495,3 +495,10 @@ test('L45-19 (v6.1.19): a commit date before 1970 is not known', () => {
   assert.equal(r.project.last_commit_at, undefined);
   assert.deepEqual(r.problems, ['last_commit_at is before 1970; not used', 'first_commit_at is before 1970; not used']);
 });
+
+test('L45-19 (v6.1.19): a filter key find does not take is named, never read silently', async () => {
+  const { findInputOf } = await import('./find');
+  const r = findInputOf({ filter: { all: true, sort: 'money' } });
+  assert.deepEqual(r.i.filter, { all: true });
+  assert.deepEqual(r.unread, ['filter.sort was not read: filter takes category and all']);
+});

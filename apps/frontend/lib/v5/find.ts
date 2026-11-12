@@ -19,7 +19,7 @@ import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastL
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, LIST_GONE, listMiss, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
+import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, LIST_GONE, listMiss, listRef, programByName, programIdOf, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
@@ -77,6 +77,10 @@ export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unr
     p.startsWith('filter.category dropped') ? `category ${JSON.stringify(cleanText(String(category), 40))} was not read: use ${PROGRAM_CATEGORIES.slice(0, -1).join(', ')} or ${PROGRAM_CATEGORIES.at(-1)}` : p);
   // L1j-5 (v6.1.17): a key inside project that is no project field is named, never refused.
   problems.push(...unknownProjectKeys(p));
+  // L45-19 (v6.1.19): a key inside filter that is no filter field is named, never read.
+  const f = raw.filter;
+  if (f && typeof f === 'object' && !Array.isArray(f))
+    for (const k of Object.keys(f).filter((k) => k !== 'category' && k !== 'all').slice(0, 5)) problems.push(`filter.${cleanText(k, 40)} was not read: filter takes category and all`);
   // L29-14 (v6.1.16 Task 15): a project fact passed beside project, never read there, is named.
   for (const k of Object.keys(raw)) if (k !== 'project' && Object.hasOwn(ProjectArg.shape, k)) problems.push(`${k} belongs inside project`);
   let r = FindInput.safeParse(args);
@@ -474,6 +478,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // organizer too, and several are asked about. L35-6 (v6.1.16.1 Task 2): a list reference ("#3", "3.", "No. 3",
   // "three") is the last list's program; any other reference falls to the name lookup.
   const lastList = await lastListIds(ctx.installationId);
+  // L45-14 (v6.1.19): EarnKit's own program page link is that program's id.
+  id = programIdOf(id);
   const ref = (await getProgram(id)) ? null : listRef(id, lastList);
   if (ref) id = ref;
   const { row, suggest } = await programByName(id, ctx.now);

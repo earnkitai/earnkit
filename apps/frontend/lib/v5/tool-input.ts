@@ -136,6 +136,17 @@ export function inputDetail(error: z.ZodError): string {
   return `${text.length > 300 ? `${text.slice(0, 299)}…` : text}.`;
 }
 
+/** L45-19 (v6.1.19): the builder line when an argument held bytes that are not UTF-8. */
+export const NOT_UTF8 = 'I could not read that.';
+export const NOT_UTF8_NOTE = 'Nothing was done. Part of the arguments was not valid UTF-8; send the text as UTF-8 and call again.';
+/** Whether any key or text in `v` holds U+FFFD, the mark of bytes that were not UTF-8 (the depth is capped by the caller). Pure. */
+function hasReplacement(v: unknown): boolean {
+  if (typeof v === 'string') return v.includes('\uFFFD');
+  if (!v || typeof v !== 'object') return false;
+  if (Array.isArray(v)) return v.some(hasReplacement);
+  return Object.entries(v).some(([k, x]) => k.includes('\uFFFD') || hasReplacement(x));
+}
+
 /** The one line a request the MCP library (or the route) cannot read gets as its JSON-RPC error message. */
 export const UNREADABLE_REQUEST = 'I could not read that request.';
 
@@ -169,7 +180,10 @@ export function answerUnreadable(body: unknown, max: number): { answers: unknown
           ? TOO_DEEP_NOTE
           : null;
     const id = idOf(m);
-    if (note) {
+    // L45-19 (v6.1.19): text that was not UTF-8 (read as U+FFFD) is never matched or echoed: one plain line.
+    if (!note && args !== undefined && hasReplacement(args)) {
+      if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(refuse({ show_to_builder: NOT_UTF8, agent_note: NOT_UTF8_NOTE })) }], isError: true } });
+    } else if (note) {
       if (id !== null) answers.push(toolLine(id, note));
     } else if (tooDeep(raw, max + 3)) {
       if (id !== null) answers.push({ jsonrpc: '2.0', id, error: { code: -32600, message: UNREADABLE_REQUEST } });

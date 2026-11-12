@@ -12,7 +12,7 @@ import { wantsManifest } from './funding-manifest';
 import { cachedRepoFacts, cachedRepoMiss, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
-import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
+import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, programIdOf, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, gapItemOf, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, unreadNote } from './reply';
@@ -431,6 +431,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   if (joining) return joinProject(ctx, owner, cleanText(joining[1], 80), given.project, refuse, programs);
   // L35-6 (v6.1.16.1 Task 2): "#3", "3.", "No. 3" and "three" too (`listRef`); a token shaped like a list number that is
   // not one of the last list's is never matched against titles (only an exact id), so it never writes by a title word.
+  // L45-14 (v6.1.19): EarnKit's own program page link is that program's id.
+  given.program_id = programIdOf(given.program_id);
   const listed = (await getProgram(given.program_id)) ? null : listRef(given.program_id, await lastListIds(ctx.installationId));
   if (listed) given.program_id = listed;
   const raw = given.program_id;
