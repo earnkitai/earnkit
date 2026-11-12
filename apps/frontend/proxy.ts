@@ -44,12 +44,18 @@ const NOT_A_PAGE = /^\/(?:_next\/|api\/|\.well-known\/|mcp(?:\/|$)|oauth\/|link\
 
 /** A path no route serves: a rewrite to it renders the site's 404 page with status 404. */
 export const NOT_A_ROUTE = '/_ek/not-found';
+/**
+ * The page a guide path is rewritten to when the guide ids could not be read (N3, v6.1.17 Task 4): the guide route is
+ * ISR, where a failed render is an empty shell without JavaScript, so the proxy sends the request to this per-request
+ * page (the unavailable panel, never cached, never a 404); the next request reads again.
+ */
+export const GUIDE_DOWN = '/guide-unavailable';
 /** A guide path: never a logo file (`/programs/<id>.svg` has a dot). */
 const GUIDE = /^\/programs\/([^/.]+)$/;
 
 /**
- * The rewrite for a guide path whose id `ids` does not hold (NOT_A_ROUTE on the request's origin), else null: any other
- * path, a listed id, or a failed read (the page then answers as it does today).
+ * The rewrite for a guide path whose id `ids` does not hold (NOT_A_ROUTE on the request's origin), or GUIDE_DOWN when
+ * the read failed; else null: any other path or a listed id.
  */
 export async function guideGate(url: URL, ids: () => Promise<ReadonlySet<string>>): Promise<URL | null> {
   const m = GUIDE.exec(url.pathname);
@@ -58,14 +64,14 @@ export async function guideGate(url: URL, ids: () => Promise<ReadonlySet<string>
   try {
     known = await ids();
   } catch {
-    return null;
+    return new URL(GUIDE_DOWN, url);
   }
   return known.has(m[1]) ? null : new URL(NOT_A_ROUTE, url);
 }
 
 /**
  * A read kept for `ttl` ms after it succeeds (N3, v6.1.17 Task 4): a failed read (an empty id list throws, see
- * definiteGuideIds) keeps nothing and throws, so the gate lets that request through and the next one reads again.
+ * definiteGuideIds) keeps nothing and throws, so the gate sends that request to GUIDE_DOWN and the next one reads again.
  */
 export function okFor<T>(read: () => Promise<T>, ttl: number, clock: () => number = Date.now): () => Promise<T> {
   let kept: { at: number; value: T } | null = null;

@@ -25,7 +25,7 @@ export async function getLanding(): Promise<Landing | null> {
 
 /**
  * One program's guide page: null for a 404 (a definite unknown), 'error' when a read failed. generateMetadata and the
- * page share one call. 'error' is never cached: the failed read is not kept, and the render goes dynamic, so the next
+ * page share one call. 'error' is never cached: the failed read is not kept and the page throws on it, so the next
  * request reads again (N3, v6.1.17 Task 4).
  */
 export const getGuidePage = cache(async (id: string): Promise<GuidePage | null | 'error'> => {
@@ -33,8 +33,10 @@ export const getGuidePage = cache(async (id: string): Promise<GuidePage | null |
     const row = await gatedGuidePage(id, guideIds, guideRow);
     return row ? guidePageOf(row, new Date()) : null;
   } catch (err) {
+    // No connection() here (v6.1.17 Task 4): the guide route is ISR now, where that would be an empty 500. The page
+    // throws on 'error' instead, so the failure is never cached: a kept guide stays served, and a first render shows
+    // the route's error panel.
     console.error('[guide] read failed', (err as { name?: string } | null)?.name ?? 'unknown');
-    await connection();
     return 'error';
   }
 });

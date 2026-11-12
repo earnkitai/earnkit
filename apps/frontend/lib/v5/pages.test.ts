@@ -27,7 +27,7 @@ import { GET as llmsGet } from '../../app/llms.txt/route';
 import { GET as statsGet } from '../../app/api/stats/route';
 import { GET as programsGet } from '../../app/api/programs/route';
 import sitemap from '../../app/sitemap';
-import { NOT_A_ROUTE, guideGate, proxy } from '../../proxy';
+import { GUIDE_DOWN, NOT_A_ROUTE, guideGate, proxy } from '../../proxy';
 import MeView from '../../app/me/MeView';
 import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
 import { meData } from '../v6/me-view';
@@ -279,8 +279,8 @@ test('L27-3 (v6.1.16): an unknown guide id is a true 404: the proxy rewrites it 
   assert.equal(await guideGate(new URL('https://earnkit.com/programs'), ids), null);
   assert.equal(await guideGate(new URL('https://earnkit.com/programs/zz-page-open.svg'), ids), null);
   assert.equal(await guideGate(new URL('https://earnkit.com/docs'), ids), null);
-  // A failed read leaves the page to answer.
-  assert.equal(await guideGate(new URL('https://earnkit.com/programs/nope'), async () => { throw new Error('db down'); }), null);
+  // A failed read goes to the per-request unavailable page (N3, v6.1.17 Task 4), never the 404.
+  assert.equal((await guideGate(new URL('https://earnkit.com/programs/nope'), async () => { throw new Error('db down'); }))?.pathname, GUIDE_DOWN);
   // The page behind it: notFound() for an unknown id and a record that no longer parses (noindex through the metadata).
   for (const id of ['nope', 'zz-page-broken', 'Not A Slug']) await throws404(ProgramGuidePage(params(id)));
   const meta = await guideMetadata(params('nope'));
@@ -589,7 +589,7 @@ test('v6.1.16 Task 13 N3 (v6.1.17 Task 4): a failed guide-id read is never kept 
     return new Set(['zz-page-open']);
   }, 60_000, () => t);
   await assert.rejects(ids());
-  assert.equal(await guideGate(new URL('https://earnkit.com/programs/nope'), ids), null, 'a failed read is never a 404');
+  assert.equal((await guideGate(new URL('https://earnkit.com/programs/nope'), ids))?.pathname, GUIDE_DOWN, 'a failed read is never a 404');
   fail = false;
   assert.ok((await ids()).has('zz-page-open'));
   assert.equal(calls, 3, 'retried on the next request');
@@ -600,5 +600,17 @@ test('v6.1.16 Task 13 N3 (v6.1.17 Task 4): a failed guide-id read is never kept 
   await assert.rejects(gatedGuidePage('zz-page-open', async () => { throw new Error('db down'); }, guideTextById));
   const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
   assert.match(src, /cachedRead\(\(\) => definiteGuideIds\(\), \['guide-ids-v6'\]\)/);
-  assert.match(src, /await connection\(\);\n    return 'error';/);
+  // The guide route is ISR: a failed read throws (never cached; a kept guide stays served), and the route's error panel
+  // says the guide is unavailable.
+  assert.ok(!/await connection\(\)/.test(src.slice(src.indexOf('export const getGuidePage'))), 'no dynamic bailout in an ISR render');
+  const page = readFileSync(join(import.meta.dirname, '../../app/programs/[id]/page.tsx'), 'utf8');
+  assert.match(page, /if \(page === 'error'\) throw new Error\('guide read failed'\);/);
+  assert.match(page, /export async function generateStaticParams\(\)[\s\S]*?return \[\];/);
+  // GUIDE_DOWN renders per request (never cached) in the server HTML: the panel, no JavaScript needed.
+  const down = await import('../../app/guide-unavailable/page');
+  assert.equal(down.dynamic, 'force-dynamic');
+  assert.deepEqual(down.metadata.robots, { index: false, follow: false });
+  assert.ok(textOf(html(down.default())).startsWith('This guide is unavailable right now. Try again in a few minutes. EarnKit home'));
+  const { default: GuideError } = await import('../../app/programs/[id]/error');
+  assert.equal(textOf(html(React.createElement(GuideError))), 'This guide is unavailable right now. Try again in a few minutes. EarnKit home');
 });
