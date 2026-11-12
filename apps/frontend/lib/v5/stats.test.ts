@@ -5,6 +5,7 @@ import { programFixture } from './fixtures/program';
 import { listOpenPrograms, upsertProgram, type ProgramRow } from './programs';
 import { openMoneyUsd, readStats, sendCounts, sendRows, statsGet, STATS_KEYS } from './stats';
 import { record } from './ledger';
+import { claim } from '../v6/claims';
 
 after(() => sql().end());
 
@@ -186,4 +187,16 @@ test('L42-5: a held program sent by the builder counts as reported, not drafted'
   const [c] = await db<{ drafted: string; reported: string }[]>`
     WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s WHERE program_id = 'l42-held'`;
   assert.deepEqual({ drafted: Number(c.drafted), reported: Number(c.reported) }, { drafted: 0, reported: 1 });
+});
+
+test('L42-5 fix round 1: an outside win recorded over an EarnKit claim counts as reported (a null send time is never through EarnKit)', async () => {
+  await upsertProgram(programFixture({ id: 'l42-claimed-out', max_award_usd: 5000 }), 'file', NOW);
+  const i = await statInstall();
+  assert.deepEqual(await claim(`i:${i}`, 'l42-claimed-out', null, i, ago(2)), { ok: true });
+  const r = await record(`i:${i}`, 'l42-claimed-out', 'won', { installationId: i, amount_usd: 100, outsideWin: true, now: NOW });
+  assert.equal(r.ok && r.outside, true);
+  const db = sql();
+  const [c] = await db<{ all: string; drafted: string; reported: string }[]>`
+    WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s WHERE program_id = 'l42-claimed-out'`;
+  assert.deepEqual({ all: Number(c.all), drafted: Number(c.drafted), reported: Number(c.reported) }, { all: 1, drafted: 0, reported: 1 });
 });

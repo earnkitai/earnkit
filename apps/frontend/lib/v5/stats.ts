@@ -60,11 +60,12 @@ export const sendTime = (db: Sql) => db`CASE WHEN a.sent_at IS NOT NULL THEN a.s
  * v6.1.18 Task 5 (L36-3): SQL over `applications a`: the send went through EarnKit. An agent sent it (`submitted_by`
  * null is the agent's, as track.ts's L29-23 reads it), or an EarnKit start (a claim in `application_history`, same
  * owner, program and project) came before its send time. v6.1.19 (L42-5): a hold is not an EarnKit start; a builder's
- * send after a hold is reported.
+ * send after a hold is reported. Fix round 1: the start is compared with `sendTime`, so a send with none (an outside
+ * win recorded over a claim) is never through EarnKit.
  */
 export const throughEarnkit = (db: Sql) => db`(COALESCE(a.submitted_by, 'agent') = 'agent' OR EXISTS (
   SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id
-    AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'started' AND h.at < COALESCE(a.sent_at, a.at)))`;
+    AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'started' AND h.at < ${sendTime(db)}))`;
 
 /** Every send (applied or any result) with its send time (`sendTime`, null for an undated one) and `through` (throughEarnkit). */
 export const sendRows = (db: Sql) => db`

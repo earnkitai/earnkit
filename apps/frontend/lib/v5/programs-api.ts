@@ -473,6 +473,7 @@ export function parseSince(text: string): Date | null {
   if (!m) return null;
   const [y, mo, d, hh, mm, ss] = [m[1], m[2], m[3], m[4] ?? '0', m[5] ?? '0', m[6] ?? '0'].map(Number);
   const ms = m[7] ? Number(m[7].padEnd(3, '0')) : 0;
+  // Years 0000 to 0099 fail the round-trip on purpose (Date.UTC reads them as 1900 to 1999): never a real since.
   const t = Date.UTC(y, mo - 1, d, hh, mm, ss, ms);
   const back = new Date(t);
   if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d

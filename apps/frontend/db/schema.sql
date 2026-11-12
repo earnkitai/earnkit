@@ -490,17 +490,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program_identity ON applica
 CREATE TABLE IF NOT EXISTS cimd_documents (url text PRIMARY KEY, document jsonb NOT NULL, fetched_at timestamptz NOT NULL);
 -- v6.1.19 Task 1 (L42-6, L42-1): the one-time fills, idempotent (only NULLs). The send's installation is the newest
 -- applied history row's for the same owner, program and project. A sent row with no send time takes the newest applied
--- history row's time, unless that row is a send made outside EarnKit (an outside win keeps no send date).
+-- history row's time, unless that row is a send made outside EarnKit (an outside win keeps no send date). Fix round 1:
+-- only rows with a matching applied history row are touched, so a rerun never writes an unmatched row at all.
 UPDATE applications a SET sent_by_installation_id = (
   SELECT h.installation_id FROM application_history h
   WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
   ORDER BY h.at DESC, h.id DESC LIMIT 1)
-WHERE a.sent_by_installation_id IS NULL;
+WHERE a.sent_by_installation_id IS NULL AND EXISTS (
+  SELECT 1 FROM application_history h
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied');
 UPDATE applications a SET sent_at = (
   SELECT h.at FROM application_history h
   WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
   ORDER BY h.at DESC, h.id DESC LIMIT 1)
 WHERE a.sent_at IS NULL AND a.status IN ('applied', 'won', 'rejected', 'no_result')
+  AND EXISTS (
+    SELECT 1 FROM application_history h
+    WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied')
   AND COALESCE((
     SELECT h.note FROM application_history h
     WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
