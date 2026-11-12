@@ -94,6 +94,14 @@ const ERROR_PHRASES: RegExp[] = [
   /failed to fetch/i, /Internal Server Error/i, /Bad Gateway/i, /Cannot GET \//, /Site not found/i,
   /This page could not be found/i,
 ];
+/**
+ * v6.1.17 Task 3 (L30-8): a program link is down too when its page says the domain is parked for sale or the page is
+ * gone. Program links only (probeLink); a builder's live link keeps ERROR_PHRASES alone.
+ */
+const PROGRAM_ERROR_PHRASES: RegExp[] = [
+  ...ERROR_PHRASES,
+  /\b(domain|[\w-]+\.[a-z]{2,})\s+is for sale\b/i, /\bbuy this domain\b/i, /could not find that page/i, /\bno longer available\b/i,
+];
 /** The Accept header of live-link probes: HTML first, anything else accepted. */
 const PROBE_ACCEPT = 'text/html,*/*;q=0.8';
 
@@ -139,11 +147,11 @@ export function visibleText(html: string): { title: string; text: string } {
  * under 5 KB are judged, so a real page that mentions "404" passes. No JS runs, so an error drawn
  * by client JS isn't seen. Pure.
  */
-function errorPageText(html: string): string | null {
+function errorPageText(html: string, phrases: RegExp[] = ERROR_PHRASES): string | null {
   const { title, text } = visibleText(html);
   if (text.length >= ERROR_TEXT_MAX) return null;
-  if (ERROR_PHRASES.some((re) => re.test(title))) return title.slice(0, 80);
-  const hit = ERROR_PHRASES.map((re) => text.match(re)).find(Boolean);
+  if (phrases.some((re) => re.test(title))) return title.slice(0, 80);
+  const hit = phrases.map((re) => text.match(re)).find(Boolean);
   if (!hit) return null;
   const at = hit.index ?? 0;
   const start = Math.max(0, text.lastIndexOf('.', at) + 1);
@@ -506,7 +514,8 @@ const WALLS = [401, 403, 429];
 /**
  * The stale check's probe (L30-2): the same guarded GET as safeProbePage (one same-site hop), but a redirect elsewhere
  * is an answer, not a failure: `{ ok: true, redirect: host }`, and the redirect is never requested (the SSRF rule
- * stands). A 3xx with no Location, a second redirect, 401, 403 and 429 are alive too. Only a 4xx (or an error page),
+ * stands). A 3xx with no Location, a second redirect, 401, 403 and 429 are alive too. Only a 4xx (or an error page,
+ * which for a program link includes a parked domain for sale and a soft 404, v6.1.17 L30-8),
  * a 5xx, a name that does not resolve, the deadline (`timeoutMs`) and a refused connection or address count as dead.
  * The builder live-link reader keeps safeProbePage's rule. Never throws.
  */
@@ -518,7 +527,7 @@ export async function probeLink(
   const host = URL.canParse(url) ? new URL(url).hostname : '';
   const read = async (target: string): Promise<ProbeResult> => {
     const page = await safeFetchText(target, opts);
-    return errorPageText(page) ? { ok: false, why: '4xx' } : { ok: true, page };
+    return errorPageText(page, PROGRAM_ERROR_PHRASES) ? { ok: false, why: '4xx' } : { ok: true, page };
   };
   const redirected = (err: RedirectError, from: string): ProbeResult | URL => {
     if (!err.location || !URL.canParse(err.location, from)) return { ok: true };
