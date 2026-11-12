@@ -112,8 +112,8 @@ test('first find has no since', async () => {
       "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
       "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
       "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      // L1j-3 (v6.1.17): the in-person rows left out are counted.
-      'And 2 more in the full list.',
+      // L1j-3 (v6.1.17): the in-person rows left out are counted. L18-1 (v6.1.18): with the rows the rank cap left out.
+      'And 32 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
       // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first.
       'Sign in once and I check the repo is yours; then say yes.',
@@ -517,7 +517,7 @@ test('a project with problems still matches; the problems go to the agent', asyn
 test('filter.all lists the rest with a reason; the leftover count is in the note otherwise', async () => withInPerson(async () => {
   const id = await installation();
   const capped = await mcpCall(ctx(id), 'find', { project: PROJECT });
-  assert.match(capped.reply!.agent_note as string, /^\d+ more programs are left out\. When the builder says more, call find with filter\.all\.$/m);
+  assert.match(capped.reply!.agent_note as string, /^The full list holds \d+ more; show it when the builder asks for all, more or the full list\. Call find with filter\.all for it\.$/m);
   const all = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { all: true } });
   assert.ok((allReady(all.reply!) as unknown[]).length > 5);
   const notFit = all.reply!.not_fit as { program_id: string; reason: string }[];
@@ -1260,7 +1260,8 @@ const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000.
 /** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person. */
 const FUTO_CODE = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
-const IDEA_REPLY = (notes: string[] = []) => ['One step away (1):', FUTO_CODE, ...inPersonBlock(2), ...notes, CODE_FIRST].join('\n');
+// L18-1 (v6.1.18): the rows the rank cap left out are counted before the Say.
+const IDEA_REPLY = (notes: string[] = [], more = 19) => ['One step away (1):', FUTO_CODE, ...inPersonBlock(2), ...notes, `And ${more} more in the full list.`, CODE_FIRST].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
@@ -1287,8 +1288,8 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
       "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
       "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      // L1j-3 (v6.1.17): the in-person rows left out are counted.
-      'And 2 more in the full list.',
+      // L1j-3 (v6.1.17): the in-person rows left out are counted. L18-1 (v6.1.18): with the rows the rank cap left out.
+      'And 32 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
       // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first.
       'Sign in once and I check the repo is yours; then say yes.',
@@ -1310,7 +1311,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(b.reply!.repo_notes, ['unread']);
   assert.equal(
     b.reply!.show_to_builder,
-    [...FUTO_ONLY, ...inPersonBlock(2), 'I could not read the repo; matched on what you told me.', THAT_RULE_FIRST].join('\n'),
+    [...FUTO_ONLY, ...inPersonBlock(2), 'I could not read the repo; matched on what you told me.', 'And 19 more in the full list.', THAT_RULE_FIRST].join('\n'),
   );
   // The same repo with reads paused for the day (the daily cap): the repo likely exists, the users question stands.
   const { hit, LIMITS } = await import('./rate-limit');
@@ -1322,7 +1323,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
     paused.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'Repo reads are paused until tomorrow; matched on what you told me.', USERS_FIRST].join('\n'),
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'Repo reads are paused until tomorrow; matched on what you told me.', 'And 24 more in the full list.', USERS_FIRST].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
@@ -1330,7 +1331,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.equal(c.isError, false, c.text);
   assert.equal(c.reply!.show_to_builder, IDEA_REPLY());
   for (const r of [b, c]) assert.doesNotMatch(r.reply!.show_to_builder as string, /FLOSS|real people use it/);
-  for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /When the builder says more, call find with filter\.all\./);
+  for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /^The full list holds \d+ more; show it when the builder asks for all, more or the full list\. Call find with filter\.all for it\.$/m);
   for (const project of [PROJECT_B, PROJECT_C]) {
     const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
     assert.equal((all.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs a product people use', project.name);
@@ -1366,6 +1367,8 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
     "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
     "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
     // L1j-1 (v6.1.17): the closing carries the sign-in, so no other line mentions it.
+    // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+    'And 22 more in the full list.',
     `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`,
   ].join('\n'));
   assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, show);
@@ -1405,7 +1408,7 @@ test('L1j-1, L1j-3, L1j-6 (v6.1.17, Review Focus 1 and 3): the lane 1j personas:
   }
   // Personas 1, 5, 10, 17, 19, 20, 22, 23 and 27: two of four ready rows shown, the other two counted.
   const vr = (await mcpCall(await dashCtx(), 'find', { project: VR })).reply!.show_to_builder as string;
-  assert.deepEqual(vr.split('\n').slice(-2), ['And 2 more in the full list.', 'Sign in once and I check the repo is yours; then say yes.']);
+  assert.deepEqual(vr.split('\n').slice(-2), ['And 23 more in the full list.', 'Sign in once and I check the repo is yours; then say yes.']);
 });
 
 /**
@@ -1453,17 +1456,18 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   const CODE = 'Nothing is ready yet. Tell me when the code is in a repo and I look again.';
   const futo = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
   const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}. First: publish a funding manifest on your site or repo.`;
-  const want: [number, string, string[], string][] = [
-    [8, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE],
-    [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), 'Private repo: matched on what you told me.', signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.'],
-    [12, 'the repo is archived', ['One step away (1):', floss('the repo is archived'), ...inPersonBlock(2), signIn(true)], 'Nothing is ready yet. Tell me the live repo and I look again.'],
-    [15, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), 'The repo is empty, so I matched on what you told me.', signIn()], CODE],
-    [30, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE],
-    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], CODE],
+  // L18-1 (v6.1.18): each persona's more line counts the rows the rank cap left out.
+  const want: [number, string, string[], string, number][] = [
+    [8, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
+    [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), 'Private repo: matched on what you told me.', signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
+    [12, 'the repo is archived', ['One step away (1):', floss('the repo is archived'), ...inPersonBlock(2), signIn(true)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
+    [15, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), 'The repo is empty, so I matched on what you told me.', signIn()], CODE, 17],
+    [30, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
+    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], CODE, 10],
   ];
-  for (const [id, gap, head, closing] of want) {
+  for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
-    assert.equal(show, [...head, closing].join('\n'), `persona ${id}`);
+    assert.equal(show, [...head, `And ${more} more in the full list.`, closing].join('\n'), `persona ${id}`);
     const lines = show.split('\n');
     // The gap words once, in line 1; no other line but the closing's step speaks of the same gap.
     assert.equal(lines[1].split(gap).length, 2, `persona ${id}`);
@@ -1497,10 +1501,12 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
       "In person (2):",
       "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+      'And 22 more in the full list.',
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
     ].join('\n'),
   );
-  assert.match(d.reply!.agent_note as string, /When the builder says more, call find with filter\.all\./);
+  assert.match(d.reply!.agent_note as string, /^The full list holds \d+ more; show it when the builder asks for all, more or the full list\. Call find with filter\.all for it\.$/m);
   // C1 (final fix, B20b): the users question is the whole step; once said, FLOSS/fund is ready, never the bar.
   const said = await mcpCall(await dashCtx(), 'find', { project: { ...SAAS, users: true } });
   assert.match(blockOf(said.reply!.show_to_builder as string, 'Ready to apply'), /^1\. FLOSS\/fund, \$10,000 to \$100,000\. /m);
@@ -1527,7 +1533,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "One step away (1):",
       "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       // L1j-3 (v6.1.17): YC and Alliance, left out, are counted.
-      'And 2 more in the full list.',
+      'And 23 more in the full list.',
       'Sign in once and I check the repo is yours; then say yes.',
     ].join('\n'),
   );
@@ -1553,6 +1559,8 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       "Private repo: matched on what you told me.",
+      // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+      'And 21 more in the full list.',
       "Nothing is ready yet. Tell me when the repo is public and I look again.",
     ].join('\n'),
   );
@@ -1700,6 +1708,8 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
       "In person (2):",
       "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+      'And 10 more in the full list.',
       "Nothing is ready yet. Tell me when the code is in a repo and I look again.",
     ].join('\n'),
   );
@@ -1749,6 +1759,8 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+      'And 9 more in the full list.',
       "Nothing is ready yet. Tell me when the code is in a repo and I look again.",
     ].join('\n'),
   );
@@ -1842,6 +1854,8 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
     '1. FLOSS/fund, $10,000 to $100,000: the repo is archived. First: publish a funding manifest on your site or repo.',
     ...inPersonBlock(2),
     // L1g-5 (v6.1.16): the line reads the archive, so the archived note is left out.
+    // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+    'And 22 more in the full list.',
     'Nothing is ready yet. Tell me the live repo and I look again.',
   ].join('\n'));
   assert.doesNotMatch(show, /This repo is archived/);
@@ -1866,7 +1880,7 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   // L1e-2 (v6.1.13, persona 8): no Thiel (no student word); fix round 1 (T3-R1): FUTO one real step away, code in a repo.
   assert.equal(idea.reply!.show_to_builder, IDEA_REPLY());
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY(['The repo is empty, so I matched on what you told me.']));
+  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY(['The repo is empty, so I matched on what you told me.'], 17));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();
@@ -1914,12 +1928,12 @@ test('L1c-2 (v6.1.10, Review Focus 3): an idea that names no VR word never opens
   const ideaCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW });
   const plain = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' } });
   assert.doesNotMatch(plain.reply!.show_to_builder as string, /Meta VR/);
-  assert.match(plain.reply!.agent_note as string, /When the builder says more, call find with filter\.all\./);
+  assert.match(plain.reply!.agent_note as string, /^The full list holds \d+ more; show it when the builder asks for all, more or the full list\. Call find with filter\.all for it\.$/m);
   // L1g-1 (v6.1.16): a multi-word keyword matches only whole: "Meta Quest" names it, a bare "Quest" does not.
   const bare = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: a Quest app that splits rent and bills between roommates' } });
   assert.doesNotMatch(bare.reply!.show_to_builder as string, /Meta VR/);
   const quest = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: a Meta Quest app that splits rent and bills between roommates' } });
-  assert.equal(quest.reply!.show_to_builder, [...META_VR_ONLY, ...inPersonBlock(2, true), RULE_FIRST].join('\n'));
+  assert.equal(quest.reply!.show_to_builder, [...META_VR_ONLY, ...inPersonBlock(2, true), 'And 19 more in the full list.', RULE_FIRST].join('\n'));
   // The full list still has it for the plain idea, as a step.
   const all = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' }, filter: { all: true } });
   assert.ok(ids(all.reply!.gaps).includes('meta-vr-start-competition-2026'), JSON.stringify(ids(all.reply!.gaps)));
@@ -1942,6 +1956,8 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      // L18-1 (v6.1.18): the rows the rank cap left out are counted.
+      'And 20 more in the full list.',
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
     ].join('\n'),
   );
@@ -3093,7 +3109,7 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
     '4. S4 Codes Grant, up to $5,000: add Base Builder Codes to the app.',
     '5. Berg Grant, up to $5,000: a demo video.',
     '6. Demo Grant, up to $5,000: a demo video.',
-    'And 3 more in the full list.',
+    'And 42 more in the full list.',
     'Sign in once and I check the repo is yours; then say yes.',
   ].join('\n'));
   const [row] = await sql()`SELECT last_list_hash, last_list_at FROM installations WHERE id = ${id}`;
@@ -3728,4 +3744,34 @@ test('v6.1.16 Task 15 N2 (v6.1.17): find never reads as, am or mm as initials; Y
     assert.equal(r.isError, false, w);
     assert.match(r.reply!.show_to_builder as string, /^Y Combinator/, w);
   }
+});
+
+// L18-1 (v6.1.18): the rows the rank cap left out are counted on the builder's more line and in more_count.
+test('L18-1: a no-repo project with a live link counts every row the default view leaves out', async () => {
+  const id = await installation();
+  const project = { name: 'Ledgerly', description: 'Bookkeeping for small shops.', live_url: 'https://ledgerly.example.com', users: true };
+  const def = await mcpCall(ctx(id), 'find', { project });
+  assert.equal(def.isError, false, def.text);
+  const show = def.reply!.show_to_builder as string;
+  const all = await mcpCall(ctx(id), 'find', { project, filter: { all: true } });
+  const fullRows = (allReady(all.reply!) as unknown[]).length + (all.reply!.gaps as unknown[]).length;
+  const shownRows = show.split('\n').filter((l) => /^\d+\. /.test(l)).length;
+  const n = def.reply!.more_count as number;
+  assert.ok(n > 0, show);
+  assert.equal(n, fullRows - shownRows, show);
+  assert.match(show, new RegExp(`^And ${n} more in the full list(\\.|; closing this week: .+\\.)$`, 'm'));
+  assert.ok(show.split('\n').length <= 10, show);
+  assert.equal(all.reply!.more_count, 0);
+  assert.ok((def.reply!.agent_note as string).includes(`The full list holds ${n} more;`));
+  // The owner's live day (Nov 12): two of the left-out programs close this week, named in closing order with the words
+  // their list lines use.
+  // The count is read against the full list (other test files add programs to the shared catalog).
+  const day = new Date(NOW.getTime() + 8 * 86_400_000);
+  const nov12 = await mcpCall(ctx(await installation(), day), 'find', { project });
+  const lines = (nov12.reply!.show_to_builder as string).split('\n');
+  const nov12All = await mcpCall(ctx(await installation(), day), 'find', { project, filter: { all: true } });
+  const left = (allReady(nov12All.reply!) as unknown[]).length + (nov12All.reply!.gaps as unknown[]).length - lines.filter((l) => /^\d+\. /.test(l)).length;
+  assert.equal(nov12.reply!.more_count, left);
+  assert.equal(lines.at(-2), `And ${left} more in the full list; closing this week: PayPal AI Hackathon: Build What's Next with PayPal and AI (today) and UGREEN Hackathon 2026 on AI NAS (3 days).`, lines.join('\n'));
+  assert.ok(lines.length <= 10);
 });

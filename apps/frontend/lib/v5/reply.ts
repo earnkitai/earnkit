@@ -735,18 +735,36 @@ const READY_SHOWN = 3;
  * The builder text, the kind of the one `Say` it offers (L24-2) and (L29-26) the lines the default view left out.
  * L1i-2 (v6.1.16.1): `shown`, the program ids the builder text numbers, in that order (1, 2, 3 ...); `say`, its Say line.
  */
-export type ReplyParts = Closing & { hidden: string[]; shown: string[]; say: string };
+export type ReplyParts = Closing & { hidden: string[]; shown: string[]; say: string; more: number };
+/** L18-1 (v6.1.18): a program closing this week that the default view leaves out; `closes_in` as find words it. */
+export type ClosingHidden = { title: string; closes_at: string; closes_in?: string | null };
 /**
  * `all`: the full view. `asShown` (L1i-2): the numbers are already the shown ones, so the default view is not
  * renumbered. `defaultSay` (L1i-5): the default view's Say, which the full view closes on.
  */
-export type ReplyOptions = { all?: boolean; asShown?: boolean; defaultSay?: string; closes?: Map<string, string> };
+export type ReplyOptions = {
+  all?: boolean; asShown?: boolean; defaultSay?: string; closes?: Map<string, string>;
+  /** L18-1 (v6.1.18): the rows the rank cap left out of the default view, and those of them closing within 7 days. */
+  hidden?: { count: number; closing: ClosingHidden[] };
+};
 
 /** Fix round 1 (I1): a line that carries a link. */
 const LINK = /https?:\/\/\S+/;
 
-/** L1i-2 (v6.1.16.1): the line under a block whose rows the default view leaves out. Pure. */
-export const moreInFull = (n: number): string => `And ${n} more in the full list.`;
+/** L18-1 (v6.1.18): how many named on the more line at most. */
+const CLOSING_NAMED = 2;
+/** L18-1: a closing program's words on the more line: "3 days", "tomorrow", "today", "under an hour". Pure. */
+const closingWords = (c: ClosingHidden, now: Date): string =>
+  (c.closes_in ?? closesWords(c.closes_at, now, 'UTC').replace(/^closes /, '')).replace(/^in /, '');
+/**
+ * L1i-2 (v6.1.16.1): the line under a block whose rows the default view leaves out. L18-1 (v6.1.18): it names at most
+ * two of those closing this week, in closing order. Pure.
+ */
+export const moreInFull = (n: number, closing: ClosingHidden[] = [], now: Date = new Date()): string => {
+  const named = [...closing].sort((a, b) => Date.parse(a.closes_at) - Date.parse(b.closes_at)).slice(0, CLOSING_NAMED);
+  if (named.length === 0) return `And ${n} more in the full list.`;
+  return `And ${n} more in the full list; closing this week: ${named.map((c) => `${c.title} (${closingWords(c, now)})`).join(' and ')}.`;
+};
 
 /**
  * L1j-3 (v6.1.17): what the default view shows and hides of the ready rows (every ready program, in person and held
@@ -932,7 +950,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
       ['Ready to apply', free], ['Being handled by your other agent', heldReady], ['On hold until you say go', onHold],
       ['One step away', steps], ['In person', [...inPerson, ...attendRules]],
     ];
-    return { text: fullView(blocks, after, say, o.closes), offer, hidden: [], shown: [], say };
+    return { text: fullView(blocks, after, say, o.closes), offer, hidden: [], shown: [], say, more: 0 };
   }
 
   // L29-26 (v6.1.16 Task 15): the default view: the slots in display order, each with its priority (lower stays first
@@ -1026,11 +1044,16 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     const d = defaultRows(readyIds, stepIds, sh);
     return d.readyHidden + d.stepHidden;
   };
+  // L18-1 (v6.1.18): the rows the rank cap left out are added once, and the line names those closing this week that the
+  // default view does not show.
+  const capHidden = Math.max(0, o.hidden?.count ?? 0);
   const room = DEFAULT_LINES - 1 - tail.length;
   const once = fit(slots, room);
-  const { kept, hidden, shown } = hiddenOf(once.shown) > 0 ? fit(slots, room - 1) : once;
-  const left = hiddenOf(shown);
-  return { text: [...kept, ...(left > 0 ? [moreInFull(left)] : []), sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine };
+  const { kept, hidden, shown } = hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
+  const left = hiddenOf(shown) + capHidden;
+  const shownTitles = new Set([...r.ready, ...r.gaps].filter((x) => shown.includes(x.program_id)).map((x) => x.title));
+  const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shownTitles.has(c.title));
+  return { text: [...kept, ...(left > 0 ? [moreInFull(left, closingHidden, now)] : []), sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine, more: left };
 }
 
 /** L29-26: a slot of the default view: plain lines, or (L1i-2) a numbered block, with its rank and, for the step block,
@@ -1208,7 +1231,9 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     lines.push('"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at in the project next time, or, when they started after the program\'s start, call track with gap_done and that gap\'s item. Never invent the date.');
   // L29-26 (v6.1.16 Task 15): the default view's left-out lines, and what "say more" is.
   if ((o.hidden ?? []).length > 0) lines.push('Not shown to the builder:', ...o.hidden!);
-  if (o.more > 0 || (o.hidden ?? []).length > 0) lines.push(`${o.more > 0 ? `${o.more} more programs are left out. ` : ''}When the builder says more, call find with filter.all.`);
+  // L18-1 (v6.1.18): `more` is the count on the builder's more line (rank cap and line budget together).
+  if (o.more > 0) lines.push(`The full list holds ${o.more} more; show it when the builder asks for all, more or the full list. Call find with filter.all for it.`);
+  else if ((o.hidden ?? []).length > 0) lines.push('When the builder says more, call find with filter.all.');
   // L23-4 (v6.1.16): the builder text asks; the agent passes the answers on.
   if (r.ask_outcome.length > 0)
     lines.push(`The reply asks how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);

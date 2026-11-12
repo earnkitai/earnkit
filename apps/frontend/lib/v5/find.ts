@@ -185,6 +185,9 @@ export type FindReply = {
   you_send?: ReadyProgram[];
   /** L29-26 (v6.1.16 Task 15): the default view left programs or lines out ("say more" is filter.all). */
   more?: boolean;
+  /** L18-1 (v6.1.18): every ready or step row not in the default view, rank cap and line budget together (the builder's
+   *  "And {n} more" line); 0 in the full list. */
+  more_count?: number;
   /** L23-4 (v6.1.16): applied programs past their results date with no result, that this installation has not asked
    *  about today; the builder text asks each. */
   ask_outcome: OutcomeDue[];
@@ -1095,7 +1098,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     return { shownReady, shownGaps: [...stepGaps.filter((v) => !attendRule(v)), ...attendShown] };
   };
   const { shownReady, shownGaps } = selectionOf(all);
-  const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
+  // L18-1 (v6.1.18): the rows the rank cap left out of the default view, and those of them closing within 7 days (in
+  // closing order, at most two), for the builder's more line. The full list leaves none out.
+  const rankCapped = new Set([...readyV.filter((v) => !shownReady.includes(v)), ...gapV.filter((v) => !shownGaps.includes(v))].map((v) => v.program_id));
   /** L1i-5 (v6.1.16.1): the programs the default view lists (for the full list's closing Say). */
   const defaultIdsOf = (): Set<string> => {
     const d = selectionOf(false);
@@ -1149,6 +1154,11 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const again = side ? unapprovedSince(side.record, last) : 0;
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
+  const hiddenRows = all ? undefined : {
+    count: rankCapped.size,
+    closing: ledger.closing_soon.filter((c) => rankCapped.has(c.program_id)).slice(0, 2)
+      .map((c) => ({ title: c.title, closes_at: c.closes_at, closes_in: closesIn(byId.get(c.program_id)!.file, ctx.now) })),
+  };
   // L23-4 (v6.1.16): every applied program past its results date with no result, asked once a day by each installation.
   const ask = await outcomeAsksDue(ctx.installationId, owner, await askOutcome(owner, open, ctx.now), ctx.now);
   await markAsked(owner, ask.map((a) => a.program_id), ctx.now);
@@ -1185,7 +1195,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // default view's Say; `said` writes the reply from the final numbers.
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
-  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer).shown;
+  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer, { ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
   const prevIds = all && (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
   const stable = stableNumbers(prevIds, [...laid, ...byN.filter((id) => !laid.includes(id))]);
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
@@ -1205,14 +1215,15 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
   // L1i-6 (v6.1.16.1): the full list says every close, beyond the gap lines' own window (the JSON keeps closes_at).
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
-  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
+  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}), ...(hiddenRows ? { hidden: hiddenRows } : {}) });
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more: said.more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
-    more: more > 0 || said.hidden.length > 0,
+    more: said.more > 0 || said.hidden.length > 0,
+    more_count: said.more,
   };
   await markFind(ctx.installationId, ctx.now, remembered, key);
   // L29-15 (v6.1.16 Task 15): the numbers the builder sees, so track takes "3" for the program numbered 3.

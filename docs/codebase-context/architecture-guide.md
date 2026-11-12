@@ -1234,7 +1234,12 @@ means what the last `Say` offered.
   default view leaves out (in-person and held rows too) is counted once, on
   `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown)` gives
   `{ readyShown, readyHidden, stepShown, stepHidden }`; `fit` runs again one line shorter when anything is hidden; the
-  step block has no more line of its own). Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the
+  step block has no more line of its own). v6.1.18 Task 1 (L18-1): the count adds the rows the rank cap left out before
+  the budget ran (find passes `ReplyOptions.hidden = { count, closing }`; 0 with filter.all), and the line names at most
+  two of those closing within 7 days (`ledger.closing_soon`, in closing order, none the view shows) with the list
+  lines' closes words: `And {n} more in the full list; closing this week: {title} ({closes_in}) and {title}
+  ({closes_in}).` (`moreInFull(n, closing, now)`). `ReplyParts.more` is that n; find returns it as `more_count` and the
+  agent note says `The full list holds {n} more; ...`. Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the
   hidden count is said once, so with ready rows hidden the yes reads `Say yes and I apply to all {n} ready.` (`hidden`
   in `closingLine` keeps the word "ready"). Fix round 1 (I2): the default JSON's ready list holds every remote ready
   program with its fields (`shownReadyOf` caps only in-person ones, `MAX_IN_PERSON`), so the Ready heading, `all {n}`

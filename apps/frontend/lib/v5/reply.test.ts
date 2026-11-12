@@ -244,7 +244,7 @@ test('every closing line, and the copy rules', () => {
 
 test('agentNote: fields, yes only, track after each, the counts left out, ask once', () => {
   const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant', due_at: '2026-11-01T00:00:00Z' }] }, { more: 2 });
-  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'form_id', 'track', 'won', 'Zeta Grant', '2 more programs are left out. When the builder says more, call find with filter.all.'])
+  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'form_id', 'track', 'won', 'Zeta Grant', 'The full list holds 2 more; show it when the builder asks for all, more or the full list. Call find with filter.all for it.'])
     assert.ok(n.includes(s), s);
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more: gaps'));
   // L29-27 (v6.1.16 Task 15): a number skips through the note.
@@ -630,7 +630,7 @@ test('R19: with no repo read the sign-in sentence only promises to remember (v6.
 });
 
 test('R26, L29-26: the left-out count and the lines the default view left out go to the agent', () => {
-  assert.ok(agentNote(MONDAY, { more: 4 }).split('\n').includes('4 more programs are left out. When the builder says more, call find with filter.all.'));
+  assert.ok(agentNote(MONDAY, { more: 4 }).split('\n').includes('The full list holds 4 more; show it when the builder asks for all, more or the full list. Call find with filter.all for it.'));
   const n = agentNote(MONDAY, { more: 0, hidden: ['5. Hidden Grant, $1K.'] }).split('\n');
   assert.ok(n.includes('Not shown to the builder:') && n.includes('5. Hidden Grant, $1K.'));
   assert.ok(n.includes('When the builder says more, call find with filter.all.'));
@@ -1522,4 +1522,70 @@ test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every 
     assert.doesNotMatch(t, /\btonight\b|by tomorrow morning/i, t);
     assert.ok((t.match(/\bSay\b/g) ?? []).length <= 1, t);
   }
+});
+
+// L18-1 (v6.1.18): the rows the rank cap left out of the default view are counted on the more line, which names at
+// most two of them that close this week, in closing order.
+const L18_NOW = new Date('2026-11-12T08:00:00Z');
+const plusDays = (now: Date, d: number) => new Date(now.getTime() + d * 86_400_000).toISOString();
+const l18Rows = () => {
+  const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
+  const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
+  return base({ ready: [yc, alliance], gaps: ['One', 'Two', 'Three'].map((t) => gap({ title: `${t} Grant` })) });
+};
+const UGREEN = { title: 'UGREEN Hackathon 2026 on AI NAS', closes_at: plusDays(L18_NOW, 3) };
+const META_VR = { title: 'Meta VR Start Developer Competition 2026', closes_at: plusDays(L18_NOW, 6) };
+
+test('L18-1: the more line counts the rows the rank cap hid and names what closes this week', () => {
+  const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [UGREEN, META_VR] } });
+  const lines = text.split('\n');
+  assert.ok(lines.includes('And 18 more in the full list; closing this week: UGREEN Hackathon 2026 on AI NAS (3 days) and Meta VR Start Developer Competition 2026 (6 days).'), text);
+  assert.ok(lines.length <= 10, text);
+  assert.equal(lines.at(-2)!.startsWith('And 18 more'), true, text);
+  assert.ok(/^(Nothing is ready yet\.|Say |Tell me )/.test(lines.at(-1)!), text);
+  // The closing order is the closes_at order, whatever order they came in; never more than two are named.
+  const third = { title: 'Third Grant', closes_at: plusDays(L18_NOW, 1) };
+  assert.equal(moreInFull(5, [META_VR, UGREEN, third], L18_NOW), 'And 5 more in the full list; closing this week: Third Grant (tomorrow) and UGREEN Hackathon 2026 on AI NAS (3 days).');
+  assert.equal(moreInFull(5, [UGREEN], L18_NOW), 'And 5 more in the full list; closing this week: UGREEN Hackathon 2026 on AI NAS (3 days).');
+  // Words given by find (in the program's own zone) are used as given.
+  assert.equal(moreInFull(5, [{ ...UGREEN, closes_in: 'today' }], L18_NOW), 'And 5 more in the full list; closing this week: UGREEN Hackathon 2026 on AI NAS (today).');
+});
+
+test('L18-1b: the more line with nothing closing this week keeps the old shape', () => {
+  const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
+  assert.equal(text.split('\n').at(-2), 'And 18 more in the full list.', text);
+  assert.equal(moreInFull(18), 'And 18 more in the full list.');
+  // Without a hidden count, nothing changes: no rows hidden, no more line.
+  assert.doesNotMatch(renderReply(l18Rows(), true, L18_NOW), /more in the full list/);
+});
+
+test('L18-1c: budget-hidden and cap-hidden rows are summed once', () => {
+  // Seven step rows and two in person: the 10-line budget leaves some out (the L1i-2 fixture).
+  const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
+  const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
+  const r = base({ ready: [yc, alliance], gaps: ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'].map((t) => gap({ title: `${t} Grant` })) });
+  const budget = replyParts(r, true, L18_NOW);
+  const left = Number(/^And (\d+) more in the full list\.$/.exec(budget.text.split('\n').at(-2)!)![1]);
+  assert.ok(left > 0, budget.text);
+  assert.equal(budget.more, left);
+  const p = replyParts(r, true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
+  const lines = p.text.split('\n');
+  assert.equal(lines.at(-2), `And ${left + 18} more in the full list.`, p.text);
+  assert.equal(p.more, left + 18);
+  assert.equal(lines.filter((l) => l.startsWith('And ')).length, 1, p.text);
+  assert.ok(lines.length <= 10, p.text);
+});
+
+test('L18-1d: a closing program the default view shows is not named on the more line', () => {
+  const r = base({ gaps: [gap({ title: UGREEN.title, closes_at: UGREEN.closes_at, closes_in: 'in 3 days' }), gap({ title: 'Two Grant' })] });
+  const text = renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [UGREEN, META_VR] } });
+  assert.ok(text.split('\n').includes('And 4 more in the full list; closing this week: Meta VR Start Developer Competition 2026 (6 days).'), text);
+  // When every closing one is shown, the line keeps the old shape.
+  assert.ok(renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [UGREEN] } }).split('\n').includes('And 4 more in the full list.'));
+});
+
+test('L18-1e: the agent note says how many more the full list holds', () => {
+  const note = agentNote(l18Rows(), { more: 18 });
+  assert.ok(note.split('\n').includes('The full list holds 18 more; show it when the builder asks for all, more or the full list. Call find with filter.all for it.'), note);
+  assert.doesNotMatch(agentNote(l18Rows(), { more: 0 }), /full list holds/);
 });
