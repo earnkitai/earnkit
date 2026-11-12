@@ -235,8 +235,9 @@ never a name and a second founder's email comes from the team. Team members gain
 Task 14 fix round 1: a send gate matches the project key exactly (`pickRow`'s `off_repo` match is for display reads only:
 `sentOf`, `resultOf`, `excluded`), and the ownership check runs on every write keyed by a repo (`started`, an agent's
 `applied`, `held`), except a send over this agent's own live claim on the project (checked at its start, FR-4). With no
-evidence either way (another host, a private or unreadable repo) track and find say `I could not confirm this repo is
-yours; tell me your GitHub login on it or send it yourself.` (`CANT_CONFIRM_REPO`); `NOT_YOUR_REPO` only on evidence
+evidence either way (another host, a private or unreadable repo) track and find say `I could not read {repo}, so I
+cannot check it is yours. Send it yourself and tell me when it is in.` (`CANT_CONFIRM_REPO(key)`, v6.1.18 L36-6: the
+builder is signed in, so EarnKit never asks for the login); `NOT_YOUR_REPO` only on evidence
 against (`repoEvidence`), and then find's one action is `Say which repo is yours.`; a signed-out builder with a repo gets
 no apply offer (`Sign in once and I check the repo is yours; then say yes.`) and track answers `Sign in first so I can
 check the repo is yours.` (FR-1; `APPLY_OFFER` in find.ts names the lines that give way). One application per repo is
@@ -1316,6 +1317,41 @@ means what the last `Say` offered.
 - **Needs (L1h-8).** `programProblems` refuses a required field whose need (or the todo standing in for it) holds
   " and " ("submission_requirements.{key}.need: one need, no \"and\"; ..."); 55 catalog fields carry a `need` with
   "with" (Solana Incubator's `active users with 6-month growth`).
+
+## v6.1.18 Task 8: more sends per session (lane 36)
+
+- **Every rule in one ask (L36-5).** A gap row already lists every open rule (`Their rules: a; b.`); its ask now covers
+  them all: the one-program action `Say yes if all of that is you and I draft it.` (`RULES_ACTION`) and the list closing
+  `Say "yes n" if all of that is you and I get it ready.` (`ruleSay(n, many)`, closingLine's `ruleMany`). `track`
+  `gap_done` with a rule item confirms every other open rule of that program for the project too (`Tracked. Those rules
+  count as confirmed.`, `RULES_CONFIRMED`), so `started` never asks for a rule the row showed. `started` or an agent's
+  `applied` with several open rules says `Confirm the rules first: a; b. Say yes if all of that is you.`
+  (`CONFIRM_RULES`), its note naming the first item only. `RULE_NOTE` says one gap_done confirms the row.
+- **The usage bar first (L36-7).** Linked with no record project and a `used` bar, the tier gap reads `Needs about 25
+  outside users in 90 days; I count 0 so far. Add this project to your record and I read its proof.`
+  (`ADD_PROJECT_USED`, the count from `DEFAULT_THRESHOLDS.used_funded_senders`); with no record project the tier gap's
+  effort is `minutes` (adding the project), any bar. `isProofReadingWhat` reads the new words.
+- **fields_used (L36-8).** On `applied`, keys the program's form (`submission_requirements`) does not have are dropped
+  before the row is written and named last in the note: `fields_used: {keys} are not this form's fields; dropped.`
+  (`droppedFieldsNote`, five named then `and n more`). In-person programs and forms with no fields keep what was sent.
+- **Sent twice (L36-9).** A builder's own send kept under the name because another builder sent the repo reads `Sent
+  {title}. {login} already sent this repo on {day}, so the program may see two.` (`SENT_TWICE`; the login only when the
+  refusal would name it, else `Another builder`). `record`'s `repo_taken` result carries `taken: { day, login }`.
+- **List holes (L36-10).** A list number whose slot in `last_list` is empty reads `Number {n} is not in the list now
+  (already sent). Say a number from the last list.` (`listHole`, `LIST_GONE` in programs.ts); past the list it is the
+  unknown line as before.
+- **Before line (L36-11).** A ready program with `claimed_since` is left out of `Before applying:`.
+- **Next ready (L36-12).** A plain `applied` (linked, not closed, not under standing approval, no co-founder or held or
+  other-claim note, not sent twice) names the next program of the last find's list for this project that is open,
+  remote, ready by find's gate (`readyAtSend`), not sent, skipped, held or claimed by another agent, and needs nothing
+  from the builder: `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
+  builder submits; `NEXT_LINE`). The result carries `next` ({ program_id, title, money, draft, fields }) and the note
+  starts `Next ready: program_id {id}. On the builder's yes, call track started with that program_id and fill the form
+  from next.fields (keys: ...); no find needed.` (`NEXT_NOTE`, `nextReady` in track.ts).
+- **Demo video (L36-13).** The gap reads `a demo video link (a short screen recording of it working)`
+  (`DEMO_VIDEO_WHAT`); its closing is `Send me the demo video link and I fill it in.` (`DEMO_CLOSING`); the agent note
+  adds `DEMO_NOTE` (pass it as `project.demo_url`, find again); a `demo_url` with the project settles the gap.
+- **Record id (L36-14).** A projects entry with no valid id: `Not saved: each project needs an id (a short lowercase name).`
 
 ## What v5 deliberately does not do
 
