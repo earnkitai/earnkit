@@ -130,7 +130,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    The users question closes "Do real people use it? Say yes and I apply." only when that yes makes the program ready;
    with a setup step or a rule left beside it, "Do real people use it? Say yes and I look again." (final fix, v6.1.12); only when no remote step is shown (or none names an
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
-   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check that and remember you." after a repo read, "... and I remember you." with none; with no link to give, after a deleted account or a failed link, "Sign in once and I check that." or "Sign in once and I remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
+   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check the repo is yours; then say yes." with a repo (v6.1.16.1), "Sign in once at <link> and I remember you." with none; with no link to give, after a deleted account or a failed link, "Sign in once and I check that." or "Sign in once and I remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
    `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
@@ -178,8 +178,8 @@ The pipeline, in order:
    stale after 20 hours of failing (v6.1.17 Task 3, L30-9: from `program_health.first_failed_at`, set at the first
    failing check and cleared by a clean one, so two runs a minute apart across midnight are not stale; a parked page
    for sale or a soft 404 counts as down, L30-8), closes an active or upcoming program whose deadline passed and opens an upcoming one
-   at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is listed in the
-   run's `failed` until its file has them; a closed program may have none). A redirect to another host counts as alive
+   at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is named in the
+   digest's could-not-read list (v6.1.17 Task 3) until its file has them; a closed program may have none). A redirect to another host counts as alive
    (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
    listed in the owner's digest and never marks the program stale. A program unverified or stale for `STALE_DAYS`
@@ -402,7 +402,7 @@ Task 3 (L30-18, L35-18): a stored row that no longer parses and an upcoming prog
 failures (the `parse` code is gone) but `health.unreadable`, each named in the digest as `{id}: {fix}`
 (`UNREADABLE_FIX`), so they no longer turn every run red. A run that answers 200 stores its time in the one-row
 `cron_state` (`last_run_at`, never moved back; step `last_run`, listed in `failed` if the write fails); `/api/stats`
-shows it as `last_run_at` and the next digest names a gap over `GAP_HOURS` (26): `No daily run finished for {n} hours
+shows it as `last_run_at` (within its 10-minute cache) and the next digest names a gap over `GAP_HOURS` (26): `No daily run finished for {n} hours
 before this one; the last was {day time} UTC.` (L30-14; fix round 1, M2: the gap belongs to the UTC day, from the last run
 before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a new day) to the day's first run
 (`day_first_at`), so a second run that day builds the same body and is not mailed again). Program links also count
