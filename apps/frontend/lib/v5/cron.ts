@@ -104,10 +104,12 @@ async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: num
 /** v6.1.16 Task 9 N5 (v6.1.17 Task 3): results-question markers asked over this many days ago go. */
 export const ASKS_KEEP_DAYS = 30;
 
-/** `outcome_asks` rows whose day is over ASKS_KEEP_DAYS before `now`'s UTC day; how many went. */
-async function sweepAsks(now: Date): Promise<number> {
+/** `outcome_asks` and (v6.1.19) `sent_asks` rows whose day is over ASKS_KEEP_DAYS before `now`'s UTC day; how many went from each. */
+async function sweepAsks(now: Date): Promise<{ outcome_asks: number; sent_asks: number }> {
   const before = new Date(now.getTime() - ASKS_KEEP_DAYS * DAY).toISOString().slice(0, 10);
-  return (await sql()`DELETE FROM outcome_asks WHERE asked_on < ${before}::date`).count;
+  const outcome = (await sql()`DELETE FROM outcome_asks WHERE asked_on < ${before}::date`).count;
+  const sent = (await sql()`DELETE FROM sent_asks WHERE asked_on < ${before}::date`).count;
+  return { outcome_asks: outcome, sent_asks: sent };
 }
 
 /**
@@ -194,7 +196,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     ...((await step('sweep_auth', () => sweepAuth(now))) ?? { link_codes: null, sessions: null, oauth_codes: null, oauth_clients: null }),
     evidence: await step('sweep_evidence', () => sweepEvidence(now)),
     windows: await step('sweep_windows', () => sweepWindows(now)),
-    outcome_asks: await step('sweep_asks', () => sweepAsks(now)),
+    ...((await step('sweep_asks', () => sweepAsks(now))) ?? { outcome_asks: null, sent_asks: null }),
   };
 
   const screen = inBudget('screen')

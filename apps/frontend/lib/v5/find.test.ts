@@ -3802,12 +3802,6 @@ test('L1i-5 (v6.1.16.1), L1k-2 (v6.1.18): the default numbers its rows as shown 
   assert.deepEqual((other.reply!.gaps as G[]).map((g) => g.n), (fresh.reply!.gaps as G[]).map((g) => g.n));
 });
 
-test('L1i-5 (v6.1.16.1): stableNumbers keeps the last list\'s numbers and numbers new programs on after them', async () => {
-  const { stableNumbers } = await import('./installations');
-  assert.deepEqual([...stableNumbers([], ['a', 'b'])], [['a', 1], ['b', 2]]);
-  assert.deepEqual([...stableNumbers(['a', '', 'c'], ['c', 'd', 'a'])], [['a', 1], ['c', 3], ['d', 4]]);
-});
-
 // ---- v6.1.16.1 Task 2 ----
 
 test('L35-6 (v6.1.16.1 Task 2): find\'s program_id takes a list reference as the last list\'s number; any other falls to the name lookup', async () => {

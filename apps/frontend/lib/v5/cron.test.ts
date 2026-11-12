@@ -65,7 +65,7 @@ test('cronPost: runs every step and answers the counts, the swept counts per tab
   const body = (await res.json()) as Body;
   assert.deepEqual(Object.keys(body), ['health', 'swept', 'screen', 'digest', 'failed']);
   assert.deepEqual(Object.keys(body.health!), ['checked', 'stale', 'changed', 'closed', 'opened', 'unreadable']);
-  assert.deepEqual(Object.keys(body.swept), ['repo_cache', 'reports', 'screens', 'link_codes', 'sessions', 'oauth_codes', 'oauth_clients', 'evidence', 'windows', 'outcome_asks']);
+  assert.deepEqual(Object.keys(body.swept), ['repo_cache', 'reports', 'screens', 'link_codes', 'sessions', 'oauth_codes', 'oauth_clients', 'evidence', 'windows', 'outcome_asks', 'sent_asks']);
   assert.ok(Object.values(body.swept).every((n) => typeof n === 'number'));
   assert.deepEqual(Object.keys(body.screen!), ['read', 'requeued', 'left', 'jobs_finished']);
   assert.ok(['sent', 'none'].includes(body.digest!));
@@ -469,7 +469,7 @@ test('v6.1.16 Task 16 N2 (v6.1.17 Task 3): every sweep boundary is pinned 1 ms e
   const body = (await res.json()) as Body;
   assert.deepEqual(body.failed, []);
   assert.deepEqual(body.swept, {
-    repo_cache: 1, reports: 1, screens: 2, link_codes: 1, sessions: 1, oauth_codes: 1, oauth_clients: 1, evidence: 0, windows: 1, outcome_asks: 1,
+    repo_cache: 1, reports: 1, screens: 2, link_codes: 1, sessions: 1, oauth_codes: 1, oauth_clients: 1, evidence: 0, windows: 1, outcome_asks: 1, sent_asks: 0,
   });
   const left = async (q: Promise<{ k: string }[]>) => (await q).map((r) => r.k).sort();
   const two = (p: string) => [`${p}at`, `${p}young`];
@@ -486,6 +486,21 @@ test('v6.1.16 Task 16 N2 (v6.1.17 Task 3): every sweep boundary is pinned 1 ms e
   for (const [t, c] of [['repo_cache', 'repo'], ['oauth_clients', 'client_id'], ['evidence_cache', 'key'], ['screen_applicants', 'job_id'], ['screen_jobs', 'id'],
     ['link_codes', 'code'], ['sessions', 'token_hash'], ['oauth_codes_spent', 'nonce'], ['rate_windows', 'key'], ['outcome_asks', 'program_id']] as const)
     await sql()`DELETE FROM ${sql()(t)} WHERE ${sql()(c)} LIKE 'cr99%'`;
+  await sql()`DELETE FROM cron_state`;
+});
+
+test('sweep: sent_asks rows 31 days old go, 29 days stay', async () => {
+  // A day in 1999, so no other file's rows fall in the window.
+  const now = new Date('1999-07-01T06:00:00Z');
+  await sql()`DELETE FROM sent_asks WHERE installation_id = 992`;
+  await sql()`INSERT INTO sent_asks (installation_id, owner, program_id, asked_on) VALUES
+    (992, 'i:992', 'cr98-old', '1999-05-31'), (992, 'i:992', 'cr98-young', '1999-06-02')`;
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue, sendDigest: async () => 'none' as const });
+  const body = (await res.json()) as Body;
+  assert.deepEqual(body.failed, []);
+  assert.equal(body.swept.sent_asks, 1);
+  assert.deepEqual((await sql()<{ k: string }[]>`SELECT program_id AS k FROM sent_asks WHERE installation_id = 992`).map((r) => r.k), ['cr98-young']);
+  await sql()`DELETE FROM sent_asks WHERE installation_id = 992`;
   await sql()`DELETE FROM cron_state`;
 });
 

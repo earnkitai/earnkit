@@ -441,6 +441,27 @@ test('L41-1 (v6.1.18.1): a license rule the repo read settles is never asked at 
   assert.doesNotMatch(priv.show_to_builder, /Confirm the rule first: a clear open source license/);
 });
 
+test('minor: a name-only project\'s started skips the license rule find hid', async () => {
+  const { linkInstallation, upsertBuilder, ownerKey } = await import('../v6/builders');
+  const { ruleItem } = await import('./eligibility');
+  const { saveReport } = await import('./ledger');
+  const { projectKeyOf } = await import('./project-input');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 941_102, login: 'lic41n', name: 'N', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  const me = { ...c, builderId: b.id };
+  const file = ProgramFile.parse(JSON.parse(readFileSync(join(findProgramsDir()!, 'github-secure-open-source-fund.json'), 'utf8')));
+  await upsertProgram(file, 'file', NOW);
+  const REGION = 'maintainer lives in a region supported by GitHub Sponsors';
+  const project = { name: 'Nameonly Tool', description: 'A tool.' };
+  // Find kept the report: no repo, so the public repo step stands and hides the license rule.
+  await saveReport(ownerKey(me.installationId, me.builderId), projectKeyOf(project), project, NOW);
+  await track(me, { program_id: file.id, status: 'gap_done', item: ruleItem(REGION), project });
+  const r = await track(me, { program_id: file.id, status: 'started', project });
+  assert.doesNotMatch(r.show_to_builder, /Confirm the rule first: a clear open source license/);
+  assert.equal(r.refused, undefined, r.show_to_builder);
+});
+
 test('a legacy last_gaps string reads as kind other and keeps the change line (v6.1.7, m2)', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't7-legacy', title: 'Legacy Grant' }), 'file', NOW);

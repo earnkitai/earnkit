@@ -196,15 +196,18 @@ const LICENSE_READ_MS = 7 * 86_400_000;
  * v6.1.18.1 (L41-1, review M4): what a license-check rule is at started or a send, as `evaluate` has it on the facts
  * find last read for this project (the report kept for its key, the repo's cached read under 7 days, never a fetch):
  * `ask` (the rule question), or `skip` when a repo step hides it (a public repo, code, a live repo), an OSI license on
- * a live repo confirms it, or no license file makes it the license file step.
+ * a live repo confirms it, or no license file makes it the license file step. A name-only project reads its kept report
+ * alone, as find does (v6.1.19).
  */
 async function licenseRule(owner: string, file: ProgramRowOf['file'], projectKey: string, now: Date): Promise<'ask' | 'skip'> {
   const repo = repoKeyOf(projectKey);
-  if (!repo) return 'ask';
   const kept = await reportOf(owner, projectKey);
+  // v6.1.19 (v6.1.18.1 minor): a name-only project: find read its kept report alone, so a repo step that stands there
+  // hid the rule; started never asks it either.
+  if (!repo) return kept && repoGaps(file, reportOnlyFacts(kept)).length > 0 ? 'skip' : 'ask';
   const project: Project = { ...(kept ?? { name: '', description: '' }), repo_url: repo };
   // A repo the read found private merges as private, as find merges it (v6.1.14 fix round 1, M1).
-  const hidden = project.private === true || (await cachedRepoMiss(repo)) === 'private';
+  const hidden = project.private === true || (await cachedRepoMiss(repo, now)) === 'private';
   const facts = hidden ? reportOnlyFacts({ ...project, private: true }) : await cachedRepoFacts(project, { now, ms: LICENSE_READ_MS });
   if (!facts) return 'ask';
   if (repoGaps(file, facts).length > 0) return 'skip';

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MANIFEST_FIELD, MANIFEST_NOTE, manifestStep, manifestUrl, planAmount, wantsManifest } from './funding-manifest';
+import { MANIFEST_FIELD, MANIFEST_NOTE, manifestStep, manifestUrl, PLAN_STEP_USD, planAmount, wantsManifest } from './funding-manifest';
 import { ProgramFile } from './program-file';
 import type { RepoFacts } from './repo-facts';
 import { EMPTY_RECORD, mergeRecord } from '../v6/record';
@@ -41,14 +41,27 @@ test('L38-1 (v6.1.18 Task 11): the manifest step is built from the record and th
   assert.ok(manifestStep(floss, { ...READ, license: 'NOASSERTION' }, null)!.fill.includes('projects[0].licenses'));
 });
 
+test('M6: planAmount rounds to $25,000 multiples within the ceiling', () => {
+  const rec = (max_ask_usd: number) => ({ record: mergeRecord(EMPTY_RECORD, { policy: { max_ask_usd } }, 'builder', NOW).record, projectId: null, verifiedUsage: null });
+  assert.deepEqual([floss.min_award_usd, floss.max_award_usd], [10_000, 100_000]);
+  assert.equal(PLAN_STEP_USD, 25_000);
+  assert.equal(planAmount(floss, rec(10_000)), 10_000);
+  assert.equal(planAmount(floss, rec(12_000)), 25_000);
+  assert.equal(planAmount(floss, rec(60_000)), 75_000);
+  assert.equal(planAmount(floss, rec(100_000)), 100_000);
+  assert.equal(planAmount(floss, rec(150_000)), 100_000);
+  // A ceiling that is not a multiple: the largest multiple within it, never above.
+  assert.equal(planAmount({ ...floss, max_award_usd: 90_000 }, rec(80_000)), 75_000);
+});
+
 test('Task 11 fix round 1 (I2, I3, M5, M8): the amount starts from the record within the award range; the builder may change it; no floor, no step', () => {
   const rec = (max_ask_usd?: number) => ({ record: mergeRecord(EMPTY_RECORD, max_ask_usd === undefined ? {} : { policy: { max_ask_usd } }, 'builder', NOW).record, projectId: null, verifiedUsage: null });
   assert.equal(planAmount(floss, null), 10_000);
   assert.equal(planAmount(floss, rec()), 10_000);
-  assert.equal(planAmount(floss, rec(35_000)), 35_000);
+  assert.equal(planAmount(floss, rec(35_000)), 50_000);
   assert.equal(planAmount(floss, rec(2_000)), 10_000);
   assert.equal(planAmount(floss, rec(500_000)), 100_000);
-  assert.equal(manifestStep(floss, READ, rec(35_000))!.files[0].json.funding.plans[0].amount, 35_000);
+  assert.equal(manifestStep(floss, READ, rec(35_000))!.files[0].json.funding.plans[0].amount, 50_000);
   assert.equal(manifestStep(floss, READ, null)!.files[0].json.funding.plans[0].amount, 10_000);
   // No award floor: no step, never the spec's "any amount" 0.
   assert.equal(planAmount({ ...floss, min_award_usd: undefined }, null), null);

@@ -401,9 +401,9 @@ that never exchanged a code (`oauth_clients.used_at`), `sweep_evidence` the evid
 RUN_BUDGET_MS` (420 s; curl waits 540), the walk's own share `HEALTH_BUDGET_MS` 180 s (fix round 1, so the queue keeps at least 220 s): health and the queue start only before it, else they are listed with error
 `budget`; a probe starts only when it can finish before it; the sweeps and the digest always run. The answer is
 `{ health: { checked, stale, changed, closed, opened, unreadable }, swept: { repo_cache, reports, screens, link_codes,
-sessions, oauth_codes, oauth_clients, evidence, windows, outcome_asks }, screen: { read, requeued, left, jobs_finished },
+sessions, oauth_codes, oauth_clients, evidence, windows, outcome_asks, sent_asks }, screen: { read, requeued, left, jobs_finished },
 digest, failed: [{ id, step, error }] }` (v6.1.17 Task 3, L30-13: the shape is pinned in `cron.test.ts`; `requeued`
-counts reads put back for a retry, never in `read`; `sweep_asks` drops `outcome_asks` rows asked over 30 days before
+counts reads put back for a retry, never in `read`; `sweep_asks` drops `outcome_asks` and (v6.1.19) `sent_asks` rows asked over 30 days before
 the run's UTC day) (`id` a program's, or null for a whole step; `error` a code by the error's class: `db`, `fetch`,
 `timeout`, `budget`, `catalog` (a program whose moved file the schema refuses) or `error`, never the message, which
 goes only to the `[cron]`/`[health]` server log line), 200 with the list, 500 only when every step failed. v6.1.17
@@ -1514,8 +1514,9 @@ means what the last `Say` offered.
   with the license unknown (review fix round, I1 to I3). `track` asks a license-check rule only as `evaluate` would
   (`licenseRule` in track.ts, L41-1 and review M4): on the report kept for the project key and the repo's cached read
   under 7 days (`cachedRepoFacts(project, { now, ms })`, M1; a `{ miss: 'private' }` row reads as private,
-  `cachedRepoMiss`), a repo step (`repoGaps`, shared with `evaluate`) hides it, an OSI license confirms it, no license
-  file leaves it to the license file step, and anything else (no read, an archived repo, an unknown license) asks it.
+  `cachedRepoMiss`, v6.1.19: only while under `MISS_KEEP_MS`, as the read keeps it), a repo step (`repoGaps`, shared with `evaluate`) hides it, an OSI license confirms it, no license
+  file leaves it to the license file step, and anything else (no read, an archived repo, an unknown license) asks it. v6.1.19: a name-only project
+  (no repo key) runs `repoGaps` on `reportOnlyFacts` of its kept report, as find does, so a standing repo step hides it.
 - **Funding manifest (L38-1).** FLOSS/fund's form takes `funding_json_url` and its file has no setup step any more.
   `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
   projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,
@@ -1533,7 +1534,8 @@ means what the last `Say` offered.
   builder's, so a send under standing approval is outside it until a read finds the file.
 - **Fix round 1.** CC0-1.0 is off the OSI list. A repo body with no `license` key leaves the license unknown. The
   plan amount is the record's `policy.max_ask_usd` kept within the award floor and ceiling, else the floor
-  (`planAmount`), and there is no step for a program with no floor. The manifest version is v1.1.0, matching its
+  (`planAmount`; v6.1.19 M6: above the floor it rounds up to a multiple of `PLAN_STEP_USD` $25,000, never above
+  the largest multiple within the ceiling, as the fund asks), and there is no step for a program with no floor. The manifest version is v1.1.0, matching its
   schema. A program another agent holds carries no step, in the list or alone. A truncated tree that does not list
   funding.json leaves the file unknown (`RepoRead.truncated`); the read never fetches the raw URL, which can lag a push.
 

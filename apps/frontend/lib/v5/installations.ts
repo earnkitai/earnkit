@@ -244,21 +244,6 @@ export async function lastListIds(id: number): Promise<string[]> {
   return Array.isArray(row?.l) ? (row.l as unknown[]).map((x) => (typeof x === 'string' ? x : '')) : [];
 }
 
-/**
- * L1i-5 (v6.1.16.1): the stable list numbers of a session: a program the last list (`prev`, ids by number) of the same
- * project held keeps its number; any other in `order` is numbered on after the last one, in that order. Pure.
- */
-export function stableNumbers(prev: string[], order: string[]): Map<string, number> {
-  const want = new Set(order);
-  const out = new Map<string, number>();
-  prev.forEach((id, i) => {
-    if (id && want.has(id) && !out.has(id)) out.set(id, i + 1);
-  });
-  let next = prev.length;
-  for (const id of order) if (!out.has(id)) out.set(id, ++next);
-  return out;
-}
-
 /** L24-2 (v6.1.16 Task 11): the kind of the last `Say` this installation's find offered, or null. */
 export async function lastOfferOf(id: number): Promise<OfferKind | null> {
   const [row] = await sql()<{ o: string | null }[]>`SELECT last_offer AS o FROM installations WHERE id = ${id}`;
