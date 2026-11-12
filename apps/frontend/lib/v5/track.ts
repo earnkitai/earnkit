@@ -16,7 +16,7 @@ import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, 
 import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, unreadNote } from './reply';
-import { codeChecked, itemKey } from './eligibility';
+import { codeChecked, itemKey, licenseRead } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
@@ -189,14 +189,20 @@ async function applicationIdOf(owner: string, programId: string, key: string): P
   return r?.application_id ? { application_id: r.application_id } : {};
 }
 
-/** The program's rules the owner has not confirmed yet on this project, by item key with its note. */
+/** The program's rules the owner has not confirmed yet on this project, by item key with its note. L41-1 (v6.1.18.1):
+ *  a license rule the repo's cached read settles (an OSI license, a live repo) is confirmed, as find confirms it. */
 async function openRules(owner: string, programId: string, projectKey: string): Promise<{ item: string; note: string }[]> {
   const program = await getProgram(programId);
   if (!program) return [];
   const done = await doneItems(owner, programId, projectKey);
+  const rules = eligibilityOf(program.file).filter((y) => y.kind === 'rule');
+  const repo = repoKeyOf(projectKey);
+  const facts = repo && rules.some((x) => x.check === 'license') ? await cachedRepoFacts({ name: '', description: '', repo_url: repo }) : null;
+  const licensed = facts !== null && !(facts.notes ?? []).includes('archived') && licenseRead(facts) === 'osi';
   const out: { item: string; note: string }[] = [];
-  for (const x of eligibilityOf(program.file).filter((y) => y.kind === 'rule')) {
+  for (const x of rules) {
     const item = itemKey(x);
+    if (x.check === 'license' && licensed) continue;
     if (!done.has(item) && !out.some((o) => o.item === item)) out.push({ item, note: x.note ?? item });
   }
   return out;

@@ -1608,15 +1608,15 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
   assert.equal(
     hidden.reply!.show_to_builder,
     [
-      // v6.1.18 merge: FLOSS/fund's public repo is its one step (Task 11 took the manifest step); HeroDevs' license rule
-      // stays a question on a private repo (L38-27), beside its end-of-life rule (L18-2).
+      // v6.1.18 merge: FLOSS/fund's public repo is its one step (Task 11 took the manifest step). v6.1.18.1: HeroDevs'
+      // license rule waits behind the public repo step; its end-of-life rule (L18-2) stays.
       "One step away (1):",
       "1. FLOSS/fund, $10,000 to $100,000: a public repo.",
       // L38 big 3 (v6.1.18 Task 10): the rows with more than one step.
       "More to do first (2):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       META_VR_MORE(2),
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo, then 2 more steps.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo, then 1 more step.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): right after the rows.
@@ -2052,8 +2052,8 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   const one = await mcpCall(c, 'find', { program_id: 'herodevs', project: ATOM });
   assert.equal(one.reply!.show_to_builder, [
     // FR-1 (final fix): the telling step is the action, so the line leaves it out.
-    // v6.1.18 merge (Task 11, L38-27): an archived repo's license is not the live repo's, so its license rule stays a question.
-    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a live repo. Their rules: a developer tool whose versions are near or past official end of life; an OSI-approved open source license.',
+    // v6.1.18.1: an archived repo's license is not the live repo's, so the license rule waits behind the live repo step.
+    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a live repo. Their rule: a developer tool whose versions are near or past official end of life.',
     'Tell me the live repo and I look again.',
   ].join('\n'));
   assert.equal((one.reply!.show_to_builder as string).match(/ell me the live repo/g)!.length, 1);
@@ -4204,6 +4204,31 @@ test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago 
     assert.deepEqual(after.released, []);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'tt-sent'`;
+  }
+});
+
+test('L41-10 (v6.1.18.1): a builder-sent program started in its last hour is still asked about after it closes, for 7 days', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const close = new Date(NOW.getTime() + 0.5 * H);
+  await upsertProgram(programFixture({ id: 'tt-late', title: 'Late Hackathon', submit: 'builder', ends_at: close.toISOString() }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const find = async (now: Date, project = true) => (await mcpCall({ ...ctx(id, now), builderId, evidence: LIVE }, 'find', project ? { project: PROJECT } : {})).reply!;
+    const st = await mcpCall({ ...ctx(id, new Date(NOW.getTime() - 0.5 * H)), builderId }, 'track', { program_id: 'tt-late', status: 'started', project: PROJECT });
+    assert.equal(st.isError, false, st.text);
+    // An hour after the close: asked, on the project's find and on the no-project find.
+    const r = await find(new Date(close.getTime() + H));
+    assert.deepEqual((r.ask_sent as { program_id: string }[]).map((a) => a.program_id), ['tt-late']);
+    assert.match(r.show_to_builder as string, /Did you send Late Hackathon\?/);
+    await sql()`DELETE FROM sent_asks WHERE installation_id = ${id}`;
+    assert.deepEqual(((await find(new Date(close.getTime() + H), false)).ask_sent as { program_id: string }[]).map((a) => a.program_id), ['tt-late']);
+    // Over 7 days after the close: no longer asked, nor said as a release line.
+    await sql()`DELETE FROM sent_asks WHERE installation_id = ${id}`;
+    const late = await find(new Date(close.getTime() + 8 * 24 * H));
+    assert.deepEqual(late.ask_sent, []);
+    assert.doesNotMatch(late.show_to_builder as string, /Late Hackathon/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-late'`;
   }
 });
 

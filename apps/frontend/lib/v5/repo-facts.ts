@@ -315,8 +315,10 @@ export async function sweepRepoCache(now: Date): Promise<number> {
 /** A cached row from before integrations were read has none. Pure. */
 const withIntegrations = (f: CodeFacts): CodeFacts => ({ ...f, integrations: f.integrations ?? [] });
 
-/** N-6 (v6.1.9): a row saved before v6.1.8 lacks the fork and archived fields, so it is stale whatever its age. Pure. */
-const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f;
+/** N-6 (v6.1.9): a row saved before v6.1.8 lacks the fork and archived fields, so it is stale whatever its age.
+ *  v6.1.18.1: a row saved before v6.1.18 lacks the license field (null, no license file, is a read), so it is stale too.
+ *  Pure. */
+const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f && 'license' in f;
 
 /**
  * The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read.

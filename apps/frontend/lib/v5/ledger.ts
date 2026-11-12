@@ -1147,6 +1147,8 @@ export async function outcomeAsksDue<T extends { program_id: string }>(installat
 export const SENT_ASK_AFTER_HOURS = 1;
 /** L18-4 (v6.1.18 Task 4): days before the same installation asks again whether a form went out. */
 export const SENT_ASK_EVERY_DAYS = 7;
+/** L41-10 (v6.1.18.1): days after a program closes that a start on it is still asked about (a last-hour send). */
+export const SENT_ASK_AFTER_CLOSE_DAYS = 7;
 
 /** A program the builder sends themselves, started and not yet sent (L18-4): its title, when it was started and the
  *  project key its started row carries (null for a row with none). */
@@ -1154,7 +1156,7 @@ export type SentAsk = { program_id: string; title: string; started_at: string; p
 
 /**
  * L18-4, L36-1 (v6.1.18 Task 4): every started row (not one the builder held) at least SENT_ASK_AFTER_HOURS old whose
- * program the builder submits (`submit` 'builder'). A row is one per owner, program and project, so a started row is
+ * program the builder submits (`submit` 'builder'), open or closed within SENT_ASK_AFTER_CLOSE_DAYS (L41-10). A row is one per owner, program and project, so a started row is
  * one with no send or result on that project. Fix round 1: with `here`, only the rows of this project (a row with no
  * project is every project's); without, every row (a find with no project). One ask per program, the earliest start;
  * by start time.
@@ -1174,6 +1176,8 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
   return [...first]
     .map(([id, x]) => ({ p: byId.get(id), ...x }))
     .filter((x): x is { p: ProgramRow; at: Date; project: string | null } => x.p?.file.submit === 'builder')
+    // L41-10 (v6.1.18.1): a program closed since the start is still asked about, for SENT_ASK_AFTER_CLOSE_DAYS after.
+    .filter(({ p }) => !p.file.ends_at || Date.parse(p.file.ends_at) > now.getTime() - SENT_ASK_AFTER_CLOSE_DAYS * 86_400_000)
     .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project }));
 }
 

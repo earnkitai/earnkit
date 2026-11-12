@@ -926,7 +926,7 @@ test('L26-10 (v6.1.16): an i:<n> owner is looked up by id, a builder\'s agents a
 async function seedRead(key: string, contributors: string[] = [], id?: number) {
   const facts = {
     chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
-    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false, license: null,
     readme_lead: 'It keeps time.', contributors, ...(id ? { repo_id: id } : {}),
   };
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})

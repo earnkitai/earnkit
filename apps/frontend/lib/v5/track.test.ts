@@ -390,6 +390,39 @@ test('started on a program with an unconfirmed rule asks for it first and claims
   assert.match(s.agent_note, /^Started Rule Grant\. /);
 });
 
+test('L41-1 (v6.1.18.1): a license rule the repo read settles is never asked at started; with no license it still is', async () => {
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const { ruleItem } = await import('./eligibility');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 941_101, login: 'lic41', name: 'L', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  const me = { ...c, builderId: b.id };
+  const file = ProgramFile.parse(JSON.parse(readFileSync(join(findProgramsDir()!, 'github-secure-open-source-fund.json'), 'utf8')));
+  await upsertProgram(file, 'file', NOW);
+  const REGION = 'maintainer lives in a region supported by GitHub Sponsors';
+  const LICENSE = 'a clear open source license on the repo';
+  const cached = (repo: string, license: string | null) => ({
+    chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-01-01T00:00:00.000Z', last_commit_at: '2026-11-01T00:00:00.000Z',
+    readme_excerpt: 'A tool.', homepage: null, topics: [], html_url: `https://github.com/${repo}`, pushed_at: '2026-11-01T00:00:00.000Z',
+    fork: false, archived: false, empty: false, readme_lead: 'A tool.', license,
+  });
+  const start = async (repo: string, license: string | null) => {
+    await sql()`DELETE FROM repo_cache WHERE repo = ${repo}`;
+    await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${repo}, ${sql().json(cached(repo, license))}, ${NOW}, ${new Date('2026-11-01T00:00:00.000Z')})`;
+    const project = { name: repo, description: 'A tool.', repo_url: `https://github.com/${repo}` };
+    await track(me, { program_id: file.id, status: 'gap_done', item: ruleItem(REGION), project });
+    return track(me, { program_id: file.id, status: 'started', project });
+  };
+  // MIT: find lists it ready once the region rule is confirmed, and started agrees: no rule question.
+  const mit = await start('lic41/mit-tool', 'MIT');
+  assert.equal(mit.refused, undefined, mit.show_to_builder);
+  assert.match(mit.agent_note, /^Started GitHub Secure Open Source Fund\. /);
+  // No license file: the rule is still asked.
+  const none = await start('lic41/bare-tool', null);
+  assert.equal(none.show_to_builder, `Confirm the rule first: ${LICENSE}. Say yes if that is you.`);
+  assert.equal(none.refused, true);
+});
+
 test('a legacy last_gaps string reads as kind other and keeps the change line (v6.1.7, m2)', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't7-legacy', title: 'Legacy Grant' }), 'file', NOW);
@@ -880,7 +913,7 @@ test('I3 final (v6.1.10): a required contract find filled from the cached repo r
   const cached = {
     chains: [{ chain: 'base', mainnet: true }], contracts: [{ chain: 'base', address }], builder_codes: false, integrations: [],
     first_commit_at: '2026-01-01T00:00:00.000Z', last_commit_at: '2026-11-01T00:00:00.000Z', readme_excerpt: 'A vault on Base.', homepage: null, topics: [],
-    html_url: 'https://github.com/ada/vault', pushed_at: '2026-11-01T00:00:00.000Z', fork: false, archived: false, empty: false, readme_lead: 'A vault on Base.',
+    html_url: 'https://github.com/ada/vault', pushed_at: '2026-11-01T00:00:00.000Z', fork: false, archived: false, empty: false, license: null, readme_lead: 'A vault on Base.',
   };
   await sql()`DELETE FROM repo_cache WHERE repo = 'ada/vault'`;
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES ('ada/vault', ${sql().json(cached)}, ${NOW}, ${new Date(cached.pushed_at)})`;
@@ -1666,7 +1699,7 @@ async function signedIn(login: string) {
 async function seedRead(key: string, contributors?: string[], id?: number) {
   const facts = {
     chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
-    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false, license: null,
     readme_lead: 'It keeps time.', ...(contributors ? { contributors } : {}), ...(id ? { repo_id: id } : {}),
   };
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
@@ -2018,7 +2051,7 @@ const HOUR = 3_600_000;
 async function seedFacts(key: string, extra: Record<string, unknown>) {
   const facts = {
     chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
-    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false, license: null,
     readme_lead: 'It keeps time.', full_name: key, ...extra,
   };
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})

@@ -233,7 +233,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         // license is not the live repo's: its step is the live repo, then the read.
         // v6.1.18 merge: with no code yet (the L18-2 code step), the read has nothing to settle and the license is never
         // a rule to confirm: the code step comes first, then the read.
-        if (i.check === 'license' && gaps.some((g) => g.kind === 'repo' && g.item === 'repo')) break;
+        // v6.1.18.1: the same for any repo step (a public repo, code, a live repo): that step first, then the read.
+        if (i.check === 'license' && gaps.some((g) => g.kind === 'repo')) break;
         const read = i.check === 'license' && !(facts.notes ?? []).includes('archived') ? licenseRead(facts) : 'unknown';
         if (read === 'osi') break;
         if (read === 'none') {

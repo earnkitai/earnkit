@@ -388,6 +388,34 @@ test('N-6 (v6.1.9): a cache row saved before v6.1.8 (no fork or archived field) 
   }
 });
 
+test('v6.1.18.1: a cache row saved before v6.1.18 (no license field) is re-read, so the license GitHub reports settles the rule; a null license is a complete row', async () => {
+  await sql()`DELETE FROM repo_cache`;
+  const first = replayFetch('saber-distributor');
+  const p = project({ repo_url: `https://github.com/${first.repo}` });
+  assert.equal((await repoFacts(p, { gh: first.fetch, now: NOW })).license, 'GPL-3.0');
+  // The row as the pre-v6.1.18 cache wrote it: fork and archived, no license key.
+  await sql()`UPDATE repo_cache SET facts = facts - 'license'`;
+  const [old] = await sql()`SELECT facts FROM repo_cache`;
+  assert.ok('fork' in old.facts && 'archived' in old.facts && !('license' in old.facts));
+  // Within the hour a complete row is never re-read; this one is, since it lacks the license.
+  const again = replayFetch('saber-distributor');
+  const f = await repoFacts(p, { gh: again.fetch, now: new Date(NOW.getTime() + 60_000) });
+  assert.ok(again.calls.length > 1, JSON.stringify(again.calls));
+  assert.equal(f.license, 'GPL-3.0');
+  const [row] = await sql()`SELECT facts FROM repo_cache`;
+  assert.equal(row.facts.license, 'GPL-3.0');
+  // A row whose read found no license file (null) is complete: a cache hit, no GitHub call.
+  await sql()`DELETE FROM repo_cache`;
+  const bare = replayFetch('nextjs-dashboard');
+  const q = project({ repo_url: `https://github.com/${bare.repo}` });
+  assert.equal((await repoFacts(q, { gh: bare.fetch, now: NOW })).license, null);
+  const [nullRow] = await sql()`SELECT facts FROM repo_cache`;
+  assert.ok('license' in nullRow.facts && nullRow.facts.license === null);
+  const hit = replayFetch('nextjs-dashboard');
+  assert.equal((await repoFacts(q, { gh: hit.fetch, now: new Date(NOW.getTime() + 60_000) })).license, null);
+  assert.equal(hit.calls.length, 0);
+});
+
 test('L1c-4 (v6.1.10): an empty repo (its tree read fails) is cached like any other: the next read is free and makes one call', async () => {
   const { hit, LIMITS } = await import('./rate-limit');
   const id = 900_000 + Math.floor(Math.random() * 1000);
