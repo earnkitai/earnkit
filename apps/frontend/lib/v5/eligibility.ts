@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { integrationDocs, integrationLabel } from '../v6/integrations';
 import { CHAIN_REGISTRY, chainName } from './chains';
 import { categoryOf, eligibilityOf, ruleNotes, type EligibilityItem, type EligibilityKind } from './program-file';
-import type { ProgramRow } from './programs';
+import { isOpenAt, type ProgramRow } from './programs';
 import type { RepoFacts } from './repo-facts';
 
 /**
@@ -106,7 +106,7 @@ const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if rea
 /**
  * B20d (v6.1.9, fix round 2): whether the project exists for the users question: a repo read that holds code (not
  * empty), a live link, a private repo, a public repo on another code host (EarnKit reads GitHub only; I1, v6.1.15 fix
- * round 1), or a repo whose read was paused for the day (the repo likely exists; the builder's word stands, marked as
+ * round 1), or a repo whose read was paused for the day or passed its time budget (L26-8) (the repo likely exists; the builder's word stands, marked as
  * reported), or a contract on a mainnet (reported or read; v6.1.9 final I4). A repo
  * link that was not read (a 404, a failed read), an empty repo or no repo at all is not. Pure.
  */
@@ -114,7 +114,7 @@ export const exists = (facts: RepoFacts): boolean => {
   const notes = facts.notes ?? [];
   if (facts.live_url) return true;
   if (facts.contracts.some((c) => facts.chains.some((x) => x.chain === c.chain && x.mainnet))) return true;
-  if (notes.includes('private') || notes.includes('paused') || notes.includes('other_host')) return true;
+  if (notes.includes('private') || notes.includes('paused') || notes.includes('slow') || notes.includes('other_host')) return true;
   return facts.public && !facts.as_reported && !notes.includes('empty');
 };
 
@@ -143,8 +143,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const rules = ruleNotes(p);
   const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot, rules });
 
-  if (p.status !== 'active') return out('no', [], 'not open');
-  if (p.ends_at && Date.parse(p.ends_at) <= now.getTime()) return out('no', [], 'closed');
+  // L23-2 (v6.1.16): the one open test, from the clock.
+  if (!isOpenAt(p, now)) return out('no', [], p.status === 'active' ? 'closed' : 'not open');
   // C54 (v6.1.8): a project with no chain reported and none in its code is not one change from a contract program.
   const onchain = items.find((i) => i.kind === 'chain' || i.kind === 'contract_on');
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
@@ -154,9 +154,11 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     return out('no', [], facts.users === true ? 'needs code in a repo or a live link' : 'needs a product people use');
   const gaps: Gap[] = [];
   // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
-  // an event) is one step from a project with nothing to show (no live link, and no repo link or a repo the read found
+  // an event) is one step from a project with no code to show (no repo link, or a repo the read found
   // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
-  if (p.needs_repo && forExistingCode(p) && !facts.live_url && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
+  // L16-8 (v6.1.16): a live site never clears it; only a repo with code does. A repo reported private is a repo: its
+  // step is making it public (L1f-1), and the read settles the code then.
+  if (p.needs_repo && forExistingCode(p) && !facts.private && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
   // L1f-1 (v6.1.14): an open source program is never ready for a private repo (reported private, or a link not read
   // for being private): its step is making the repo public.
   if (p.open_source && (facts.private || (facts.notes ?? []).includes('private'))) gaps.push(PUBLIC_REPO);

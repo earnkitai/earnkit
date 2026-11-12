@@ -165,7 +165,7 @@ test('cache: at most 1,000 documents, oldest dropped first', async () => {
 test('a signed (registered) client_id still authorizes and exchanges unchanged, with no fetch', async () => {
   const f = cimdFixture({ body: doc() });
   const loopback = 'http://127.0.0.1:33418/callback';
-  const { client_id } = registerClient({ redirect_uris: [loopback], client_name: 'Cursor' });
+  const { client_id } = await registerClient({ redirect_uris: [loopback], client_name: 'Cursor' });
   const auth = await authorize(client_id, f, loopback);
   assert.equal(auth.status, 302);
   const code = new URL(auth.headers.get('location')!).searchParams.get('code')!;

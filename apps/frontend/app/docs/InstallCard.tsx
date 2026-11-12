@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, tabKeyTarget, type Agent } from '../components/sections/agents';
+import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, OTHER_AGENT_LINE, tabKeyTarget, type Agent } from '../components/sections/agents';
 
 export { tabKeyTarget };
 import { segRail, segTab } from '../components/site/SegTabs';
@@ -61,7 +61,8 @@ export const COPY_SAID = { idle: '', copied: 'Copied', failed: 'Copy failed' } a
 function Code({ text }: { text: string }) {
   return (
     <div className={CODE_BOX}>
-      <pre data-ek-code="" className="min-w-0 flex-1 self-center overflow-x-auto whitespace-pre-wrap py-1 font-mono text-[14px] leading-[1.6]">
+      {/* L27-30 (v6.1.16): the scroll region takes focus (tabIndex 0) and shows the ring, so a keyboard can scroll it. */}
+      <pre data-ek-code="" tabIndex={0} role="region" aria-label="Command" className="min-w-0 flex-1 self-center overflow-x-auto whitespace-pre-wrap rounded-[8px] py-1 font-mono text-[14px] leading-[1.6]">
         <Command text={text} />
       </pre>
       <CopyButton text={text} />
@@ -120,7 +121,7 @@ export function AgentPanel({ agent }: { agent: Agent }) {
 /**
  * v3.1 site Task 10: the docs install card's agent tabs (AGENTS order, Grok Bot first) and the chosen agent's panel.
  * Task 11: the tabs wrap on a phone and rove: only the chosen tab is in the Tab order, the arrow keys (and Home, End)
- * move to and choose the next one.
+ * move to and choose the next one. Under the panel, the line for any other agent (L25-4, v6.1.16).
  */
 export default function InstallCard() {
   const [active, setActive] = useState(0);
@@ -159,6 +160,8 @@ export default function InstallCard() {
       <div id="docs-agent-panel" role="tabpanel" aria-labelledby={`docs-tab-${active}`}>
         <AgentPanel agent={agent} />
       </div>
+      {/* L25-4 (v6.1.16): any agent without a tab. */}
+      <p className="text-[15px] text-s-ink-body">{OTHER_AGENT_LINE}</p>
     </div>
   );
 }

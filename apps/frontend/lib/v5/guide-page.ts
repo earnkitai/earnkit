@@ -2,7 +2,7 @@
 import { sql } from './db';
 import { guideText, type Guide } from './guide';
 import { logoOf } from './landing';
-import { getProgram, listListedPrograms } from './programs';
+import { closedAt, getProgram, listListedPrograms, statusAt, type ProgramRow } from './programs';
 
 export type GuidePage = {
   guide: Guide;
@@ -13,45 +13,66 @@ export type GuidePage = {
   /** Empty for a closed program: its page has no Apply link. */
   submission_url: string;
   organizer: string;
-  description: string;
 };
 
 const ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-/** The ids that have a page: every listed program (open or upcoming) and every closed one. */
+/**
+ * The ids that have a page: every listed program (open or upcoming) and every one that reads closed at `now` (L23-2,
+ * v6.1.16: `status: closed`, or an active or upcoming program past its ends_at before any run flipped it), so a closed
+ * guide renders, never a 404.
+ */
 export async function listGuideIds(now: Date = new Date()): Promise<string[]> {
-  const [listed, closed] = await Promise.all([listListedPrograms(now), sql()<{ id: string }[]>`SELECT id FROM programs WHERE status = 'closed'`]);
+  const [listed, closed] = await Promise.all([
+    listListedPrograms(now),
+    sql()<{ id: string }[]>`SELECT id FROM programs WHERE status = 'closed' OR (status IN ('active', 'upcoming') AND ends_at <= ${now})`,
+  ]);
   return [...new Set([...listed.map((r) => r.id), ...closed.map((r) => r.id)])];
 }
 
 /**
- * The page of a program, or null (a 404). Only what the lists show gets a page: a listed program, or a
- * closed one (marked Closed, no Apply link). A stale or unverified program is a 404.
+ * The program behind a page, or null (a 404): a listed program, or one that reads closed at `now` (`closedAt`). A stale
+ * or unverified open program is a 404. Plain JSON, so it can be cached; the page itself is `guidePageOf` at render.
  */
-export async function guideTextById(id: string, now: Date = new Date()): Promise<GuidePage | null> {
+export async function guideRowById(id: string, now: Date = new Date()): Promise<ProgramRow | null> {
   if (!ID.test(id)) return null;
   const row = await getProgram(id);
   if (!row) return null;
+  if (!closedAt(row.file, now) && !(await listListedPrograms(now)).some((r) => r.id === id)) return null;
+  return row;
+}
+
+/**
+ * The page of a program at `now` (L23-2, v6.1.16): open or closed is read from the clock here, at every render, so a
+ * cached row that closed meanwhile renders Closed (`Closed on {date}.`) with no Apply link. Pure apart from the logo check.
+ */
+export function guidePageOf(row: ProgramRow, now: Date): GuidePage {
   const p = row.file;
-  const closed = p.status === 'closed';
-  if (!closed && !(await listListedPrograms(now)).some((r) => r.id === id)) return null;
+  const closed = closedAt(p, now);
+  // Fix round 1 (M1): open from its start date, before the run flips it.
+  const status = statusAt(p, now);
   return {
     guide: guideText(row, now),
     logo: logoOf(p),
-    status: p.status,
-    opens_note: p.status === 'upcoming' ? (p.opens_note ?? null) : null,
+    status,
+    opens_note: status === 'upcoming' ? (p.opens_note ?? null) : null,
     submission_url: closed ? '' : p.submission_url,
     organizer: p.organizer,
-    description: p.description,
   };
 }
 
+/** The page of a program, or null (a 404): `guideRowById`, then `guidePageOf` at the same `now`. */
+export async function guideTextById(id: string, now: Date = new Date()): Promise<GuidePage | null> {
+  const row = await guideRowById(id, now);
+  return row ? guidePageOf(row, now) : null;
+}
+
 /** The page for `id`, gated: an id outside the known set is null before any per-id read. */
-export async function gatedGuidePage(
+export async function gatedGuidePage<T = GuidePage>(
   id: string,
   ids: () => Promise<string[]>,
-  read: (id: string) => Promise<GuidePage | null>,
-): Promise<GuidePage | null> {
+  read: (id: string) => Promise<T | null>,
+): Promise<T | null> {
   if (!ID.test(id) || !(await ids()).includes(id)) return null;
   return read(id);
 }

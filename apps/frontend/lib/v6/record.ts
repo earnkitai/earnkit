@@ -6,22 +6,30 @@
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
-import { dropControls } from '../v5/controls';
+import { cleanProse, cleanText } from '../v5/controls';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
 /** Each value once, in first order (F10, v6.1.12): the one de-duplication /me and the record tool share. Pure. */
 export const onceEach = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
 
-/** Newlines and tabs are fine in prose; other control characters are not. */
-const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 /**
  * One line as saved (v6.1.7 S4): tabs and line breaks become a plain space, every other control or format character
  * (bidi overrides, zero-width marks) is dropped, and runs of spaces collapse to one. Pure.
  */
-export const cleanLine = (s: string): string => dropControls(s);
+export const cleanLine = (s: string): string => cleanText(s, Infinity);
 const line = (max: number) => z.string().overwrite(cleanLine).max(max);
-const prose = (max: number) => z.string().max(max).refine((s) => !CONTROL_PROSE.test(s), 'no control characters');
-const https = line(500).pipe(z.url({ protocol: /^https$/ }));
+/** Prose keeps its line breaks; every other control or format character (NUL, bidi, zero-width) is dropped (L24-21). */
+const prose = (max: number) => z.string().overwrite(cleanProse).max(max);
+/** Task 11 fix round 1 (N3): a record link carrying a user name or password is refused, as a project link is dropped. */
+const noUserInfo = (s: string) => {
+  try {
+    const u = new URL(s);
+    return u.username === '' && u.password === '';
+  } catch {
+    return true;
+  }
+};
+const https = line(500).pipe(z.url({ protocol: /^https$/ })).refine(noUserInfo, 'a link with no user name or password');
 const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
 const email = line(200).pipe(z.email());
 const isoDate = line(10).refine((s) => {
@@ -43,7 +51,11 @@ const Person = z.object({
   timezone: line(64).refine(isTimeZone, 'must be an IANA time zone'), phone: line(30), bio: prose(280),
   technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'two capital letters, like US'),
 }).partial().strip();
-const TeamMember = z.object({ name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional() }).strip();
+// L28-8, L28-9 (v6.1.16 Task 14): `full_time` and `link` (a profile link) for the team fields that ask them.
+const TeamMember = z.object({
+  name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional(),
+  full_time: z.boolean().optional(), link: https.optional(),
+}).strip();
 const Company = z.object({
   name: line(120), incorporated: z.boolean(), jurisdiction: line(80), raised_usd: z.number().min(0).max(1e9), raised_from: prose(280),
   stage: z.enum(['idea', 'building', 'pre_launch', 'launched']), launch_date: isoDate,
@@ -63,7 +75,10 @@ const Project = z.object({
   answers: Answers.prefault({}),
   /** EarnKit only (find): when the evidence was last read, the tier then and its verified usage line. */
   evidence_read_at: iso.optional(),
-  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional() }).strip().optional(),
+  // v6.1.16 Task 9 (controller ruling): `repo_url`, the repo the tier was read from, so a failed re-read keeps it only for that repo.
+  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional(), repo_url: line(300).optional() }).strip().optional(),
+  /** L28-6 (v6.1.16 Task 14): GitHub's id of the repo, kept with its link by find's read, so a rename keeps the project. */
+  repo_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 }).strip();
 export type Project = z.infer<typeof Project>;
 const Docs = z.object({
@@ -87,6 +102,7 @@ export function fieldSchema(path: string): z.ZodType | null {
   if (block === 'team') return /^\d+$/.test(a ?? '') && (b === 'name' || b === 'role') ? TeamMember.shape.name : null;
   const shape: z.ZodRawShape | undefined = block === 'projects' ? Project.shape : LEAF_BLOCKS[block]?.shape;
   const key = block === 'projects' ? b : a;
+  if (key !== undefined && EARNKIT_ONLY.has(key)) return null;
   return shape && key !== undefined && Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : null;
 }
 /** unapproved_at: when an agent's change dropped an approval the builder had given (v6.1.8 C48); cleared on approval. */
@@ -131,7 +147,13 @@ const issue = (path: string, err: z.ZodError) => {
   const i = err.issues[0];
   return bad(i.path.length ? `${path}.${i.path.join('.')}` : path, i.message);
 };
-const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier']);
+// Fix round 2 (C2): a project's GitHub repo id is EarnKit's own (find's read), never a patch's.
+const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier', 'repo_id']);
+/**
+ * L24-5 (v6.1.16 Task 11): whether `key` is one of `obj`'s own keys, never an inherited name (__proto__, constructor,
+ * toString): every record reader and word lookup goes through it. Pure.
+ */
+export const allowedKey = (obj: object, key: string): boolean => Object.hasOwn(obj, key);
 /** company.raised_usd and raised_from share one path. */
 const metaPath = (path: string) => (path === 'company.raised_usd' || path === 'company.raised_from' ? 'company.raised' : path);
 
@@ -150,7 +172,7 @@ function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.Zod
       continue;
     }
     // Own keys only: an inherited name (__proto__, constructor, toString) is not a field (security L1).
-    const schema = Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : undefined;
+    const schema = allowedKey(shape, key) ? (shape[key] as z.ZodType) : undefined;
     if (!schema) {
       problems.push(bad(path, 'not a field'));
       continue;
@@ -268,7 +290,7 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
     if (key === 'meta' || key === 'evidence_read_at') problems.push(bad(key, 'set by EarnKit only'));
     // Standing approval and its limits are the builder's consent, given on /me only.
     else if (key === 'policy' && by === 'agent') problems.push(bad('policy', 'set by the builder on earnkit.com/me only'));
-    else if (Object.hasOwn(BLOCKS, key)) {
+    else if (allowedKey(BLOCKS, key)) {
       const block = BLOCKS[key as keyof typeof BLOCKS];
       leaves.push(...mergeFields(rec[key as keyof typeof BLOCKS] as { [k: string]: unknown }, value, block.shape, key, problems));
     } else if (key === 'team') {
@@ -384,12 +406,14 @@ export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOC
 /** The record item for a project with a link (lane 8 #10, v6.1.10: never missing on a find that passed a repo). */
 export const PROJECT_ITEM = 'a project with its repo or site';
 
-type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean };
+type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnswer?: boolean };
 
 /**
  * The items the open programs ask of the record (`total`) and the ones it lacks, in builder words (`missing`). `needs`:
  * the programs' needs; `kinds`: the answer kinds their forms ask; `verifiedUsage`: usage numbers exist, so no traction
  * line is needed. A traction field reads the usage or the line, never the bank: traction is one item (v6.1.8 C49).
+ * `anyAnswer` (v6.1.16 Task 12, L26-7): a saved answer counts though it waits for approval, so only a kind with no
+ * answer at all is missing.
  */
 export function recordItems(record: BuilderRecord, o: Asks): { total: number; missing: string[] } {
   const items: [boolean, string][] = [];
@@ -399,8 +423,10 @@ export function recordItems(record: BuilderRecord, o: Asks): { total: number; mi
   if (!o.verifiedUsage) items.push([isApproved(record, 'traction.line_pre_launch'), 'one approved line on traction']);
   const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null && k !== 'traction'))];
   for (const k of ANSWER_KINDS.filter((x) => kinds.includes(x))) {
-    const any = answerFor(record, null, k) ?? record.projects.map((p) => answerFor(record, p.id, k)).find(Boolean);
-    items.push([Boolean(any), `an approved answer on ${KIND_WORDS[k]}`]);
+    const any = o.anyAnswer
+      ? record.answers[k] ?? record.projects.find((p) => p.answers[k])
+      : answerFor(record, null, k) ?? record.projects.map((p) => answerFor(record, p.id, k)).find(Boolean);
+    items.push([Boolean(any), `${o.anyAnswer ? 'an answer' : 'an approved answer'} on ${KIND_WORDS[k]}`]);
   }
   for (const d of NEED_DOCS) if (o.needs.includes(d.need)) items.push([d.has(record), d.words]);
   return { total: items.length, missing: items.filter(([has]) => !has).map(([, words]) => words) };

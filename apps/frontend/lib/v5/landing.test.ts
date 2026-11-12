@@ -13,7 +13,7 @@ const rowOf = (over: Parameters<typeof programFixture>[0]): ProgramRow => {
   const file = programFixture(over);
   return { id: file.id, file, source: 'file', created_at: NOW, updated_at: NOW, verified_at: null, stale_since: null };
 };
-const STATS: Stats = { programs_open: 3, open_money_usd: 105_000, installs: 0, installs_active_7d: 0, finds_7d: 0, applications: 0, applications_7d: 0, won: 0, won_usd: 0 };
+const STATS: Stats = { programs_open: 3, open_money_usd: 105_000, installs: 0, installs_active_7d: 0, finds_7d: 0, applications: 0, applications_7d: 0, won: 0, won_usd: 0, won_other: [], won_without_amount: 0 };
 
 test('the tiles: Base first, then any chain, then the rest; open before upcoming', () => {
   const rows = [
@@ -110,7 +110,8 @@ test('featuredTiles: six by the rule (v6.2.0)', () => {
   const six = featuredTiles(rows, NOW);
   assert.deepEqual(six.map((t) => t.id), ['f-soon-first', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid-pool', 'f-soon-small']);
   assert.deepEqual(six.map((t) => t.money), ['Up to $25,000', 'Up to $30,000', '$1,000,000 in grants', 'Up to $100,000', '$20,000 in grants', 'Up to $12,000']);
-  assert.equal(six[0].when, 'Closes Nov 9');
+  // L23-22 (v6.1.16): the tile says how close a close is, in the one closes wording.
+  assert.equal(six[0].when, 'Closes in 5 days');
   assert.ok(six.every((t) => t.status === 'active' && t.kind !== 'investment'));
   const l = landingFrom(rows, STATS, NOW);
   assert.equal(l.total, 12);

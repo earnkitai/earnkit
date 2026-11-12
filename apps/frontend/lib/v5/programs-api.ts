@@ -7,16 +7,16 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { revalidatePath, revalidateTag } from 'next/cache';
+import { revalidatePath } from 'next/cache';
 import type postgres from 'postgres';
 import { z } from 'zod';
 import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
 import { sql, type Db } from './db';
-import { bearerMatches, json, readCapped } from './http';
+import { bearerMatches, json, readBody } from './http';
 import { ownerMailEnabled, type Mailer } from './mail';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
-import { getProgram, isOpen, upsertProgram } from './programs';
+import { dateStatus, getProgram, isOpenAt, upsertProgram } from './programs';
 import {
   APPROVE_TTL_DAYS,
   approveExpiry,
@@ -35,7 +35,7 @@ import {
   uncheckedLink,
   type LinkTarget,
 } from './programs-pending';
-import { PROGRAMS_TAG } from './programs-read';
+import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
@@ -84,14 +84,12 @@ export function authFailure(request: Request): Response | null {
   return null;
 }
 
-/** An API write changed `id`: the cached list and pages expire now. Outside a Next request it does nothing. */
+/** A program write changed `id` (the API's, the cron's status flip): every catalog surface expires now (`revalidateCatalog`). Outside a Next request it does nothing. */
 export function programsChanged(id: string): void {
+  // L22-13 (v6.1.16): one expiry for every catalog surface.
+  revalidateCatalog();
   try {
-    revalidateTag(PROGRAMS_TAG, { expire: 0 });
-    revalidatePath('/');
     revalidatePath(`/programs/${id}`);
-    revalidatePath('/sitemap.xml');
-    revalidatePath('/api/stats');
   } catch {
     // No Next request context.
   }
@@ -109,7 +107,7 @@ export function apiRuleProblems(p: Program, now: Date): string[] {
   for (const [key, max] of [['max_award_usd', API_AWARD_MAX_USD], ['min_award_usd', API_AWARD_MAX_USD], ['pool_usd', API_POOL_MAX_USD]] as const)
     if (p[key] !== undefined && p[key]! > max)
       problems.push(`${key}: at most ${max.toLocaleString('en-US')} through the API; larger amounts need a curated file`);
-  if (p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= now.getTime())
+  if (p.status === 'active' && dateStatus(p, now) === 'closed')
     problems.push('ends_at: has passed; an active program needs a future ends_at or null');
   problems.push(...apiUrlProblems(p));
   const official = officialUrlProblem(p.official_url);
@@ -202,7 +200,7 @@ async function writeRefusal(p: Program, deps: Deps, at: Date = deps.now): Promis
   const checks = programProblems(p, at);
   if (checks.length > 0) return { status: 400, result: 'refused', problems: checks };
   const rules = apiRuleProblems(p, at);
-  if (at !== deps.now && p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= deps.now.getTime())
+  if (at !== deps.now && p.status === 'active' && dateStatus(p, deps.now) === 'closed')
     rules.push('ends_at: has passed; an active program needs a future ends_at or null');
   if (rules.length > 0) return { status: 400, result: 'refused', problems: rules };
   const [existing] = await sql()<{ source: string }[]>`SELECT source FROM programs WHERE id = ${p.id}`;
@@ -303,7 +301,7 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
 }
 
 /** Listed to builders now: open, or upcoming. */
-const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpen(p, now);
+const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, now);
 
 async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<Response> {
   const forbidden = notWritableFields(raw);
@@ -404,7 +402,9 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
     console.error(`[programs-api] rate limit check failed: ${errTag(err)}`);
     return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
   }
-  const text = await readCapped(request, PROGRAMS_BODY_MAX).catch(() => null);
+  // Only a slow body is a 408 (v6.1.16 Task 5 fix round 1, I2); a body over the cap stays a 413.
+  const text = await readBody(request, PROGRAMS_BODY_MAX, () => json({ ok: false, error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
   if (text === null) return json({ ok: false, error: `body over ${PROGRAMS_BODY_MAX / 1024} KB` }, 413);
   let body: unknown;
   try {

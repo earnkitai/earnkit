@@ -7,14 +7,27 @@ import type { Applicant } from './applicants';
 import type { Evidence } from './evidence';
 import type { Placement, Tier } from './tiers';
 import { ruleWords } from './tier-words';
+import { cleanText } from '../v5/controls';
 
-export type ScreenRow = { applicant: Applicant; evidence: Evidence | null; placement: Placement; line: string };
+/** `result` and `amount` (L22-12, v6.1.16): the program's outcome for the applicant and its money in the one format, when posted. */
+export type ScreenRow = { applicant: Applicant; evidence: Evidence | null; placement: Placement; line: string; result?: string | null; amount?: string | null };
 
 /** The order a reviewer reads: the strongest first, flagged before the ones with nothing to read. */
 export const ORDER: Tier[] = ['used', 'live', 'building', 'flagged', 'unverified'];
 const NO_TIER = 'no tier';
 const tierOf = (r: ScreenRow) => r.placement.tier ?? NO_TIER;
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
+/**
+ * L24-20 (v6.1.16 Task 11): applicant text in a heading, cleaned and inside a code span, so markdown and HTML read as
+ * text; a backtick run in it gets a longer fence. Pure.
+ */
+export function codeSpan(s: string): string {
+  const t = cleanText(s, Infinity);
+  const longest = Math.max(0, ...(t.match(/`+/g) ?? []).map((x) => x.length));
+  const fence = '`'.repeat(longest + 1);
+  const pad = t.startsWith('`') || t.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${t}${pad}${fence}`;
+}
 
 /** Every note segment saying something was not read, from the evidence's notes and each block's note. Pure. */
 function notRead(e: Evidence | null): string[] {
@@ -41,7 +54,7 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
     out.push(`## ${g.t} (${g.rows.length})`, '');
     for (const r of g.rows) {
       const a = r.applicant;
-      out.push(`### ${oneLine(a.name)} (${oneLine(a.ref)})`, '', r.line);
+      out.push(`### ${codeSpan(a.name)} (${codeSpan(a.ref)})`, '', r.line);
       const bullets = [
         // A flag's detail opens `because`; it is shown once, as the flag.
         ...r.placement.because.filter((b) => !r.placement.flags.some((f) => f.detail === b)),
@@ -64,14 +77,15 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
 
 const HEADER = [
   // #15 (v6.1.15): outside_senders_90d names the count; funded_senders_90d carries the same value. alias until v6.1.16
-  'ref', 'name', 'tier', 'flags', 'outside_senders_90d', 'funded_senders_90d', 'senders_90d', 'chains_mainnet', 'last_push_at', 'contributors_90d',
+  'ref', 'name', 'tier', 'result', 'amount', 'flags', 'outside_senders_90d', 'funded_senders_90d', 'senders_90d', 'chains_mainnet', 'last_push_at', 'contributors_90d',
   'template_name', 'template_overlap', 'own_share', 'url_ok', 'line', 'problems',
 ];
 
 /** One CSV cell: a leading = + - @ is defused for spreadsheets, then quoted when it holds a comma, quote or newline. Pure. */
 function cell(v: string | number | boolean | null | undefined): string {
   if (v === null || v === undefined) return '';
-  let s = String(v);
+  // L24-20 (v6.1.16 Task 11): no control, bidi or zero-width character, line breaks as spaces; then the formula guard.
+  let s = typeof v === 'string' ? cleanText(v, Infinity) : String(v);
   if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
@@ -85,7 +99,7 @@ export function csvReport(rows: ScreenRow[]): string {
     const top = [...mainnet].sort((x, y) => (y.funded_senders_90d ?? -1) - (x.funded_senders_90d ?? -1) || (y.senders_90d ?? -1) - (x.senders_90d ?? -1))[0];
     lines.push(
       [
-        r.applicant.ref, r.applicant.name, r.placement.tier ?? NO_TIER, [...new Set(r.placement.flags.map((f) => f.rule))].join(' '),
+        r.applicant.ref, r.applicant.name, r.placement.tier ?? NO_TIER, r.result ?? null, r.amount ?? null, [...new Set(r.placement.flags.map((f) => f.rule))].join(' '),
         top?.funded_senders_90d, top?.funded_senders_90d /* alias until v6.1.16 */, top?.senders_90d, e?.depth?.chains_mainnet.join(' '), e?.code?.last_push_at,
         e?.team?.contributors_90d, e?.code?.template_name, e?.code?.template_overlap, e?.code?.own_share, e?.live.url_ok,
         r.line, r.applicant.problems.join('; '),

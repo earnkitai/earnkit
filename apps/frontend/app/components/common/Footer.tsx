@@ -57,9 +57,10 @@ const BAR = 'flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-
 /**
  * A rounded card over Panini's Pantheon (pre-sized JPEGs, lazy), the pointer light, a bottom fade; the CTA
  * line in Kaftan Serif and the white pill that opens the install sheet; then the bar: wordmark, Programs,
- * Docs, Terms, the art credit and EarnKit's X; then the company line.
+ * Docs, Terms, the art credit and EarnKit's X; then the company line. `linked` (/me with a linked agent, L21-22
+ * v6.1.16): no install pill, the Ask line stays.
  */
-export default function Footer() {
+export default function Footer({ linked = false }: { linked?: boolean } = {}) {
   const x = X_LINK;
 
   return (
@@ -81,10 +82,10 @@ export default function Footer() {
 
         <div className="flex flex-col items-center gap-[22px] pt-[220px] text-center md:pt-[160px] lg:pt-[140px]">
           <span className="ek-serif text-balance text-[40px] leading-none [text-shadow:0_4px_40px_var(--ek-s-scrim)] md:text-[64px]">{FOOT_CTA}</span>
-          <InstallButton
+          {!linked && <InstallButton
             label={CTA_INSTALL}
             className="inline-flex h-[52px] items-center rounded-full bg-s-light px-7 text-[15px] font-bold text-s-ink motion-safe:transition-shadow duration-200 hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_60px_var(--ek-s-foot-cta-glow)]"
-          />
+          />}
         </div>
 
         <div className={`${BAR} border-s-foot-line`}>

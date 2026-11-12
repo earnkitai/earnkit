@@ -6,6 +6,7 @@
  */
 import { NEEDS_CODE, evaluate, keywordHit, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
+import { dayWords } from '../v5/deadline';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
 import type { RepoFacts } from '../v5/repo-facts';
@@ -26,6 +27,8 @@ export type RecordSide = {
   tier: Tier | null;
   summary: { tier: string | null; line: string } | null;
   problems: string[];
+  /** Task 9 fix round 1: after a failed read the summary line says so; the tier gate reads its Next from this line. */
+  tier_line?: string;
 };
 export type Blocker = {
   program_id: string; sign_in: string | null; needs_click: boolean; needs: string[];
@@ -45,14 +48,27 @@ const sameName = (a: string | null | undefined, b: string | null | undefined) =>
  * none (v6.1.8 C41): another project's answers are never used for this one. Pure.
  */
 export function pickProject(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null, name?: string | null): Project | null {
+  const byId = projectId ? record.projects.find((p) => p.id === projectId) : undefined;
+  // L28-7 (v6.1.16 Task 14): two record projects on one repo (a monorepo) and no project_id: neither, never one for the other.
+  if (!byId && sharedRepoProjects(record, projectId, repoUrl).length >= 2) return null;
   return (
-    (projectId ? record.projects.find((p) => p.id === projectId) : undefined) ??
+    byId ??
     record.projects.find((p) => sameRepo(p.repo_url, repoUrl)) ??
     record.projects.find((p) => sameName(p.name, name)) ??
     null
   );
 }
 
+
+/**
+ * L28-7 (v6.1.16 Task 14): with no project_id the record knows, the names of the record projects on this repo when two
+ * or more share it (each its name, else its id); else none. Pure.
+ */
+export function sharedRepoProjects(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null): string[] {
+  if (projectId && record.projects.some((p) => p.id === projectId)) return [];
+  const on = record.projects.filter((p) => sameRepo(p.repo_url, repoUrl));
+  return on.length >= 2 ? on.map((p) => p.name ?? p.id) : [];
+}
 
 /** The record, the picked project and its stored usage line, for one program's pre-fill (no evidence read). */
 export async function storedRecordContext(builderId: number, projectId: string | undefined, repoUrl: string | null, name?: string | null): Promise<RecordContext> {
@@ -64,6 +80,11 @@ export async function storedRecordContext(builderId: number, projectId: string |
 const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]).includes(t ?? '');
 
 /** Loads the record and, for a project with a repo or site, the builder's own tier under the 24-hour rule. */
+/** v6.1.16 Task 9 (controller ruling): days a stored tier stands after a failed re-read of the same repo. */
+export const READ_GRACE_DAYS = 14;
+/** The unverified tier's line a bar gap reads its step from after a failed read past the grace (fix round 1). */
+const UNREAD_TIER_LINE = 'Your project is unverified, with nothing recent EarnKit could check. Next: a public repo EarnKit can read.';
+
 export async function recordSide(
   o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },
 ): Promise<RecordSide> {
@@ -86,15 +107,35 @@ export async function recordSide(
     ...(project.live_url ? { live_url: project.live_url } : {}),
     ...(o.facts.contracts.length > 0 ? { contracts: o.facts.contracts.map((c) => ({ chain: c.chain, address: c.address })) } : {}),
   };
+  // L23-14 (v6.1.16): the read failed (a `not read` repo note, or the reader threw: fix round 1, M2). Controller ruling:
+  // the stored tier stands only within READ_GRACE_DAYS of its read and only for what it was read from (the same repo, or
+  // no repo on either side); else the project reads unverified. Nothing is written, so evidence_read_at stays and the next
+  // find tries again. With no stored tier there is nothing to keep: null, and the path goes on as before Task 9.
+  const failed = (): RecordSide | null => {
+    if (!stored || !side.summary) return null;
+    const readAt = stored?.read_at ? Date.parse(stored.read_at) : NaN;
+    const sameRepo = subject.repo_url ? stored?.repo_url === subject.repo_url : !stored?.repo_url;
+    const fresh = Number.isFinite(readAt) && o.now.getTime() - readAt <= READ_GRACE_DAYS * 86_400_000;
+    if (side.summary && stored && sameRepo && fresh)
+      return {
+        ...side,
+        summary: { tier: side.summary.tier, line: `I could not read your repo today; using what I read on ${dayWords(new Date(readAt), o.now)}.` },
+        tier_line: side.summary.line,
+        problems: [...side.problems, EVIDENCE_NOT_READ],
+      };
+    return { ...side, tier: 'unverified', summary: { tier: 'unverified', line: 'I could not read your repo today.' }, tier_line: UNREAD_TIER_LINE, verifiedUsage: null, problems: [...side.problems, EVIDENCE_NOT_READ] };
+  };
   let evidence: Evidence | null;
   try {
     const r = await ownEvidence(subject, { read: o.read, now: o.now, lastReadAt: project.evidence_read_at ?? null });
     if (!r.read) return side;
     evidence = r.evidence;
   } catch {
-    // The stored tier and line stand; nothing new is stored.
-    return { ...side, problems: [EVIDENCE_NOT_READ] };
+    // Nothing stored to keep: no tier, one problem, nothing written.
+    return failed() ?? { ...side, problems: [...side.problems, EVIDENCE_NOT_READ] };
   }
+  const notRead = evidence && subject.repo_url && evidence.code === null && evidence.notes.some((n) => n.startsWith('not read')) ? failed() : null;
+  if (notRead) return notRead;
   const p = place(evidence, { identical_pitch: 0, shared_contributors: 0 }, undefined, o.now);
   const summary = evidence ? evidenceSummary(p, evidence) : null;
   const usage = evidence ? usageLine(evidence, o.now) : null;
@@ -104,7 +145,7 @@ export async function recordSide(
     const mine = cur.projects.find((x) => x.id === project.id);
     if (!mine) return { record: null, result: null };
     mine.evidence_read_at = at;
-    if (summary?.tier) mine.last_tier = { tier: summary.tier, line: summary.line.slice(0, 280), read_at: at, ...(usage ? { usage: usage.slice(0, 280) } : {}) };
+    if (summary?.tier) mine.last_tier = { tier: summary.tier, line: summary.line.slice(0, 280), read_at: at, ...(usage ? { usage: usage.slice(0, 280) } : {}), ...(subject.repo_url ? { repo_url: subject.repo_url.slice(0, 300) } : {}) };
     return { record: cur, result: null };
   });
   return { ...side, tier: summary?.tier ?? side.tier, summary: summary ?? side.summary, verifiedUsage: summary ? usage : side.verifiedUsage };
@@ -185,7 +226,7 @@ export function gateFor(side: RecordSide | null, facts: RepoFacts): (v: Verdict,
   const provisional = provisionalTier(facts);
   const onchain = facts.chains.length > 0;
   return (v, row) => side?.tier
-    ? tierGate(v, row, side.tier, side.summary?.line, onchain)
+    ? tierGate(v, row, side.tier, side.tier_line ?? side.summary?.line, onchain)
     : codeStep(v, row, facts, provisional) ?? provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
 }
 
@@ -227,7 +268,7 @@ export function outsideApproval(record: BuilderRecord, row: ProgramRow): string 
   return null;
 }
 /** The reason when the night's sends under standing approval already reached max_per_night. */
-export const NIGHT_LIMIT = 'the nightly limit was reached';
+export const NIGHT_LIMIT = 'the daily limit was reached';
 /** The reason when an agent's send under standing approval left a required answer out (v6.1.9 S6). */
 export const REQUIRED_MISSING = 'a required answer was missing';
 /** The reason when the program had closed over an hour before the send (F8, v6.1.12; the ledger's record-time check). */

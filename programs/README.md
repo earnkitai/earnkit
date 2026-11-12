@@ -30,12 +30,12 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `id` | lowercase slug; the file is `<id>.json` |
 | `organizer`, `title`, `description` | as the source names and describes it |
 | `source_url`, `submission_url` | the program page and where builders apply; `official_url` when the organizer's site is neither |
-| `reward` | the reward in the source's words |
+| `reward` | the reward in the source's words, money in full figures (`$400,000`, `200,000 ARB`; never `$400K` or `2M ARB`). The same holds for `description`, every `past_rounds` label, theme and example, and each requirement's `todo`; `programs:check` refuses K or M (any case) there. A requirement's `label` is the program's own question and keeps its words (`generating $10M`) |
 | `summary` | one line, at most 90 characters: reward and deadline (`"Up to $5,000 · rolling"`). The part before ` · ` is the money line, in the source's words; when it holds a figure it is what the tile, the guide and the reply show (else the pool or award fields do), so write it to read with a capital on a tile and lowercase mid-sentence in a reply. It holds a number in full figures (`Up to $100,000`, `$10,000 to $900,000`, `Up to 100% of the audit cost`; never `$100K` or `$1M`) or says `amount not stated` (`Milestone grants, amount not stated`); `programs:check` refuses bare words and K or M. Never invent an amount. A bar the builder must reach (a TVL or user target) goes in `rules`, never here. A minimum project cost is never written as an award floor (`From EUR 50,000`): name it as what the program funds (`Funds work from EUR 50,000`), or put it in `rules` |
 | `max_award_usd` | the most one winner gets, only when stated; `min_award_usd` only for a stated range |
 | `pool_usd` | the total pool, only when stated; `reward` must state it followed by a pool word (`"$840,000 in prizes"`); `pool_source_url` when that is not `source_url` |
 | `starts_at`, `ends_at` | ISO 8601 with offset; `ends_at: null` is rolling. `tz` (IANA) when the summary's suffix does not name the zone |
-| `status` | `active`, `upcoming` (needs `opens_note`: one line, no links) or `closed` |
+| `status` | `active`, `upcoming` (needs `opens_note`: one line, no links) or `closed`. A closed program's `description` and `rules` say nothing that reads as still taking entries (`Applications are open`, `apply now`, `open until`, or a present `rolling` or `no fixed deadline`), and its summary drops `· rolling`; `programs:check` refuses it, so write the window in the past (`SR008 applications ran October 12 to November 1, 2026, 11:59 PM PT.`) |
 | `verified_at` | the day the facts were checked (`YYYY-MM-DD`), never ahead of today |
 | `existing_work` | `allowed`, `new_work_only` or `unknown` |
 | `needs_repo` | whether entering needs a repo or a live product |

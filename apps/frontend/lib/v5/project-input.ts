@@ -6,7 +6,7 @@
  */
 import { z } from 'zod';
 import { CHAIN_REGISTRY, chainOfId, isKnownChain } from './chains';
-import { dropControls } from './controls';
+import { cleanText } from './controls';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** A Solana account or program id: base58 (no 0, O, I or l), 32 to 44 characters (B21, v6.1.8). */
@@ -36,9 +36,11 @@ export const ProjectInput = z.object({
 });
 export type Project = z.infer<typeof ProjectInput>;
 
-/** find's and track's project (v6.1.14 T5): one description, so the two never drift. */
-export const PROJECT_DESCRIPTION = 'The project you are in; pass track the same object you passed to find, unchanged';
-const any = (what: string) => z.unknown().optional().describe(what);
+/** find's and track's project (v6.1.14 T5): one description, so the two never drift. L29-12 (v6.1.16 Task 15): it says
+ *  when a description is needed. */
+export const PROJECT_DESCRIPTION = 'The project you are in; pass track the same object you passed to find, unchanged. A project needs a description when it has no repo_url';
+/** L29-12 (v6.1.16 Task 15): each field read leniently (`parseProject`) but advertised with its JSON type. */
+const any = (what: string, type: Record<string, unknown> = { type: 'string' }) => z.unknown().optional().describe(what).meta(type);
 /**
  * The project as find and track advertise it (one schema, v6.1.14 T5). Every field reads leniently (`parseProject`):
  * a bad field is dropped and named, never a refusal.
@@ -52,21 +54,23 @@ export const ProjectArg = z
     demo_url: any('A demo video link'),
     chains: any(
       'Chains the code deploys to, as a list: "base" alone is Base mainnet, or { "chain": "base", "mainnet": true, "contract": "0x4200000000000000000000000000000000000006" }; an 0x address on EVM chains, base58 on solana, as { "chain": "solana", "mainnet": true, "contract": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" }. mainnet defaults to true; send false (or the testnet name or chain id) for a testnet. Pass contract addresses whenever the deploy config has them (chain: base, arc, monad, solana...)',
+      { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'object', properties: { chain: { type: 'string' }, mainnet: { type: 'boolean' }, contract: { type: 'string' } }, required: ['chain'] }] } },
     ),
     first_commit_at: any('ISO 8601, from git log --reverse'),
     last_commit_at: any('ISO 8601, from git log'),
-    private: any('true when the repo is private: EarnKit then matches on what you report'),
-    builder_codes: any('true when the app sends Base Builder Codes'),
-    users: any('true when real people use it, false when not; omit it when you do not know'),
+    private: any('true when the repo is private: EarnKit then matches on what you report', { type: 'boolean' }),
+    builder_codes: any('true when the app sends Base Builder Codes', { type: 'boolean' }),
+    users: any('true when real people use it, false when not; omit it when you do not know', { type: 'boolean' }),
   })
-  .describe(PROJECT_DESCRIPTION);
+  .describe(PROJECT_DESCRIPTION)
+  .meta({ required: ['name'] });
 
 const MAX = { name: 80, description: 280 } as const;
 /**
  * Control and format characters (zero-width, bidi overrides, NUL) are never part of a project string (v6.1.7, C15);
  * a tab or line break becomes a space so two lines keep their word boundary.
  */
-const clean = dropControls;
+const clean = (s: string) => cleanText(s, Infinity);
 const text = (v: unknown) => (typeof v === 'string' ? clean(v).trim() : '');
 /** The chains read from one report; the rest are named, not read. */
 const MAX_CHAINS = 20;
@@ -77,14 +81,23 @@ const URL_FIELDS = ['repo_url', 'live_url', 'demo_url'] as const;
 const DATE_FIELDS = ['last_commit_at', 'first_commit_at'] as const;
 
 /** An https or http URL as given, or null. */
-const webUrl = (v: unknown): string | null => {
+/** A web link parsed as given (cleaned), user info kept so the caller can refuse it (L24-23), or null. Pure. */
+function webLink(v: unknown): URL | null {
   if (typeof v !== 'string' || v.length > 500) return null;
   try {
     const u = new URL(clean(v).trim());
-    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null;
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u : null;
   } catch {
     return null;
   }
+}
+/** A web link as text, never carrying a user name or password (L24-23, v6.1.16 Task 11), or null. Pure. */
+const webUrl = (v: unknown): string | null => {
+  const u = webLink(v);
+  if (!u) return null;
+  u.username = '';
+  u.password = '';
+  return u.toString();
 };
 
 /**
@@ -98,7 +111,8 @@ export function sshAsHttps(raw: string): string {
   return ssh ? `https://${ssh[1]}/${ssh[2]}` : raw;
 }
 /** A repo link as a web link: an SSH clone link read as https first (FR-2). */
-const repoWebUrl = (v: unknown): string | null => webUrl(typeof v === 'string' && v.length <= 500 ? sshAsHttps(clean(v).trim()) : v);
+const repoInput = (v: unknown): unknown => (typeof v === 'string' && v.length <= 500 ? sshAsHttps(clean(v).trim()) : v);
+const repoWebUrl = (v: unknown): string | null => webUrl(repoInput(v));
 
 /** Words that name a testnet in a chain slug or a network (v6.1.14 fix round 1, F1). */
 const TESTNET_WORDS = new Set(['sepolia', 'goerli', 'holesky', 'hoodi', 'testnet', 'devnet', 'amoy', 'mumbai', 'fuji', 'moderato']);
@@ -136,9 +150,18 @@ function networkOf(o: Record<string, unknown>): { chain: string; mainnet: unknow
       if (!chain) chain = known.chain;
       if (!known.mainnet) testnet = true;
     } else if (EXTRA_TESTNET_IDS.has(id)) testnet = true;
-    else return { chain, mainnet: o.mainnet, problem: `chain ${chain || '?'} dropped: chain_id ${String(rawId).slice(0, 20)} is not a known network; send mainnet true or false` };
+    else return { chain, mainnet: boolText(o.mainnet), problem: `chain ${chain || '?'} dropped: chain_id ${String(rawId).slice(0, 20)} is not a known network; send mainnet true or false` };
   }
-  return { chain, mainnet: testnet ? false : (o.mainnet ?? true) };
+  return { chain, mainnet: testnet ? false : (boolText(o.mainnet) ?? true) };
+}
+
+/** L24-23 (v6.1.16 Task 11): the link fields by name, for the dropped-password problem. */
+const LINK_WORDS: Record<string, string> = { repo_url: 'repo link', live_url: 'live link', demo_url: 'demo link' };
+/** L16-15 (v6.1.16): `mainnet` given as the text `"true"` or `"false"` (trimmed, any case) reads as the boolean. Pure. */
+function boolText(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const t = v.trim().toLowerCase();
+  return t === 'true' ? true : t === 'false' ? false : v;
 }
 
 /**
@@ -159,8 +182,17 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
   const urlProblems: string[] = [];
   for (const k of URL_FIELDS) {
     if (raw[k] == null) continue;
+    // L24-23 (v6.1.16 Task 11, controller ruling): the link as the consumer reads it (cleaned, an SSH link converted)
+    // carrying a user name or password is never passed on, whatever else it names.
+    const parsed = webLink(k === 'repo_url' ? repoInput(raw[k]) : raw[k]);
+    if (parsed && (parsed.username || parsed.password)) {
+      urlProblems.push(`the ${LINK_WORDS[k] ?? k} carried ${parsed.password ? 'a password' : 'a user name'} and was dropped`);
+      continue;
+    }
     const url = k === 'repo_url' ? repoWebUrl(raw[k]) : webUrl(raw[k]);
-    if (url) out[k] = url;
+    // L16-8 (v6.1.16): a shortened link is never read (not the repo, not the live link), before the code-host rule.
+    if (url && isShortener(url)) urlProblems.push(`${k} dropped: a shortened link`);
+    else if (url) out[k] = url;
     else urlProblems.push(`${k} dropped: not a web link`);
   }
   // L12-6 (v6.1.14), fix round 1 (T7-F1, T7-F6): a code host's link that names no repo (an owner's page,
@@ -250,6 +282,24 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
 /** The hosts whose links are code in a repo (L13-15, v6.1.14), each with its subdomains. */
 export const CODE_HOSTS = ['github.com', 'gitlab.com', 'codeberg.org', 'bitbucket.org'] as const;
 
+/** Link shorteners (L16-8, v6.1.16): a link on one is never a live link or a repo. */
+export const SHORTENERS = ['bit.ly', 't.co', 'tinyurl.com', 'goo.gl', 'is.gd', 'cutt.ly', 'rb.gy', 'short.io'] as const;
+
+/** The agent's line when a shortened link was dropped (L16-8, v6.1.16). */
+export const SHORT_LINK_NOTE = 'Shortened links are not read; send the real one.';
+
+/** Whether `v` is a link on a shortener (SHORTENERS or a subdomain of one), any scheme. Pure. */
+export function isShortener(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  let host: string;
+  try {
+    host = hostOf(new URL(clean(v).trim()));
+  } catch {
+    return false;
+  }
+  return SHORTENERS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 /** github.com first segments that are GitHub's own pages, never an owner (fix round 1, T7-F6). */
 const GITHUB_PAGES = new Set(['orgs', 'users', 'sponsors', 'topics', 'marketplace', 'settings', 'apps', 'collections', 'features', 'explore', 'search', 'notifications', 'organizations', 'enterprises', 'login', 'about', 'pricing']);
 
@@ -273,7 +323,7 @@ export function isCodeHost(v: unknown): boolean {
 /**
  * The one canonical form of a repo link (v6.1.13, B4), shared by projectKeyOf and the repo read's cache key
  * (repo-facts `repoKey`): https, the host lower-cased without `www.`, no port, no `user@`, no query or fragment, no
- * `/tree/...` or `/blob/...` suffix (on github.com only owner and name; elsewhere the path up to its first `-` segment), no trailing slash or `.git`, all lower case;
+ * `/tree/...` or `/blob/...` suffix (on github.com only owner and name; on bitbucket.org and codeberg.org the path up to its first `src` segment, L16-6; elsewhere the path up to its first `-` segment), no trailing slash or `.git`, all lower case;
  * a trailing dot on the host dropped (L12-6, v6.1.14); null for anything that is not an http or https link on a code
  * host, or that names no repo (an owner or group alone, L12-6). No length cap here (projectKeyOf caps as parseProject does). Pure.
  */
@@ -296,7 +346,10 @@ export function canonicalRepoLink(v: unknown): string | null {
   if (parts.length < 2 || (host === 'github.com' && GITHUB_PAGES.has(parts[0].toLowerCase()))) return null;
   // github.com: owner and name only. Elsewhere (GitLab and the like) the project ends at its first `-` segment, so
   // `-/tree/...`, `-/blob/...` and `-/issues` fold, and a subgroup that happens to be named `tree` stays (fix round 1, M1).
-  const dash = parts.findIndex((x, i) => i >= 2 && x === '-');
+  // L16-6 (v6.1.16): on bitbucket.org and codeberg.org the browse path starts at `src` (`/src/main/`,
+  // `/src/branch/main`), cut as `-` is on GitLab.
+  const cut = host === 'bitbucket.org' || host === 'codeberg.org' ? 'src' : '-';
+  const dash = parts.findIndex((x, i) => i >= 2 && x === cut);
   parts = host === 'github.com' ? parts.slice(0, 2) : dash >= 0 ? parts.slice(0, dash) : parts;
   const path = parts.join('/').replace(/(\.git)+$/i, '');
   return `https://${host}${path ? `/${path}` : ''}`.toLowerCase();

@@ -28,8 +28,32 @@ export const PROJECT_FIELDS = ['name', 'description', 'repo_url', 'live_url', 'd
 export const FIELD_KINDS = [
   'name', 'one_liner', 'problem', 'solution', 'how_it_works', 'traction', 'team', 'why_you', 'milestones', 'use_of_funds',
   'competitors', 'risks', 'ecosystem_fit', 'what_next', 'past_work', 'help_needed', 'demo_video', 'links', 'contact', 'raised', 'other',
+  // L28-8, L28-9 (v6.1.16 Task 14): team questions that each read their own record fact.
+  'team_size', 'team_roles', 'team_full_time', 'team_links', 'team_usernames', 'cofounder_email',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
+
+/** L28-8 (v6.1.16 Task 14): the team kinds that each read one record fact (prefill), by the question they ask. */
+export const TEAM_KINDS = ['team_size', 'team_roles', 'team_full_time', 'team_links', 'team_usernames', 'cofounder_email'] as const;
+export type TeamKind = (typeof TEAM_KINDS)[number];
+
+/**
+ * L28-8 (v6.1.16 Task 14): the team kind a `team` field's label asks for, or null when it asks who is on the team (or
+ * something else): a count (`Team size`), a role (`Roles`), full time (`Full time?`), profile links (`Team links`),
+ * usernames or handles (`GitHub usernames`), a second founder's email (`Co-founder email`). A label that also asks
+ * names, emails or backgrounds is a whole-team question and stays `team`. Pure.
+ */
+export function teamKindOf(label: string): TeamKind | null {
+  const l = label.toLowerCase();
+  const whole = /\bnames?\b|\bemails?\b|background|\bbio\b|experience|skills/.test(l);
+  if (/how many|number of|team size|how large|headcount|\bsize\b/.test(l) && !/equity/.test(l)) return 'team_size';
+  if (/full[- ]?time|commitment|committed/.test(l)) return 'team_full_time';
+  if (whole) return /e-?mail/.test(l) && /2nd|second|co-?founder|other founder/.test(l) && !/\bnames?\b|\broles?\b/.test(l) ? 'cofounder_email' : null;
+  if (/\broles?\b/.test(l)) return 'team_roles';
+  if (/linkedin|profiles?\b|\blinks?\b/.test(l)) return 'team_links';
+  if (/user ?names?\b|handles?\b/.test(l)) return 'team_usernames';
+  return null;
+}
 
 /** The kinds of the builder's answer bank. */
 export const ANSWER_KINDS = [
@@ -221,6 +245,13 @@ export const ProgramFile = z
       .refine((t) => !/\u2014/.test(t), 'opens_note: no em dashes')
       .optional(),
     in_person: z.boolean().default(false),
+    /** Where an in-person program is held, from its own text: 1 to 40 characters, no links (L21-16, v6.1.16). */
+    city: z
+      .string()
+      .min(1)
+      .max(40)
+      .refine((t) => !/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|xyz|io|org|app|net)\b/i.test(t), 'city has no links')
+      .optional(),
     /** The day these facts were last checked against source_url (YYYY-MM-DD). */
     verified_at: z.string().date(),
     /** Whether work built before the program counts: never guessed. */
@@ -250,7 +281,7 @@ export const ProgramFile = z
     tag: z.enum(['long shot', 'needs a live product']).optional(),
     ideas: z.array(Idea).max(3).default([]),
     rules: z.array(z.string().min(1)),
-    /** At least one, except on an upcoming program. */
+    /** At least one, except on an upcoming or closed program. */
     submission_requirements: z.array(SubmissionRequirement),
     eligibility: z.array(EligibilityItemSchema).max(10).optional(),
     logo: GuideLogo.optional(),
@@ -279,8 +310,10 @@ export const ProgramFile = z
       if (e.kind === 'integration' && !isIntegrationKey(e.value ?? '')) issue(`eligibility integration: "${e.value ?? ''}" is not an integration key`);
     if (p.status === 'upcoming' && !p.opens_note) issue('an upcoming program needs opens_note');
     if (p.status !== 'upcoming' && p.opens_note) issue('opens_note is only for an upcoming program');
-    if (p.status !== 'upcoming' && p.submission_requirements.length === 0)
-      issue('submission_requirements needs at least one item (only an upcoming program may have none)');
+    // v6.1.16 Task 16 (L30-1): a closed program may have none too, so the daily run can close an upcoming program whose
+    // window passed before its requirements were published.
+    if (p.status === 'active' && p.submission_requirements.length === 0)
+      issue('submission_requirements needs at least one item (only an upcoming or closed program may have none)');
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
     if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');
     if (p.chain_required && (p.any_chain || p.chains.length === 0)) issue('chain_required needs the chains it requires (never any_chain)');

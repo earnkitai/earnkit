@@ -20,6 +20,11 @@ const ENV_ALLOWED = new Set([
   'EARNKIT_SCREEN_OUT',
   // GitHub sign-in for builders (lib/v6/github-auth.ts).
   'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET',
+  // v6.1.16 (S): the build id keying the page cache (app/lib/cached.ts), inlined at build by next.config.ts from
+  // Railway's git SHA; a deploy never sets EK_BUILD_ID itself.
+  'EK_BUILD_ID', 'RAILWAY_GIT_COMMIT_SHA',
+  // Task 17 (v6.1.16): the boot check runs on the Node runtime only.
+  'NEXT_RUNTIME',
 ]);
 const REMOVED_DEPS = ['@anthropic-ai/sdk', '@huggingface/transformers', 'aws4fetch', 'fflate', 'ox', 'viem'];
 
@@ -32,7 +37,7 @@ const APP_DIRS = new Set([
   '.well-known/oauth-protected-resource/[[...path]]',
   'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
   'api/stats', 'api/cron',
-  'link', 'link/[code]', 'auth', 'auth/github', 'auth/github/callback',
+  'link', 'link/[code]', 'link/[code]/confirm', 'auth', 'auth/github', 'auth/github/callback',
   'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link',
 ]);
 

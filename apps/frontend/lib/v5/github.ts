@@ -5,6 +5,7 @@
  */
 
 const API = 'https://api.github.com';
+type Fetch = typeof fetch;
 const RAW = 'https://raw.githubusercontent.com';
 
 export class GitHubError extends Error {
@@ -27,6 +28,41 @@ export class RepoPrivateError extends GitHubError {
   }
 }
 
+/** L26-8 (v6.1.16 Task 12): the whole read passed its one budget (`readBudget`); the facts are report-only. */
+export class GitHubSlow extends Error {
+  constructor() {
+    super('GitHub: the read passed its time budget');
+    this.name = 'GitHubSlow';
+  }
+}
+
+/** L26-8 (v6.1.16 Task 12): the one time budget of a whole repo read, every request under it. */
+export const READ_BUDGET_MS = 20_000;
+/** One signal for the whole read (L26-8), in place of each request's own timeout. */
+export const readBudget = (ms = READ_BUDGET_MS): AbortSignal => AbortSignal.timeout(ms);
+
+/**
+ * A fetch under the read's budget: it rejects with GitHubSlow when the budget ends first, whether or not the fetch
+ * itself honours the signal. Without a signal, the request's own `fallbackMs` timeout (a lone repo-object check).
+ */
+async function budgeted(f: Fetch, url: string, init: RequestInit, signal: AbortSignal | undefined, fallbackMs: number): Promise<Response> {
+  const s = signal ?? AbortSignal.timeout(fallbackMs);
+  if (s.aborted) throw signal ? new GitHubSlow() : s.reason;
+  let stop: () => void = () => {};
+  const ended = new Promise<never>((_, reject) => {
+    const on = () => reject(signal ? new GitHubSlow() : s.reason);
+    s.addEventListener('abort', on, { once: true });
+    stop = () => s.removeEventListener('abort', on);
+  });
+  try {
+    return await Promise.race([f(url, { ...init, signal: s }), ended]);
+  } catch (err) {
+    throw signal?.aborted ? new GitHubSlow() : err;
+  } finally {
+    stop();
+  }
+}
+
 export type Repo = {
   full_name: string;
   html_url: string;
@@ -43,6 +79,9 @@ export type Repo = {
   /** The repo's topics, lower-case (v6.1.10). */
   topics?: string[];
   parent?: { full_name: string; default_branch: string };
+  /** GitHub's repo id: the same through a rename or a transfer (L28-6, v6.1.16 Task 14). */
+  id?: number;
+  owner?: { login?: string; type?: string };
 };
 export type TreeEntry = { path: string; type: string; size?: number };
 export type RepoRead = {
@@ -53,13 +92,40 @@ export type RepoRead = {
   first_commit_at: string | null;
   /** A tree or file read failed: the facts are incomplete and must not be cached. */
   partial: boolean;
+  /** L28-3 (v6.1.16 Task 14): the logins of the repo's contributors (the first 100), lower-case; null when not read. */
+  contributors?: string[] | null;
 };
 
-type Fetch = typeof fetch;
+/** L28-3 (v6.1.16 Task 14): the repo's contributor logins (one page of 100), lower-case; null when the read fails. */
+async function contributorsOf(fullName: string, token: string | undefined, f: Fetch, signal: AbortSignal): Promise<string[] | null> {
+  try {
+    const rows = await gh<unknown>(`/repos/${fullName}/contributors?per_page=100`, token, f, signal);
+    if (!Array.isArray(rows)) return null;
+    return rows.map((r) => (r && typeof r === 'object' && typeof (r as { login?: unknown }).login === 'string' ? (r as { login: string }).login.toLowerCase() : '')).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
 
-/** GET one GitHub API path as JSON; 404 and other failures throw GitHubError. */
-export async function gh<T>(path: string, token: string | undefined = process.env.GITHUB_TOKEN, f: Fetch = fetch): Promise<T> {
-  return (await ghResponse(path, token, f)).json() as Promise<T>;
+/**
+ * L28-3 (v6.1.16 Task 14): whether `login` is a public member of the organization `org` (GitHub answers 204 for a member,
+ * 404 otherwise); null when the read fails. Under the read's budget when given.
+ */
+export async function isPublicMember(org: string, login: string, o: { token?: string; fetch?: Fetch; signal?: AbortSignal } = {}): Promise<boolean | null> {
+  const f = o.fetch ?? fetch;
+  const token = o.token ?? process.env.GITHUB_TOKEN;
+  try {
+    await ghResponse(`/orgs/${encodeURIComponent(org)}/public_members/${encodeURIComponent(login)}`, token, f, o.signal ?? readBudget());
+    return true;
+  } catch (err) {
+    return err instanceof GitHubError && err.status === 404 ? false : null;
+  }
+}
+
+
+/** GET one GitHub API path as JSON; 404 and other failures throw GitHubError; past the read's budget, GitHubSlow. */
+export async function gh<T>(path: string, token: string | undefined = process.env.GITHUB_TOKEN, f: Fetch = fetch, signal?: AbortSignal): Promise<T> {
+  return (await ghResponse(path, token, f, signal)).json() as Promise<T>;
 }
 
 /** x-ratelimit-remaining as a number, or null when absent. */
@@ -74,12 +140,14 @@ const lastPage = (link: string | null): number | null => {
   return n ? Number(n) : null;
 };
 
-/** GET one GitHub API path; 404 and other failures throw GitHubError (with the rate-limit remaining). */
-export async function ghResponse(path: string, token: string | undefined, f: Fetch): Promise<Response> {
-  const res = await f(`${API}${path}`, {
+/**
+ * GET one GitHub API path; 404 and other failures throw GitHubError (with the rate-limit remaining). Under `signal`
+ * (the read's one budget, L26-8) it throws GitHubSlow when the budget ends; with none, its own 15 s.
+ */
+export async function ghResponse(path: string, token: string | undefined, f: Fetch, signal?: AbortSignal): Promise<Response> {
+  const res = await budgeted(f, `${API}${path}`, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', ...(token && { Authorization: `Bearer ${token}` }) },
-    signal: AbortSignal.timeout(15_000),
-  });
+  }, signal, 15_000);
   if (res.status === 404) throw new GitHubError(`GitHub: ${path.split('?')[0]} not found (or private)`, 404, rateRemaining(res));
   if (!res.ok) throw new GitHubError(`GitHub request failed (${res.status})`, res.status, rateRemaining(res));
   return res;
@@ -119,20 +187,17 @@ export function pickFiles(paths: { path: string; size: number }[], limit = 12, s
 
 const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/');
 
-async function raw(f: Fetch, repo: Repo, path: string, headers?: Record<string, string>): Promise<string | null> {
-  const res = await f(`${RAW}/${repo.full_name}/${encodeURIComponent(repo.default_branch)}/${encodePath(path)}`, {
-    headers,
-    signal: AbortSignal.timeout(10_000),
-  }).catch(() => null);
+async function raw(f: Fetch, repo: Repo, path: string, signal: AbortSignal, headers?: Record<string, string>): Promise<string | null> {
+  const res = await budgeted(f, `${RAW}/${repo.full_name}/${encodeURIComponent(repo.default_branch)}/${encodePath(path)}`, { headers }, signal, 10_000).catch(() => null);
   return res?.ok ? await res.text().catch(() => null) : null;
 }
 
 /** The oldest commit's date: the last page of a one-per-page list, else null. */
-async function firstCommit(fullName: string, token: string | undefined, f: Fetch): Promise<string | null> {
+async function firstCommit(fullName: string, token: string | undefined, f: Fetch, signal: AbortSignal): Promise<string | null> {
   try {
-    const res = await ghResponse(`/repos/${fullName}/commits?per_page=1`, token, f);
+    const res = await ghResponse(`/repos/${fullName}/commits?per_page=1`, token, f, signal);
     const last = lastPage(res.headers.get('link'));
-    const one = last && last !== 1 ? await gh<CommitRow[]>(`/repos/${fullName}/commits?per_page=1&page=${last}`, token, f) : ((await res.json()) as CommitRow[]);
+    const one = last && last !== 1 ? await gh<CommitRow[]>(`/repos/${fullName}/commits?per_page=1&page=${last}`, token, f, signal) : ((await res.json()) as CommitRow[]);
     return one[0]?.commit?.committer?.date ?? one[0]?.commit?.author?.date ?? null;
   } catch {
     return null;
@@ -140,40 +205,47 @@ async function firstCommit(fullName: string, token: string | undefined, f: Fetch
 }
 type CommitRow = { commit?: { committer?: { date?: string }; author?: { date?: string } } };
 
-/** The repo object alone: pushed_at for the cache check. */
-export const readRepoObject = (fullName: string, token: string | undefined, f: Fetch = fetch) => gh<Repo>(`/repos/${fullName}`, token, f);
+/** The repo object alone: pushed_at for the cache check (under the read's budget when given). */
+export const readRepoObject = (fullName: string, token: string | undefined, f: Fetch = fetch, signal?: AbortSignal) => gh<Repo>(`/repos/${fullName}`, token, f, signal);
 
-/** Reads a public repo: object, recursive tree, README, up to 12 picked files, first commit date. */
-export async function readRepo(fullName: string, o: { token?: string; fetch?: Fetch } = {}): Promise<RepoRead> {
+/**
+ * Reads a public repo: object, recursive tree, README, up to 12 picked files, first commit date. L26-8 (v6.1.16 Task
+ * 12): one budget (`signal`, READ_BUDGET_MS by default) for the whole read; after the repo object, the first commit runs
+ * beside the tree and the raw files the tree names. Past the budget it throws GitHubSlow, never a partial read.
+ */
+export async function readRepo(fullName: string, o: { token?: string; fetch?: Fetch; signal?: AbortSignal } = {}): Promise<RepoRead> {
   const f = o.fetch ?? fetch;
   const token = o.token ?? process.env.GITHUB_TOKEN;
-  const repo = await readRepoObject(fullName, token, f);
+  const signal = o.signal ?? readBudget();
+  const repo = await readRepoObject(fullName, token, f, signal);
   if (repo.private) throw new RepoPrivateError();
   let partial = false;
-  const [tree, first] = await Promise.all([
-    gh<{ tree: TreeEntry[] }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f).then(
+  const treeAndFiles = async () => {
+    const tree = await gh<{ tree: TreeEntry[] }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f, signal).then(
       (t) => t.tree ?? [],
       () => {
         partial = true;
         return [] as TreeEntry[];
       },
-    ),
-    firstCommit(fullName, token, f),
-  ]);
-  const blobs = tree.filter((t) => t.type === 'blob');
-  const submodules = tree.filter((t) => t.type === 'commit').map((t) => t.path);
-  const picks = pickFiles(blobs.map((t) => ({ path: t.path, size: t.size ?? 0 })), 12, submodules);
-  const readmePath = blobs.find((t) => /^readme(\.(md|markdown|txt|rst))?$/i.test(t.path))?.path;
-  const [readme, files] = await Promise.all([
-    readmePath ? raw(f, repo, readmePath, { Range: 'bytes=0-4095' }) : null,
-    Promise.all(
-      picks.map(async (path) => {
-        const text = await raw(f, repo, path);
-        if (text === null) partial = true;
-        return { path, text: text ?? '' };
-      }),
-    ),
-  ]);
-  if (readmePath && readme === null) partial = true;
-  return { repo, tree, readme, files, first_commit_at: first, partial };
+    );
+    const blobs = tree.filter((t) => t.type === 'blob');
+    const submodules = tree.filter((t) => t.type === 'commit').map((t) => t.path);
+    const picks = pickFiles(blobs.map((t) => ({ path: t.path, size: t.size ?? 0 })), 12, submodules);
+    const readmePath = blobs.find((t) => /^readme(\.(md|markdown|txt|rst))?$/i.test(t.path))?.path;
+    const [readme, files] = await Promise.all([
+      readmePath ? raw(f, repo, readmePath, signal, { Range: 'bytes=0-4095' }) : null,
+      Promise.all(
+        picks.map(async (path) => {
+          const text = await raw(f, repo, path, signal);
+          if (text === null) partial = true;
+          return { path, text: text ?? '' };
+        }),
+      ),
+    ]);
+    if (readmePath && readme === null) partial = true;
+    return { tree, readme, files };
+  };
+  const [{ tree, readme, files }, first, contributors] = await Promise.all([treeAndFiles(), firstCommit(fullName, token, f, signal), repo.size === 0 ? null : contributorsOf(fullName, token, f, signal)]);
+  if (signal.aborted) throw new GitHubSlow();
+  return { repo, tree, readme, files, first_commit_at: first, partial, contributors };
 }

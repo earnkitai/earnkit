@@ -51,7 +51,10 @@ async function listWhere(now: Date, withUpcoming: boolean): Promise<ProgramRow[]
     SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs
     WHERE (
         (status = 'active' AND (ends_at IS NULL OR ends_at > ${now}))
-        ${withUpcoming ? db`OR status = 'upcoming'` : db``}
+        -- Fix round 1 (M1): an upcoming program past its starts_at, with a form, is open before the run flips it (isOpenAt).
+        OR (status = 'upcoming' AND (file->>'starts_at')::timestamptz <= ${now} AND (ends_at IS NULL OR ends_at > ${now})
+            AND jsonb_array_length(COALESCE(file->'submission_requirements', '[]'::jsonb)) > 0)
+        ${withUpcoming ? db`OR (status = 'upcoming' AND (ends_at IS NULL OR ends_at > ${now}))` : db``}
       )
       AND NOT (stale_since IS NOT NULL AND stale_since < ${now}::timestamptz - make_interval(days => ${STALE_DAYS}))
       AND NOT (source = 'api' AND (verified_at IS NULL OR verified_at < (${now}::timestamptz - make_interval(days => ${STALE_DAYS}))::date))
@@ -59,9 +62,16 @@ async function listWhere(now: Date, withUpcoming: boolean): Promise<ProgramRow[]
   return parseRows(rows);
 }
 
+/**
+ * A program id as ids are compared (L31-4, v6.1.16 Task 17): NFKC (fullwidth and other compatibility forms), lower
+ * case, trimmed. Stored ids are lower-case ASCII, so they are their own folded form. Pure.
+ */
+export const foldId = (s: string): string => s.normalize('NFKC').toLowerCase().trim();
+
+/** The program whose id matches `id` once both are folded (`foldId`), or null. */
 export async function getProgram(id: string): Promise<ProgramRow | null> {
   const rows = await sql()<RawRow[]>`
-    SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs WHERE id = ${id}`;
+    SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs WHERE id = ${foldId(id)}`;
   return parseRows(rows)[0] ?? null;
 }
 
@@ -94,6 +104,9 @@ const wordsOfProgram = (r: ProgramRow) => new Set([r.id, r.file.title, r.file.or
 /** The words a short word (under four characters) may name (fix round 1, T7-F3): the id's and title's words and the
  *  id's initials ("arc", "yc"), never an organizer's ("aws" from "Kiro (AWS)"). Pure. */
 const shortWordsOfProgram = (r: ProgramRow) => new Set([...[r.id, r.file.title].flatMap((x) => plain(x).split(' ')), initials(r.id)].filter(Boolean));
+/** L1h-2 (v6.1.16): a program's rule keywords as catalog words a short lookup may name ("otf"). Pure. */
+const keywordsOfProgram = (r: ProgramRow) =>
+  new Set((r.file.eligibility ?? []).flatMap((e) => (e.kind === 'rule' ? e.keywords ?? [] : [])).map((k) => squash(k)));
 /** The money a program puts up: the larger of its top award and its pool, -1 when it states neither. Pure. */
 const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1);
 
@@ -102,17 +115,54 @@ const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1
  * the sooner close, the id. Pure.
  */
 export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
-  const standing = (p: Program) => (isOpen(p, now) ? 0 : p.status === 'upcoming' ? 1 : 2);
+  const standing = (p: Program) => (isOpenAt(p, now) ? 0 : p.status === 'upcoming' ? 1 : 2);
   const ends = (p: Program) => (p.ends_at ? Date.parse(p.ends_at) : Infinity);
   return [...rows].sort((a, b) =>
     standing(a.file) - standing(b.file) || awardOf(b.file) - awardOf(a.file) || ends(a.file) - ends(b.file) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** The builder line for a name that is no one program: up to two titles to pick from, as a question alone (L1e-1,
- *  v6.1.13); "I don't know that program." only when nothing is offered. Pure. */
+ *  v6.1.13); "Which program do you mean?" when nothing is offered (L29-15, v6.1.16). Pure. */
 export function unknownProgramLine(suggest: readonly string[]): string {
   const [a, b] = suggest;
-  return a === undefined ? "I don't know that program." : `Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
+  // L29-15 (v6.1.16 Task 15): a question, never a dead end.
+  return a === undefined ? 'Which program do you mean?' : `Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
+}
+
+/**
+ * L24-3 (v6.1.16 Task 11): words that never name a program on their own in a strict lookup (what an agent passes on
+ * when the builder says "apply to the next one", "start", "build it").
+ */
+export const COMMON_WORDS: ReadonlySet<string> = new Set(['next', 'build', 'start', 'first', 'open', 'grant', 'program', 'apply', 'fund', 'app', 'labs', 'dev', 'ai', 'web',
+  // v6.1.16 Task 15 fix round 1b: English words that are some program's initials, or could be, never name one.
+  'as', 'am', 'mm', 'an', 'at', 'be', 'by', 'do', 'go', 'if', 'in', 'is', 'it', 'me', 'my', 'no', 'of', 'oh', 'ok', 'on', 'or', 'so', 'to', 'up', 'us', 'we',
+  'em', 'he', 'hi', 'ho', 'id', 'lo', 'ma', 'mi', 'mu', 'nu', 'ow', 'ox', 'pa', 'pi', 're', 'uh', 'um', 'xi', 'ya', 'ye', 'yo', 'fog', 'ass']);
+/** Small words a strict lookup drops before matching ("the PayPal hackathon"). */
+const ARTICLES = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'to']);
+
+/**
+ * The strict lookup track uses (L24-3): the exact id (already tried), the exact folded title, or the one title whose
+ * words hold every lookup word (articles and years dropped) with at least one of them outside COMMON_WORDS. Several
+ * fitting are `suggest`; none is no program. Pure over `rows`.
+ */
+function strictMatch(rows: ProgramRow[], words: string, now: Date): { row: ProgramRow | null; suggest: string[] } {
+  const titled = rows.filter((r) => plain(r.file.title) === words);
+  if (titled.length === 1) return { row: titled[0], suggest: [] };
+  const asked = words.split(' ').filter((w) => w && !ARTICLES.has(w) && !YEAR.test(w));
+  if (asked.length === 0 || asked.every((w) => COMMON_WORDS.has(w))) return { row: null, suggest: [] };
+  // v6.1.16 Task 15 (controller's ruling; fix round 1b): the initials of the title, and of the id, count as a title
+  // word in any case, two letters or more ("yc" and "YC" name Y Combinator); an English word (COMMON_WORDS: "as",
+  // "am", "mm") never does.
+  const initialsWord = (w: string) => w.length >= 2 && !COMMON_WORDS.has(w);
+  const fit = titled.length > 1 ? titled : rows.filter((r) => {
+    const words = plain(r.file.title).split(' ').filter(Boolean);
+    const initials = (ws: string[]) => (ws.length > 1 ? [ws.map((w) => w[0]).join('')] : []);
+    const own = new Set(words);
+    const short = new Set([...initials(words), ...initials(r.id.split('-').filter(Boolean))]);
+    return asked.every((w) => own.has(w) || (initialsWord(w) && short.has(w)));
+  });
+  if (fit.length === 1) return { row: fit[0], suggest: [] };
+  return { row: null, suggest: byLookupRank(fit, now).slice(0, 2).map((r) => r.file.title) };
 }
 
 /**
@@ -125,13 +175,14 @@ export function unknownProgramLine(suggest: readonly string[]): string {
  * L12-5, v6.1.14). Exactly one program fitting is the `row`; several are `suggest`, the first two by byLookupRank;
  * none, `suggest` is empty ("I don't know that program.").
  */
-export async function programByName(name: string, now: Date = new Date()): Promise<{ row: ProgramRow | null; suggest: string[] }> {
+export async function programByName(name: string, now: Date = new Date(), o: { strict?: boolean } = {}): Promise<{ row: ProgramRow | null; suggest: string[] }> {
   const exact = await getProgram(name);
   if (exact) return { row: exact, suggest: [] };
   const words = plain(name);
   const q = words.replace(/ /g, '');
   if (!q) return { row: null, suggest: [] };
   const rows = parseRows(await sql()<RawRow[]>`SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs ORDER BY id`);
+  if (o.strict) return strictMatch(rows, words, now);
   const prefix = q.length >= MIN_PREFIX;
   // Final fix (v6.1.12, I2): the first word of an organizer that is not its whole name ("ethereum" for the Ethereum
   // Foundation) names the organizer: a start of a title on it is weighed beside that organizer's other programs
@@ -140,7 +191,8 @@ export async function programByName(name: string, now: Date = new Date()): Promi
   const led = (r: ProgramRow) => organizerLeads(r.file.organizer).includes(words);
   const orgWord = rows.some((r) => led(r) && !organizers(r.file.organizer).includes(q));
   const tests: [(r: ProgramRow) => boolean, boolean][] = [
-    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && initials(r.id) === q), true],
+    // L1h-2 (v6.1.16): a short word (under four characters) may also be one of the program's rule keywords ("otf").
+    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && (initials(r.id) === q || (q.length < MIN_PREFIX && keywordsOfProgram(r).has(q)))), true],
     [(r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)), !orgWord],
     [(r) => organizers(r.file.organizer).includes(q), true],
   ];
@@ -178,9 +230,41 @@ export async function programsById(ids: string[]): Promise<ProgramRow[]> {
   return parseRows(rows);
 }
 
-/** Whether the program takes entries at `now`: active and not past ends_at. Pure. */
-export const isOpen = (p: Pick<Program, 'status' | 'ends_at'>, now: Date): boolean =>
-  p.status === 'active' && (p.ends_at === null || Date.parse(p.ends_at) > now.getTime());
+/**
+ * The status a program's dates call for at `now` (L30-1), or null when it stays: an active or upcoming program whose
+ * ends_at passed closes; an upcoming one whose starts_at came opens. The daily run and the sync move programs by it
+ * (health.ts re-exports it); `isOpenAt` reads it at every request. Pure.
+ */
+export function dateStatus(file: Pick<Program, 'status' | 'starts_at' | 'ends_at'>, now: Date): 'active' | 'closed' | null {
+  const t = now.getTime();
+  if (file.status === 'closed') return null;
+  if (file.ends_at !== null && Date.parse(file.ends_at) <= t) return 'closed';
+  if (file.status === 'upcoming' && file.starts_at !== null && Date.parse(file.starts_at) <= t) return 'active';
+  return null;
+}
+
+/** What isOpenAt reads: the status and dates, and the form when it is known (an upcoming program opens only with one). */
+type Dated = Pick<Program, 'status' | 'ends_at' | 'starts_at'> & Partial<Pick<Program, 'submission_requirements'>>;
+
+/**
+ * The one open test (L23-2, L23-10, v6.1.16): whether the program takes entries at `now`, derived from the clock at read
+ * time on every surface (find, tiles, guides, the lists, /me), whatever status the daily run last wrote. It agrees with
+ * `dateStatus` both ways (fix round 1, M1): an active program is open until its ends_at; an upcoming one is open from its
+ * starts_at (dateStatus says active) when it has a form, as the run's `movedByDate` would open it; closed never. Pure.
+ */
+export const isOpenAt = (p: Dated, now: Date): boolean => {
+  const to = dateStatus(p, now);
+  if (p.status === 'active') return to === null;
+  return p.status === 'upcoming' && to === 'active' && (p.submission_requirements === undefined || p.submission_requirements.length > 0);
+};
+
+/** The status a surface shows at `now` (fix round 1, M1): closed (`closedAt`), active (`isOpenAt`), else as stored. Pure. */
+export const statusAt = (p: Dated, now: Date): 'active' | 'upcoming' | 'closed' =>
+  closedAt(p, now) ? 'closed' : isOpenAt(p, now) ? 'active' : p.status;
+
+/** Whether the program reads closed at `now`: closed, or past its ends_at before any run flipped it (L23-2). Pure. */
+export const closedAt = (p: Pick<Program, 'status' | 'ends_at' | 'starts_at'>, now: Date): boolean =>
+  p.status === 'closed' || dateStatus(p, now) === 'closed';
 
 /** JSON with sorted keys, so two equal records compare equal whatever their key order. */
 function canonical(v: unknown): string {

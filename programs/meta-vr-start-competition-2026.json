@@ -22,7 +22,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "rule", "note": "a hands-first experience for Meta VR devices, entered by a Meta VR Start member", "keywords": ["vr", "quest", "hands-first", "oculus"] }
+    { "kind": "rule", "note": "a hands-first experience for Meta VR devices, entered by a Meta VR Start member", "keywords": ["vr", "meta quest", "quest 3", "horizon os", "hands-first", "oculus"] }
   ],
   "setup": [
     "join the Meta VR Start program",
@@ -51,7 +51,7 @@
     { "key": "tagline", "label": "Submission tagline", "kind": "one_liner", "todo": "a tagline under 140 characters", "type": "text", "required": true, "max_chars": 140, "from": "project" },
     { "key": "track", "label": "Track", "kind": "other", "todo": "a track", "type": "choice", "required": true, "options": ["Entertainment", "Gaming", "Productivity"], "from": "project" },
     { "key": "division", "label": "Division", "kind": "other", "todo": "a division", "type": "choice", "required": true, "options": ["New Experience", "Adapted / Significantly Updated Experience"], "from": "project" },
-    { "key": "description", "label": "A text description covering your inspiration, how you built it, and future plans for improvement", "kind": "how_it_works", "todo": "inspiration, how you built it, plans", "need": "project story and plans", "type": "text", "required": true, "description": "Suggested length: 500 words or less.", "from": "project" },
+    { "key": "description", "label": "A text description covering your inspiration, how you built it, and future plans for improvement", "kind": "how_it_works", "todo": "inspiration, how you built it, plans", "need": "project story with plans", "type": "text", "required": true, "description": "Suggested length: 500 words or less.", "from": "project" },
     { "key": "update_summary", "label": "Summary of the new features and capabilities added during the competition window", "kind": "what_next", "type": "text", "required": false, "description": "Only for an Adapted / Significantly Updated build. Screenshots, changelogs and demo videos are recommended.", "from": "project" },
     { "key": "hand_interactions", "label": "Describe how Hand Interactions are implemented into your experience and what excites you about the future of VR", "kind": "how_it_works", "type": "text", "required": false, "from": "project" },
     { "key": "launch_date", "label": "Target launch date, if not already published", "kind": "milestones", "type": "text", "required": false, "from": "builder" },

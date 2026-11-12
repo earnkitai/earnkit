@@ -36,6 +36,7 @@
   --ek-s-step-bottom: #0A0D1C;
   --ek-s-line: rgba(255,255,255,0.07);
   --ek-s-line-hover: rgba(255,255,255,0.16);
+  --ek-s-field-line: #747C97;
   --ek-s-blue: #2D6BE0;
   --ek-s-blue-top: #1E4FD8;
   --ek-s-blue-bottom: #0E2A8A;
@@ -286,5 +287,65 @@ html {
     animation: none;
     transition: none;
     transform: none;
+  }
+}
+
+/* L27-8 (v6.1.16): the skip link, first in body; off screen until it has focus, then over the header's top left. */
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -100px;
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--ek-s-light);
+  color: var(--ek-s-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 12px;
+}
+/* The skip link's target takes focus without a ring around the whole page. */
+main#content:focus {
+  outline: none;
+}
+
+/* L27-30 (v6.1.16): a scroll region that takes focus (the docs' commands) shows the ring inside its box. */
+[data-ek-code]:focus-visible {
+  outline: 2px solid var(--ek-p-accent);
+  outline-offset: 2px;
+}
+
+/* L27-7 (v6.1.16): print is near-black on white; the nav, the install actions and the modal are left out, the logo
+   stays, links are underlined. */
+@media print {
+  html,
+  body,
+  body:has([data-ek-deep]) {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  body * {
+    background: transparent !important;
+    color: #111 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  header nav,
+  [data-install],
+  [role='dialog'],
+  .skip-link,
+  footer img,
+  footer [aria-hidden='true'] {
+    display: none !important;
+  }
+  header svg,
+  footer svg {
+    fill: #111 !important;
+    color: #111 !important;
+  }
+  a {
+    text-decoration: underline !important;
   }
 }

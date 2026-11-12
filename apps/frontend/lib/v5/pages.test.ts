@@ -8,7 +8,7 @@ import { upsertProgram } from './programs';
 import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CTA_INSTALL, EARN_ALL, EARN_EMPTY, HERO_SUB, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import { CTA_INSTALL, EARN_ALL, EARN_EMPTY, HERO_SUB, HERO_TITLE, ONE_LINE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
 import SchemaOrg from '../../app/components/ui/SchemaOrg';
 import type { Landing, Tile } from './landing';
 import Home from '../../app/page';
@@ -17,18 +17,23 @@ import Steps from '../../app/components/landing/Steps';
 import Opportunities, { Logo } from '../../app/components/landing/Opportunities';
 import ProgramsPage from '../../app/programs/page';
 import ProgramGuidePage, { generateMetadata as guideMetadata } from '../../app/programs/[id]/page';
-import DocsPage from '../../app/docs/page';
-import TermsPage from '../../app/terms/page';
+import DocsPage, { generateMetadata as docsMetadata } from '../../app/docs/page';
+import TermsPage, { generateMetadata as termsMetadata } from '../../app/terms/page';
+import { metadata as homeMetadata } from '../../app/page';
+import { metadata as programsMetadata } from '../../app/programs/page';
+import NotFoundPage, { metadata as notFoundMetadata } from '../../app/not-found';
+import { firstLine, SITE_METADATA as layoutMetadata } from '../../app/lib/meta';
 import { GET as llmsGet } from '../../app/llms.txt/route';
 import { GET as statsGet } from '../../app/api/stats/route';
 import { GET as programsGet } from '../../app/api/programs/route';
 import sitemap from '../../app/sitemap';
-import { proxy } from '../../proxy';
+import { NOT_A_ROUTE, guideGate, proxy } from '../../proxy';
 import MeView from '../../app/me/MeView';
 import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
 import { meData } from '../v6/me-view';
 import { mergeRecord } from '../v6/record';
-import { linkGet } from '../v6/link-routes';
+import { linkDocTitle, linkState } from '../v6/link-routes';
+import LinkView from '../../app/link/[code]/LinkView';
 import nextConfig from '../../next.config';
 
 // tsx compiles the components without the automatic JSX runtime, so they need React in scope.
@@ -47,7 +52,6 @@ const textOf = (markup: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
-const isNotFound = (e: unknown) => (e as { digest?: string })?.digest?.includes('404') === true;
 
 before(async () => {
   const now = new Date();
@@ -64,7 +68,7 @@ before(async () => {
 const cardLinks = (markup: string) => markup.match(/href="\/programs\/[^"]+"/g) ?? [];
 const tileOf = (i: number): Tile => ({
   id: `t-${i}`, title: `Tile ${i} Grants`, organizer: `Org ${i}`, money: i % 2 ? '$50K' : '$1M in prizes', big: i % 2 === 1,
-  when: i % 3 ? 'Closes Dec 1' : 'Rolling', kind: 'grant', status: 'active', logo: null,
+  when: i % 3 ? 'Closes Dec 1' : 'Rolling', closes_at: i % 3 ? '2026-12-01T12:00:00Z' : null, zone: 'UTC', kind: 'grant', status: 'active', logo: null,
 });
 const TILES45 = Array.from({ length: 45 }, (_, i) => tileOf(i));
 const LANDING45: Landing = { chip: '$1.7M in grants and prizes open now', tiles: TILES45, featured: TILES45.slice(0, 6), total: 45 };
@@ -76,20 +80,22 @@ test('/ shows the hero, the steps, at most six programs, the link to all of them
   for (const step of STEPS) assert.ok(t.includes(step), step);
   assert.ok(t.includes('Open now'));
   assert.ok(cardLinks(m).length <= 6, String(cardLinks(m).length));
-  assert.match(t, /See all \d+ programs/);
+  assert.ok(t.includes('See all programs.'));
   assert.ok(!m.includes('href="/programs/zz-page-soon"') && !m.includes('href="/programs/zz-page-shut"'));
   assert.ok(t.includes('Add EarnKit to your agent'));
   assert.ok(!/Leaderboard|Feed|Bench|Activity/.test(t));
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
 });
 
-test('the landing with 45 programs: six cards, then one link "See all 45 programs" to /programs (v6.2.0)', () => {
+test('the landing with 45 programs: six cards, then one link "See all programs." to /programs (v6.2.0, L25-15)', () => {
   const m = html(React.createElement(HomeView, { landing: LANDING45 }));
   const t = textOf(m);
   assert.deepEqual(cardLinks(m), TILES45.slice(0, 6).map((x) => `href="/programs/${x.id}"`));
-  assert.equal(EARN_ALL(45), 'See all 45 programs');
-  assert.match(m, /<a[^>]*href="\/programs"[^>]*>See all 45 programs<\/a>/);
-  assert.equal(t.split('See all 45 programs').length, 2);
+  // L25-15 (v6.1.16): no count on the link.
+  assert.equal(EARN_ALL, 'See all programs.');
+  assert.match(m, /<a[^>]*href="\/programs"[^>]*>See all programs\.<\/a>/);
+  assert.equal(t.split('See all programs.').length, 2);
+  assert.ok(!t.includes('See all 45'));
   assert.ok(t.includes('Closes Dec 1') && t.includes('Rolling'));
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
 });
@@ -115,7 +121,7 @@ test('the landing grid is 1, 2 then 3 columns; /programs keeps auto-fit (v6.2.0)
 
 test('no featured programs but some listed: the title, "Nothing is open right now." and the pill (v6.2.0)', () => {
   const t = textOf(html(React.createElement(Opportunities, { programs: [], total: 45 })));
-  assert.equal(t, `Open now ${EARN_EMPTY} ${EARN_ALL(45)}`);
+  assert.equal(t, `Open now ${EARN_EMPTY} ${EARN_ALL}`);
   assert.equal(EARN_EMPTY, 'Nothing is open right now.');
 });
 
@@ -157,15 +163,62 @@ test('the steps: one card, an ordered list of the three lines with serif numeral
   assert.equal(textOf(m), STEPS.map((s, i) => `${i + 1} ${s}`).join(' '));
 });
 
-test('#1 (v6.1.15): the meta description and SchemaOrg copy the hero line: it fills the forms, never applies', () => {
+test('#1 (v6.1.15), L25-2 (v6.1.16): the meta description, every share card and SchemaOrg say the one line: it fills the forms, never applies', async () => {
+  assert.equal(ONE_LINE, 'Your agent finds the grants and prizes your repo fits and fills the forms. Free.');
+  assert.equal(HERO_SUB, ONE_LINE);
   const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
-  assert.ok(layout.includes('const DESCRIPTION = `${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`;'));
-  assert.equal(`${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`, 'Add EarnKit to your agent and ask: What can I earn? Your agent finds the grants and prizes you fit and fills the forms. Free.');
+  assert.ok(layout.includes('export const metadata: Metadata = SITE_METADATA;'));
   assert.ok(!layout.includes('applies'));
+  assert.equal(layoutMetadata.description, ONE_LINE);
+  assert.equal(layoutMetadata.openGraph?.description, ONE_LINE);
+  assert.equal(homeMetadata.description, ONE_LINE);
+  assert.equal(homeMetadata.openGraph?.description, ONE_LINE);
   const ld = JSON.parse(/<script[^>]*>([\s\S]*)<\/script>/.exec(html(React.createElement(SchemaOrg)))![1]) as { description: string };
-  assert.equal(ld.description, 'Your agent finds the grants and prizes you fit and fills the forms. Free. Agents connect at https://earnkit.com/mcp.');
-  assert.ok(ld.description.startsWith(HERO_SUB));
+  assert.equal(ld.description, 'Your agent finds the grants and prizes your repo fits and fills the forms. Free. Agents connect at https://earnkit.com/mcp.');
   assert.ok(!ld.description.includes('applies'));
+});
+
+test('L25-6 (v6.1.16, Review Focus 13): every page has its own share card: og:url is the canonical, and no two og:titles match', async () => {
+  await upsertProgram(programFixture({ id: 'zz-page-card', title: 'Page Card Grants', summary: 'Up to $7,500 · rolling', max_award_usd: 7500, description: 'Grants for card makers. Second sentence here.' }), 'file', new Date());
+  const metas = [
+    ['/', homeMetadata],
+    ['/docs', docsMetadata()],
+    ['/programs', programsMetadata],
+    ['/terms', termsMetadata()],
+    ['/programs/zz-page-open', await guideMetadata(params('zz-page-open'))],
+    ['/programs/zz-page-soon', await guideMetadata(params('zz-page-soon'))],
+    ['/programs/zz-page-card', await guideMetadata(params('zz-page-card'))],
+  ] as const;
+  const titles = new Set<string>();
+  for (const [path, m] of metas) {
+    const og = m.openGraph as { url?: string; title?: string; description?: string; images?: unknown[] };
+    assert.equal(String(m.alternates?.canonical), path === '/' ? 'https://earnkit.com' : `https://earnkit.com${path}`, path);
+    assert.equal(String(og.url), String(m.alternates?.canonical), path);
+    assert.ok(og.title && og.description && (og.images ?? []).length === 1, path);
+    titles.add(String(og.title));
+  }
+  assert.equal(titles.size, metas.length);
+  assert.equal(docsMetadata().title, 'Add EarnKit to your agent · EarnKit');
+  assert.equal(programsMetadata.title, 'Programs · EarnKit');
+  assert.equal(termsMetadata().title, 'Terms · EarnKit');
+  const card = (await guideMetadata(params('zz-page-card'))).openGraph as { title?: string; description?: string };
+  assert.equal(card.title, 'Page Card Grants: Up to $7,500');
+  assert.equal(card.description, 'Grants for card makers.');
+  assert.equal(firstLine(''), ONE_LINE);
+});
+
+test('L25-21 (v6.1.16): the 404 has no canonical and one robots noindex', async () => {
+  assert.equal(layoutMetadata.alternates, undefined);
+  assert.equal(layoutMetadata.robots, undefined);
+  assert.equal((layoutMetadata.openGraph as { url?: string }).url, undefined);
+  // The unmatched-path 404: Next adds its own noindex to a 404 response, so the page sets none (one meta, checked on
+  // the built server); the unknown guide answers 200 and carries the one noindex itself.
+  assert.deepEqual(notFoundMetadata, { title: 'Not found · EarnKit' });
+  const guide = await guideMetadata(params('nope'));
+  assert.equal(guide.title, 'Not found · EarnKit');
+  assert.deepEqual(guide.robots, { index: false });
+  assert.equal('alternates' in guide, false);
+  assert.equal('openGraph' in guide, false);
 });
 
 test('no rust look remains in the landing components (v6.2.0)', () => {
@@ -200,6 +253,13 @@ test('/programs/<id> renders the guide; a missing logo file renders no image', a
   assert.ok(m.includes('>Sources:</span>'), m);
   const meta = await guideMetadata(params('zz-page-open'));
   assert.match(String(meta.title), /Page Open Grants/);
+  assert.ok(t.includes('What the form asks'));
+});
+
+test('L25-18 (v6.1.16): a guide whose form lists nothing has no "What the form asks"', async () => {
+  const t = textOf(html(await ProgramGuidePage(params('zz-page-soon'))));
+  assert.ok(t.includes('Page Soon Grants'));
+  assert.ok(!t.includes('What the form asks'), t);
 });
 
 test('/programs/<id>: an upcoming and a closed program still render', async () => {
@@ -207,13 +267,35 @@ test('/programs/<id>: an upcoming and a closed program still render', async () =
   assert.ok(textOf(html(await ProgramGuidePage(params('zz-page-shut')))).includes('Closed'));
 });
 
-test('/programs/<id> is a 404 for an unknown id and for a record that no longer parses', async () => {
-  for (const id of ['nope', 'zz-page-broken', 'Not A Slug'])
-    await assert.rejects(() => ProgramGuidePage(params(id)) as Promise<unknown>, isNotFound, id);
-  assert.match(String((await guideMetadata(params('nope'))).title), /Not found/);
+/** The page's notFound(): Next's 404 signal, thrown. */
+const throws404 = async (p: Promise<unknown>) => assert.rejects(p, (e: { digest?: string }) => e.digest === 'NEXT_HTTP_ERROR_FALLBACK;404');
+
+test('L27-3 (v6.1.16): an unknown guide id is a true 404: the proxy rewrites it to the site 404 page (lang, main, h1), the page itself calls notFound()', async () => {
+  // A notFound() thrown by the page reaches the browser as Next 16.4's empty error shell, so the proxy rewrites an id
+  // no list shows to a path no route serves; that renders app/not-found.tsx inside the layout with status 404.
+  const ids = async () => new Set(['zz-page-open']);
+  for (const id of ['nope', 'no-such-program', 'zz-page-broken']) assert.equal((await guideGate(new URL(`https://earnkit.com/programs/${id}`), ids))?.pathname, NOT_A_ROUTE, id);
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/zz-page-open'), ids), null);
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs'), ids), null);
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/zz-page-open.svg'), ids), null);
+  assert.equal(await guideGate(new URL('https://earnkit.com/docs'), ids), null);
+  // A failed read leaves the page to answer.
+  assert.equal(await guideGate(new URL('https://earnkit.com/programs/nope'), async () => { throw new Error('db down'); }), null);
+  // The page behind it: notFound() for an unknown id and a record that no longer parses (noindex through the metadata).
+  for (const id of ['nope', 'zz-page-broken', 'Not A Slug']) await throws404(ProgramGuidePage(params(id)));
+  const meta = await guideMetadata(params('nope'));
+  assert.match(String(meta.title), /Not found · EarnKit/);
+  assert.equal((meta.robots as { index?: boolean }).index, false);
+  // The 404 page: one h1 with the 404 text and the link home; the layout gives it lang and main.
+  const m = html(React.createElement(NotFoundPage));
+  assert.equal((m.match(/<h1/g) ?? []).length, 1);
+  assert.match(m, /<h1[^>]*>Nothing shipped here\.<\/h1>/);
+  assert.ok(m.includes('href="/"') && textOf(m).includes('Go home.'));
+  const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
+  assert.ok(layout.includes('<html lang="en">') && layout.includes('<main id="content"'));
 });
 
-test('/docs: the seven sections, under 460 words, the copy rules', () => {
+test('/docs: the seven sections, under 470 words, the copy rules', () => {
   const m = html(DocsPage());
   const t = textOf(m);
   for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
@@ -222,12 +304,17 @@ test('/docs: the seven sections, under 460 words, the copy rules', () => {
   const words = t.split(' ').length;
   // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
   // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (455 now).
-  assert.ok(words < 460, `docs page is ${words} words`);
+  // L27-31 (v6.1.16): the record card's ruled name-limit line adds 7 words (464 now); the controller ruled the 470 cap
+  // (Task 13 fix round 1, N1): the ruled lines added the words.
+  assert.ok(words < 470, `docs page is ${words} words`);
+  // L25-4, L25-8, L25-11 (v6.1.16): the other-agent line under the tabs, the approval line, the results promise.
+  for (const line of ['Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.', 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.', 'Results come once a day, within 24 hours,'])
+    assert.ok(t.includes(line), line);
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });
 
-test('/terms: five sections; "token" only in "launch a token"', () => {
+test('/terms: five sections; no "token" (L25-22)', () => {
   const m = html(TermsPage());
   const t = textOf(m);
   // The record page is a link, not a path (lane 5, 3.30).
@@ -235,7 +322,8 @@ test('/terms: five sections; "token" only in "launch a token"', () => {
   assert.ok(t.replaceAll(' .', '.').includes('You can edit or delete it any time on your record page.'), t);
   assert.ok(!/\s\/me\b/.test(t), t);
   for (const s of ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']) assert.ok(t.includes(s), s);
-  assert.ok(!BANNED.test(t.replaceAll('launch a token', '')), t.match(BANNED)?.[0]);
+  assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
+  assert.ok(!/\btokens?\b/i.test(t), t);
   assert.ok(!t.includes('—'));
 });
 
@@ -246,11 +334,11 @@ test('/llms.txt is plain text', async () => {
   assert.match(await res.text(), /https:\/\/earnkit\.com\/mcp/);
 });
 
-test('/api/stats answers the nine keys', async () => {
+test('/api/stats answers the eleven keys (L22-1, v6.1.16: won_other and won_without_amount)', async () => {
   const res = await statsGet();
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, number>;
-  assert.equal(Object.keys(body).length, 9);
+  assert.equal(Object.keys(body).length, 11);
   assert.ok(body.programs_open >= 2);
 });
 
@@ -273,7 +361,7 @@ test('a stale API program has no guide; a closed file program says Closed and ha
   const old = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
   await upsertProgram(programFixture({ id: 'zz-page-stale', title: 'Page Stale Grants', verified_at: old }), 'api', new Date());
   await sql()`UPDATE programs SET verified_at = ${old} WHERE id = 'zz-page-stale'`;
-  await assert.rejects(() => ProgramGuidePage(params('zz-page-stale')) as Promise<unknown>, isNotFound);
+  await throws404(ProgramGuidePage(params('zz-page-stale')));
   const m = html(await ProgramGuidePage(params('zz-page-shut')));
   assert.ok(textOf(m).includes('Closed'));
   assert.ok(!m.includes('https://example.com/apply') && !textOf(m).includes('Apply on the program site'));
@@ -302,10 +390,12 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
   const saved = process.env.EARNKIT_URL;
   process.env.EARNKIT_URL = 'https://earnkit.com';
   try {
-    for (const headers of [{}, { cookie: 'ek_me=forged' }] as Record<string, string>[]) {
+    // L23-15 (v6.1.16): a cookie whose session is gone (ended, or never one) goes to the expired line, the cookie cleared.
+    for (const [headers, to] of [[{}, '/docs#record'], [{ cookie: 'ek_me=forged' }, '/docs?expired=1#record']] as [Record<string, string>, string][]) {
       const r = await proxy(new Request('http://10.0.0.7:8080/me', { headers }) as never);
       assert.equal(r.status, 302);
-      assert.equal(r.headers.get('location'), 'https://earnkit.com/docs#record');
+      assert.equal(r.headers.get('location'), `https://earnkit.com${to}`);
+      assert.equal(/ek_me=;.*Max-Age=0/.test(r.headers.get('set-cookie') ?? ''), to.includes('expired'), to);
     }
   } finally {
     if (saved === undefined) delete process.env.EARNKIT_URL;
@@ -313,21 +403,30 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
   }
 });
 
-test('/link/nope is 404 text when sign-in is set up and 503 when not', async () => {
+test('L27-4 (v6.1.16): /link/nope is a page: 404 in the data with its h1 when sign-in is set up, 503 when not; a POST to it is 405', async () => {
   const keys = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_AUTH_SECRET'] as const;
   const saved = keys.map((k) => process.env[k]);
+  const view = (s: Awaited<ReturnType<typeof linkState>>) => html(React.createElement(LinkView, { s, code: 'nope', host: 'earnkit.com' }));
   try {
     for (const k of keys) delete process.env[k];
-    const off = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.201' } }), 'nope');
+    const off = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.201' }));
     assert.equal(off.status, 503);
+    assert.match(view(off), /<h1[^>]*>Sign-in is not set up yet\.<\/h1>/);
     Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.x', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_AUTH_SECRET: 'pages-secret-0123456789abcdef0123456789' });
-    const on = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.202' } }), 'nope');
+    const on = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.202' }));
     assert.equal(on.status, 404);
-    assert.match(on.headers.get('content-type') ?? '', /^text\/plain/);
-    assert.equal(await on.text(), 'This link is not valid.');
+    assert.match(view(on), /<h1[^>]*>This link is not one of ours\.<\/h1>/);
+    assert.equal(linkDocTitle(on.title), 'This link is not one of ours · EarnKit');
   } finally {
     keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
   }
+  // The page's old POST moved to /link/<code>/confirm (Task 5's helper: 405 with Allow).
+  const post = await proxy(new Request('https://earnkit.com/link/nope', { method: 'POST' }) as never);
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get('allow'), 'GET');
+  // A sign-in code is case-sensitive: never lower-cased (Task 10's 308 skips /link).
+  const get = await proxy(new Request('https://earnkit.com/link/AbCdEfGhIjKlMnOpQrStUv') as never);
+  assert.notEqual(get.status, 308);
 });
 
 test('no response names the framework: X-Powered-By is off (v6.1.7 S5)', () => {
@@ -350,8 +449,8 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
-  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
-  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me', 'Skip awards above (USD)', 'Your one line on traction'])
+  assert.ok(t.lastIndexOf('Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.') > t.indexOf('Your agents'));
+  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply without asking, within these limits', 'Press submit for me when I say yes.', 'Ask me first above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
   assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);
@@ -360,4 +459,46 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   const forms = m.match(/<form[^>]*>/g) ?? [];
   assert.ok(forms.length > 10 && forms.every((f) => /method="post"/.test(f) && /action="\/me\//.test(f)));
   assert.equal((m.match(/name="csrf"/g) ?? []).length, forms.length);
+});
+
+test('L21-22 (v6.1.16, fix round 1 M2): on /me with a linked agent the footer and header drop the install pill; the Ask line stays', async () => {
+  const { default: Footer } = await import('../../app/components/common/Footer');
+  const { default: Header } = await import('../../app/components/common/Header');
+  const { FOOT_CTA } = await import('./site-copy');
+  const linked = html(Footer({ linked: true }));
+  const plain = html(Footer());
+  assert.ok(textOf(linked).includes(FOOT_CTA) && textOf(plain).includes(FOOT_CTA), 'Ask your agent: What can I earn? stays');
+  assert.ok(!linked.includes(CTA_INSTALL), 'no install pill with a linked agent');
+  assert.ok(plain.includes(CTA_INSTALL), 'the pill everywhere else');
+  // The header's pill hides on a page that carries data-me-linked (MeView, with a linked agent).
+  const header = html(Header());
+  assert.ok(header.includes('[body:has([data-me-linked])_&amp;]:hidden') || header.includes('[body:has([data-me-linked])_&]:hidden'), header);
+});
+
+test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city pill first and the close in days', async () => {
+  const ends = new Date(Date.now() + 5 * 86_400_000 - 3_600_000).toISOString();
+  await upsertProgram(programFixture({ id: 'zz-page-city', title: 'Page City Hack', in_person: true, city: 'Eugene', ends_at: ends, summary: '$4,600 in prizes · 11:59 PM PT', pool_usd: 4600, reward: '$4,600 in prizes' }), 'file', new Date());
+  const m = html(await ProgramGuidePage(params('zz-page-city')));
+  const pills = m.match(/<ul aria-label="How to apply"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  const first = pills.match(/<li[^>]*>([^<]*)<\/li>/)?.[1];
+  assert.equal(first, 'In person: Eugene.', pills);
+  assert.ok(textOf(m).includes('Closes in 5 days.'), textOf(m));
+});
+
+test('L21-5 (v6.1.16): the landing, programs-list and guide caches are keyed through cacheKey, which holds the build id', async () => {
+  const src = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
+  // The landing and /programs share the landing read; the guide ids and each guide have their own.
+  // L23-2 (v6.1.16): the guide's row is cached; its page is derived from the clock at render.
+  for (const key of ['landing-v6.4', 'guide-ids-v6', 'guide-row-v6.1.16']) assert.match(src, new RegExp(`cachedRead\\([^\\n]*\\['${key.replaceAll('.', '\\.')}'\\]\\)`), key);
+  assert.ok(!/unstable_cache/.test(src), 'no cache made around cacheKey');
+  const cached = readFileSync(join(import.meta.dirname, '../../app/lib/cached.ts'), 'utf8');
+  assert.match(cached, /unstable_cache\(read, cacheKey\(key\),/);
+  const { BUILD_ID, cacheKey } = await import('../../app/lib/cached');
+  assert.equal(cacheKey(['guide-row-v6.1.16']).at(-1), BUILD_ID);
+  // No other page cache bypasses it.
+  for (const dir of ['app', 'app/lib', 'app/programs', 'app/programs/[id]']) {
+    const d = join(import.meta.dirname, '../..', dir);
+    for (const f of readdirSync(d).filter((x) => /\.tsx?$/.test(x) && x !== 'cached.ts'))
+      assert.ok(!/unstable_cache\(/.test(readFileSync(join(d, f), 'utf8')), `${dir}/${f}`);
+  }
 });

@@ -31,7 +31,7 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
 });
 
 test('closes: a date, rolling, not open yet, closed', () => {
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' }))).closes, 'Closes Dec 1');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' }))).closes, 'Closes Dec 1.');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-b' }))).closes, 'Rolling');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-c', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] }))).closes, 'Not open yet');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).closes, 'Closed');
@@ -127,7 +127,7 @@ test('#9 (v6.1.15): every eligibility kind as a sentence; a date in plain words;
   })));
   assert.deepEqual(g.eligibility, [
     'A live product.', 'On Base or Tempo.', 'A contract on Base.', 'Base Builder Codes in the app.', 'Real users.',
-    'New work started after 30 Oct 2026.', 'A demo video.', 'In person.', 'Uses Smart Wallet.',
+    'New work started after Oct 30.', 'A demo video.', 'In person.', 'Uses Smart Wallet.',
   ]);
   const f = guideText(rowOf(programFixture({
     id: 'a-s',
@@ -210,5 +210,114 @@ test('#9 (v6.1.15): every guide string is a sentence with no path and no ISO dat
       assert.doesNotMatch(t, /(^|\s)\/\./, `${row.id} ${k}: "${t}"`);
       assert.doesNotMatch(t, /\d{4}-\d{2}-\d{2}/, `${row.id} ${k}: "${t}"`);
     }
+  }
+});
+
+test('Review Focus 10 (v6.1.16, L21-2): every closed program reads "Closed on {date}." and no open-window sentence', async () => {
+  const { OPEN_WINDOW } = await import('./program-checks');
+  const { closedOn } = await import('./guide');
+  const NOW = new Date('2026-11-11T12:00:00Z');
+  let closed = 0;
+  for (const row of catalog()) {
+    const p = row.file;
+    const g = guideText(row, NOW);
+    const isClosed = p.status === 'closed' || (p.ends_at !== null && Date.parse(p.ends_at) <= NOW.getTime());
+    if (!isClosed) {
+      assert.equal(g.closed_on, null, row.id);
+      continue;
+    }
+    closed++;
+    // L23-11 (v6.1.16): the one date formatter; the year only when it is not this one.
+    assert.match(g.closed_on ?? '', /^Closed on [A-Z][a-z]{2} \d{1,2}(, \d{4})?\.$/, row.id);
+    assert.equal(g.closes, 'Closed', row.id);
+    for (const t of [g.description, ...g.rules]) assert.doesNotMatch(t, OPEN_WINDOW, `${row.id}: ${t}`);
+  }
+  assert.ok(closed >= 3, `${closed}`);
+  assert.equal(guideText(real('a16z-speedrun'), NOW).closed_on, 'Closed on Nov 1.');
+  assert.equal(guideText(real('a16z-speedrun'), new Date('2027-01-05T00:00:00Z')).closed_on, 'Closed on Nov 1, 2026.');
+  const a16z = guideText(real('a16z-speedrun'), NOW);
+  for (const t of [a16z.description, ...a16z.rules]) assert.doesNotMatch(t, /are open/i);
+  assert.equal(guideText(real('goose-grant-program'), NOW).closed_on, 'Closed on Nov 11.');
+  assert.equal(guideText(real('monad-blitz-oregon'), NOW).closed_on, 'Closed on Nov 10.');
+  // A date-closed program whose file still reads active and open: the guide drops the open-window sentences.
+  const dated = rowOf(programFixture({
+    id: 'a-open-window', ends_at: '2026-11-01T23:59:00-07:00', tz: 'America/Los_Angeles',
+    description: 'A startup program. Applications are open until Nov 1. Founders meet weekly.',
+    rules: ['Apply now on the portal.', 'Applications are open through November 1. Results come in December.', 'One entry per team.'],
+  }));
+  const g = guideText(dated, NOW);
+  assert.equal(g.closed_on, 'Closed on Nov 1.');
+  assert.equal(g.description, 'A startup program. Founders meet weekly.');
+  assert.deepEqual(g.rules, ['Results come in December.', 'One entry per team.']);
+  assert.equal(closedOn(dated.file, new Date('2026-10-01T00:00:00Z')), null);
+  const open = guideText(dated, new Date('2026-10-01T00:00:00Z'));
+  assert.equal(open.description, dated.file.description);
+  assert.deepEqual(open.rules, dated.file.rules);
+  assert.equal(closedOn(programFixture({ id: 'a-up', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] }), NOW), null);
+});
+
+test('lane 20 audit (v6.1.16): circle money in full figures; Sovereign Tech funds work from EUR 50,000', () => {
+  const NOW = new Date('2026-11-11T12:00:00Z');
+  const circle = real('circle-developer-grants');
+  assert.match(guideText(circle, NOW).money, /^\$10,000 to \$100,000\b/);
+  assert.equal(replyMoney(circle.file), '$10,000 to $100,000 USDC grants');
+  assert.equal(circle.file.min_award_usd, 10000);
+  assert.equal(circle.file.min_tier, 'building');
+  assert.equal(circle.file.tag, undefined);
+  assert.ok(!circle.file.rules.some((r) => /audit funding/i.test(r)));
+  const sovereign = real('sovereign-tech-fund');
+  assert.equal(landingTiles([sovereign], NOW)[0].money, 'Funds work from EUR 50,000');
+  assert.equal(replyMoney(sovereign.file), 'funds work from EUR 50,000');
+});
+
+test('L21-24, L23-9 (v6.1.16): the guide closes through the one closes wording, by calendar day in the program zone', async () => {
+  const { closesSentence } = await import('./guide');
+  const p = programFixture({ id: 'c14', ends_at: '2026-11-30T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' });
+  assert.equal(closesSentence(p, new Date('2026-11-30T19:59:00Z')), 'Closes in under an hour.');
+  assert.equal(closesSentence(p, new Date('2026-11-30T08:00:00Z')), 'Closes today.');
+  assert.equal(closesSentence(p, new Date('2026-11-29T20:00:00Z')), 'Closes tomorrow.');
+  assert.equal(closesSentence(p, new Date('2026-11-25T20:00:00Z')), 'Closes in 5 days.');
+  assert.equal(closesSentence(p, new Date('2026-11-25T08:00:00Z')), 'Closes in 5 days.');
+  assert.equal(closesSentence(p, new Date('2026-11-01T00:00:00Z')), 'Closes Nov 30.');
+  assert.equal(closesSentence(programFixture({ id: 'c14r' }), new Date('2026-11-01T00:00:00Z')), 'Rolling');
+  assert.equal(guideText(rowOf(p), new Date('2026-11-25T20:00:00Z')).closes, 'Closes in 5 days.');
+  assert.equal(guideText(rowOf(p), new Date('2026-11-30T19:59:00Z')).closes, 'Closes in under an hour.');
+});
+
+test('L21-3 (v6.1.16): the guide meta reads the page close, lower-cased, one full stop', async () => {
+  const { guideMeta } = await import('./guide');
+  assert.equal(guideMeta({ money: '$67,500 in prizes', closes: 'Closes Nov 12', closed_on: null }), '$67,500 in prizes, closes Nov 12. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: '$67,500 in prizes', closes: 'Closes tomorrow.', closed_on: null }), '$67,500 in prizes, closes tomorrow. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Rolling', closed_on: null }), 'Up to $5,000, rolling. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Closed', closed_on: 'Closed on Nov 1.' }), 'Up to $5,000, closed. Who can apply, what the form asks and the rules.');
+});
+
+test('L21-25 (v6.1.16): the guide money equals the find reply money for every catalog program, figures included', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const row = real(f.replace(/\.json$/, ''));
+    const g = guideText(row, new Date('2026-11-11T12:00:00Z'));
+    assert.equal(moneyAt(g.money, 'mid'), replyMoney(row.file), f);
+    assert.deepEqual(g.money.match(/[\d,.]+/g), replyMoney(row.file).match(/[\d,.]+/g), f);
+  }
+});
+
+test('L21-23, L21-16 (v6.1.16): Base and PayPal guide fragments end in a full stop; in-person pills name the city', async () => {
+  const { guidePills } = await import('./guide');
+  const now = new Date('2026-11-11T12:00:00Z');
+  for (const id of ['base-builder-grants', 'paypal-ai-hackathon']) {
+    const g = guideText(real(id), now);
+    const lines = [g.description, ...g.eligibility, ...guidePills(g), ...(g.focus ? [g.focus] : []), ...(g.best_bet ? [g.best_bet] : []), ...g.past_rounds, ...g.fields.map((x) => x.todo)];
+    for (const l of lines) assert.match(l, /[.?!]$/, `${id}: ${l}`);
+  }
+  const alliance = guideText(real('alliance-all19'), now);
+  assert.equal(guidePills(alliance)[0], 'In person: New York City.');
+  assert.equal(guidePills(guideText(rowOf(programFixture({ id: 'ip-none', in_person: true })), now))[0], 'In person.');
+  assert.ok(!guidePills(guideText(real('base-builder-grants'), now)).some((t) => t.startsWith('In person')));
+  // Every in-person catalog file names its city (programs:check refuses one without).
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const row = real(f.replace(/\.json$/, ''));
+    if (row.file.in_person) assert.match(guidePills(guideText(row, now))[0], /^In person: .+\.$/, f);
   }
 });

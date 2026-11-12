@@ -2,10 +2,10 @@
   "id": "alliance-all19",
   "organizer": "Alliance",
   "title": "Alliance ALL19",
-  "description": "Alliance's crypto accelerator. ALL19 starts on January 11, 2027: two weeks of in-person onboarding in New York City, an eight-week remote program, then Demo Day in New York City. Alliance invests $400K upon admission and $400K follow-on at seed.",
+  "description": "Alliance's crypto accelerator. ALL19 starts on January 11, 2027: two weeks of in-person onboarding in New York City, an eight-week remote program, then Demo Day in New York City. Alliance invests $400,000 upon admission and $400,000 follow-on at seed.",
   "source_url": "https://alliance.xyz",
   "submission_url": "https://alliance.xyz/apply",
-  "reward": "$400K upon admission + $400K follow-on at seed, at a $4M post-money valuation via SAFE with a 1:1 side letter for any future network asset",
+  "reward": "$400,000 upon admission + $400,000 follow-on at seed, at a $4,000,000 post-money valuation via SAFE with a 1:1 side letter for any future network asset",
   "summary": "$400,000 at admission · regular deadline Nov 18",
   "max_award_usd": 400000,
   "starts_at": null,
@@ -34,5 +34,6 @@
   "submission_requirements": [
     { "key": "email", "label": "Email (1st Founder)", "kind": "contact", "todo": "the first founder's email", "type": "email", "required": true, "description": "Primary POC for the Alliance application. Application updates will be sent to this address. The rest of the application follows; its questions are not public.", "from": "builder" }
   ],
-  "in_person": true
+  "in_person": true,
+  "city": "New York City"
 }

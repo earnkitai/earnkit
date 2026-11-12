@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { getProgram, isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
+import { closedAt, dateStatus, foldId, getProgram, isOpenAt, isOpenAt as isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 
 after(() => sql().end());
@@ -90,12 +90,32 @@ test('the synced program files are in the table', async () => {
   assert.equal(row?.file.form?.platform, 'google');
 });
 
-test('isOpen: active and not past ends_at', () => {
+test('L23-2 (v6.1.16): isOpenAt is the one open test: active and not past ends_at, whatever status the run last wrote; it agrees with dateStatus', () => {
   const p = programFixture({ id: 't-isopen', ends_at: '2026-11-05T00:00:00Z' });
-  assert.equal(isOpen(p, NOW), true);
-  assert.equal(isOpen(p, new Date('2026-11-06T00:00:00Z')), false);
-  assert.equal(isOpen({ ...p, status: 'closed' }, NOW), false);
-  assert.equal(isOpen({ ...p, ends_at: null }, NOW), true);
+  assert.equal(isOpenAt(p, NOW), true);
+  assert.equal(isOpenAt(p, new Date('2026-11-06T00:00:00Z')), false);
+  assert.equal(isOpenAt({ ...p, status: 'closed' }, NOW), false);
+  // Fix round 1 (M1): an upcoming program is open from its start, as dateStatus opens it; not before.
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-01T00:00:00Z' }, NOW), true);
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-04T12:01:00Z' }, NOW), false);
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: null }, NOW), false);
+  assert.equal(isOpenAt({ ...p, ends_at: null }, NOW), true);
+  // An active program one minute past its close, before any run: closed, as the run would write it.
+  const past = { ...p, ends_at: new Date(NOW.getTime() - 60_000).toISOString() };
+  assert.equal(isOpenAt(past, NOW), false);
+  assert.equal(closedAt(past, NOW), true);
+  assert.equal(dateStatus(past, NOW), 'closed');
+  for (const at of ['2026-11-04T00:00:00Z', '2026-11-05T00:00:00Z', '2026-11-06T00:00:00Z'])
+    assert.equal(isOpenAt(p, new Date(at)), dateStatus(p, new Date(at)) === null, at);
+});
+
+test('lane 20 audit (v6.1.16): paypal-ai-hackathon closes at 2026-11-12 12:00 PT, on time', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const p = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/paypal-ai-hackathon.json'), 'utf8'));
+  assert.equal(Date.parse(p.ends_at), Date.parse('2026-11-12T20:00:00Z'));
+  assert.equal(isOpen(p, new Date('2026-11-12T19:59:59Z')), true);
+  assert.equal(isOpen(p, new Date('2026-11-12T20:00:01Z')), false);
 });
 
 test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any case, spaces and punctuation ignored', async () => {
@@ -120,14 +140,15 @@ test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any
   assert.deepEqual(await one('circle'), { id: null, line: 'Did you mean Circle Developer Grants or Arc Builders Fund?' });
   // Under four characters or part of an organizer's name: none (a bracketed organizer word of four or more names its
   // program, L12-5, v6.1.14: below).
-  for (const name of ['aws', 'fi', 'kir']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
+  for (const name of ['aws', 'fi', 'kir']) assert.deepEqual(await one(name), { id: null, line: 'Which program do you mean?' }, name);
   // Several: the first two by rank (open first, then the larger award, the sooner close), as a question.
   assert.deepEqual(await one('Base'), { id: null, line: "Did you mean Base Builder Grant Program or Base Ecosystem Fund?" });
-  assert.deepEqual(await one('monad'), { id: null, line: "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
-  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
+  // Lane 20 (v6.1.16): Monad Blitz Oregon is closed, so the open ones lead.
+  assert.deepEqual(await one('monad'), { id: null, line: "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Nitro?" });
+  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Blitz Oregon?" });
   assert.deepEqual(await one('uniswap'), { id: null, line: "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?" });
   // None.
-  for (const name of ['qqq-unknown', '', '  ', '?!']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
+  for (const name of ['qqq-unknown', '', '  ', '?!']) assert.deepEqual(await one(name), { id: null, line: 'Which program do you mean?' }, name);
 });
 
 test('L12-3, L12-5 (v6.1.14): every word of a lookup names one program, organizer words in brackets included; a word naming none is no program', async () => {
@@ -150,10 +171,40 @@ test('L12-3, L12-5 (v6.1.14): every word of a lookup names one program, organize
   for (const name of ['arc grants', 'arc fund'])
     assert.deepEqual(await one(name), { id: null, line: 'Did you mean Arc Builders Fund or Arc Microgrants?' }, name);
   // A short word never names a bracketed organizer, even beside another word.
-  assert.deepEqual(await one('aws grants'), { id: null, line: "I don't know that program." });
+  assert.deepEqual(await one('aws grants'), { id: null, line: 'Which program do you mean?' });
   // T7-F4: only stopwords, or only "foundation", is no program.
   for (const name of ['foundation', 'grants', 'the fund', 'grant program 2027', 'Foundation Grants'])
-    assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
+    assert.deepEqual(await one(name), { id: null, line: 'Which program do you mean?' }, name);
   for (const name of ['l12-nope', 'base-nope', 'monad-xyz', 'Combinator Labs', 'paypal qqq', '2027'])
-    assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
+    assert.deepEqual(await one(name), { id: null, line: 'Which program do you mean?' }, name);
+});
+
+test('L31-4 (v6.1.16 Task 17): program ids are matched after NFKC folding; the row names the real id', async () => {
+  assert.equal(foldId(' ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ '), 'base-builder-grants');
+  assert.equal(foldId('Base-Builder-Grants'), 'base-builder-grants');
+  assert.equal((await getProgram('ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ'))?.id, 'base-builder-grants');
+  const { row } = await programByName('ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ', NOW);
+  assert.equal(row?.id, 'base-builder-grants');
+  // NFD accents are not compatibility forms: no match (lane 31's t-7 stays).
+  assert.equal(await getProgram('cafe\u0301-grant'), null);
+});
+
+test('L24-3 (v6.1.16 Task 11): the strict lookup takes an id, an exact title or title words with one uncommon word', async () => {
+  const { COMMON_WORDS, programByName, upsertProgram: up } = await import('./programs');
+  const { programFixture: fx } = await import('./fixtures/program');
+  const now = new Date('2026-11-04T12:00:00Z');
+  await up(fx({ id: 'l24p-second', title: 'Second Grant' }), 'file', now);
+  assert.equal(COMMON_WORDS.size, 14 + 26 + 23);
+  for (const w of ['next', 'build', 'start', 'first', 'open', 'apply'])
+    assert.equal((await programByName(w, now, { strict: true })).row, null, w);
+  assert.equal((await programByName('Second Grant', now, { strict: true })).row?.id, 'l24p-second');
+  assert.equal((await programByName('paypal', now, { strict: true })).row?.id, 'paypal-ai-hackathon');
+  // v6.1.16 Task 15 (controller's ruling): initials count as a title word in the strict lookup; common words still do not.
+  // Fix round 1b: initials in any case; an English word (COMMON_WORDS) never.
+  assert.equal((await programByName('YC', now, { strict: true })).row?.id, 'y-combinator');
+  assert.equal((await programByName('yc', now, { strict: true })).row?.id, 'y-combinator');
+  for (const w of ['as', 'am', 'mm', 'AS']) assert.equal((await programByName(w, now, { strict: true })).row, null, w);
+  assert.equal((await programByName('ai', now, { strict: true })).row, null);
+  // find's lookup is unchanged.
+  assert.equal((await programByName('yc', now)).row?.id, 'y-combinator');
 });

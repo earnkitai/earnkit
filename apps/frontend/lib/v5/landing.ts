@@ -5,11 +5,11 @@
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { closeDay } from './deadline';
-import { NOT_OPEN_YET, ROLLING, heroChipText, programKind } from './site-copy';
+import { closeDay, closesLead, programZone } from './deadline';
+import { CLOSED, NOT_OPEN_YET, ROLLING, heroChipText, programKind } from './site-copy';
 import { moneyOf } from './programs-read';
 import type { Program } from './program-file';
-import { listListedPrograms, type ProgramRow } from './programs';
+import { closedAt, isOpenAt, listListedPrograms, statusAt, type ProgramRow } from './programs';
 import { readStats, type Stats } from './stats';
 
 export type Tile = {
@@ -20,8 +20,13 @@ export type Tile = {
   money: string;
   /** True when the money is one short figure ("$5K", or a range's "Up to $900K"), shown large. */
   big: boolean;
-  /** "Closes Nov 18", "Rolling" or "Not open yet". */
+  /** "Closes Nov 18", "Closes in under an hour" (closesWords, L23-22), "Rolling", "Not open yet" or "Closed" (L23-2). */
   when: string;
+  /** The close (ISO) when it has a day, else null (rolling); with `zone`, what a render re-derives `when` from. */
+  closes_at: string | null;
+  zone: string;
+  /** Fix round 1 (M1): an upcoming program's start (ISO) when it opens by date (it has a form), else null. */
+  opens_at?: string | null;
   kind: string;
   status: 'active' | 'upcoming';
   /** A file under public/, or null (no logo, or the file is missing). */
@@ -66,25 +71,50 @@ export function byRelevance(a: Program, b: Program): number {
  *  above the figure. */
 const BIG = /^(Up to )?\$[\d,]+$/;
 
-function tileOf(p: Program): Tile {
+/** A tile's close words at `now` (L23-2, L23-22, v6.1.16): Closed once past, the closes wording (`closesLead`), Rolling
+ *  or Not open yet. Pure. */
+function whenOf(t: Pick<Tile, 'status' | 'closes_at' | 'zone'> & Partial<Pick<Tile, 'opens_at'>>, now: Date): string {
+  if (t.closes_at !== null && Date.parse(t.closes_at) <= now.getTime()) return CLOSED;
+  if (statusOf(t, now) === 'upcoming') return NOT_OPEN_YET;
+  return t.closes_at ? closesLead(t.closes_at, now, t.zone) : ROLLING;
+}
+
+/** A tile's status at `now` (fix round 1, M1): an upcoming tile whose start has passed reads active. Pure. */
+const statusOf = (t: Pick<Tile, 'status'> & Partial<Pick<Tile, 'opens_at'>>, now: Date): Tile['status'] =>
+  t.status === 'upcoming' && t.opens_at && Date.parse(t.opens_at) <= now.getTime() ? 'active' : t.status;
+
+function tileOf(p: Program, now: Date): Tile {
   const money = moneyOf(p);
-  const day = closeDay(p);
+  const closes_at = closeDay(p, now) && p.ends_at ? new Date(p.ends_at).toISOString() : null;
+  const zone = programZone(p);
+  const status = statusAt(p, now) === 'upcoming' ? 'upcoming' : 'active';
+  const opens_at = status === 'upcoming' && p.starts_at && p.submission_requirements.length > 0 ? new Date(p.starts_at).toISOString() : null;
   return {
     id: p.id,
     title: p.title,
     organizer: p.organizer.trim() || p.title,
     money,
     big: BIG.test(money),
-    when: p.status === 'upcoming' ? NOT_OPEN_YET : day ? `Closes ${day}` : ROLLING,
+    when: closedAt(p, now) ? CLOSED : whenOf({ status, closes_at, zone }, now),
+    closes_at,
+    zone,
+    opens_at,
     kind: programKind(p),
-    status: p.status === 'upcoming' ? 'upcoming' : 'active',
+    status,
     logo: logoOf(p),
   };
 }
 
 /** One tile per program, in the list's order. Pure apart from the logo file check. */
-export function landingTiles(rows: ProgramRow[], _now: Date): Tile[] {
-  return rows.map((r) => r.file).sort(byRelevance).map(tileOf);
+export function landingTiles(rows: ProgramRow[], now: Date): Tile[] {
+  return rows.map((r) => r.file).sort(byRelevance).map((p) => tileOf(p, now));
+}
+
+/** The cached landing at `now` (L23-2, v6.1.16): every tile's close words re-derived from the clock at render, so a tile
+ *  cached open reads Closed once its close passes. Pure. */
+export function landingAt(l: Landing, now: Date): Landing {
+  const at = (t: Tile): Tile => ({ ...t, status: statusOf(t, now), when: t.when === CLOSED ? CLOSED : whenOf(t, now) });
+  return { ...l, tiles: l.tiles.map(at), featured: l.featured.map(at) };
 }
 
 const FEATURED = 6;
@@ -113,13 +143,13 @@ export const orgKey = (name: string): string => {
 export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
   const size = (p: Program) => Math.max(p.max_award_usd ?? 0, p.pool_usd ?? 0);
   const soonAt = (p: Program): number | null => {
-    if (size(p) < SOON_MIN_USD || !closeDay(p)) return null;
+    if (size(p) < SOON_MIN_USD || !closeDay(p, now)) return null;
     const left = Date.parse(p.ends_at!) - now.getTime();
     return left >= 0 && left <= SOON_MS ? left : null;
   };
   const ranked = rows
     .map((r) => r.file)
-    .filter((p) => p.status === 'active' && !p.investment && size(p) >= MIN_USD)
+    .filter((p) => isOpenAt(p, now) && !p.investment && size(p) >= MIN_USD)
     .map((p) => ({ p, soon: soonAt(p), size: size(p) }))
     .sort(
       (a, b) =>
@@ -133,7 +163,7 @@ export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
   let hackathons = 0;
   for (const { p } of ranked) {
     const org = orgKey(p.organizer.trim() || p.title);
-    const tile = tileOf(p);
+    const tile = tileOf(p, now);
     const hack = tile.kind === 'hackathon';
     if (seen.has(org) || (hack && hackathons >= MAX_HACKATHONS)) continue;
     seen.add(org);

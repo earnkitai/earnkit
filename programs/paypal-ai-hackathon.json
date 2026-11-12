@@ -42,7 +42,7 @@
     "Judging runs December 1 to 15, 2026; winners are announced on or around December 21, 2026."
   ],
   "submission_requirements": [
-    { "key": "description", "label": "Text description - explain your project's features and functionality", "kind": "how_it_works", "todo": "a features and functionality description", "type": "text", "required": true, "from": "project" },
+    { "key": "description", "label": "Text description - explain your project's features and functionality", "kind": "how_it_works", "todo": "a features and functionality description", "need": "feature description", "type": "text", "required": true, "from": "project" },
     { "key": "functional_demo", "label": "Functional demo", "kind": "links", "todo": "a hosted demo or run instructions", "type": "url", "required": true, "project_field": "live_url", "description": "A hosted demo URL, or clear and complete setup and run instructions in the code repository.", "from": "project" },
     { "key": "tools", "label": "Tools - identify which tools (model or AI service) were used and explain how the tools were used in your project", "kind": "how_it_works", "todo": "the AI tools used and how", "need": "AI tool usage", "type": "text", "required": true, "from": "project" },
     { "key": "repo_url", "label": "Public code repository on GitHub, Gitlab or Bitbucket", "kind": "links", "todo": "a public repo with a license file", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },

@@ -287,7 +287,7 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
 });
 
-test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code is one step, code in a repo, from an idea or an empty repo; a repo with code or a live link has none', async () => {
+test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code is one step, code in a repo, from an idea or an empty repo; a repo with code has none, a live link alone does not (L16-8)', async () => {
   const futo = fromFile('futo-microgrants');
   const parsed = parseProject({ name: 'Rent Split', description: 'An idea: an app that splits rent.' });
   assert.ok(parsed.ok);
@@ -302,7 +302,8 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   assert.equal(evaluate(futo, idea, new Set(['repo']), NOW).gaps[0].kind, 'repo');
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
-  assert.ok(!evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  // L16-8 (v6.1.16): a live site never clears it; only a repo with code does.
+  assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a repo');
   // Hackathons are exempt.
   const qnx = fromFile('qnx-global-hackathon-2026');
   assert.ok(!evaluate(qnx, idea, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
@@ -326,8 +327,9 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  // L16-8 (v6.1.16): a live link alone keeps the question, and the grant for existing code asks for the code too.
   const live = { ...idea, live_url: 'https://rentsplit.app' };
-  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a repo', 'tell me if real people use it']);
   const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
   assert.ok(pp.ok);
   const priv = await repoFacts(pp.project, { now: NOW });
@@ -337,7 +339,8 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
   assert.equal(evaluate(usersOnly, { ...priv, users: true }, new Set(), NOW).status, 'ready');
   assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'gap');
-  assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
+  // L16-8 (v6.1.16): an empty repo with a live site still has no code in a repo.
+  assert.deepEqual(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).gaps.map((g) => g.what), ['code in a repo']);
   // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
   // failed read) does not exist for the question.
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
@@ -377,10 +380,13 @@ test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names
   assert.equal(unlikely(vr, idea, gapsOf(idea)), true);
   for (const f of [
     facts({ name: 'Rent Split', description: 'A hands-first game for Meta Quest 3' }),
-    facts({ name: 'QUEST runner', description: 'x' }),
+    facts({ name: 'META QUEST runner', description: 'x' }),
     facts({ name: 'x', description: 'y', readme_excerpt: 'Built for Oculus headsets.' }),
     facts({ name: 'x', description: 'y', topics: ['vr', 'unity'] }),
   ]) assert.equal(unlikely(vr, f, gapsOf(f)), false, f.description + (f.readme_excerpt ?? ''));
+  // L1g-1 (v6.1.16): a multi-word keyword matches only as a whole phrase: a bare "Quest" names no Meta VR.
+  const runner = facts({ name: 'QUEST runner', description: 'x' });
+  assert.equal(unlikely(vr, runner, gapsOf(runner)), true);
   // Whole words only: "Conquest" and "vram" name no keyword.
   const near = facts({ name: 'Conquest', description: 'A vram profiler' });
   assert.equal(unlikely(vr, near, gapsOf(near)), true);
@@ -430,7 +436,7 @@ test('C3 (v6.1.13): keywords inside links, code blocks and inline code are not t
     assert.equal(keywordHit(vr, f, gapsOf(f)), false);
   }
   // Prose next to a link still counts.
-  const prose = facts({ name: 'Log viewer', description: 'A Quest game. See https://x.example/docs' });
+  const prose = facts({ name: 'Log viewer', description: 'A Meta Quest game. See https://x.example/docs' });
   assert.equal(keywordHit(vr, prose, gapsOf(prose)), true);
   // The README excerpt drops inline code spans, so a package name in backticks is never read as prose.
   assert.equal(readmeExcerpt('Reads logs. Install with `npm i quest-cli` today.'), 'Reads logs. Install with today.');
@@ -452,7 +458,7 @@ test('L12-2 (v6.1.14): identifiers in prose (package names, paths, dotted or mix
     assert.equal(unlikely(vr, f, evaluate(vr, f, new Set(), NOW).gaps), true, description);
   }
   // The words themselves in prose still count, punctuation around them a boundary.
-  for (const description of ['A Quest game for hands.', 'A game for Meta (Quest) headsets.', 'A hands-first demo.'])
+  for (const description of ['A Meta Quest game for hands.', 'A game for (Meta Quest) headsets.', 'A hands-first demo.'])
     assert.equal(hitOf(vr, facts({ name: 'Game', description })), true, description);
   // An identifier-like token that is itself a keyword, or a word of one, stays: mini-app, web3, team1, v4 hook.
   const fc = fromFile('farcaster-developer-rewards');
@@ -468,7 +474,7 @@ test('L12-2 (v6.1.14): identifiers in prose (package names, paths, dotted or mix
   for (const description of ['Install quest-cli today.', 'See src/quest for more.'])
     assert.equal(hitOf(vr, facts({ name: 'Log Viewer', description })), false, description);
   // Topics are tags, not prose: a hyphenated topic still names its words.
-  assert.equal(hitOf(vr, facts({ name: 'Game', description: 'A game.', topics: ['quest-game'] })), true);
+  assert.equal(hitOf(vr, facts({ name: 'Game', description: 'A game.', topics: ['meta-quest-game'] })), true);
 });
 
 test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary, a hyphen as a space, and a phrase only whole', () => {
@@ -562,4 +568,37 @@ test('M1 (v6.1.14 fix round 1): a repo the read finds private is private, never 
   const c = await repoFacts(pp(pub.repo), { gh: turned('nextjs-dashboard').fetch, now: later });
   assert.deepEqual([c.private, c.notes], [true, ['private']]);
   assert.notEqual(evaluate(floss, c, new Set(), later).status, 'ready');
+});
+
+test('L1g-1 (v6.1.16, Review Focus 1): Meta VR keywords are phrases; "Quest Runner" sees no Meta VR in either list, "Meta Quest 3" hits', async () => {
+  const vr = fromFile('meta-vr-start-competition-2026');
+  const keywords = eligibilityOf(vr.file).filter((i) => i.kind === 'rule').flatMap((i) => i.keywords ?? []);
+  assert.deepEqual(keywords, ['vr', 'meta quest', 'quest 3', 'horizon os', 'hands-first', 'oculus']);
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...base, ...over });
+  const gapsOf = (f: RepoFacts) => evaluate(vr, f, new Set(), NOW).gaps;
+  const quest = facts({ name: 'Quest Runner', description: 'Command line runner for team quests' });
+  assert.equal(unlikely(vr, quest, gapsOf(quest)), true);
+  assert.equal(keywordHit(vr, quest, gapsOf(quest)), false);
+  for (const description of ['Built for Meta Quest 3', 'A game on Quest 3.', 'An app for Horizon OS.']) {
+    const f = facts({ name: 'Game', description });
+    assert.equal(keywordHit(vr, f, gapsOf(f)), true, description);
+  }
+});
+
+test('lane 20 audit (v6.1.16): narrowed keywords miss look-alike projects and still hit the real ones', () => {
+  const hit = (slug: string, text: string) => eligibilityKeywords(slug).some((k) => names(text, k));
+  assert.equal(hit('colosseum-eternal', 'A crypto library for elliptic curves'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'an Android photo app'), false);
+  assert.equal(hit('avalanche-team1-mini-grants', 'a subnet calculator'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'a Solana Mobile dApp Store app'), true);
+  assert.equal(hit('avalanche-team1-mini-grants', 'an Avalanche L1'), true);
+  assert.equal(hit('colosseum-eternal', 'a crypto wallet'), true);
+  // Fix round 1 (v6.1.16): the Solana Mobile device names only with Solana; the crypto phrases hit Colosseum.
+  assert.equal(hit('solana-mobile-builder-grants', 'uses redux-saga for side effects'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'a seeker profile'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'an app for the Solana Seeker'), true);
+  for (const t of ['a crypto app that splits rent', 'a DeFi lending pool', 'an NFT marketplace']) assert.equal(hit('colosseum-eternal', t), true, t);
+  // OTF keeps "privacy": it is the program's target.
+  assert.ok(eligibilityKeywords('otf-internet-freedom-fund').includes('privacy'));
 });

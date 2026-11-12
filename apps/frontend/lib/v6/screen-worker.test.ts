@@ -34,7 +34,8 @@ const queue = async (programId: string, applicants: Parameters<typeof createJob>
   await upsertProgram(programFixture({ id: programId }), 'file', NOW);
   // The job belongs to the program; builder 1 reads it as one of its reviewers (L15-12).
   await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES (${programId}, 1) ON CONFLICT DO NOTHING`;
-  return createJob({ programId, builderId: 1, installationId: 1, applicants, now });
+  const j = await createJob({ programId, builderId: 1, installationId: 1, applicants, now });
+  return { ...j, id: j.id! };
 };
 
 test('the batch sizes and the trigger cap', () => {
@@ -58,7 +59,7 @@ test('workQueue reads a two-applicant job over the recorded fakes: tiers, becaus
       },
     },
   });
-  assert.deepEqual(out, { read: 2, jobs_finished: [j.id] });
+  assert.deepEqual(out, { read: 2, left: 0, jobs_finished: [j.id] });
   const rows = await sql()`SELECT * FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
   const bad = rows.find((r) => r.ref === 'bad')!;
   const or = rows.find((r) => r.ref === 'or')!;
@@ -82,7 +83,7 @@ test('a named job is the only one worked; the plain run takes the oldest', async
   const seen: string[] = [];
   const fake = async (s: Subject): Promise<Evidence> => (seen.push(s.live_url!), evidence({ live: liveRows({ url: s.live_url!, url_ok: true }) }));
   const first = await workQueue({ now: NOW, limit: 1, jobId: named.id, deps: { evidence: fake } });
-  assert.deepEqual(first, { read: 1, jobs_finished: [named.id] });
+  assert.deepEqual(first, { read: 1, left: 0, jobs_finished: [named.id] });
   assert.deepEqual(seen, ['https://new.example/']);
   const [n] = await sql()`SELECT tier, line FROM screen_applicants WHERE job_id = ${named.id}`;
   assert.equal(n.tier, 'live');
@@ -153,9 +154,9 @@ test('a trigger works only its job: the other stays queued; an unknown id reads 
   const other = await queue('work-i', [{ ref: 'i1', name: 'I1', live_url: 'https://i1.example/' }], new Date(NOW.getTime() - 3_600_000));
   const named = await queue('work-j', [{ ref: 'j1', name: 'J1', live_url: 'https://j1.example/' }, { ref: 'j2', name: 'J2', live_url: 'https://j2.example/' }]);
   const fake = async (s: Subject): Promise<Evidence> => evidence({ live: liveRows({ url: s.live_url!, url_ok: true }) });
-  assert.deepEqual(await workQueue({ now: NOW, limit: 10, jobId: named.id, deps: { evidence: fake } }), { read: 2, jobs_finished: [named.id] });
+  assert.deepEqual(await workQueue({ now: NOW, limit: 10, jobId: named.id, deps: { evidence: fake } }), { read: 2, left: 0, jobs_finished: [named.id] });
   assert.equal((await sql()`SELECT status FROM screen_applicants WHERE job_id = ${other.id}`)[0].status, 'queued');
-  assert.deepEqual(await workQueue({ now: NOW, limit: 10, jobId: 'no-such-job', deps: { evidence: fake } }), { read: 0, jobs_finished: [] });
+  assert.deepEqual(await workQueue({ now: NOW, limit: 10, jobId: 'no-such-job', deps: { evidence: fake } }), { read: 0, left: 0, jobs_finished: [] });
   assert.equal((await sql()`SELECT status FROM screen_applicants WHERE job_id = ${other.id}`)[0].status, 'queued');
 });
 
@@ -171,7 +172,7 @@ test('a budget stop mid-job puts the applicant back and ends the run; the next r
     return evidence({ live: liveRows({ url: 'https://k.example/', url_ok: true }) });
   };
   const first = await workQueue({ now: NOW, limit: 10, deps: { evidence: stopping } });
-  assert.deepEqual(first, { read: 1, jobs_finished: [] });
+  assert.deepEqual(first, { read: 1, left: 2, jobs_finished: [] });
   assert.equal(calls, 2);
   const st = await sql()`SELECT ref, status, taken_at FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
   assert.deepEqual(st.map((r) => [r.ref, r.status, r.taken_at]), [['k1', 'done', st[0].taken_at], ['k2', 'queued', null], ['k3', 'queued', null]]);
@@ -179,18 +180,35 @@ test('a budget stop mid-job puts the applicant back and ends the run; the next r
   assert.deepEqual([job.done, job.finished_at], [1, null]);
   assert.equal((await jobResults(j.id, 1, NOW))!.totals.pending, 2);
   const fine = async (): Promise<Evidence> => evidence({ live: liveRows({ url: 'https://k.example/', url_ok: true }) });
-  assert.deepEqual(await workQueue({ now: NOW, limit: 10, deps: { evidence: fine } }), { read: 2, jobs_finished: [j.id] });
+  assert.deepEqual(await workQueue({ now: NOW, limit: 10, deps: { evidence: fine } }), { read: 2, left: 0, jobs_finished: [j.id] });
 });
 
 test('a read worth a retry goes back to the queue; the third is failed with the count', async () => {
   const j = await queue('work-l', [{ ref: 'l1', name: 'L1', repo_url: 'https://github.com/acme/l1' }]);
   const flaky = async (): Promise<Evidence> => evidence({ partial: true, notes: ['not read: timeout'] });
   for (const n of [1, 2]) {
-    assert.deepEqual(await workQueue({ now: NOW, limit: 10, deps: { evidence: flaky } }), { read: 0, jobs_finished: [] });
+    assert.deepEqual(await workQueue({ now: NOW, limit: 10, deps: { evidence: flaky } }), { read: 0, left: 0, jobs_finished: [] });
     const [a] = await sql()`SELECT status, attempts FROM screen_applicants WHERE job_id = ${j.id}`;
     assert.deepEqual([a.status, a.attempts], ['queued', n]);
   }
-  assert.deepEqual(await workQueue({ now: NOW, limit: 10, deps: { evidence: flaky } }), { read: 1, jobs_finished: [j.id] });
+  assert.deepEqual(await workQueue({ now: NOW, limit: 10, deps: { evidence: flaky } }), { read: 1, left: 0, jobs_finished: [j.id] });
   const [a] = await sql()`SELECT status, attempts, error, line FROM screen_applicants WHERE job_id = ${j.id}`;
   assert.deepEqual([a.status, a.attempts, a.error, a.line], ['failed', 3, 'read failed 3 times', 'no tier: the read failed.']);
+});
+
+test('v6.1.16 Task 16: a share of 600 stops at the deadline on its clock, returns read and left, and the results reply says how many were read', async () => {
+  const j = await queue('work-dl', Array.from({ length: 600 }, (_, i) => ({ ref: `d${String(i).padStart(3, '0')}`, name: `D${i}`, live_url: `https://d${i}.example/` })));
+  let t = 0;
+  // Each read takes 1 s on the fake clock; the run's share ends at 120 s.
+  const slow = async (s: Subject): Promise<Evidence> => ((t += 1_000), evidence({ live: liveRows({ url: s.live_url!, url_ok: true }) }));
+  const out = await workQueue({ now: NOW, limit: SCREEN_BATCH, deadline: 120_000, clock: () => t, deps: { evidence: slow } });
+  assert.deepEqual(out, { read: 120, left: 80, jobs_finished: [] });
+  const [job] = await sql()`SELECT done, total, last_run_read, last_run_left FROM screen_jobs WHERE id = ${j.id}`;
+  assert.deepEqual([job.done, job.total, job.last_run_read, job.last_run_left], [120, 600, 120, 80]);
+  assert.equal((await jobResults(j.id, 1, NOW))!.last_run_left, 80);
+  // The next run that reads its share without stopping clears it.
+  t = 0;
+  const next = await workQueue({ now: NOW, limit: SCREEN_BATCH, deadline: 1_000_000, clock: () => t, deps: { evidence: slow } });
+  assert.deepEqual(next, { read: 200, left: 0, jobs_finished: [] });
+  assert.equal((await jobResults(j.id, 1, NOW))!.last_run_left, 0);
 });

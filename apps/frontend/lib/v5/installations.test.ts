@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { builderOf, cleanClientName, connectInstallation, lastGaps, lastProjectKey, markFind, rememberProject, saveInstallation } from './installations';
+import { builderOf, cleanClientName, connectInstallation, displayName, lastGaps, lastProjectKey, markFind, rememberProject, saveInstallation } from './installations';
 import { linkInstallation, upsertBuilder } from '../v6/builders';
 
 after(() => sql().end());
@@ -11,11 +11,11 @@ const NOW = new Date('2026-11-06T12:00:00Z');
 test('connectInstallation returns builderId null before linking and the builder after', async () => {
   const token = 'inst-' + Math.random();
   const id = await saveInstallation(token, 'Test Agent');
-  assert.deepEqual(await connectInstallation(token), { id, builderId: null });
+  assert.deepEqual(await connectInstallation(token), { id, builderId: null, audience: null });
   assert.equal(await builderOf(id), null);
   const b = await upsertBuilder({ github_id: 555_001, login: 'lin', name: null, avatar_url: null }, NOW);
   await linkInstallation(id, b.id, NOW);
-  assert.deepEqual(await connectInstallation(token), { id, builderId: b.id });
+  assert.deepEqual(await connectInstallation(token), { id, builderId: b.id, audience: null });
   assert.equal(await builderOf(id), b.id);
   assert.equal(await connectInstallation('no-such-token'), null);
   assert.equal(await builderOf(2 ** 30), null);
@@ -71,4 +71,45 @@ test('an agent name is cleaned at registration: control and format characters ou
   assert.equal(cleanClientName('Claude Code'), 'Claude Code');
   // 60 characters, not 60 UTF-16 units: an astral character is never cut in half.
   assert.equal(cleanClientName('\u{1F600}'.repeat(70)), '\u{1F600}'.repeat(60));
+});
+
+test('v6.1.16 Task 5: a revoked installation never connects; its audience is kept', async () => {
+  const { revokeInstallation } = await import('./installations');
+  const token = 'rev-' + Math.random();
+  const id = await saveInstallation(token, 'Agent', 'https://earnkit.test/mcp');
+  assert.deepEqual(await connectInstallation(token), { id, builderId: null, audience: 'https://earnkit.test/mcp' });
+  await revokeInstallation(token);
+  assert.equal(await connectInstallation(token), null);
+  const [row] = await sql()`SELECT revoked_at FROM installations WHERE id = ${id}`;
+  assert.ok(row.revoked_at instanceof Date);
+});
+
+test('L25-1 (v6.1.16): displayName drops one trailing parenthetical; a name that is only one keeps it', () => {
+  assert.equal(displayName('Claude Code (earnkit)'), 'Claude Code');
+  assert.equal(displayName('Windsurf (EarnKit) '), 'Windsurf');
+  assert.equal(displayName('Cursor'), 'Cursor');
+  assert.equal(displayName('A (b) (c)'), 'A (b)');
+  assert.equal(displayName('(earnkit)'), '(earnkit)');
+  assert.equal(displayName('Evil‮ (x)'), 'Evil');
+  assert.equal(displayName(null), null);
+  assert.equal(displayName(''), null);
+});
+
+test('L26-11 (v6.1.16): 20 parallel finds from one installation: last_find_at is the latest now, prev_find_at older than it', async () => {
+  const id = await saveInstallation('l2611-' + Math.random(), 'Agent');
+  const nows = Array.from({ length: 20 }, (_, k) => new Date(NOW.getTime() + k * 1_000));
+  // Finished out of order: the oldest, then the newest, then the rest from the newest down, as slow early requests land last.
+  const order = [nows[0], ...[...nows.slice(1)].reverse()];
+  await Promise.all(order.map((n, k) => new Promise((ok) => setTimeout(ok, k)).then(() => markFind(id, n, {}, 'https://github.com/acme/l2611'))));
+  const [row] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((row.last_find_at as Date).toISOString(), nows[19].toISOString());
+  assert.ok((row.prev_find_at as Date).getTime() < (row.last_find_at as Date).getTime());
+  // In order, each find moves prev to the one before.
+  await markFind(id, new Date(NOW.getTime() + 60_000));
+  const [next] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((next.prev_find_at as Date).toISOString(), nows[19].toISOString());
+  // An older now changes neither.
+  await markFind(id, NOW);
+  const [same] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
+  assert.deepEqual([same.last_find_at, same.prev_find_at], [next.last_find_at, next.prev_find_at]);
 });

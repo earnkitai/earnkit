@@ -4,7 +4,7 @@
  * 7 days. Empty on the first find.
  */
 import { sql } from './db';
-import { closeDay } from './deadline';
+import { closeDay, dayWords, programZone } from './deadline';
 import { programsById, type ProgramRow } from './programs';
 
 export type Since = {
@@ -12,24 +12,25 @@ export type Since = {
   from: string | null;
   new: { program_id: string; title: string }[];
   changed: { program_id: string; title: string; what: string }[];
-  closing: { program_id: string; title: string; closes_at: string }[];
+  /** `zone`: the program's own (fix round 1, N2), so the since line says the close as every other surface does. */
+  closing: { program_id: string; title: string; closes_at: string; zone?: string }[];
 };
 
 const DAY = 86_400_000;
 const FORM_FIELDS = ['form', 'submission_url', 'submission_requirements'];
 
-/** "Nov 20": the close day in the program's zone, else in UTC. Pure. */
-function dayOf(p: ProgramRow['file']): string | null {
+/** "Nov 20" ("Feb 10, 2027" in another year, L23-11): the close day in the program's zone, else in UTC. Pure. */
+function dayOf(p: ProgramRow['file'], now: Date): string | null {
   if (!p.ends_at) return null;
-  return closeDay(p) ?? new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(p.ends_at));
+  return closeDay(p, now) ?? dayWords(new Date(p.ends_at), now);
 }
 
 /** The changed fields in builder words; `firstOpen`: no status change before this one, so it was never open (C33). Pure. */
-function whatOf(p: ProgramRow['file'], fields: Set<string>, firstOpen: boolean): string | null {
+function whatOf(p: ProgramRow['file'], fields: Set<string>, firstOpen: boolean, now: Date): string | null {
   if (fields.has('status') && p.status === 'closed') return 'closed';
   const out: string[] = [];
   if (fields.has('status') && p.status === 'active') out.push(firstOpen ? 'now open' : 'open again');
-  if (fields.has('ends_at')) out.push(p.ends_at ? `deadline moved to ${dayOf(p)}` : 'no deadline now');
+  if (fields.has('ends_at')) out.push(p.ends_at ? `deadline moved to ${dayOf(p, now)}` : 'no deadline now');
   if (fields.has('max_award_usd')) out.push('amount changed');
   if (FORM_FIELDS.some((f) => fields.has(f))) out.push('form changed');
   return out.length > 0 ? out.join(', ') : null;
@@ -73,14 +74,14 @@ export async function since(
   const changed: Since['changed'] = [];
   for (const [id, fields] of fieldsOf) {
     const p = byId.get(id);
-    const what = p && !fresh(id) ? whatOf(p.file, fields, (statusChanges.get(id) ?? 0) <= 1) : null;
+    const what = p && !fresh(id) ? whatOf(p.file, fields, (statusChanges.get(id) ?? 0) <= 1, now) : null;
     if (p && what) changed.push({ program_id: id, title: p.file.title, what });
   }
   const closing: Since['closing'] = [];
   for (const id of ready) {
     const e = byId.get(id)?.file.ends_at;
     const t = e ? Date.parse(e) : NaN;
-    if (t > now.getTime() && t <= now.getTime() + 7 * DAY) closing.push({ program_id: id, title: byId.get(id)!.file.title, closes_at: new Date(t).toISOString() });
+    if (t > now.getTime() && t <= now.getTime() + 7 * DAY) closing.push({ program_id: id, title: byId.get(id)!.file.title, closes_at: new Date(t).toISOString(), zone: programZone(byId.get(id)!.file) });
   }
   return {
     from: lastFindAt.toISOString(),

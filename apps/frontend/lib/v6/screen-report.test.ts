@@ -40,7 +40,7 @@ test('markdown: one heading per tier present in order, totals that add up, probl
   const sum = totals.filter((m) => m[1] !== 'all').reduce((s, m) => s + Number(m[2]), 0);
   assert.equal(sum, ROWS.length);
   assert.equal(totals.find((m) => m[1] === 'all')?.[2], String(ROWS.length));
-  assert.match(md, /### Used, Inc\. \(u1\)\n\nused: /);
+  assert.match(md, /### `Used, Inc\.` \(`u1`\)\n\nused: /);
   assert.match(md, /- flag: template, 80% of files match the create-next-app starter/);
   // M1 (v6.1.15 fix round 1): the flag line reads the rule's words, the same as the tier head.
   const self = row(app({ ref: 's1', name: 'Self' }), evidence({ live: liveRows({ url: 'https://s.example', url_ok: true }), onchain: [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })] }));
@@ -71,13 +71,13 @@ test('csv: the header and one line per applicant, commas and quotes quoted, no p
   const lines = csv.trimEnd().split('\n');
   assert.equal(
     lines[0],
-    'ref,name,tier,flags,outside_senders_90d,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
+    'ref,name,tier,result,amount,flags,outside_senders_90d,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
   );
   assert.equal(lines.length, ROWS.length + 1);
   // #15 (v6.1.15): outside_senders_90d and its alias funded_senders_90d carry the same value side by side.
-  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,40,40,90,base,'), lines[1]);
+  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,,,40,40,90,base,'), lines[1]);
   assert.ok(lines[2].startsWith('l1,"Live ""One""",live,'));
-  assert.ok(lines[4].startsWith('f1,Copy,flagged,template,'));
+  assert.ok(lines[4].startsWith('f1,Copy,flagged,,,template,'));
   assert.ok(!csv.includes('SECRET PITCH'));
   assert.ok(!/—/.test(csv));
 });
@@ -85,4 +85,21 @@ test('csv: the header and one line per applicant, commas and quotes quoted, no p
 test('csv: a cell that a spreadsheet would run as a formula is defused', () => {
   const csv = csvReport([row(app({ ref: 'x', name: '=HYPERLINK("http://evil")' }), evidence())]);
   assert.ok(csv.split('\n')[1].startsWith(`x,"'=HYPERLINK(""http://evil"")"`));
+});
+
+test('L22-12 (v6.1.16): the CSV carries the outcome and its amount after the tier', () => {
+  const csv = csvReport([{ ...ROWS[0], result: 'won', amount: '$1,000 and EUR 500' }, { ...ROWS[1], result: 'rejected', amount: null }]);
+  const lines = csv.trimEnd().split('\n');
+  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,won,"$1,000 and EUR 500",'), lines[1]);
+  assert.ok(lines[2].startsWith('l1,"Live ""One""",live,rejected,,'), lines[2]);
+});
+
+test('L24-20 (v6.1.16 Task 11): applicant text in a heading is a code span; the CSV is cleaned and the formula guard stays', () => {
+  const rows = [row(app({ ref: `a3\u202egnp`, name: '<b>x</b> [Click](https://evil.example) `tick`' }), null), row(app({ ref: 'f1', name: '=HYPERLINK("x")\u200b' }), null)];
+  const md = markdownReport('p', rows, NOW);
+  assert.ok(md.includes('### `` <b>x</b> [Click](https://evil.example) `tick` `` (`a3gnp`)'), md);
+  assert.doesNotMatch(md, /\u202e/);
+  const csv = csvReport(rows);
+  assert.doesNotMatch(csv, /[\u202e\u200b]/);
+  assert.ok(csv.includes(`'=HYPERLINK(""x"")`) || csv.includes(`"'=HYPERLINK(""x"")"`), csv);
 });

@@ -18,6 +18,7 @@
   "existing_work": "allowed",
   "needs_repo": false,
   "in_person": true,
+  "city": "San Francisco",
   "chains": [],
   "any_chain": true,
   "tag": "long shot",

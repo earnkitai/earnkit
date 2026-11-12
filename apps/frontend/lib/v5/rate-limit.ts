@@ -9,10 +9,11 @@ import { sql } from './db';
 export const LIMITS = {
   /** POST /api/programs/write, per owner token (one key), after the token check. */
   programsWrite: { limit: 120, windowSeconds: 3_600 },
-  /** GET /oauth/authorize, per client IP: each approval is a code that can become an installation. */
-  oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
-  /** POST /oauth/register, per client IP: the abuse floor. */
-  oauthRegister: { limit: 50, windowSeconds: 3_600 },
+  /** GET /oauth/authorize, per client IP: each approval is a code that can become an installation. 200 an hour so a
+   *  hackathon or campus NAT connects (v6.1.16 Task 12, L26-3, owner call); the block's daily cap is the backstop. */
+  oauthAuthorize: { limit: 200, windowSeconds: 3_600 },
+  /** POST /oauth/register, per client IP: the abuse floor (200 an hour, L26-3). */
+  oauthRegister: { limit: 200, windowSeconds: 3_600 },
   /** POST /oauth/register, per address block (IPv4 /16, IPv6 /48) a day (v6.1.13, B1): one network can never spend
    *  every other network's sign-ups, as the one shared hosted ceiling let it. */
   oauthRegisterBlock: { limit: 5_000, windowSeconds: 86_400 },
@@ -20,7 +21,8 @@ export const LIMITS = {
   installClient: { limit: 500, windowSeconds: 86_400 },
   /** The per-registration ceiling for a hosted service's callback client: the hosted tier raises only this (v6.1.7, B5). */
   installClientHosted: { limit: 5_000, windowSeconds: 86_400 },
-  installHour: { limit: 50, windowSeconds: 3_600 },
+  /** New installations per client IP an hour (200, L26-3). */
+  installHour: { limit: 200, windowSeconds: 3_600 },
   /** New installations per address block a day (v6.1.13, B1), beside the per-address floor and the per-client limits. */
   installBlock: { limit: 5_000, windowSeconds: 86_400 },
   /** MCP tool calls, per installation, and per client IP as the floor. */
@@ -28,6 +30,9 @@ export const LIMITS = {
   mcpIp: { limit: 600, windowSeconds: 3_600 },
   /** Uncached GitHub repo reads, per installation, per UTC day (a cache hit is free). */
   repoRead: { limit: 10, windowSeconds: 86_400 },
+  /** Repo reads that found no public repo or passed their time budget, per installation, per UTC day (v6.1.16 Task 12):
+   *  apart from repoRead, so misses never spend the day's real reads, and bounded, so they never spend the token freely. */
+  repoMiss: { limit: 20, windowSeconds: 86_400 },
   /** GET /link/<code> and the GitHub sign-in callback, per client IP, one window for both. */
   linkGet: { limit: 60, windowSeconds: 3_600 },
   /** Uncached OAuth client document fetches, per document host (v6.1.15 Task 14 fix round 1, M1). */
@@ -76,15 +81,16 @@ export function retryText(seconds: number) {
   return hours === 1 ? 'an hour' : `${hours} hours`;
 }
 
-/**
- * The hourly-limit line for a refused tool call, from its window's seconds left (v6.1.7, C8): minutes rounded up (at
- * least one), hours rounded up once over 90 minutes. It names the limit; "busy" is only for errors (v6.1.15, #11). Pure.
- */
-export function busyText(seconds: number) {
+/** Seconds left in a window as whole minutes: rounded up, at least 1, never hours (v6.1.16 Task 12, L26-5). Pure. */
+const minutesText = (seconds: number) => {
   const minutes = Math.max(1, Math.ceil(seconds / 60));
-  const wait = minutes > 90 ? `${Math.ceil(seconds / 3_600)} hours` : minutes === 1 ? '1 minute' : `${minutes} minutes`;
-  return `You have asked a lot this hour. Try again in about ${wait}.`;
-}
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+};
+
+/** The refused tool call's line when the installation's own hourly cap refused it (L26-5). "busy" is only for errors. Pure. */
+export const LIMIT_OWN = (seconds: number) => `Your agent has used this hour's limit. Try again in about ${minutesText(seconds)}.`;
+/** The refused tool call's line when the caller's address window refused it (L26-5). Pure. */
+export const LIMIT_ADDRESS = (seconds: number) => `Too many calls from your network this hour. Try again in about ${minutesText(seconds)}.`;
 
 /**
  * An IPv6 address as its /64 ("2001:db8:0:0::/64"): one subscriber usually holds a whole /64, so
@@ -145,11 +151,12 @@ export function clientIp(headers: Headers, remoteAddress?: string): string {
   return ip ? ipKey(ip) : 'unknown';
 }
 
-/** Whether this first hit also sweeps old windows (one in a hundred); replaceable in tests. */
-let sweep = (): boolean => Math.random() < 0.01;
-/** Tests only: sets the sweep's chance (true always, false never); undefined restores it. */
-export function setSweepForTests(always: boolean | undefined): void {
-  sweep = always === undefined ? () => Math.random() < 0.01 : () => always;
+/**
+ * The daily run's sweep (v6.1.16 Task 16, L30-17): windows that started over 2 days before `now` (no window is over a
+ * day, so each one ended over a day ago). Against the caller's clock. The windows deleted.
+ */
+export async function sweepWindows(now: Date): Promise<number> {
+  return (await sql()`DELETE FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)}`).count;
 }
 
 /** Counts one request for `key` in the current `windowSeconds` window; the window's count so far. */
@@ -159,14 +166,14 @@ export async function countHit(key: string, windowSeconds: number, now = new Dat
     INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${start}, 1)
     ON CONFLICT (key, window_start) DO UPDATE SET count = rate_windows.count + 1
     RETURNING count`;
-  if (row.count === 1) {
-    await sql()`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
-    // Keys that never come back (one-off IPs) are swept now and then; no window is over a day. Against the caller's
-    // clock, not the database's, so a fixed clock keeps its windows (v6.1.9 final I5).
-    if (sweep())
-      await sql()`DELETE FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)}`;
-  }
+  // Keys that never come back (one-off IPs) go in the daily run's sweepWindows.
+  if (row.count === 1) await sql()`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
   return row.count;
+}
+
+/** Takes back one counted request (a call that turned out to do nothing, v6.1.16 Task 12); never below zero. */
+export async function uncountHit(key: string, windowSeconds: number, now = new Date()): Promise<void> {
+  await sql()`UPDATE rate_windows SET count = count - 1 WHERE key = ${key} AND window_start = ${windowStart(now, windowSeconds * 1000)} AND count > 0`;
 }
 
 /** Counts one request for `key` in the current `windowSeconds` window. */

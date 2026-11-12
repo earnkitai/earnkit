@@ -46,12 +46,12 @@
   ],
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "rule", "note": "a crypto product built during the four-week sprint", "keywords": ["solana", "crypto", "web3", "onchain", "blockchain", "defi", "nft"] },
+    { "kind": "rule", "note": "a crypto product built during the four-week sprint", "keywords": ["solana", "crypto wallet", "onchain", "web3", "blockchain", "defi", "nft", "crypto app"] },
     { "kind": "rule", "note": "the team has not raised venture capital for the startup it submits" }
   ],
   "submission_requirements": [
     { "key": "weekly_updates", "label": "Weekly update with a one-minute video", "type": "url", "required": true, "from": "builder", "kind": "demo_video", "todo": "a one-minute video each week", "description": "Each week of the sprint: what you prioritized, what you shipped, and any notable challenges." },
-    { "key": "product_name_description", "label": "Product name and description", "type": "text", "required": true, "from": "project", "kind": "one_liner", "todo": "a product name and description", "project_field": "description" },
+    { "key": "product_name_description", "label": "Product name and description", "type": "text", "required": true, "from": "project", "kind": "one_liner", "todo": "a product name and description", "need": "product name with description", "project_field": "description" },
     { "key": "team_background", "label": "Team background", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "your team background" },
     { "key": "github_repo", "label": "Product GitHub repository", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "the product GitHub repo", "project_field": "repo_url" },
     { "key": "pitch_video", "label": "Pitch video", "type": "url", "required": true, "from": "builder", "kind": "demo_video", "todo": "a pitch video" },

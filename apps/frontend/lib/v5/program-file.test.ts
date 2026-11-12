@@ -42,10 +42,10 @@ test('eligibilityOf base-builder-grants: its explicit four items', () => {
   assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'base' }, { kind: 'builder_codes' }, { kind: 'users' }]);
 });
 
-test('eligibilityOf circle-developer-grants: derived, live product then chain arc', () => {
+test('eligibilityOf circle-developer-grants: derived, chain arc (lane 20, v6.1.16: no live product needed)', () => {
   const p = ProgramFile.parse(read('circle-developer-grants.json'));
   assert.equal(p.eligibility, undefined);
-  assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'arc' }]);
+  assert.deepEqual(eligibilityOf(p), [{ kind: 'chain', value: 'arc' }]);
 });
 
 test('eligibilityOf: an explicit list wins; derived items for contract, new work and in person', () => {
@@ -151,15 +151,15 @@ test('L1c-2 (v6.1.10): a rule item may carry up to 8 lower-case keywords of at m
 
 test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on licence rules; L1e-2 (v6.1.13): Thiel names who its person rule is for', () => {
   const kw = (f: string) => eligibilityOf(ProgramFile.parse(read(`${f}.json`))).flatMap((i) => i.keywords ?? []);
-  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'quest', 'hands-first', 'oculus']);
+  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'meta quest', 'quest 3', 'horizon os', 'hands-first', 'oculus']);
   assert.deepEqual(kw('codegeist-2026'), ['atlassian', 'atlassian forge', 'jira', 'confluence']);
   assert.deepEqual(kw('qnx-global-hackathon-2026'), ['qnx']);
   assert.deepEqual(kw('paypal-ai-hackathon'), ['paypal']);
   assert.deepEqual(kw('farcaster-developer-rewards'), ['farcaster', 'mini app', 'warpcast']);
   assert.deepEqual(kw('kiroween-2026'), ['kiro']);
-  assert.deepEqual(kw('solana-mobile-builder-grants'), ['solana mobile', 'seeker', 'saga', 'android']);
+  assert.deepEqual(kw('solana-mobile-builder-grants'), ['solana mobile', 'solana saga', 'solana seeker', 'dapp store']);
   assert.deepEqual(kw('ugreen-ai-nas-hackathon-2026'), ['ugreen', 'nas']);
-  assert.deepEqual(kw('otf-internet-freedom-fund'), ['censorship', 'circumvention', 'privacy', 'vpn', 'tor']);
+  assert.deepEqual(kw('otf-internet-freedom-fund'), ['censorship', 'circumvention', 'privacy', 'vpn', 'tor', 'otf']);
   assert.deepEqual(kw('goose-grant-program'), ['goose']);
   assert.deepEqual(kw('filecoin-open-grants'), ['filecoin', 'fvm', 'ipfs']);
   assert.deepEqual(kw('lido-lego-grants'), ['lido', 'steth']);
@@ -170,7 +170,7 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => ['hook', 'v4', 'meta', 'forge'].includes(k))), f);
   // L1e-2 (v6.1.13, fix round 1 T3-R2): who the age rule is for, never a bare number or "fellowship"; Avalanche's ecosystem rule names its chain.
   assert.deepEqual(kw('thiel-fellowship'), ['student', 'students', 'college', 'university', 'dropout', 'drop out', 'undergrad']);
-  assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'subnet']);
+  assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'avalanche subnet', 'avalanche l1']);
   for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
 });
@@ -256,4 +256,31 @@ test('v6.1.15 money lines (#12, L1g-8c): each ruled summary money, on the tile a
   assert.equal(mentor.max_award_usd, 100_000);
   assert.equal(programKind(mentor), 'grant');
   assert.equal(replyMoney(ProgramFile.parse(read('sovereign-tech-fund.json'))), 'funds work from EUR 50,000');
+});
+
+test('L21-16 (v6.1.16): city is optional, 1 to 40 characters, no links', () => {
+  const base = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/alliance-all19.json'), 'utf8'));
+  assert.equal(ProgramFile.parse(base).city, 'New York City');
+  const { city: _drop, ...without } = base;
+  assert.equal(ProgramFile.parse({ ...without, in_person: false }).city, undefined);
+  for (const bad of ['', 'x'.repeat(41), 'see https://example.com', 'eugene.com']) assert.equal(ProgramFile.safeParse({ ...base, city: bad }).success, false, bad);
+});
+
+test('L28-8 (v6.1.16 Task 14): teamKindOf reads the one fact a team label asks; whole-team questions stay team; no catalog file keeps a one-fact team field', async () => {
+  const { teamKindOf } = await import('./program-file');
+  const cases: [string, string | null][] = [
+    ['Team size', 'team_size'], ['Number of founders/ contributors', 'team_size'], ['How large is the core team?', 'team_size'],
+    ['Including co-founders, how many full-time employees / contractors does your company have?', 'team_size'],
+    ['Are you all working full-time on this?', 'team_full_time'], ['Commitment', 'team_full_time'],
+    ['Roles', 'team_roles'], ['What is your role in the project?', 'team_roles'], ['Founders and Roles', 'team_roles'],
+    ['Team links', 'team_links'], ['Team Member LinkedIn Profiles', 'team_links'],
+    ['GitHub usernames', 'team_usernames'], ['Co-founder email', 'cofounder_email'],
+    ['Founding team - Full names & Background', null], ['Name(s), email(s), and role(s) for each team member', null],
+    ['Tell us about the founding team', null], ['What is the equity/token breakdown between founders', null],
+  ];
+  for (const [label, kind] of cases) assert.equal(teamKindOf(label), kind, label);
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')))
+    for (const r of JSON.parse(readFileSync(join(dir, f), 'utf8')).submission_requirements ?? [])
+      if (r.kind === 'team') assert.equal(teamKindOf(r.label), null, `${f} ${r.key}`);
 });

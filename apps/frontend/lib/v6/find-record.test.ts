@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notNever, outsideApproval, pickProject } from './find-record';
 import { EMPTY_RECORD, mergeRecord } from './record';
@@ -71,3 +71,64 @@ test('#6 (v6.1.15): the tier gap takes the builder form from the stored line, on
   assert.doesNotMatch(g.what, /deployer|senders|mainnet/);
   assert.equal((tierGate(ready, prog, 'live', undefined, true).gaps[0] as Gap).what, 'the project reading as used');
 });
+
+test('L23-14 (v6.1.16) and the controller ruling: a failed re-read keeps the stored tier within 14 days and for its own repo only, never bumping the read time', async () => {
+  const { sql } = await import('../v5/db');
+  const { recordSide, READ_GRACE_DAYS, EVIDENCE_NOT_READ } = await import('./find-record');
+  const { readStoredRecord, saveRecord, upsertBuilder } = await import('./builders');
+  const { evidence } = await import('./fixtures/evidence-builder');
+  assert.equal(READ_GRACE_DAYS, 14);
+  const NOW = new Date('2026-11-20T12:00:00Z');
+  const REPO = 'https://github.com/lane23/t1';
+  const failed = async () => evidence({ notes: ['not read: private or missing'] });
+  const b = await upsertBuilder({ github_id: 923_014, login: 'l23t1', name: null, avatar_url: null }, NOW);
+  const stored = (daysAgo: number, repo_url: string | null = REPO) => ({
+    ...EMPTY_RECORD,
+    projects: [{ id: 't1', name: 'T1', repo_url: REPO, answers: {}, evidence_read_at: new Date(NOW.getTime() - daysAgo * 86_400_000).toISOString(),
+      last_tier: { tier: 'building', line: 'Your project is building.', read_at: new Date(NOW.getTime() - daysAgo * 86_400_000).toISOString(), ...(repo_url ? { repo_url } : {}) } }],
+  });
+  const facts = { repo_url: REPO, name: 'T1', contracts: [] } as never;
+  const side = async () => recordSide({ builderId: b.id, now: NOW, projectId: 't1', facts, read: failed });
+  // Read 10 days ago from this repo: the tier and its date stand, said so.
+  await saveRecord(b.id, stored(10) as never, NOW);
+  const kept = await side();
+  assert.deepEqual([kept.tier, kept.summary?.line, kept.problems], ['building', 'I could not read your repo today; using what I read on Nov 10.', [EVIDENCE_NOT_READ]]);
+  const readAt = (await readStoredRecord(b.id)).record.projects[0].evidence_read_at;
+  assert.equal(readAt, new Date(NOW.getTime() - 10 * 86_400_000).toISOString(), 'a failed read never bumps evidence_read_at');
+  // Past the 14 days: unverified, the plain line.
+  await saveRecord(b.id, stored(15) as never, NOW);
+  const old = await side();
+  assert.deepEqual([old.tier, old.summary?.line], ['unverified', 'I could not read your repo today.']);
+  // A tier read from another repo (or none named): unverified too.
+  await saveRecord(b.id, stored(2, 'https://github.com/lane23/other') as never, NOW);
+  assert.deepEqual([(await side()).tier, (await side()).summary?.line], ['unverified', 'I could not read your repo today.']);
+  await saveRecord(b.id, stored(2, null) as never, NOW);
+  assert.equal((await side()).tier, 'unverified');
+  await sql()`DELETE FROM builders WHERE id = ${b.id}`;
+});
+
+test('Task 9 fix round 1 (M2): a reader that throws gets the same bound: kept within 14 days for its repo, else unverified; the read time never moves', async () => {
+  const { sql } = await import('../v5/db');
+  const { recordSide, EVIDENCE_NOT_READ } = await import('./find-record');
+  const { readStoredRecord, saveRecord, upsertBuilder } = await import('./builders');
+  const NOW = new Date('2026-11-20T12:00:00Z');
+  const REPO = 'https://github.com/lane23/throws';
+  const b = await upsertBuilder({ github_id: 923_015, login: 'l23throw', name: null, avatar_url: null }, NOW);
+  const stored = (daysAgo: number) => ({
+    ...EMPTY_RECORD,
+    projects: [{ id: 't2', name: 'T2', repo_url: REPO, answers: {}, evidence_read_at: new Date(NOW.getTime() - daysAgo * 86_400_000).toISOString(),
+      last_tier: { tier: 'building', line: 'Your project is building.', read_at: new Date(NOW.getTime() - daysAgo * 86_400_000).toISOString(), repo_url: REPO } }],
+  });
+  const side = () => recordSide({ builderId: b.id, now: NOW, projectId: 't2', facts: { repo_url: REPO, name: 'T2', contracts: [] } as never, read: async () => { throw new Error('down'); } });
+  await saveRecord(b.id, stored(10) as never, NOW);
+  const kept = await side();
+  assert.deepEqual([kept.tier, kept.summary?.line, kept.problems], ['building', 'I could not read your repo today; using what I read on Nov 10.', [EVIDENCE_NOT_READ]]);
+  assert.equal((await readStoredRecord(b.id)).record.projects[0].evidence_read_at, new Date(NOW.getTime() - 10 * 86_400_000).toISOString());
+  await saveRecord(b.id, stored(15) as never, NOW);
+  const old = await side();
+  assert.deepEqual([old.tier, old.summary?.line, old.problems], ['unverified', 'I could not read your repo today.', [EVIDENCE_NOT_READ]]);
+  assert.equal((await readStoredRecord(b.id)).record.projects[0].evidence_read_at, new Date(NOW.getTime() - 15 * 86_400_000).toISOString());
+  await sql()`DELETE FROM builders WHERE id = ${b.id}`;
+});
+
+after(async () => (await import('../v5/db')).sql().end());

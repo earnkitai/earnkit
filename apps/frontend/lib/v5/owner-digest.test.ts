@@ -2,15 +2,15 @@ import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import type { Mailer } from './mail';
-import { dailyOwnerText, sendOwnerDigest } from './owner-digest';
-import { runHealth } from './health';
+import { dailyOwnerText, digestKey, sendOwnerDigest } from './owner-digest';
+import { runHealth, type LinkCheck } from './health';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
-import { SafeFetchError, type Probe } from './safe-fetch';
 
 after(() => sql().end());
 
 const NOW = new Date('2026-11-04T06:15:00Z');
+const pageOf = (html: string, dead: string[] = []): LinkCheck => async (u) => (dead.includes(u) ? { ok: false, why: '4xx' } : { ok: true, page: html });
 let sent: Parameters<Mailer>[0][] = [];
 const mailer: Mailer = async (m) => {
   sent.push(m);
@@ -56,22 +56,20 @@ test('sendOwnerDigest: nothing happened sends nothing', async () => {
 
 test('sendOwnerDigest: a page change appears, once per day, with the day key', async () => {
   await upsertProgram(programFixture({ id: 'od-page', title: 'Page Grants', source_url: 'https://od.example/p' }), 'file', NOW);
-  await runHealth({ probe: async () => {}, page: async () => '<p>one</p>', now: new Date(NOW.getTime() - 86_400_000) });
-  await runHealth({ probe: async () => {}, page: async () => '<p>two</p>', now: NOW });
+  await runHealth(new Date(NOW.getTime() - 86_400_000), { link: pageOf('<p>one</p>') });
+  await runHealth(NOW, { link: pageOf('<p>two</p>') });
   assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
-  assert.equal(sent.length, 2);
+  // v6.1.16 Task 16: the same body is sent once a day; the key carries its hash.
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+  assert.equal(sent.length, 1);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM owner_digests WHERE day = '2026-11-04'`)[0]!.n, 1);
-  assert.equal(sent[0]!.idempotencyKey, 'owner-digest:2026-11-04');
-  assert.equal(sent[1]!.idempotencyKey, sent[0]!.idempotencyKey);
+  assert.equal(sent[0]!.idempotencyKey, digestKey('2026-11-04', sent[0]!.text));
+  assert.match(sent[0]!.idempotencyKey, /^owner-digest:2026-11-04:[0-9a-f]{16}$/);
   assert.equal(sent[0]!.subject, 'EarnKit programs: 2026-11-04');
   assert.match(sent[0]!.text, /Page Grants.*https:\/\/od\.example\/p/);
 });
 
 test('sendOwnerDigest: link failures, deadline closes and a revertable api change', async () => {
-  const bad: Probe = async (u) => {
-    if (u === 'https://od.example/dead') throw new SafeFetchError('down');
-  };
   await upsertProgram(programFixture({ id: 'od-dead', title: 'Dead Link Grants', submission_url: 'https://od.example/dead' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'od-ended', title: 'Ended Grants', ends_at: '2026-11-01T00:00:00Z' }), 'file', NOW);
   const api = programFixture({ id: 'od-api', title: 'Api Grants' });
@@ -79,7 +77,7 @@ test('sendOwnerDigest: link failures, deadline closes and a revertable api chang
   await sql()`INSERT INTO program_writes (program_id, action, result, reason, body) VALUES ('od-api', 'upsert', 'created', '', ${sql().json(JSON.parse(JSON.stringify(api)))})`;
   await sql()`INSERT INTO program_writes (program_id, action, result, reason, body) VALUES ('od-api', 'upsert', 'updated', '', ${sql().json(JSON.parse(JSON.stringify({ ...api, ends_at: '2027-01-01T00:00:00Z' })))})`;
   await upsertProgram({ ...api, ends_at: '2027-01-01T00:00:00Z' }, 'api', NOW);
-  await runHealth({ probe: bad, page: async () => '<p>x</p>', now: NOW });
+  await runHealth(NOW, { link: pageOf('<p>x</p>', ['https://od.example/dead']) });
   assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
   const text = sent[0]!.text;
   assert.match(text, /Dead Link Grants.*https:\/\/od\.example\/dead/);
@@ -89,12 +87,12 @@ test('sendOwnerDigest: link failures, deadline closes and a revertable api chang
   assert.doesNotMatch(text, /Ended Grants: status/);
 });
 
-test('sendOwnerDigest: no RESEND_API_KEY sends nothing and says none', async () => {
+test('sendOwnerDigest: no RESEND_API_KEY sends nothing and says mail off (L30-5)', async () => {
   delete process.env.RESEND_API_KEY;
   await upsertProgram(programFixture({ id: 'od-nokey', title: 'No Key Grants', source_url: 'https://nokey.example/p' }), 'file', NOW);
-  await runHealth({ probe: async () => {}, page: async () => '<p>a</p>', now: new Date(NOW.getTime() - 3_600_000) });
-  await runHealth({ probe: async () => {}, page: async () => '<p>b</p>', now: NOW });
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+  await runHealth(new Date(NOW.getTime() - 3_600_000), { link: pageOf('<p>a</p>') });
+  await runHealth(NOW, { link: pageOf('<p>b</p>') });
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'mail off');
   assert.equal(sent.length, 0);
 });
 
@@ -130,4 +128,31 @@ test('sendOwnerDigest: marks a missing secret and an old write on the change lin
   sent = [];
   assert.equal(await sendOwnerDigest(new Date('2026-11-09T06:15:00Z'), mailer), 'sent');
   assert.match(sent[0]!.text, /File Grants: deadline \(not revertable\)/);
+});
+
+test('v6.1.16 Task 16: two runs on one UTC day: the same body sends once, a changed body sends again under a new key', async () => {
+  const day = new Date('2026-11-20T06:15:00Z');
+  await upsertProgram(programFixture({ id: 'od-k1', title: 'Key One Grants' }), 'file', new Date('2026-11-19T01:00:00Z'));
+  await upsertProgram({ ...programFixture({ id: 'od-k1', title: 'Key One Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', new Date('2026-11-20T01:00:00Z'));
+  await sql()`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-19', '2026-11-19T06:15:00Z')`;
+  assert.equal(await sendOwnerDigest(day, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(new Date('2026-11-20T07:00:00Z'), mailer), 'none');
+  assert.equal(sent.length, 1);
+  await upsertProgram(programFixture({ id: 'od-k2', title: 'Key Two Grants' }), 'file', new Date('2026-11-20T07:10:00Z'));
+  await upsertProgram({ ...programFixture({ id: 'od-k2', title: 'Key Two Grants' }), ends_at: '2027-02-01T00:00:00Z' }, 'file', new Date('2026-11-20T07:20:00Z'));
+  assert.equal(await sendOwnerDigest(new Date('2026-11-20T08:00:00Z'), mailer), 'sent');
+  assert.equal(sent.length, 2);
+  assert.notEqual(sent[1]!.idempotencyKey, sent[0]!.idempotencyKey);
+  assert.match(sent[1]!.text, /Key One Grants[\s\S]*Key Two Grants/);
+});
+
+test('v6.1.16 Task 16 (L30-1): a program the run opened at its start date is named in its own block, not again as a change', async () => {
+  const at = new Date('2026-12-01T06:15:00Z');
+  await upsertProgram(programFixture({ id: 'od-open', title: 'Opening Grants', status: 'upcoming', opens_note: 'Opens Dec 1.', starts_at: '2026-12-01T00:00:00Z' }), 'file', new Date('2026-11-29T00:00:00Z'));
+  await sql()`DELETE FROM programs WHERE id <> 'od-open'`;
+  const r = await runHealth(at, { link: pageOf('<p>x</p>') });
+  assert.deepEqual(r.opened, ['od-open']);
+  assert.equal(await sendOwnerDigest(at, mailer), 'sent');
+  assert.match(sent[0]!.text, /Opened because the start date came\n- Opening Grants \(od-open\)/);
+  assert.doesNotMatch(sent[0]!.text, /Opening Grants: status/);
 });

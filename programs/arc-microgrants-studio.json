@@ -70,7 +70,7 @@
       "key": "contracts_and_tx",
       "label": "Your contract address(es) and one example transaction hash, with a link on explorer.arc.io",
       "kind": "other",
-      "todo": "contract addresses and a USDC tx hash",
+      "todo": "contract addresses and a USDC tx hash", "need": "contract addresses with a USDC tx hash",
       "type": "text",
       "required": true,
       "from": "project"

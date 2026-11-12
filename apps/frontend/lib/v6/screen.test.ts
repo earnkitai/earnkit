@@ -60,7 +60,7 @@ test('run over the fixture CSV writes both files and places each applicant', asy
     const tierOf = new Map(r.rows.map((x) => [x.applicant.ref, x.placement.tier]));
     assert.ok(['live', 'used'].includes(tierOf.get('ek-2')!), String(tierOf.get('ek-2')));
     assert.equal(tierOf.get('ek-6'), 'unverified');
-    assert.match(md, /### Lab Notes \(ek-6\)\n\nunverified: [^\n]+\n(- [^\n]+\n)*- problem: repo link not on GitHub/);
+    assert.match(md, /### `Lab Notes` \(`ek-6`\)\n\nunverified: [^\n]+\n(- [^\n]+\n)*- problem: repo link not on GitHub/);
     // Four applicants sent one pitch: each is flagged, and the pitch itself is never written.
     for (const ref of ['ek-3', 'ek-4', 'ek-7', 'ek-8']) assert.equal(tierOf.get(ref), 'flagged', ref);
     assert.ok(!md.includes('easiest onchain app') && !csv.includes('easiest onchain app'));

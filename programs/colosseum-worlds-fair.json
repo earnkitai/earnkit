@@ -53,7 +53,7 @@
       "key": "product_name_description",
       "label": "Product name and a brief description",
       "kind": "one_liner",
-      "todo": "a product name and short description",
+      "todo": "a product name and short description", "need": "product name with short description",
       "type": "text",
       "required": true,
       "from": "project"
@@ -62,7 +62,7 @@
       "key": "chains_and_tools",
       "label": "Which blockchains and tools are being integrated",
       "kind": "how_it_works",
-      "todo": "the chains and tools you integrate", "need": "chains and tools",
+      "todo": "the chains and tools you integrate", "need": "chains with tools",
       "type": "text",
       "required": true,
       "from": "project"
@@ -71,7 +71,7 @@
       "key": "team",
       "label": "All teammates, with context on their backgrounds and previous experience",
       "kind": "team",
-      "todo": "your teammates and their backgrounds",
+      "todo": "your teammates and their backgrounds", "need": "teammates with backgrounds",
       "type": "text",
       "required": true,
       "from": "builder"

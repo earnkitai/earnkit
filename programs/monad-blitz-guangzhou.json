@@ -20,6 +20,7 @@
   "verified_at": "2026-11-09",
   "status": "active",
   "in_person": true,
+  "city": "Guangzhou",
   "existing_work": "unknown",
   "needs_repo": false,
   "chains": ["monad"],

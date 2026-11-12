@@ -89,3 +89,18 @@ test('L15-2 (v6.1.14): marking a reviewer again without a contact keeps the save
   await addReviewer('rev-grants', 'l15contact', 'new@example.com');
   assert.equal(await contactOf(), 'new@example.com');
 });
+
+test('L31-4 (v6.1.16 Task 17, controller ruling): add and remove share one program id (fullwidth or plain); nothing removed is ok:false', async () => {
+  const b = await builder('foldrev');
+  const WIDE = 'ｒｅｖ-ｇｒａｎｔｓ';
+  assert.deepEqual(await addReviewer(WIDE, 'foldrev', null), { ok: true, builder_id: b.id });
+  assert.deepEqual(await reviewerPrograms(b.id), ['rev-grants']);
+  assert.deepEqual(await removeReviewer('rev-grants', 'foldrev'), { ok: true, builder_id: b.id });
+  assert.deepEqual(await reviewerPrograms(b.id), []);
+  assert.deepEqual(await addReviewer('rev-grants', 'foldrev', null), { ok: true, builder_id: b.id });
+  assert.deepEqual(await removeReviewer(WIDE, 'foldrev'), { ok: true, builder_id: b.id });
+  assert.deepEqual(await reviewerPrograms(b.id), []);
+  const NOT = { ok: false, reason: 'that builder is not a reviewer of that program' };
+  assert.deepEqual(await removeReviewer('rev-grants', 'foldrev'), NOT);
+  assert.deepEqual(await removeReviewer('no-such-program', 'foldrev'), NOT);
+});

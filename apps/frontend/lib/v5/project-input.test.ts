@@ -103,8 +103,8 @@ test('C14: a commit date after now plus one day is dropped with a problem; today
 });
 
 test('C15: control and format characters are stripped from every project string; nothing left is missing', () => {
-  assert.deepEqual(parseProject({ name: '​‌‍﻿', description: 'd' }), { ok: false, problem: 'name: missing' });
-  const r = parseProject({ name: '‮Tip\u0000jar​', description: 'Tips\u0007 for⁦ creators.', repo_url: 'https://github.com/a/b​', chains: ['ba​se'] });
+  assert.deepEqual(parseProject({ name: '\u200b\u200c\u200d\ufeff', description: 'd' }), { ok: false, problem: 'name: missing' });
+  const r = parseProject({ name: '\u202eTip\u0000jar\u200b', description: 'Tips\u0007 for\u2066 creators.', repo_url: 'https://github.com/a/b\u200b', chains: ['ba\u200bse'] });
   assert.ok(r.ok);
   assert.equal(r.project.name, 'Tipjar');
   assert.equal(r.project.description, 'Tips for creators.');
@@ -333,12 +333,17 @@ test('L13-15 (v6.1.14): only a code host is a repo; any other link is the live l
     assert.equal(isCodeHost(u), true, u);
   for (const u of ['https://bit.ly/3xYz', 'https://example.com/a/b', 'https://notgithub.com/a/b', 'https://github.com.evil.io/a/b', 'not a link'])
     assert.equal(isCodeHost(u), false, u);
-  // The bit.ly case (lane 13, S14): read as the live link, named for the agent; no repo, no repo key.
+  // The bit.ly case (lane 13, S14; L16-8, v6.1.16): a shortened link is never read, not even as the live link; no repo key.
   const r = parseProject({ name: 'FUTO thing', description: 'An app', repo_url: 'https://bit.ly/3xYz' });
   assert.ok(r.ok);
   assert.equal(r.project.repo_url, undefined);
-  assert.equal(r.project.live_url, 'https://bit.ly/3xYz');
-  assert.deepEqual(r.problems, ['repo_url is not a code host; read as the live link']);
+  assert.equal(r.project.live_url, undefined);
+  assert.deepEqual(r.problems, ['repo_url dropped: a shortened link']);
+  // Any other link off a code host is still the live link.
+  const site = parseProject({ name: 'FUTO thing', description: 'An app', repo_url: 'https://example.com/x' });
+  assert.ok(site.ok);
+  assert.equal(site.project.live_url, 'https://example.com/x');
+  assert.deepEqual(site.problems, ['repo_url is not a code host; read as the live link']);
   assert.equal(projectKeyOf({ name: 'FUTO thing', repo_url: 'https://bit.ly/3xYz' }), 'name:futo thing');
   // A live link given too stays; the other link is dropped.
   const both = parseProject({ name: 'X', description: 'd', repo_url: 'https://example.com/x', live_url: 'https://x.app' });
@@ -368,4 +373,60 @@ test('FR-2 (v6.1.14 final fix): an SSH clone link is the repo, keyed as its http
   }
   assert.equal(projectKeyOf({ repo_url: 'ssh://git@gitlab.com/o/r.git' }), projectKeyOf({ repo_url: 'https://gitlab.com/o/r' }));
   assert.equal(projectKeyOf({ repo_url: 'https://github.com/Acme/App' }), 'https://github.com/acme/app');
+});
+
+test('L16-6 (v6.1.16, Review Focus 5): browse and clone links share one key on all four hosts', async () => {
+  const { canonicalRepoLink } = await import('./project-input');
+  const pairs = [
+    ['https://github.com/o/r/tree/main', 'git@github.com:o/r.git', 'https://github.com/o/r'],
+    ['https://gitlab.com/g/s/r/-/tree/main', 'git@gitlab.com:g/s/r.git', 'https://gitlab.com/g/s/r'],
+    ['https://bitbucket.org/o/r/src/main/', 'git@bitbucket.org:o/r.git', 'https://bitbucket.org/o/r'],
+    ['https://codeberg.org/o/r/src/branch/main', 'https://codeberg.org/o/r.git', 'https://codeberg.org/o/r'],
+  ];
+  for (const [browse, clone, key] of pairs) {
+    assert.equal(projectKeyOf({ name: 'x', repo_url: browse }), key, browse);
+    assert.equal(projectKeyOf({ name: 'x', repo_url: clone }), key, clone);
+  }
+  // A repo named `src` on GitLab, or a group, stays whole; only the browse segment at index 2 or later is cut.
+  assert.equal(canonicalRepoLink('https://gitlab.com/g/src/r'), 'https://gitlab.com/g/src/r');
+  assert.equal(canonicalRepoLink('https://codeberg.org/o/src'), 'https://codeberg.org/o/src');
+});
+
+test('L16-8 (v6.1.16): a shortener is never a live link or a repo, on its host or a subdomain', async () => {
+  const { SHORTENERS, SHORT_LINK_NOTE, isShortener } = await import('./project-input');
+  assert.deepEqual([...SHORTENERS], ['bit.ly', 't.co', 'tinyurl.com', 'goo.gl', 'is.gd', 'cutt.ly', 'rb.gy', 'short.io']);
+  assert.equal(SHORT_LINK_NOTE, 'Shortened links are not read; send the real one.');
+  for (const u of ['https://bit.ly/x', 'http://t.co/x', 'https://TINYURL.com/x', 'https://www.goo.gl/x', 'https://is.gd/x', 'https://cutt.ly/x', 'https://rb.gy/x', 'https://acme.short.io/x'])
+    assert.equal(isShortener(u), true, u);
+  for (const u of ['https://github.com/a/b', 'https://notbit.ly/x', 'https://t.com/x', 'bit.ly', 7, null]) assert.equal(isShortener(u), false, String(u));
+  const r = parseProject({ name: 'X', description: 'd', repo_url: 'https://bit.ly/a', live_url: 'https://t.co/b', demo_url: 'https://rb.gy/c' });
+  assert.ok(r.ok);
+  assert.deepEqual([r.project.repo_url, r.project.live_url, r.project.demo_url], [undefined, undefined, undefined]);
+  assert.deepEqual(r.problems, ['repo_url dropped: a shortened link', 'live_url dropped: a shortened link', 'demo_url dropped: a shortened link']);
+});
+
+test('L16-15 (v6.1.16): mainnet given as the text true or false reads as the boolean', () => {
+  const r = parseProject({ ...base, chains: [{ chain: 'base', mainnet: 'true' }, { chain: 'arbitrum', mainnet: ' FALSE ' }, { chain: 'optimism', mainnet: 'yes' }] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'arbitrum', mainnet: false }]);
+  assert.deepEqual(r.problems, ['chain optimism dropped: mainnet must be true or false']);
+});
+
+test('L24-23 (v6.1.16 Task 11): a link carrying a password is dropped with its problem; a user name alone is kept', () => {
+  const r = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://user:pass@example.com/?q=x', repo_url: 'https://me:secret@github.com/a/b', demo_url: 'https://a:b@video.example/v' });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.project.live_url, undefined);
+  assert.equal(r.project.repo_url, undefined);
+  assert.equal(r.project.demo_url, undefined);
+  assert.deepEqual(r.problems, ['the repo link carried a password and was dropped', 'the live link carried a password and was dropped', 'the demo link carried a password and was dropped']);
+  // Controller ruling: judged on the link as read (cleaned, an SSH link converted); a user name alone is dropped too.
+  const named = parseProject({ name: 'Timer', description: 'A timer.', repo_url: 'https://me@github.com/a/b' });
+  assert.ok(named.ok && named.project.repo_url === undefined && named.problems.includes('the repo link carried a user name and was dropped'));
+  const hidden = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://u:p@exa\u200bmple.com/' });
+  assert.ok(hidden.ok && hidden.project.live_url === undefined && hidden.problems.includes('the live link carried a password and was dropped'));
+  const ssh = parseProject({ name: 'Timer', description: 'A timer.', repo_url: 'git@github.com:a/b.git' });
+  assert.ok(ssh.ok && ssh.project.repo_url, 'an SSH clone link names no web user');
+  const plain = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://example.com/a', repo_url: 'https://github.com/a/b' });
+  assert.ok(plain.ok && plain.project.live_url === 'https://example.com/a' && plain.project.repo_url && plain.problems.length === 0);
 });

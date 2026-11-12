@@ -1,13 +1,18 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
 import { CARD_RUST, PAGE_COL, PILL_WHITE } from './components/site/ui';
-import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_METADATA, NOT_FOUND_TEXT } from '../lib/v5/site-copy';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT, NOT_FOUND_TITLE } from '../lib/v5/site-copy';
 
-export const metadata = NOT_FOUND_METADATA;
+/**
+ * L25-21 (v6.1.16): the title only. Next writes its own robots noindex into a 404 response's head, so a second one
+ * here made two; no canonical either (the layout sets none). A guide for an unknown id calls notFound() (L27-3, v6.1.16),
+ * a 404 with this page in its server HTML; its generateMetadata returns NOT_FOUND_METADATA as well.
+ */
+export const metadata = { title: NOT_FOUND_TITLE };
 
 /**
  * Launch ready L10: every unknown page and handle gets the site's own 404 (never Next's white default).
- * v3.1 site Task 10 (NotFound board): the rust card, "404" big in the rust accent, one line, "Back home"; the full footer.
+ * v3.1 site Task 10 (NotFound board): the rust card, "404" big in the rust accent, one line, "Go home." (L21-21, v6.1.16); the full footer.
  * QA item 13: its own title, once. The metadata export titles the unmatched-path 404. A route that calls notFound() keeps
  * its own metadata in the browser (the layout's title), so each such route's generateMetadata returns NOT_FOUND_METADATA
  * when its entity is missing; the component renders no `<title>`, which would be a second one in <head>.

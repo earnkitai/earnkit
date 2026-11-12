@@ -35,7 +35,7 @@
     { "key": "description", "label": "What it does and who uses it", "kind": "one_liner", "todo": "a short description", "type": "text", "required": true, "project_field": "description", "from": "project" },
     { "key": "repo_url", "label": "Public GitHub repo", "kind": "links", "todo": "a public GitHub repo", "type": "url", "required": true, "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (proof the entry is yours).", "project_field": "repo_url", "from": "project" },
     { "key": "live_url", "label": "Live link", "kind": "links", "todo": "a live link", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
-    { "key": "contracts", "label": "Base contract addresses to score", "kind": "other", "todo": "your Base contract addresses", "type": "text", "required": true, "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet, or from a wallet that signs the entry (deployer_signature).", "from": "project" },
+    { "key": "contracts", "label": "Base contract addresses to check", "kind": "other", "todo": "your Base contract addresses", "type": "text", "required": true, "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet, or from a wallet that signs the entry (deployer_signature).", "from": "project" },
     { "key": "payout_wallet", "label": "Payout wallet", "kind": "other", "todo": "your payout wallet", "type": "text", "required": true, "description": "A Base wallet the builder controls (0x…) that receives MINI if they win. Ask the builder; never derive it from the code.", "from": "builder" }
   ]
 }

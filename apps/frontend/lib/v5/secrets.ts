@@ -180,8 +180,11 @@ export const BODY_TOO_LARGE = {
   id: null,
 } as const;
 
-/** The request body as text, or null once it passes `max` bytes (http.ts readCapped). */
-export const readCapped = (request: Request, max = MAX_MCP_BODY_BYTES) => readCappedAt(request, max);
+/** The most time /mcp waits for a request body (L19-10): past it, BodyTimeoutError and a 408. */
+export const MCP_BODY_TIMEOUT_MS = 5_000;
+
+/** The request body as text, or null once it passes `max` bytes (http.ts readCapped); throws BodyTimeoutError past `timeoutMs`. */
+export const readCapped = (request: Request, max = MAX_MCP_BODY_BYTES, timeoutMs = MCP_BODY_TIMEOUT_MS) => readCappedAt(request, max, timeoutMs);
 
 type Id = string | number;
 
@@ -215,8 +218,8 @@ export function scrubToolCalls(body: unknown): { body: unknown; removed: number;
 const withShowLine = (r: Record<string, unknown>) => {
   const show = r.show_to_builder;
   const out: Record<string, unknown> = { scrub_note: SCRUB_LINE, ...r };
-  // A record set that saved the rest opens with its own "Tracked n facts" line, which already names the key (v6.1.8 N1).
-  if (typeof show === 'string') out.show_to_builder = /^Tracked \d/.test(show) ? `${show}\n\n${SCRUB_ROLL}` : show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
+  // A record set that saved the rest opens with its own "Saved n facts" line, which already names the key (v6.1.8 N1, v6.1.16 L26-7).
+  if (typeof show === 'string') out.show_to_builder = /^Saved \d/.test(show) ? `${show}\n\n${SCRUB_ROLL}` : show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
   return out;
 };
 export function withScrubNote(message: unknown): unknown {

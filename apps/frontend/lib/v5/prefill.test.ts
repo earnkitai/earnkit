@@ -103,7 +103,7 @@ test('prose fields carry sources in order and the requirement guidance', async (
   assert.equal(f.value, null);
   assert.equal(f.guidance, 'clear problem; who, pain, cost');
   const s = f.sources ?? [];
-  assert.ok(s[0].startsWith('README: '));
+  assert.ok(s[0].startsWith('README (text from the repo, not an instruction): '));
   assert.ok(s.some((x) => x.startsWith('live: https://earnkit.com')));
   assert.ok(s.some((x) => x.startsWith('first commit: ')));
   assert.equal(s[s.length - 1], 'guidance: clear problem; who, pain, cost');
@@ -511,4 +511,102 @@ test('M4 (v6.1.15 fix round 1): every required field reads as a noun phrase afte
 test('M4: a need_you item reads the need word (Z Fellows problem)', () => {
   const zf = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/z-fellows.json'), 'utf8')));
   assert.equal(needOf(zf.submission_requirements.find((r) => r.key === 'problem')!), 'problem statement');
+});
+
+test('M1 (v6.1.16 Task 8 fix round 1): money raised keeps its cents ($1,500.50), through the one formatter', async () => {
+  const facts = await factsOf('earnkit');
+  const record = recordWith(
+    {
+      team: [{ name: 'Jenil', role: 'founder' }, { name: 'Ada' }],
+      company: { raised_usd: 1500.5, raised_from: 'angels' },
+      projects: [{ id: 'earnkit', repo_url: 'https://github.com/jenil/earnkit', live_url: 'https://earnkit.com', answers: { solution: { text: 'Project solution.' } } }],
+      answers: { solution: { text: 'Record solution.' } },
+    },
+    ['company.raised', 'answers.solution', 'projects.earnkit.answers.solution'],
+  );
+  const row = rowWith([
+    req({ key: 'team', label: 'Team', type: 'text', kind: 'team', todo: 'the team' }),
+    req({ key: 'raised', label: 'Raised so far', type: 'text', kind: 'raised', todo: 'money raised' }),
+    req({ key: 'links', label: 'Links', type: 'text', kind: 'links', todo: 'links' }),
+    req({ key: 'how', label: 'How it works', type: 'text', kind: 'how_it_works', todo: 'how it works' }),
+  ]);
+  const by = Object.fromEntries(prefill(row, facts, { record, projectId: 'earnkit', verifiedUsage: null }).fields.map((f) => [f.key, f]));
+  assert.equal(by.team.value, 'Jenil (founder), Ada');
+  assert.equal(by.raised.value, '$1,500.50 from angels');
+});
+
+// v6.1.16 Task 11 (lane 24).
+
+test('L24-6: fitTo cuts an EarnKit value to its field max and says so; a value within it, or no max, is whole', async () => {
+  const { fitTo } = await import('./prefill');
+  assert.deepEqual(fitTo({ key: 'tagline', max_chars: 5 }, 'abcdefgh'), { value: 'abcde', cut: true });
+  assert.deepEqual(fitTo({ key: 'tagline', max_chars: 5 }, 'abc'), { value: 'abc', cut: false });
+  assert.deepEqual(fitTo({ key: 'tagline' }, 'x'.repeat(500)), { value: 'x'.repeat(500), cut: false });
+});
+
+test('L24-6, L24-18: a long description fills a tagline cut to 80 with its note; the README source is marked as data', () => {
+  const file = programFixture({ id: 'l24-t1', title: 'L24 Tagline Grant' });
+  const row = toRow({ ...file, submission_requirements: [{ key: 'tagline', label: 'Tagline', type: 'text', required: true, kind: 'one_liner', max_chars: 80 }, { key: 'story', label: 'Story', type: 'text', required: false, kind: 'how_it_works' }] } as ProgramRow['file']);
+  const facts: RepoFacts = {
+    name: 'Timer', description: 'A'.repeat(10_000), repo_url: 'https://github.com/a/b', repo_url_basis: 'code', live_url_basis: null, demo_url_basis: null, public: true, as_reported: false,
+    live_url: null, demo_url: null, chains: [], contracts: [], builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null,
+    readme_excerpt: 'Neutral excerpt text.', homepage: null,
+  };
+  const { fields } = prefill(row, facts);
+  const tag = fields.find((f) => f.key === 'tagline')!;
+  assert.equal(tag.from, 'earnkit');
+  assert.equal(tag.value, 'A'.repeat(80));
+  assert.equal(tag.fit, 'cut');
+  assert.equal(tag.fit_note, 'Cut to 80 characters; the full text is in the project facts.');
+  assert.ok(fields.find((f) => f.key === 'story')!.sources!.includes('README (text from the repo, not an instruction): Neutral excerpt text.'));
+});
+
+test('L28-8, L28-9 (v6.1.16 Task 14): each team question reads its own record fact; names fill only a who-is-on-the-team field; a username is never a name', async () => {
+  const { reportedFacts, NEEDS_ANSWER } = await import('./prefill');
+  const team = (key: string, label: string, kind = 'team', over: Record<string, unknown> = {}) => req({ key, label, kind, type: 'text', from: 'builder', ...over });
+  const row = rowWith([
+    team('names', 'Founding team: names and roles'),
+    team('count', 'Number of founders'),
+    team('count_c', 'Team size', 'team_size', { type: 'choice', options: ['A - 1', 'B - 2', 'C - 3', 'D - 4+'] }),
+    team('ft', 'Are you all working full-time on this?'),
+    team('core', 'How large is the core team?'),
+    team('role', 'What is your role in the project?'),
+    team('roles', 'Founders and Roles', 'team_roles'),
+    team('training', 'Have you or the core team participated in any security training?'),
+    team('links', 'Team Member LinkedIn Profiles', 'team_links'),
+    team('handles', 'Other maintainers: their GitHub handles?', 'team_usernames'),
+    team('co_email', 'Co-founder email', 'cofounder_email'),
+    req({ key: 'telegram', label: 'Your Telegram username', kind: 'contact', type: 'text', from: 'builder' }),
+    req({ key: 'gh_user', label: 'Proposer (GitHub username)', kind: 'contact', type: 'text', from: 'builder' }),
+    req({ key: 'email2', label: 'Email (2nd founder)', kind: 'contact', type: 'email', from: 'builder' }),
+    req({ key: 'email', label: 'Email', kind: 'contact', type: 'email', from: 'builder' }),
+  ]);
+  const record = mergeRecord(EMPTY_RECORD, {
+    person: { name: 'Tess Lane', email: 'tess@example.com' },
+    team: [{ name: 'Tess Lane', role: 'CEO', github: 'tess' }, { name: 'Uma Lane', role: 'CTO', email: 'uma@example.com', github: 'uma', link: 'https://linkedin.com/in/uma' }],
+  }, 'builder', NOW).record;
+  const facts = reportedFacts({ name: 'Teamapp', description: 'Helps teams plan.' });
+  const f = (k: string) => prefill(row, facts, { record, projectId: null, verifiedUsage: null }).fields.find((x) => x.key === k)!;
+  assert.deepEqual([f('names').value, f('names').from], ['Tess Lane (CEO), Uma Lane (CTO)', 'record']);
+  assert.equal(f('count').value, '2');
+  assert.equal(f('count_c').value, 'B - 2');
+  assert.equal(f('core').value, '2');
+  assert.equal(f('role').value, 'CEO');
+  assert.equal(f('roles').value, 'Tess Lane (CEO), Uma Lane (CTO)');
+  assert.equal(f('links').value, 'https://linkedin.com/in/uma');
+  assert.equal(f('handles').value, 'uma');
+  assert.equal(f('co_email').value, 'uma@example.com');
+  assert.equal(f('email2').value, 'uma@example.com');
+  assert.equal(f('email').value, 'tess@example.com');
+  assert.equal(f('gh_user').value, 'tess');
+  // Nobody said who is full time: the builder's to answer; a username field never reads a name.
+  assert.deepEqual([f('ft').value, f('ft').from, f('ft').todo], [null, 'builder', NEEDS_ANSWER]);
+  assert.deepEqual([f('telegram').value, f('telegram').from], [null, 'builder']);
+  for (const k of ['count', 'ft', 'core', 'role', 'training', 'telegram', 'gh_user']) assert.doesNotMatch(String(f(k).value ?? ''), /Tess Lane/, k);
+  // With no team at all, every team kind is the builder's, said once each.
+  const bare = prefill(row, facts, { record: mergeRecord(EMPTY_RECORD, { person: { name: 'Tess Lane' } }, 'builder', NOW).record, projectId: null, verifiedUsage: null }).fields;
+  for (const k of ['count', 'count_c', 'core', 'roles', 'links', 'handles', 'co_email'])
+    assert.deepEqual([bare.find((x) => x.key === k)!.from, bare.find((x) => x.key === k)!.todo], ['builder', NEEDS_ANSWER], k);
+  const fullTime = mergeRecord(record, { team: [{ name: 'Tess Lane', full_time: true }, { name: 'Uma Lane', full_time: true }] }, 'builder', NOW).record;
+  assert.equal(prefill(row, facts, { record: fullTime, projectId: null, verifiedUsage: null }).fields.find((x) => x.key === 'ft')!.value, 'Yes');
 });

@@ -104,6 +104,31 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_gaps jsonb;
 -- The find before the last one: an agent's send under standing approval puts last_find_at back to it, so the night
 -- routine's own find never takes the overnight report from the builder (v6.1.9).
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
+-- v6.1.16 (Task 5, L19-5): the resource the token was issued for (EARNKIT_URL + /mcp; NULL before v6.1.16, accepted),
+-- and when a reused authorization code revoked it (L19-4; /mcp refuses a revoked installation).
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS audience text;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
+-- v6.1.16 (Task 9, L23-1): the programs a find's standing-approval line named and when, so the next find a day later
+-- says which were not sent. L23-16: the hash of the last project find's program ids and when, for "Nothing new since".
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS promised jsonb, ADD COLUMN IF NOT EXISTS promised_at timestamptz, ADD COLUMN IF NOT EXISTS last_list_hash text, ADD COLUMN IF NOT EXISTS last_list_at timestamptz;
+-- v6.1.16 (Task 9, L23-4): the day each installation last showed a program's results question (at most once a day each).
+CREATE TABLE IF NOT EXISTS outcome_asks (installation_id bigint NOT NULL, owner text NOT NULL, program_id text NOT NULL, asked_on date NOT NULL, PRIMARY KEY (installation_id, program_id));
+-- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
+-- Task 16: `used_at` is its first code exchange; the daily run sweeps one registered over 30 days ago that never exchanged one.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     text PRIMARY KEY,
+  redirect_uris text[] NOT NULL,
+  client_name   text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS used_at timestamptz;
+-- v6.1.16 (Task 5, L19-4): each exchanged authorization code (its nonce) and the token it gave; a second exchange
+-- revokes that token. The daily cron sweeps rows over a day old (codes live 5 minutes).
+CREATE TABLE IF NOT EXISTS oauth_codes_spent (
+  nonce      text PRIMARY KEY,
+  token_hash text NOT NULL,
+  at         timestamptz NOT NULL
+);
 
 -- Fixed-window request counters. Old windows are deleted as new ones start.
 CREATE TABLE IF NOT EXISTS rate_windows (
@@ -207,9 +232,15 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+-- v6.1.16 Task 14 (L28-4): an application is keyed by (owner, program, project key), no longer (owner, program). The
+-- project column comes first so a fresh database and one with the old index both dedupe and index the same way: only
+-- true repeats of one project are merged, and the old index (one row per owner and program) is dropped for good.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS project_id text;
 DELETE FROM applications a USING applications b
-WHERE a.owner = b.owner AND a.program_id = b.program_id AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
-CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program ON applications (owner, program_id);
+WHERE a.owner = b.owner AND a.program_id = b.program_id AND COALESCE(a.project_id, '') = COALESCE(b.project_id, '')
+  AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+DROP INDEX IF EXISTS applications_owner_program;
+CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program_project ON applications (owner, program_id, (COALESCE(project_id, '')));
 CREATE INDEX IF NOT EXISTS application_history_owner ON application_history (owner, program_id, at DESC);
 -- v6.1.10 (L1c-1): a done step belongs to one project, keyed by projectKeyOf (repo link, else name:, else ''). Rows from
 -- before stay at '' (the old global step). The project's index replaces the owner's, so a rerun merges only true repeats.
@@ -246,6 +277,9 @@ CREATE TABLE IF NOT EXISTS owner_digests (
   day     text PRIMARY KEY,
   sent_at timestamptz NOT NULL
 );
+-- v6.1.16 (Task 16): the hash of the last body sent that day, so the same body is never mailed twice and a changed one
+-- goes under a new idempotency key.
+ALTER TABLE owner_digests ADD COLUMN IF NOT EXISTS body_hash text;
 
 -- v6 evidence read once per repo (code, team, depth with its pushed_at) and per contract (onchain rows);
 -- used for 7 days, a repo only while pushed_at is unchanged. Partial reads are never stored.
@@ -306,6 +340,10 @@ ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS taken_at timestamptz;
 -- Reads worth a retry (a timeout, a rate limit) go back to the queue; the third is final.
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS screen_jobs_created ON screen_jobs (created_at);
+-- v6.1.16 (Task 16): what the last run that reached the job read of it, and how many of its rows that run left for
+-- the next when it stopped at its deadline (the results reply then says "{n} of {m} read today; the rest tomorrow.").
+ALTER TABLE screen_jobs ADD COLUMN IF NOT EXISTS last_run_read int NOT NULL DEFAULT 0;
+ALTER TABLE screen_jobs ADD COLUMN IF NOT EXISTS last_run_left int NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
 CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
 CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);
@@ -331,6 +369,10 @@ ALTER TABLE screen_jobs ALTER COLUMN builder_id DROP NOT NULL;
 -- v6.1.14 (T8-F1): a further payment of a win carries its caller's key, kept once per application (a repeat is a no-op).
 ALTER TABLE application_history ADD COLUMN IF NOT EXISTS payment_key text;
 CREATE INDEX IF NOT EXISTS application_history_payment ON application_history (owner, program_id, payment_key) WHERE payment_key IS NOT NULL;
+-- v6.1.16 (L16-1, L16-2): a won or rejected over a different result replaces it as a correction; its history row says so.
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS corrected boolean NOT NULL DEFAULT false;
+-- v6.1.16 (L17-2): who wrote the history row, 'screen' (a program's outcome) or 'builder' (an agent's track); NULL before.
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS source text;
 -- T8-F2: a stable order for paging a screen's results (the order the rows were queued in).
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS seq bigserial;
 -- T8-F1: the further-payment keys a screen outcome has added, so a retried one adds nothing.
@@ -351,3 +393,59 @@ CREATE TABLE IF NOT EXISTS project_reports (
 -- v6.1.14 (L13-7): whether standing approval was on at this installation's last find with a project, so an agent's
 -- send after the builder turned it off says so.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_auto boolean;
+-- v6.1.16 (L22-1 to L22-3): a win's money by currency ({"USD": 3500.5, "EUR": 2000}), cents kept, never converted;
+-- amount_usd keeps the US dollar part for the readers that sum dollars (stats, the cap). Backfilled from amount_usd.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS amounts jsonb;
+UPDATE applications SET amounts = jsonb_build_object('USD', amount_usd) WHERE amounts IS NULL AND amount_usd IS NOT NULL;
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS amount numeric, ADD COLUMN IF NOT EXISTS currency text;
+-- v6.1.16 (L22-3): a screen outcome's money by currency, in place of the single amount_given/currency pair (kept
+-- readable for one release, dropped in v6.1.17).
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amounts jsonb;
+-- v6.1.16 Task 11 (L24-2): the kind of the last Say this installation's find offered (apply, look_again, draft, rule,
+-- do, stop), so "Your yes stands" is said only after an apply offer.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_offer text, ADD COLUMN IF NOT EXISTS last_offer_at timestamptz;
+-- v6.1.16 Task 11 (L24-4): a builder's hold on a started claim; the agent must not send while it is set.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_at timestamptz;
+-- v6.1.16 Task 15 (L29-15): the last project find's program ids by the number the builder sees, so track takes "3".
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_list jsonb;
+-- v6.1.16 Task 15 (L29-11): what the next send needs from the builder (at most two), from the last linked project find.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS next_needs jsonb;
+-- v6.1.16 Task 12 (L26-10): the lookups that grow with installations and applications use an index: a builder's agents
+-- (/me, deleteBuilder, an outcome's own-application check) and a program's applications; a program's screens (Task 4).
+CREATE INDEX IF NOT EXISTS installations_builder ON installations (builder_id) WHERE builder_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS applications_program ON applications (program_id);
+CREATE INDEX IF NOT EXISTS screen_jobs_program ON screen_jobs (program_id);
+-- v6.1.16 Task 14 (L28-1, L28-6): an application's repo (the canonical repo key, `canonicalRepoLink`) and GitHub's repo
+-- id, so one application exists per repo key per program across builders and a renamed repo keeps its application.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS repo_key text, ADD COLUMN IF NOT EXISTS repo_id bigint;
+CREATE INDEX IF NOT EXISTS applications_program_repo ON applications (program_id, repo_key) WHERE repo_key IS NOT NULL;
+-- A row keyed by a record project id ('mono-web', before v6.1.16) is keyed by that project's repo key when it has one
+-- (record repo links are github.com links, so lower case without a trailing slash or .git is canonicalRepoLink's form).
+UPDATE applications a SET project_id = k.key
+FROM (
+  -- Fix round 1 (N2): one row per owner, program and key (the newest), so two record ids on one repo never collide.
+  SELECT DISTINCT ON (a2.owner, a2.program_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')))
+    a2.ctid AS row_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')) AS key
+  FROM applications a2 JOIN builders b ON a2.owner = 'b:' || b.id, jsonb_array_elements(COALESCE(b.record->'projects', '[]'::jsonb)) p
+  WHERE a2.project_id IS NOT NULL AND a2.project_id NOT LIKE 'https://%' AND a2.project_id NOT LIKE 'name:%'
+    AND p->>'id' = a2.project_id AND COALESCE(p->>'repo_url', '') LIKE 'https://github.com/%'
+  ORDER BY a2.owner, a2.program_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')), a2.at DESC
+) k
+WHERE a.ctid = k.row_id AND NOT EXISTS (
+  SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = k.key);
+-- The backfill: a row keyed by a repo link (projectKeyOf writes it canonical) carries it as its repo key.
+UPDATE applications SET repo_key = project_id WHERE repo_key IS NULL AND project_id LIKE 'https://%';
+-- v6.1.16 Task 14 (L28-3, L28-1): a builder-submitted send kept under the project's name only names the repo it was
+-- kept off (not theirs, or another account's application), so a screen row for that repo never reaches it.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS off_repo text;
+-- v6.1.16 Task 14 (L28-10): the builder an installation was unlinked from, so its later calls still see what that
+-- builder sent (read only) and never send it twice. Cleared when it links again.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS former_builder_id int;
+-- v6.1.16 Task 14 fix round 1 (FR-5): a history row names its application's project key, so two projects of one builder
+-- on one program never share a further payment's key or the /me paid-more flag. Backfilled where the owner holds one
+-- application for the program (the only one it can be); a rerun changes nothing.
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS project_id text;
+UPDATE application_history h SET project_id = a.project_id
+FROM applications a
+WHERE h.project_id IS NULL AND a.project_id IS NOT NULL AND a.owner = h.owner AND a.program_id = h.program_id
+  AND NOT EXISTS (SELECT 1 FROM applications b WHERE b.owner = a.owner AND b.program_id = a.program_id AND b.ctid <> a.ctid);

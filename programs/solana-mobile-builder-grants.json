@@ -23,8 +23,8 @@
   "chain_required": true,
   "eligibility": [
     { "kind": "chain", "value": "solana" },
-    { "kind": "feature", "value": "Mobile Wallet Adapter and Seed Vault in an Android app" },
-    { "kind": "rule", "note": "a mobile-focused dApp for the Solana Mobile ecosystem", "keywords": ["solana mobile", "seeker", "saga", "android"] }
+    { "kind": "feature", "value": "Mobile Wallet Adapter and Seed Vault in an Android app", "note": "use Mobile Wallet Adapter and Seed Vault in an Android app" },
+    { "kind": "rule", "note": "a mobile-focused dApp for the Solana Mobile ecosystem", "keywords": ["solana mobile", "solana saga", "solana seeker", "dapp store"] }
   ],
   "setup": [],
   "each_time": [

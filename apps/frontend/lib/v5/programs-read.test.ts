@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { lowerFirst, moneyAt, moneyOf, upperFirst, programsListGet, usdFull, readListedPrograms, type ListedProgram } from './programs-read';
+import { amountsText, lowerFirst, moneyAt, moneyOf, moneyText, totalText, upperFirst, programsListGet, usdFull, readListedPrograms, revalidateCatalog, watchCatalogRevalidation, type ListedProgram } from './programs-read';
 
 after(() => sql().end());
 
 const NOW = new Date('2026-11-04T12:00:00Z');
 
 const listed = (over: Partial<ListedProgram> & { id: string }): ListedProgram => ({
+  zone: 'UTC',
   title: over.id,
   organizer: 'Org',
   category: 'grant',
@@ -64,7 +65,8 @@ test('shape: the v4.9 keys, closes_in from the clock, no sort-only field', async
     'any_chain', 'category', 'chains', 'closes_at', 'closes_in', 'id', 'min_tier', 'money', 'needs', 'organizer', 'platform_name', 'prefers', 'sign_in', 'source', 'source_url', 'status',
     'submission_url', 'submit', 'title',
   ]);
-  assert.equal(soon.closes_in, 'in 36 hours');
+  // L23-9 (v6.1.16): the one closes wording, by calendar day.
+  assert.equal(soon.closes_in, 'in 2 days');
   assert.equal(body.programs.find((p) => p.id === 'g-rolling-big')!.closes_in, 'rolling');
   assert.equal(body.programs.find((p) => p.id === 'u-up')!.closes_in, null);
 });
@@ -121,7 +123,8 @@ test('readListedPrograms: listed programs from the table, with money and links',
     money: 'Up to $5,000',
     status: 'active',
     closes_at: '2026-11-20T12:00:00.000Z',
-    closes_in: 'in 16 days',
+    closes_in: 'Nov 20',
+    zone: 'UTC',
     source_url: 'https://example.com/grants',
     submission_url: 'https://example.com/apply',
     source: 'api',
@@ -218,4 +221,29 @@ test('fix round 1 (v6.1.15, M1): one lower-casing rule; a chain name, "I" and a 
   assert.equal(lowerFirst('Uniswap v4 hooks'), 'uniswap v4 hooks');
   assert.equal(lowerFirst('Uniswap v4 hooks', ['Uniswap']), 'Uniswap v4 hooks');
   assert.equal(lowerFirst('Ethereum liquid staking'), 'Ethereum liquid staking');
+});
+
+test('moneyText, totalText (L22-1, L22-14 v6.1.16): one format; cents only when given; another code first, never converted', () => {
+  assert.equal(moneyText(5000), '$5,000');
+  assert.equal(moneyText(2500.5), '$2,500.50');
+  assert.equal(moneyText(2000, 'EUR'), 'EUR 2,000');
+  assert.equal(moneyText(115_000, 'usdc'), 'USDC 115,000');
+  assert.equal(usdFull(1234.56), moneyText(1234.56));
+  assert.equal(totalText({ usd: 3500.5, other: [{ currency: 'EUR', amount: 2000 }], noAmount: 0 }), '$3,500.50 and EUR 2,000');
+  assert.equal(totalText({ usd: 5000, other: [], noAmount: 1 }), '$5,000, one amount not given');
+  assert.equal(totalText({ usd: 3500.5, other: [{ currency: 'GBP', amount: 10 }, { currency: 'EUR', amount: 2000 }], noAmount: 2 }), '$3,500.50 and EUR 2,000 and GBP 10, 2 amounts not given');
+  assert.equal(totalText({ usd: 0, other: [], noAmount: 1 }), 'amount not given');
+  assert.equal(totalText({ usd: 0, other: [], noAmount: 0 }), '');
+  assert.equal(amountsText({ USD: 1000, EUR: 500 }), '$1,000 and EUR 500');
+});
+
+test('L22-13 (v6.1.16): revalidateCatalog runs on every catalog write, outside Next too', () => {
+  let n = 0;
+  watchCatalogRevalidation(() => n++);
+  try {
+    revalidateCatalog();
+    assert.equal(n, 1);
+  } finally {
+    watchCatalogRevalidation(null);
+  }
 });

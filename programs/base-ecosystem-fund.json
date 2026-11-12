@@ -40,12 +40,12 @@
     { "key": "website_url", "label": "Website URL", "kind": "links", "todo": "a website link", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
     { "key": "x_url", "label": "X URL", "kind": "links", "todo": "the company's X link", "type": "url", "required": true, "description": "An x.com or twitter.com link.", "from": "builder" },
     { "key": "founder_name", "label": "Founder 1: Name", "kind": "contact", "todo": "the founder's full name", "type": "text", "required": true, "description": "The form takes one to four founders; each has the same six fields.", "from": "builder" },
-    { "key": "founder_role", "label": "Founder 1: Role", "kind": "team", "todo": "the founder's role", "type": "text", "required": true, "description": "CEO, CTO, etc.", "from": "builder" },
+    { "key": "founder_role", "label": "Founder 1: Role", "kind": "team_roles", "todo": "the founder's role", "type": "text", "required": true, "description": "CEO, CTO, etc.", "from": "builder" },
     { "key": "founder_experience", "label": "Founder 1: Brief description of previous professional experiences", "kind": "team", "todo": "the founder's past experience", "type": "text", "required": true, "description": "Relevant work experience and achievements.", "from": "builder" },
     { "key": "founder_telegram", "label": "Founder 1: Telegram", "kind": "contact", "todo": "the founder's Telegram handle", "type": "text", "required": true, "description": "A handle starting with @, or a t.me link.", "from": "builder" },
     { "key": "founder_x", "label": "Founder 1: X", "kind": "contact", "todo": "the founder's X link", "type": "url", "required": true, "description": "An x.com or twitter.com link.", "from": "builder" },
     { "key": "founder_linkedin", "label": "Founder 1: LinkedIn", "kind": "contact", "todo": "the founder's LinkedIn link", "type": "url", "required": true, "description": "A linkedin.com link.", "from": "builder" },
-    { "key": "team_size", "label": "Team Size", "kind": "team", "todo": "your team size", "type": "choice", "required": true, "options": ["1–5", "6–10", "11–25", "26–50", "51+"], "from": "builder" },
+    { "key": "team_size", "label": "Team Size", "kind": "team_size", "todo": "your team size", "type": "choice", "required": true, "options": ["1–5", "6–10", "11–25", "26–50", "51+"], "from": "builder" },
     { "key": "location", "label": "Location", "kind": "contact", "todo": "your location", "type": "text", "required": true, "description": "e.g. San Francisco, CA", "from": "builder" },
     { "key": "problem", "label": "What is the problem you are solving?", "kind": "problem", "todo": "the problem you solve", "need": "problem statement", "type": "text", "required": true, "description": "Describe the problem and who it affects.", "from": "project" },
     { "key": "why_idea", "label": "Why are you working on this idea?", "kind": "why_you", "todo": "the reason for this idea", "type": "text", "required": true, "description": "What motivates you to solve this problem?", "from": "builder" },
@@ -55,7 +55,7 @@
     { "key": "runway", "label": "What's your current runway?", "kind": "other", "todo": "your current runway", "type": "text", "required": true, "description": "e.g. 12 months", "from": "builder" },
     { "key": "fundraising_goals", "label": "What are your current fundraising goals?", "kind": "other", "todo": "your fundraising goals", "type": "text", "required": true, "description": "Amount, timeline, and how you plan to use the funds.", "from": "builder" },
     { "key": "on_base", "label": "What aspects of your company / product are on Base?", "kind": "how_it_works", "todo": "the parts of the product on Base", "type": "text", "required": true, "description": "Describe your onchain presence and integration with Base.", "from": "project" },
-    { "key": "why_bef", "label": "Why are you interested in BEF / Base?", "kind": "other", "todo": "the reason for BEF and Base", "type": "text", "required": true, "description": "What draws you to the Base ecosystem?", "from": "project" },
+    { "key": "why_bef", "label": "Why are you interested in BEF / Base?", "kind": "other", "todo": "the reason for BEF and Base", "need": "reason for choosing Base", "type": "text", "required": true, "description": "What draws you to the Base ecosystem?", "from": "project" },
     { "key": "pitch_deck", "label": "Pitch Deck URL", "kind": "links", "type": "url", "required": false, "description": "Optional. A Docsend or Google Drive link.", "from": "builder" }
   ]
 }

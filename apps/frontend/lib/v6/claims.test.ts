@@ -39,7 +39,8 @@ test("a second claim is refused across the builder's agents", async () => {
   // Inside 24 hours nothing is released; after 25 the claim goes and a new one succeeds.
   assert.deepEqual(await releaseStale(owner, new Date(NOW.getTime() + 23 * H)), []);
   const later = new Date(NOW.getTime() + 25 * H);
-  assert.deepEqual(await releaseStale(owner, later), ['cl-1']);
+  // L23-7 (v6.1.16): with its title and when it was started.
+  assert.deepEqual((await releaseStale(owner, later)).map((x) => [x.program_id, x.title]), [['cl-1', 'Claim Grant']]);
   assert.deepEqual(await claim(owner, 'cl-1', 'earnkit', c, later), { ok: true });
 });
 
@@ -89,11 +90,16 @@ test('two claims at once from two agents of one builder: exactly one wins, one r
   }
 });
 
-test('skips and claims: a skip replaces a claim; a claim over a skip refuses; release leaves skips', async () => {
+test("skips and claims: a skip replaces the agent's own claim, never another agent's live one; a claim over a skip refuses; release leaves skips", async () => {
   await upsertProgram(programFixture({ id: 'cl-skip', title: 'Skip Grant' }), 'file', NOW);
   const { owner, a, c } = await builderWithTwoAgents();
   await claim(owner, 'cl-skip', 'earnkit', a, NOW);
-  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: c, now: new Date(NOW.getTime() + H) }), { ok: true });
+  // L17-1 (v6.1.16): another agent's skip over a live claim records nothing and leaves the claim.
+  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: c, now: new Date(NOW.getTime() + H) }),
+    { ok: false, note: 'Your other agent is handling that one; nothing recorded.' });
+  const [held] = await sql()`SELECT status, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
+  assert.deepEqual({ ...held }, { status: 'started', claimed_by: a });
+  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: a, now: new Date(NOW.getTime() + H) }), { ok: true });
   const [row] = await sql()`SELECT status, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
   assert.deepEqual({ ...row }, { status: 'skipped', claimed_at: null, claimed_by: null });
   assert.deepEqual(await claim(owner, 'cl-skip', 'earnkit', a, new Date(NOW.getTime() + 2 * H)), { ok: false, skipped: true });
@@ -102,12 +108,50 @@ test('skips and claims: a skip replaces a claim; a claim over a skip refuses; re
   assert.equal(still.status, 'skipped');
 });
 
-test('L1d-1 (v6.1.11): claimed returns each claim\'s stored project; the hold stays per owner and program across projects', async () => {
+test('L1d-1 (v6.1.11): claimed returns each claim\'s stored project; L28-4 (v6.1.16 Task 14): another project claims on its own', async () => {
   await upsertProgram(programFixture({ id: 'cl-proj', title: 'Project Grant' }), 'file', NOW);
   const { owner, a, c } = await builderWithTwoAgents();
   assert.deepEqual(await claim(owner, 'cl-proj', 'https://github.com/x/a', a, NOW), { ok: true });
   assert.deepEqual((await claimed(owner)).get('cl-proj'), { since: NOW.toISOString(), by: a, project: 'https://github.com/x/a' });
-  // Another project of the same builder is still held off for 24 hours.
+  // L28-4 (v6.1.16 Task 14, re-pinned): another project of the same builder is another application: its own claim.
   const other = await claim(owner, 'cl-proj', 'https://github.com/x/b', c, new Date(NOW.getTime() + H));
-  assert.equal(other.ok, false);
+  assert.equal(other.ok, true);
+  // The same project from the other agent is still held off for 24 hours.
+  assert.equal((await claim(owner, 'cl-proj', 'https://github.com/x/a', c, new Date(NOW.getTime() + H))).ok, false);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'cl-proj'`)[0].n, 2);
+});
+
+test('L25-1 (v6.1.16): a claim held by "Claude Code (earnkit)" names it "Claude Code"; the stored name is unchanged', async () => {
+  await upsertProgram(programFixture({ id: 'cl-25', title: 'Claim Name Grant' }), 'file', NOW);
+  const b = await upsertBuilder({ github_id: ++gh, login: 'cl' + gh, name: 'Cl', avatar_url: null }, NOW);
+  const a = await installation('Claude Code (earnkit)');
+  const c = await installation('Cursor');
+  await linkInstallation(a, b.id, NOW);
+  await linkInstallation(c, b.id, NOW);
+  const owner = ownerKey(a, b.id);
+  assert.deepEqual(await claim(owner, 'cl-25', null, a, NOW, 'Drafted the pitch.'), { ok: true });
+  assert.equal((await sql()`SELECT note FROM applications WHERE owner = ${owner} AND program_id = 'cl-25'`)[0].note, 'Drafted the pitch.');
+  const second = await claim(owner, 'cl-25', null, c, new Date(NOW.getTime() + H));
+  assert.deepEqual(second, { ok: false, already: { since: NOW.toISOString(), by: 'Claude Code', sent: false } });
+  assert.equal((await sql()`SELECT client_name FROM installations WHERE id = ${a}`)[0].client_name, 'Claude Code (earnkit)');
+});
+
+test('Task 14 fix round 3b: two builders taking over their keyless sends onto one repo at once: one holds it, the other hears it was sent', async () => {
+  await upsertProgram(programFixture({ id: 'cl-3b', title: 'Takeover Grant' }), 'file', NOW);
+  const repo = 'https://github.com/org/takeover';
+  const each = await Promise.all([0, 1].map(async () => {
+    const b = await upsertBuilder({ github_id: ++gh, login: 'tk' + gh, name: null, avatar_url: null }, NOW);
+    const i = await installation('Claude Code');
+    await linkInstallation(i, b.id, NOW);
+    const owner = ownerKey(i, b.id);
+    assert.deepEqual(await record(owner, 'cl-3b', 'applied', { installationId: i, now: NOW }), { ok: true });
+    return { owner, i };
+  }));
+  for (let k = 0; k < 10; k++) {
+    await sql()`UPDATE applications SET project_id = NULL, repo_key = NULL WHERE program_id = 'cl-3b'`;
+    const r = await Promise.all(each.map((e) => claim(e.owner, 'cl-3b', repo, e.i, NOW, null, { tied: true })));
+    // Both rows were sent already, so both answer "already sent"; only one takes the repo.
+    assert.deepEqual(r.map((x) => !x.ok && 'already' in x && x.already.sent), [true, true]);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'cl-3b' AND repo_key = ${repo}`)[0].n, 1, `round ${k}`);
+  }
 });

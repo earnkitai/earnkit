@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import { getGuidePage } from '../../lib/landing-cache';
+import { firstLine, pageMeta } from '../../lib/meta';
+import { guideMeta } from '../../../lib/v5/guide';
 import { NOT_FOUND_METADATA } from '../../../lib/v5/site-copy';
 import GuideView, { Unavailable } from './GuideView';
+import { notFound } from 'next/navigation';
 
 export const revalidate = 600;
 
@@ -13,14 +15,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = await getGuidePage(id);
   if (page === null) return NOT_FOUND_METADATA;
   if (page === 'error') return { title: 'Program guide · EarnKit' };
-  return {
+  // L25-6 (v6.1.16): the guide's own card, "{Title}: {money}" over its description's first sentence.
+  return pageMeta({
+    path: `/programs/${id}`,
     title: `${page.guide.title} · EarnKit`,
-    description: `${page.guide.money}, ${page.guide.closes.toLowerCase()}. Who can apply, what the form asks and the rules.`,
-    alternates: { canonical: `https://earnkit.com/programs/${id}` },
-  };
+    description: guideMeta(page.guide),
+    ogTitle: `${page.guide.title}: ${page.guide.money}`,
+    ogDescription: firstLine(page.guide.description),
+  });
 }
 
-/** A program's guide. No such program is a 404; a failed read is the "unavailable" panel (HTTP 200), never a 404. */
+/**
+ * A program's guide. An id no list shows never reaches here (L27-3, v6.1.16): proxy.ts rewrites it to a path no route
+ * serves, so the site's 404 page is in the server HTML with status 404. A record that stops parsing between the two
+ * reads is notFound() (a 404; Next 16.4 sends that body as its empty error shell, filled in by the browser), noindex
+ * through the metadata; a failed read is the "unavailable" panel (HTTP 200), never a 404.
+ */
 export default async function ProgramGuidePage({ params }: Props) {
   const { id } = await params;
   const page = await getGuidePage(id);

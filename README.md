@@ -29,9 +29,10 @@ no account needed. The full guide is at [earnkit.com/docs](https://earnkit.com/d
 | Muse | Send: "Build a custom connector to https://earnkit.com/mcp (Streamable HTTP). Sign me in, test it, then save it as a skill." |
 | OpenClaw | `openclaw gateway stop`, `openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http --auth oauth`, `openclaw mcp login earnkit`, then `openclaw gateway start` |
 | Hermes | In `~/.hermes/config.yaml`: `mcp_servers: earnkit: url: "https://earnkit.com/mcp", auth: oauth`, then `hermes mcp login earnkit` and `/reload-mcp` |
-| Claude | Customize, Connectors, "+ Add", "Add custom connector", paste the URL, Continue, Sign in now, Add |
+| Claude | Customize, Connectors, Add, Add custom connector, paste the URL, Continue, Sign in now, then turn EarnKit on under Connectors in a chat |
 | Claude Code | `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp`, then `/mcp`, pick earnkit, Authenticate |
 | Cursor | The "Add to Cursor" button on earnkit.com/docs, or in `~/.cursor/mcp.json`: `{"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}` |
+| VS Code | `code --add-mcp '{"name":"earnkit","type":"http","url":"https://earnkit.com/mcp"}'`, then sign in when it asks |
 | Codex | `codex mcp add earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit` |
 | Any other MCP client | Add the URL as a remote server |
 

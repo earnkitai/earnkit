@@ -48,7 +48,79 @@ test('Task 1 N1 (v6.1.15 fix round 1, M3): the program write lints a requirement
 
 test('FR-6 (v6.1.15): rules and eligibility notes in K or M are refused; the catalog\'s rules are in full figures', () => {
   const NOW = new Date('2026-11-11T00:00:00Z');
-  assert.deepEqual(programProblems(programFixture({ id: 'p-rule-k', rules: ['Deal: up to $1M on a SAFE.'] }), NOW), ['rules.0: money must be in full figures ("$1,000,000", never "$1M")']);
-  assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$1,000,000", never "$1M")']);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-rule-k', rules: ['Deal: up to $1M on a SAFE.'] }), NOW), ['rules.0: money must be in full figures ("$100,000", never "$100K")']);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$100,000", never "$100K")']);
   assert.deepEqual(programProblems(programFixture({ id: 'p-rule-full', rules: ['Deal: up to $1,000,000 on a SAFE.'] }), NOW), []);
+});
+
+test('L21-2 (v6.1.16): a closed program carries no open-window sentence; the same file active passes', () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const rules = ['Applications are open until Dec 6.', 'Winners are named in January.'];
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-open', status: 'closed', summary: 'Up to $5,000', rules }), NOW), [
+    'status: a closed program carries no open-window sentence: "Applications are open until Dec 6."',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-active-open', status: 'active', rules }), NOW), []);
+  assert.deepEqual(
+    programProblems(programFixture({ id: 'p-closed-desc', status: 'closed', summary: 'Up to $5,000', description: 'A grant. Apply now on the portal.' }), NOW),
+    ['status: a closed program carries no open-window sentence: "Apply now on the portal."'],
+  );
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', summary: 'Up to $5,000', rules: ['SR008 applications ran October 12 to November 1, 2026, 11:59 PM PT.'] }), NOW), []);
+});
+
+test('fix round 1 (v6.1.16): a closed program carries no present rolling sentence and no rolling summary; the past passes', () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const rules = ['Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline.'];
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-rolling', status: 'closed', summary: 'Up to $5,000', rules }), NOW), [
+    'status: a closed program carries no rolling-window sentence: "Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline."',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-nofixed', status: 'closed', summary: 'Up to $5,000', description: 'A grant. There is no fixed deadline.' }), NOW), [
+    'status: a closed program carries no rolling-window sentence: "There is no fixed deadline."',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-active-rolling', status: 'active', rules }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', summary: 'Up to $5,000', rules: ['Proposals were reviewed on a rolling basis, with no fixed deadline.'] }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-summary', status: 'closed', summary: 'Up to $5,000 · rolling' }), NOW), ['summary: a closed program is not rolling']);
+});
+
+test('L1h-1 (v6.1.16): K or M in a description, reward, past round or todo is refused (any case); a requirement label is the program\'s own', async () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const msg = (path: string) => `${path}: money must be in full figures ("$100,000", never "$100K")`;
+  const round = { label: 'Round one: $325k to 9 projects', source_url: 'https://example.org/r' };
+  assert.deepEqual(programProblems(programFixture({ id: 'p-d', description: 'Invests $100K per team.' }), NOW), [msg('description')]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-r', reward: 'Up to 2M ARB' }), NOW), [msg('reward')]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-p', past_rounds: [round] }), NOW), [msg('past_rounds.0.label')]);
+  const req = { key: 'path', label: 'What is the path to $10M?', type: 'text', required: true, from: 'builder', kind: 'what_next', todo: 'your path to $10M' } as const;
+  assert.deepEqual(programProblems(programFixture({ id: 'p-t', submission_requirements: [req] }), NOW), [msg('submission_requirements.0.todo')]);
+  // The program's own question keeps its wording.
+  assert.deepEqual(programProblems(programFixture({ id: 'p-l', submission_requirements: [{ ...req, todo: 'your path to $10,000,000' }] }), NOW), []);
+  // The whole catalog passes.
+  const { readProgramFiles } = await import('./programs-sync');
+  const { findProgramsDir } = await import('./programs-api');
+  assert.deepEqual(readProgramFiles(findProgramsDir()!, NOW).invalid, []);
+});
+
+test('L24-25 (v6.1.16 Task 11): EarnKit\'s own files never use the copy-rule words; a third party\'s wording passes', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const base = programFixture({ id: 'l24-own', title: 'Own Campaign' });
+  const req = { key: 'contracts', label: 'Contract addresses to score', type: 'text' as const, required: true, kind: 'other' as const, todo: 'your token address', from: 'project' as const };
+  const own = programProblems({ ...base, organizer: 'EarnKit', submission_requirements: [req] } as never);
+  assert.ok(own.some((p) => p.startsWith('submission_requirements.0.label: ')), own.join('\n'));
+  assert.ok(own.some((p) => p.startsWith('submission_requirements.0.todo: ')), own.join('\n'));
+  const theirs = programProblems({ ...base, organizer: 'Some Foundation', submission_requirements: [req] } as never);
+  assert.ok(!theirs.some((p) => /copy never says/.test(p)), theirs.join('\n'));
+});
+
+test('L1h-8 (v6.1.16 Task 15): a required field\'s need (or the todo standing in for it) holds no "and"; every catalog file passes', async () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const req = (over: Record<string, unknown>) => ({ key: 'q1', label: 'Question one', type: 'text', required: true, from: 'builder', kind: 'other', ...over });
+  const p = (over: Record<string, unknown>) => programProblems(programFixture({ id: 'p-need', submission_requirements: [req(over)] as never }), NOW);
+  assert.deepEqual(p({ todo: 'the problem and your solution' }), ['submission_requirements.q1.need: one need, no "and"; use "with" or split the field']);
+  assert.deepEqual(p({ todo: 'the problem and your solution', need: 'problem with your solution' }), []);
+  assert.deepEqual(p({ todo: 'the chains you use', need: 'chains and tools' }), ['submission_requirements.q1.need: one need, no "and"; use "with" or split the field']);
+  assert.deepEqual(p({ required: false, todo: 'a and b' }), []);
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../../../../programs/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const file = JSON.parse(readFileSync(new URL(f, dir), 'utf8')) as { submission_requirements: { required: boolean; need?: string; todo?: string; key: string }[] };
+    for (const r of file.submission_requirements.filter((x) => x.required)) assert.doesNotMatch(r.need ?? r.todo ?? '', / and /, `${f} ${r.key}`);
+  }
 });

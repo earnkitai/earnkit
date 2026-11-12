@@ -494,6 +494,67 @@ export async function safeProbePage(
   return page;
 }
 
+/**
+ * A program link's answer for the daily stale check (v6.1.16 Task 16, L30-2): alive, or dead and why. `redirect` names
+ * the other host a 3xx pointed to (never followed); `page` is the first 64 KB of an HTML page that loaded ('' otherwise).
+ */
+export type ProbeResult = { ok: true; redirect?: string; page?: string } | { ok: false; why: '4xx' | '5xx' | 'dns' | 'timeout' | 'refused' };
+
+/** A bot wall or a sign-in still means the page exists. */
+const WALLS = [401, 403, 429];
+
+/**
+ * The stale check's probe (L30-2): the same guarded GET as safeProbePage (one same-site hop), but a redirect elsewhere
+ * is an answer, not a failure: `{ ok: true, redirect: host }`, and the redirect is never requested (the SSRF rule
+ * stands). A 3xx with no Location, a second redirect, 401, 403 and 429 are alive too. Only a 4xx (or an error page),
+ * a 5xx, a name that does not resolve, the deadline (`timeoutMs`) and a refused connection or address count as dead.
+ * The builder live-link reader keeps safeProbePage's rule. Never throws.
+ */
+export async function probeLink(
+  url: string,
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
+): Promise<ProbeResult> {
+  const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
+  const host = URL.canParse(url) ? new URL(url).hostname : '';
+  const read = async (target: string): Promise<ProbeResult> => {
+    const page = await safeFetchText(target, opts);
+    return errorPageText(page) ? { ok: false, why: '4xx' } : { ok: true, page };
+  };
+  const redirected = (err: RedirectError, from: string): ProbeResult | URL => {
+    if (!err.location || !URL.canParse(err.location, from)) return { ok: true };
+    const next = new URL(err.location, from);
+    return sameSite(next.hostname, host) ? next : { ok: true, redirect: next.hostname };
+  };
+  try {
+    try {
+      return await read(url);
+    } catch (err) {
+      if (!(err instanceof RedirectError)) throw err;
+      const next = redirected(err, url);
+      if (!(next instanceof URL)) return next;
+      try {
+        return await read(next.href);
+      } catch (err2) {
+        // A second redirect is not followed either; the host answered, so the link is alive.
+        if (!(err2 instanceof RedirectError)) throw err2;
+        const again = redirected(err2, next.href);
+        return again instanceof URL ? { ok: true } : again;
+      }
+    }
+  } catch (err) {
+    return deadWhy(err);
+  }
+}
+
+/** Why a probe failed, in the stale check's words. Pure. */
+function deadWhy(err: unknown): ProbeResult {
+  if (err instanceof HttpStatusError) return WALLS.includes(err.status) ? { ok: true } : { ok: false, why: err.status >= 500 ? '5xx' : '4xx' };
+  const msg = err instanceof Error ? err.message : '';
+  if (/no answer within/.test(msg)) return { ok: false, why: 'timeout' };
+  if (/doesn't resolve|ENOTFOUND|ENODATA|EAI_AGAIN|queryA|queryAaaa/.test(msg)) return { ok: false, why: 'dns' };
+  return { ok: false, why: 'refused' };
+}
+
 /** The most a JSON document may be (an OAuth client ID metadata document, v6.1.15 Task 14). */
 export const JSON_MAX_BYTES = 10_240;
 

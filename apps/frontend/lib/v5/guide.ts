@@ -4,16 +4,21 @@
  */
 import { integrationLabel } from '../v6/integrations';
 import { chainName } from './chains';
-import { closeDay } from './deadline';
+import { closeDay, closesLead, dayWords, programZone } from './deadline';
+import { withoutOpenWindow } from './program-checks';
 import { CLOSED, NOT_OPEN_YET, ROLLING } from './site-copy';
 import { MIN_TIER, NEEDS, eligibilityOf, type EligibilityItem, type Program } from './program-file';
-import { isOpen, type ProgramRow } from './programs';
+import { closedAt, statusAt, type ProgramRow } from './programs';
 import { lowerFirst, moneyOf } from './programs-read';
 
 export type Guide = {
   title: string;
   money: string;
   closes: string;
+  /** "Closed on Nov 1.": the window line of a closed program (L21-2, v6.1.16); null while open or not open yet. */
+  closed_on: string | null;
+  /** The program's description; a closed program's drops each sentence that reads as still taking entries. */
+  description: string;
   rules: string[];
   eligibility: string[];
   fields: { label: string; todo: string }[];
@@ -25,6 +30,8 @@ export type Guide = {
   needs: string[];
   /** "Needs a live product.", or null when the program sets none. */
   bar: string | null;
+  /** "In person: New York City." or "In person." for an in-person program; null otherwise (L21-16, v6.1.16). */
+  in_person: string | null;
   focus: string | null;
   past_rounds: string[];
   best_bet: string | null;
@@ -39,19 +46,18 @@ export function sentence(s: string): string {
   return /[.!?]$/.test(up) ? up : `${up}.`;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "30 Oct 2026": the value's own calendar day, never an ISO date (#9). Pure. */
-function plainDate(v: string): string {
+/** "Oct 30" ("Oct 30, 2025" in another year than `now`'s): the value's own calendar day through `dayWords` (L23-11,
+ *  v6.1.16), never an ISO date (#9). Pure. */
+function plainDate(v: string, now: Date): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
-  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : v;
+  return m ? dayWords(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)), now) : v;
 }
 
 /** The words of a feature item: its note first, as the reply's gap says it (v6.1.15). */
 const featureWords = (i: EligibilityItem): string => i.note || i.value || 'a feature the program asks for';
 
 /** One eligibility item as a sentence (#9, v6.1.15). */
-function eligibilityWords(i: EligibilityItem): string {
+function eligibilityWords(i: EligibilityItem, now: Date): string {
   const v = i.value ?? '';
   switch (i.kind) {
     case 'live_product': return 'A live product.';
@@ -59,7 +65,7 @@ function eligibilityWords(i: EligibilityItem): string {
     case 'contract_on': return `A contract on ${chainName(v)}.`;
     case 'builder_codes': return 'Base Builder Codes in the app.';
     case 'users': return 'Real users.';
-    case 'new_work_after': return `New work started after ${plainDate(v)}.`;
+    case 'new_work_after': return `New work started after ${plainDate(v, now)}.`;
     case 'demo_video': return 'A demo video.';
     case 'in_person': return 'In person.';
     case 'integration': return `Uses ${integrationLabel(v) ?? v}.`;
@@ -68,12 +74,12 @@ function eligibilityWords(i: EligibilityItem): string {
 }
 
 /** The items as sentences; the chains of a chain_required program are one item ("On Base or Tempo."). */
-function eligibilityList(items: EligibilityItem[]): string[] {
+function eligibilityList(items: EligibilityItem[], now: Date): string[] {
   const chains = items.filter((i) => i.kind === 'chain').map((i) => chainName(i.value ?? ''));
   const out: string[] = [];
   let chainDone = false;
   for (const i of items) {
-    if (i.kind !== 'chain') out.push(eligibilityWords(i));
+    if (i.kind !== 'chain') out.push(eligibilityWords(i, now));
     else if (!chainDone) {
       chainDone = true;
       out.push(`On ${chains.join(' or ')}.`);
@@ -94,12 +100,32 @@ function roundLine(r: Program['past_rounds'][number]): string {
   return [`${r.label}${counts ? `: ${counts}` : ''}`, themes, examples].filter(Boolean).map(sentence).join(' ');
 }
 
-/** When it closes, in words: a date in the program's own zone, rolling, not open yet or closed. */
+/**
+ * "Closed on Nov 1." (L21-2; L23-11 v6.1.16: `dayWords`, "Closed on Nov 1, 2025." in another year): for a program that
+ * reads closed (`closedAt`: `status: closed`, or `ends_at` passed before any run flipped it), the day of `ends_at` in the
+ * program's zone, else the day of `verified_at`; null while open or not open yet. Pure.
+ */
+export function closedOn(p: Program, now: Date): string | null {
+  if (!closedAt(p, now)) return null;
+  const day = p.ends_at ? dayWords(new Date(p.ends_at), now, programZone(p)) : plainDate(p.verified_at, now);
+  return `Closed on ${day}.`;
+}
+
+/**
+ * An open program's close in words (L23-9, L21-24, v6.1.16), the one closes wording (`closesWords`) as a sentence:
+ * "Closes in under an hour.", "Closes today.", "Closes tomorrow.", "Closes in 5 days.", "Closes Nov 30."; `Rolling`
+ * without a close. Pure.
+ */
+export function closesSentence(p: Pick<Program, 'summary' | 'tz' | 'ends_at'>, now: Date): string {
+  if (!p.ends_at || !closeDay(p, now)) return ROLLING;
+  return `${closesLead(p.ends_at, now, programZone(p))}.`;
+}
+
+/** When it closes, in words: `closesSentence`, rolling, not open yet or closed, read from the clock (`closedAt`). */
 function closesOf(p: Program, now: Date): string {
-  if (p.status === 'upcoming') return NOT_OPEN_YET;
-  if (p.status === 'closed' || !isOpen(p, now)) return CLOSED;
-  const day = closeDay(p);
-  return day ? `Closes ${day}` : ROLLING;
+  if (closedAt(p, now)) return CLOSED;
+  if (statusAt(p, now) === 'upcoming') return NOT_OPEN_YET;
+  return closesSentence(p, now);
 }
 
 const NEEDS_WORDS: Record<(typeof NEEDS)[number], string> = {
@@ -120,10 +146,11 @@ function signInOf(p: Program): string | null {
   return name ? `Form needs ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} account.` : "Form needs an account on the program's site.";
 }
 
-/** The pills under a guide's title, each a sentence (template row 7, v6.1.15): who sends it, the form's login, the
- *  extra material ("Needs a founder video.") and the bar. Pure. */
-export function guidePills(g: Pick<Guide, 'submit' | 'sign_in' | 'needs' | 'bar'>): string[] {
-  return [g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}.`), g.bar].filter((t): t is string => Boolean(t));
+/** The pills under a guide's title, each a sentence (template row 7, v6.1.15): where it is held when in person
+ *  (`In person: New York City.`, or `In person.` when the file names no city; L21-16, v6.1.16), who sends it, the form's
+ *  login, the extra material ("Needs a founder video.") and the bar. Pure. */
+export function guidePills(g: Pick<Guide, 'submit' | 'sign_in' | 'needs' | 'bar'> & Partial<Pick<Guide, 'in_person'>>): string[] {
+  return [g.in_person ?? null, g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}.`), g.bar].filter((t): t is string => Boolean(t)).map(sentence);
 }
 
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
@@ -147,23 +174,38 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
   ];
   const seen = new Set<string>();
   const closes = closesOf(p, now);
+  const closed_on = closedOn(p, now);
   return {
     title: p.title,
     money: moneyOf(p),
     closes,
-    rules: p.rules,
-    eligibility: eligibilityList(eligibilityOf(p)),
+    closed_on,
+    // L21-2 (v6.1.16): a closed program's text never reads as still taking entries.
+    // L21-23 (v6.1.16): the description ends as a sentence.
+    description: sentence(closed_on ? withoutOpenWindow(p.description) : p.description),
+    rules: closed_on ? p.rules.map(withoutOpenWindow).filter(Boolean) : p.rules,
+    eligibility: eligibilityList(eligibilityOf(p), now),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: sentence(r.todo ?? (r.required ? r.label.toLowerCase() : 'optional')) })),
     // A closed program takes no entries: no word on who submits (v6.1.7 C7); nor one not open yet (Low 21, v6.1.13).
-    submit: closes === CLOSED || p.status === 'upcoming' ? null : p.submit === 'builder' ? 'You send it.' : 'Your agent sends it.',
+    submit: closes === CLOSED || closes === NOT_OPEN_YET ? null : p.submit === 'builder' ? 'You send it.' : 'Your agent sends it.',
     sign_in: signInOf(p),
     needs: p.needs.map((n) => NEEDS_WORDS[n]),
     bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,
+    in_person: p.in_person ? (p.city ? `In person: ${p.city}.` : 'In person.') : null,
     focus: p.focus ? focusOf(p.focus, p.focus.ecosystem || (p.chains[0] ? chainName(p.chains[0]) : p.title)) : null,
     past_rounds: p.past_rounds.map(roundLine),
     best_bet: p.best_bet ? sentence(p.best_bet) : null,
     sources: sources.filter((s) => !seen.has(s.url) && seen.add(s.url)),
   };
+}
+
+/**
+ * The guide page's meta description (L21-3, v6.1.16): "$67,500 in prizes, closes Nov 12. Who can apply, what the form
+ * asks and the rules.", the close in the page's own words, its first letter lower-cased; a closed program "..., closed.". Pure.
+ */
+export function guideMeta(g: Pick<Guide, 'money' | 'closes' | 'closed_on'>): string {
+  const closes = (g.closed_on ? CLOSED : g.closes).replace(/\.$/, '');
+  return `${g.money}, ${closes.charAt(0).toLowerCase()}${closes.slice(1)}. Who can apply, what the form asks and the rules.`;
 }
 
 /** The guide's rules as reply lines ("Rules:" then one per line); none without rules. */

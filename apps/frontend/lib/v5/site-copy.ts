@@ -1,14 +1,16 @@
 /**
  * Every string the site shows that is not data, and the pure formatters the cards use.
- * Plain words: no emoji, no em dash. The terms page alone may say "launch a token".
+ * Plain words: no emoji, no em dash.
  */
 import { categoryOf } from './program-file';
 import { usdFull } from './programs-read';
+import { quoteName } from './controls';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** L23-11 (v6.1.16): the one date formatter in builder text, "Nov 6" in the current year and "Nov 6, 2025" in any other. */
+export { dayWords } from './deadline';
 
-/** "Nov 4" (UTC). */
-export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+/** L23-15 (v6.1.16): the line at the top of /docs#record after /me found the sign-in gone (`/docs?expired=1`). */
+export const SIGN_IN_EXPIRED = 'Your sign-in expired. Ask your agent for a new link.';
 
 /** The landing hero's figure, the one money that may round (lane 22, v6.1.15): down to one decimal in millions
  *  ("$3.1M" for 3,159,600), in full under a million ("$950,000"). Pure. */
@@ -27,24 +29,34 @@ export function programKind(p: Partial<Parameters<typeof categoryOf>[0]> & { rew
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
-export const HERO_SUB = 'Your agent finds the grants and prizes you fit and fills the forms. Free.';
+/** The one line about EarnKit (L25-2, v6.1.16): the hero, the meta description, every share card and SchemaOrg. */
+export const ONE_LINE = 'Your agent finds the grants and prizes your repo fits and fills the forms. Free.';
+export const HERO_SUB = ONE_LINE;
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 /** The nav pill says the CTA's words: one install action (v6.1.15, #13). */
 export const NAV_INSTALL = CTA_INSTALL;
+/** Pages for everyone (L27-8, L27-16, L27-17, v6.1.16): the skip link first on every page, the signed-in nav link to
+ *  /me, and the install pill's word under 360px (the header fits two rows at 320px). */
+export const SKIP_LINK = 'Skip to content.';
+export const NAV_RECORD = 'Your record';
+export const NAV_INSTALL_SHORT = 'Add';
+/** The one way the project-name limit is told on the pages (L27-31, v6.1.16): /me's hint and /docs' record card. */
+export const PROJECT_NAME_LIMIT = 'Project names are at most 80 characters.';
 /** One line each, no titles (v6.2.0). */
 export const STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?', 'Say yes. It fills the form and sends it, or hands you the draft to send.'];
 
 /** Several of the six are rolling, so not "this week" (v6.1.14). */
 export const EARN_TITLE = 'Open now';
-/** The link under the landing's six to /programs. */
-export const EARN_ALL = (n: number): string => `See all ${n} programs`;
+/** The link under the landing's six to /programs, with no count (L25-15, v6.1.16). */
+export const EARN_ALL = 'See all programs.';
 export const EARN_EMPTY = 'Nothing is open right now.';
 export const ROLLING = 'Rolling';
 export const NOT_OPEN_YET = 'Not open yet';
 export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';
-export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.';
-export const ALL_PROGRAMS = 'All programs';
+export const PROGRAMS_DESCRIPTION = 'Every grant, prize and investment EarnKit lists, with the money and the close date.';
+/** A button that reads as a sentence (L21-21, v6.1.16). */
+export const ALL_PROGRAMS = 'See all programs.';
 export const FOOT_CTA = 'Ask your agent: What can I earn?';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 
@@ -60,8 +72,9 @@ export const GUIDE_ASK = (title: string): string => `What can I earn on ${title}
 
 export const NOT_FOUND_BIG = '404';
 export const NOT_FOUND_TEXT = 'Nothing shipped here.';
-export const NOT_FOUND_HOME = 'Back home';
-export const NOT_FOUND_TITLE = 'Not found | EarnKit';
+export const NOT_FOUND_HOME = 'Go home.';
+/** The site's title separator is `·` (L21-26, v6.1.16). */
+export const NOT_FOUND_TITLE = 'Not found · EarnKit';
 export const NOT_FOUND_METADATA = { title: NOT_FOUND_TITLE, robots: { index: false } };
 
 export const DOCS_NAV: [string, string][] = [
@@ -79,33 +92,39 @@ export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 export const DOCS_STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
-  // #4 (v6.1.15): the yes sentence is landing step 3, word for word.
-  text: `Ask your agent: What can I earn? It drafts every fit with the facts from the repo. ${STEPS[2]} It tracks the result.`,
+  // L25-9 (v6.1.16): who submits, in one sentence.
+  text: 'Ask your agent: What can I earn? It drafts every fit with the facts from the repo. You say yes and it submits, or hands you the draft to send, and tracks the result.',
 };
+/** What an agent sends, and where saved answers wait (L25-8, v6.1.16): /docs, the Terms and llms.txt. */
+export const APPROVAL_LINE = 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.';
+/** How a program's reviewer gets access (L25-10, v6.1.16); the screen tool's non-reviewer replies say it too. */
+export const REVIEWER_ACCESS = 'Sign in once with GitHub and ask for reviewer access through the X link below.';
 export const DOCS_RECORD = {
   title: 'Your record',
-  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.',
+  // L25-8 (v6.1.16): the approval sentence; the rest shortened so the docs stay under their word cap.
+  text: `Sign in once with GitHub from your agent's link, and your agents share one record: facts, links, documents and answers. ${APPROVAL_LINE} Delete it any time.`,
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
   // #15 (v6.1.15): each tier glossed in plain words.
   text: "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
-/** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each. */
+/** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each; v6.1.16: the second and third
+ *  shortened, so /docs stays under its word cap with the other-agent line and the VS Code tab (L25-4). */
 export const DOCS_PROGRAMS = {
   title: 'For program owners',
   items: [
-    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
-    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
-    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
-    'Other programs see nothing of your screens, results or decisions.',
-    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+    `${REVIEWER_ACCESS} Your team is marked the same way and shares your screens.`,
+    "A screen reads only public evidence, never a builder's record or another applicant's text.",
+    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never through yours.',
+    'Other programs never see your screens, results or decisions.',
+    'Results come once a day, within 24 hours, and are kept 180 days with your decisions.',
   ],
 } as const;
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
-  // v6.1.15: never "owner" for EarnKit (concept picks); shorter, so the docs stay under 420 words with the longer steps.
-  text: 'EarnKit and a research bot check every program weekly and its links daily. Stale ones drop off.',
+  // v6.1.15: never "owner" for EarnKit (concept picks). L25-12 (v6.1.16): no "weekly"; how long a dead page stays.
+  text: 'EarnKit and a research bot check every program. Links are probed daily; a program whose page stays down leaves the list within about two weeks.',
 };
 export const DOCS_TERMS = { title: 'Terms', text: 'What EarnKit reads, stores and never does.', link: 'Read the terms' };
 
@@ -123,19 +142,20 @@ export const TERMS_SECTIONS = [
     title: 'What it stores',
     lines: [
       'An anonymous installation for each connected agent.',
+      "The agent's name, your GitHub login once you sign in, and your address for at most two days to stop abuse.",
       'The applications you tell it about.',
       'Program data.',
     ],
   },
   {
     title: 'What it never does',
-    lines: ['EarnKit will never submit for you, hold a wallet, launch a token, sell data or email builders.'],
+    lines: ['EarnKit never submits for you; your agent does, or you do. It never holds a wallet, sells data or emails builders.'],
   },
   {
     title: 'Your record',
     lines: [
       'Once you sign in with GitHub, EarnKit keeps one private record for you: the facts, links and answers you or your agent give it, your applications and your linked agents.',
-      'Only you and your linked agents see it. Nothing your agent wrote is sent until you approve it.',
+      `Only you and your linked agents see it. ${APPROVAL_LINE}`,
       'You can edit or delete it any time on your record page.',
     ],
   },
@@ -162,6 +182,8 @@ export const ME_BY_AGENT = 'From your agent';
 export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
 export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
+/** A project the applications name that the record does not hold (L21-12, v6.1.16): read-only, by its repo link or name. */
+export const ME_PROJECT_SEEN = (label: string, n: number): string => `${label}: ${n} ${n === 1 ? 'application' : 'applications'}.`;
 export const ME_POLICY_LINE = 'Your agent applies on its own only when this is on, within these limits.';
 /** Under an answer: the short form the agent cut from it, which approving the answer approves too (v6.1.8 B16). */
 export const ME_SHORT_LABEL = 'Short form, for fields under 300 characters.';
@@ -174,28 +196,57 @@ export const ME_TEAM = {
 } as const;
 /** Standing approval on with no category ticked (v6.1.8 C43). */
 export const ME_PICK_CATEGORY = 'Pick at least one category.';
+/** L24-15 (v6.1.16 Task 11): standing approval on with Press submit off would only ever draft; refused, nothing saved. */
+export const ME_PRESS_SUBMIT_FIRST = 'Turn on Press submit for me first.';
+/**
+ * L24-14 (v6.1.16 Task 11): the standing approval's state in words, above its form: "On: up to 1 a day, grants and
+ * hackathons, up to $4,500." or "Off.", then "Sent under it: {n}." Day-based (Task 9 review N1): the agent applies when
+ * it next checks, never at night. `cap` is the money text, null with no cap. Pure.
+ */
+export function mePolicyStatus(p: { on: boolean; perDay: number; kinds: string[]; cap: string | null } = { on: false, perDay: 1, kinds: [], cap: null }, sent = 0): string[] {
+  const kinds = p.kinds.length <= 1 ? (p.kinds[0] ?? '') : `${p.kinds.slice(0, -1).join(', ')} and ${p.kinds.at(-1)}`;
+  const on = `On: up to ${p.perDay} a day${kinds ? `, ${kinds}` : ''}${p.cap ? `, up to ${p.cap}` : ''}.`;
+  return [p.on ? on : 'Off.', `Sent under it: ${sent}.`];
+}
 export const ME_LEDGER_TITLE = 'Your applications';
 export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
 export const ME_AGENTS_TITLE = 'Your agents';
 export const ME_AGENTS_EMPTY = 'No agents linked.';
-export const ME_AN_AGENT = 'An agent';
+/** An agent with no name, by the day it was linked (L21-10, v6.1.16); never its client id. */
+export const ME_AN_AGENT = (day: string | null): string => (day ? `An agent linked ${day}` : 'An agent');
+/** One line per program the builder reviews (L21-13, v6.1.16). */
+export const ME_REVIEWS = (program: string): string => `You review ${program}. Results come through your agent.`;
+/** After an unlink (L21-7) and for an agent that is not the builder's (L21-15, v6.1.16). */
+export const ME_UNLINKED = (agent: string): string => `Unlinked ${agent}.`;
+export const ME_UNLINK_NOT_YOURS = 'That agent is not on your account.';
+/** After a save, beside the control (L21-11, v6.1.16). */
+export const ME_SAVED = 'Saved.';
 export const ME_LINKED = (day: string): string => `Linked ${day}.`;
 export const ME_UNLINK = 'Unlink';
 /** The banner above the record after sign-in from /link/<code>: the link happens only on Link this agent. */
 export const ME_LINK_TITLE = 'Link an agent to this account?';
 /** The link banner in three parts: the words before the agent's own name, the name (shown isolated, it is the agent's text) and the rest. */
 export const ME_LINK_PARTS = (agent: string | null, day: string): [string, string, string] => {
-  const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose Not me.`;
-  return agent ? ['The agent calling itself ', agent, rest] : ['Your agent', '', rest];
+  const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose This is not me.`;
+  // Task 11 fix round 1 (N3): the agent's own name through quoteName, as the /link page shows it.
+  return agent ? ['The agent calling itself ', quoteName(agent), rest] : ['Your agent', '', rest];
 };
 export const ME_LINK_LINE = (agent: string | null, day: string): string => ME_LINK_PARTS(agent, day).join('');
 /** After POST /me/link (v6.1.7 C2). */
-export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ?? 'your agent'}.`;
+export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ? quoteName(agent) : 'your agent'}.`;
 export const ME_LINK_NOT = 'Not linked.';
+/** The banner's title for a code this builder used (L21-6, v6.1.16). */
+export const ME_LINK_USED = 'Linked.';
+/** The banner's title for an expired code (L21-6, L21-17). */
+export const ME_LINK_EXPIRED_TITLE = 'This link has expired.';
+/** A code EarnKit never made, or not code-shaped (L21-17, v6.1.16). */
+export const UNKNOWN_CODE = 'This link is not one of ours.';
 export const ME_LINK_YES = 'Link this agent';
-export const ME_LINK_NO = 'Not me';
+export const ME_LINK_NO = 'This is not me.';
 export const ME_DELETE_TITLE = 'Delete your record';
-export const ME_DELETE_LINE = 'This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.';
+export const ME_DELETE_LINE = 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.';
+/** On the home page after a delete (L21-9; L27-11, v6.1.16: "record", the page's own word). */
+export const ME_DELETED_LINE = 'Your record is deleted.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
 export const ME_DELETE = 'Delete everything';
 export const ME_NOT_SET = 'Not set';
@@ -222,8 +273,10 @@ export const ME_LABELS = {
   'docs.other': 'Other links',
   'traction.line_pre_launch': 'Your one line on traction', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
   'traction.notes': 'Notes',
-  'policy.auto_apply': 'Apply overnight without asking, within these limits', 'policy.max_per_night': 'Most per night', 'policy.categories': 'Categories',
-  'policy.max_ask_usd': 'Skip awards above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me',
+  // v6.1.16 Task 11 (L24-12, Task 9 review N1): the agent applies when it next checks, so the limit is a day's, never a
+  // night's; an award above the cap is asked about, never skipped.
+  'policy.auto_apply': 'Apply without asking, within these limits', 'policy.max_per_night': 'Most a day', 'policy.categories': 'Categories',
+  'policy.max_ask_usd': 'Ask me first above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me when I say yes.',
   'company.raised': 'Money raised',
 } as const;
 /** The words for a stored choice: company stages and program categories. */
@@ -232,20 +285,28 @@ export const ME_CHOICES: Record<string, string> = {
   grant: 'Grants', hackathon: 'Hackathons', investment: 'Investment', bounty: 'Bounties',
 };
 export const ME_STATUS: Record<string, string> = {
-  started: 'Started', applied: 'Applied', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
+  started: 'Started', applied: 'Applied',
+  // L24-4 (v6.1.16 Task 11): a claim the builder held; nothing goes until they say go.
+  held: 'Held', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
+  // L23-7 (v6.1.16): a claim past its 24 hours with no send.
+  started_not_sent: 'Started, not sent',
 };
-export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.' } as const;
+export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.', 'project.name': PROJECT_NAME_LIMIT } as const;
 export const ME_ERRORS = {
   signin: 'Sign in again from the link your agent gives you.',
   expired: 'This page expired. Reload it and try again.',
+  /** L31-3 (v6.1.16 Task 17): a /me post with no same-origin Origin or Referer. */
+  notFromUs: 'That form did not come from EarnKit.',
   form: 'Send this as a web form.',
   large: 'That is too long to save.',
+  slow: 'The request took too long. Try again.',
   field: 'That cannot be changed here.',
-  confirm: 'Type your GitHub login exactly to delete.',
+  confirm: 'Type your GitHub login to delete.',
   broken: 'Your record could not be read, so nothing was saved. Try again later.',
   changed: 'This text changed since you opened the page. Read it again.',
   yesNo: 'choose yes or no.',
-  linkExpired: 'That link expired. Ask your agent for a new one.',
+  /** One expired wording everywhere (L21-17, v6.1.16): link-routes' EXPIRED is this line. */
+  linkExpired: 'This link has expired. Ask your agent for a new one.',
 } as const;
 /** What a value must be, in plain words, after "<label>: " (v6.1.7 C4). */
 const amount = (n: number) => n.toLocaleString('en-US');

@@ -165,6 +165,7 @@ test('cache: a new push re-reads everything; so does a row older than 7 days', a
 });
 
 const cached = async () => (await sql()`SELECT repo FROM repo_cache`).length;
+const kept = async () => (await sql()`SELECT facts FROM repo_cache`).map((r) => r.facts);
 /** A fetch that answers `status` to URLs matching `re`, else replays the recording. */
 const failing = (rec: ReturnType<typeof replayFetch>, re: RegExp, status: number, body = 'x'): typeof fetch =>
   ((u: RequestInfo | URL, i?: RequestInit) => (re.test(String(u)) ? (rec.calls.push(String(u)), Promise.resolve(new Response(body, { status }))) : rec.fetch(u, i))) as typeof fetch;
@@ -224,7 +225,7 @@ test('stale row, 403 on revalidation: the cached facts come back with no more ca
   assert.equal(await cached(), 1);
 });
 
-test('a cached repo that turns private drops out: reported only, row gone', async () => {
+test('a cached repo that turns private drops out: reported only, its facts gone, a miss kept (L26-9)', async () => {
   const rec = replayFetch('nextjs-dashboard');
   const p = project({ repo_url: `https://github.com/${rec.repo}` });
   await repoFacts(p, { gh: rec.fetch, now: NOW });
@@ -233,16 +234,16 @@ test('a cached repo that turns private drops out: reported only, row gone', asyn
   const f = await repoFacts(p, { gh: priv.fetch, now: new Date(NOW.getTime() + DAY) });
   assert.equal(f.public, false);
   assert.equal(f.as_reported, true);
-  assert.equal(await cached(), 0);
+  assert.deepEqual(await kept(), [{ miss: 'private' }]);
 });
 
-test('a repo gone (404) on revalidation also drops the row', async () => {
+test('a repo gone (404) on revalidation also drops its facts; a miss is kept (L26-9)', async () => {
   const rec = replayFetch('nextjs-dashboard');
   const p = project({ repo_url: `https://github.com/${rec.repo}` });
   await repoFacts(p, { gh: rec.fetch, now: NOW });
   const f = await repoFacts(p, { gh: failing(rec, /api\.github\.com\/repos\/[^/]+\/[^/]+$/, 404), now: new Date(NOW.getTime() + DAY) });
   assert.equal(f.as_reported, true);
-  assert.equal(await cached(), 0);
+  assert.deepEqual(await kept(), [{ miss: 'gone' }]);
 });
 
 test('no README: excerpt null, the rest intact and cached', async () => {
@@ -428,4 +429,185 @@ test('F7 (v6.1.12): after a code step the unpushed repo is checked once; the row
   assert.ok(pushed.calls.length > 1);
   const [fresh] = await sql()<{ checked: string | null; fetched_at: Date }[]>`SELECT facts->>'checked_at' AS checked, fetched_at FROM repo_cache`;
   assert.deepEqual([fresh.checked, fresh.fetched_at.toISOString()], [null, at(21).toISOString()]);
+});
+
+test('Task 11 fix round 1 (I1): README text and the homepage are cleaned, read fresh or from a cache written before', async () => {
+  const { readmeExcerpt, readmeLead, cachedRepoFacts } = await import('./repo-facts');
+  const { prefill } = await import('./prefill');
+  const { programFixture } = await import('./fixtures/program');
+  const HIDDEN = /[\u0000\u202e\u200b]/;
+  const md = '# Timer\u202egnp\n\nKeeps\u200b time for\u0000 builders who ship. More.';
+  assert.doesNotMatch(readmeExcerpt(md)!, HIDDEN);
+  assert.equal(readmeLead(md), 'Keeps time for builders who ship.');
+  // A cached read holding the hidden characters (written before this release) is cleaned when read (jsonb holds no NUL).
+  const rec = replayFetch('earnkit');
+  const repo_url = `https://github.com/${rec.repo}`;
+  await repoFacts(project({ repo_url }), { gh: rec.fetch, now: NOW });
+  await sql()`UPDATE repo_cache SET facts = facts || ${sql().json({ readme_excerpt: 'Keeps\u200b time \u202eok.', readme_lead: 'Keeps\u200b time for builders \u202enow.', homepage: 'https://ti\u200bmer.example/' })}`;
+  const f = (await cachedRepoFacts({ ...project({ repo_url }), description: '' }))!;
+  assert.doesNotMatch(`${f.readme_excerpt}${f.description}${f.homepage}${f.live_url}`, HIDDEN);
+  assert.equal(f.description, 'Keeps time for builders now.');
+  const file = programFixture({ id: 'rf-i1', title: 'I1 Grant' });
+  const row = { id: 'rf-i1', file: { ...file, submission_requirements: [{ key: 'tagline', label: 'Tagline', type: 'text', required: true, kind: 'one_liner', from: 'project' }, { key: 'story', label: 'Story', type: 'text', required: false, kind: 'how_it_works', from: 'project' }] } } as never;
+  const fields = prefill(row, f).fields;
+  assert.doesNotMatch(JSON.stringify(fields), /\\u0000|\\u202e|\\u200b|\u202e|\u200b/);
+  assert.equal(fields.find((x) => x.key === 'tagline')!.value, 'Keeps time for builders now.');
+});
+
+const reads = async (id: number) => Number((await sql()`SELECT coalesce(sum(count), 0)::int AS n FROM rate_windows WHERE key = ${`repoRead:${id}`}`)[0].n);
+
+test('L26-9 (v6.1.16): a missing repo is read once in 30 minutes: three finds make one GitHub call and count no read', async () => {
+  const id = 7_100 + Math.floor(Math.random() * 1_000);
+  await sql()`DELETE FROM rate_windows WHERE key = ${`repoRead:${id}`}`;
+  const calls: string[] = [];
+  const gone = (async (u: RequestInfo | URL) => (calls.push(String(u)), new Response('{"message":"Not Found"}', { status: 404 }))) as typeof fetch;
+  const p = project({ repo_url: 'https://github.com/nobody/missing-l269' });
+  for (let i = 0; i < 3; i++) {
+    const f = await repoFacts(p, { gh: gone, now: new Date(NOW.getTime() + i * 60_000), installationId: id });
+    assert.equal(f.as_reported, true);
+    assert.deepEqual(f.notes, ['unread']);
+    assert.equal(REPO_NOTE.unread, 'I could not read the repo; matched on what you told me.');
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(await reads(id), 0);
+  // Past 30 minutes the repo is read again (still not counted).
+  await repoFacts(p, { gh: gone, now: new Date(NOW.getTime() + 31 * 60_000), installationId: id });
+  assert.equal(calls.length, 2);
+  assert.equal(await reads(id), 0);
+});
+
+test('L26-9: a private answer is kept the same way and reads private again with no call', async () => {
+  const rec = replayFetch('nextjs-dashboard');
+  const priv = replayFetch('nextjs-dashboard', (u, b) => (u.endsWith(`/repos/${rec.repo.toLowerCase()}`) ? b.replace(/"private":\s*false/, '"private":true') : b));
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  const first = await repoFacts(p, { gh: priv.fetch, now: NOW, installationId: 7_099 });
+  const n = priv.calls.length;
+  const again = await repoFacts(p, { gh: priv.fetch, now: new Date(NOW.getTime() + 60_000), installationId: 7_099 });
+  assert.equal(priv.calls.length, n);
+  assert.deepEqual(again.notes, first.notes);
+  assert.deepEqual(again.notes, ['private']);
+});
+
+test('L26-8 (v6.1.16): one 20 s budget for the whole read: GitHub that never answers is slow in 20 s; at 14 s a request it is never 38 s; neither counts a read', async () => {
+  const keep = setTimeout(() => {}, 30_000);
+  try {
+    const never = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const rec = replayFetch('nextjs-dashboard');
+    const slow14 = ((u: RequestInfo | URL, i?: RequestInit) => new Promise((ok) => setTimeout(ok, 14_000)).then(() => rec.fetch(u, i))) as typeof fetch;
+    const timed = async (gh: typeof fetch, repo: string, id: number) => {
+      const t = Date.now();
+      const f = await repoFacts(project({ repo_url: `https://github.com/${repo}` }), { gh, now: NOW, installationId: id });
+      return { f, ms: Date.now() - t };
+    };
+    const a = 7_300 + Math.floor(Math.random() * 100);
+    const b = 7_400 + Math.floor(Math.random() * 100);
+    await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${a}`}, ${`repoRead:${b}`})`;
+    const [x, y] = await Promise.all([timed(never, 'nobody/never-answers', a), timed(slow14, rec.repo, b)]);
+    assert.ok(Math.abs(x.ms - 20_000) <= 1_000, `${x.ms}`);
+    assert.deepEqual(x.f.notes, ['slow']);
+    assert.equal(x.f.as_reported, true);
+    assert.equal(REPO_NOTE.slow, 'GitHub was slow; matched on what you told me. I read it again next time.');
+    assert.equal(await reads(a), 0);
+    assert.ok(y.ms < 21_000, `${y.ms}`);
+    assert.ok(y.f.public || y.f.notes?.includes('slow'), JSON.stringify(y.f.notes));
+    if (!y.f.public) assert.equal(await reads(b), 0);
+    // A slow read is kept 10 minutes as a marker, never as facts.
+    assert.ok((await kept()).every((f) => (f as { miss?: string }).miss === 'slow'));
+  } finally {
+    clearTimeout(keep);
+  }
+});
+
+test('controller ruling (L26-9 review): misses count on their own 20 a day: 20 distinct missing repos, then the paused line; the next real read still works; a repeat miss costs nothing', async () => {
+  const id = 7_600 + Math.floor(Math.random() * 1_000);
+  await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`})`;
+  const calls: string[] = [];
+  const rec = replayFetch('nextjs-dashboard');
+  const gh = ((u: RequestInfo | URL, i?: RequestInit) => (String(u).includes('/nobody/') ? (calls.push(String(u)), Promise.resolve(new Response('{}', { status: 404 }))) : rec.fetch(u, i))) as typeof fetch;
+  const deps = { gh, now: NOW, installationId: id };
+  for (let n = 1; n <= 20; n++) {
+    const f = await repoFacts(project({ repo_url: `https://github.com/nobody/missing-${n}` }), deps);
+    assert.deepEqual(f.notes, ['unread'], `miss ${n}`);
+  }
+  // A repeat miss within 30 minutes: no call, no count.
+  const before = calls.length;
+  assert.deepEqual((await repoFacts(project({ repo_url: 'https://github.com/nobody/missing-1' }), deps)).notes, ['unread']);
+  assert.equal(calls.length, before);
+  const over = await repoFacts(project({ repo_url: 'https://github.com/nobody/missing-21' }), deps);
+  assert.deepEqual(over.notes, ['paused']);
+  assert.equal(REPO_NOTE.paused, 'Repo reads are paused until tomorrow; matched on what you told me.');
+  // The day's real reads are untouched by the 20 misses: a real repo still reads.
+  const real = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), deps);
+  assert.equal(real.public, true);
+});
+
+test('controller ruling (L26-8 review): a slow repo is kept 10 minutes: the next find is slow again with no call and no count', async () => {
+  const keep = setTimeout(() => {}, 30_000);
+  try {
+    const id = 7_700 + Math.floor(Math.random() * 100);
+    await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`})`;
+    let n = 0;
+    const never = (async () => (n++, new Promise<Response>(() => {}))) as typeof fetch;
+    const p = project({ repo_url: 'https://github.com/nobody/slow-l268' });
+    assert.deepEqual((await repoFacts(p, { gh: never, now: NOW, installationId: id })).notes, ['slow']);
+    const calls = n;
+    assert.deepEqual((await repoFacts(p, { gh: never, now: new Date(NOW.getTime() + 9 * 60_000), installationId: id })).notes, ['slow']);
+    assert.equal(n, calls);
+    const counts = await sql()`SELECT key, count FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`}) ORDER BY key`;
+    assert.deepEqual(counts.map((r) => [r.key, r.count]), [[`repoMiss:${id}`, 1], [`repoRead:${id}`, 0]]);
+  } finally {
+    clearTimeout(keep);
+  }
+});
+
+test('fix round 1 (I1, N1): one 20 s budget covers the cached repo\'s push check too; slow over a cached repo answers with its facts', async () => {
+  const keep = setTimeout(() => {}, 30_000);
+  try {
+    const id = 7_800 + Math.floor(Math.random() * 100);
+    await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`})`;
+    const rec = replayFetch('nextjs-dashboard');
+    const p = project({ repo_url: `https://github.com/${rec.repo}` });
+    assert.equal((await repoFacts(p, { gh: rec.fetch, now: NOW, installationId: id })).public, true);
+    // Two hours on, the repo was pushed since: the push check, then the read, each request 14 s.
+    const pushed = replayFetch('nextjs-dashboard', (u, b) => (u.endsWith(`/repos/${rec.repo.toLowerCase()}`) ? b.replace(/"pushed_at":\s*"[^"]+"/, '"pushed_at":"2030-01-01T00:00:00Z"') : b));
+    const slow14 = ((u: RequestInfo | URL, i?: RequestInit) => new Promise((ok) => setTimeout(ok, 14_000)).then(() => pushed.fetch(u, i))) as typeof fetch;
+    const t = Date.now();
+    const f = await repoFacts(p, { gh: slow14, now: new Date(NOW.getTime() + 2 * 3_600_000), installationId: id });
+    const ms = Date.now() - t;
+    assert.ok(Math.abs(ms - 20_000) <= 1_000, `${ms}`);
+    assert.equal(f.public, true);
+    assert.deepEqual(f.notes, []);
+    assert.equal(await reads(id), 1);
+    assert.equal(await cached(), 1);
+    assert.ok(!(await kept()).some((x) => (x as { miss?: string }).miss));
+  } finally {
+    clearTimeout(keep);
+  }
+});
+
+test('L28-3 (v6.1.16 Task 14, controller ruling): repoTie is evidence only and fails closed', async () => {
+  const { repoTie, ownsRepo } = await import('./repo-facts');
+  const facts = (contributors?: string[], owner_type?: string) => ({ repo_url: 'https://github.com/org/r', ...(contributors ? { contributors } : {}), ...(owner_type ? { owner_type } : {}) });
+  const none: typeof fetch = async () => { throw new Error('no read'); };
+  assert.equal(await repoTie('ORG', facts([]), { gh: none }), 'owner');
+  assert.equal(await repoTie('A1', facts(['a1', 'a2']), { gh: none }), 'committer');
+  assert.equal(await repoTie('dave', facts(['a1']), { gh: none }), null);
+  assert.equal(await repoTie(null, facts(['a1']), { gh: none }), null);
+  // No contributor evidence and the read fails: not theirs. Another host has no owner segment that counts.
+  assert.equal(await repoTie('dave', facts(), { gh: none }), null);
+  assert.equal(await repoTie('org', { repo_url: 'https://gitlab.com/org/r' }, { gh: none }), null);
+  // The read gives the contributors; an organization's public member counts (204), a 404 does not.
+  const reads: string[] = [];
+  const gh: typeof fetch = async (u) => {
+    const url = String(u);
+    reads.push(url);
+    if (url.includes('/contributors')) return new Response(JSON.stringify([{ login: 'Bob' }]), { status: 200 });
+    if (url.endsWith('/public_members/mem')) return new Response(null, { status: 204 });
+    return new Response('{}', { status: 404 });
+  };
+  assert.equal(await repoTie('bob', facts(), { gh }), 'committer');
+  assert.equal(await repoTie('mem', facts(['x'], 'Organization'), { gh }), 'member');
+  assert.equal(await repoTie('out', facts(['x'], 'Organization'), { gh }), null);
+  assert.equal(await ownsRepo('mem', facts(['x'], 'Organization'), { gh, noFetch: true }), false);
+  assert.ok(reads.some((u) => u.endsWith('/orgs/org/public_members/mem')));
 });

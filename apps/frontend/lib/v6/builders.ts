@@ -93,27 +93,29 @@ export async function linkInstallation(installationId: number, builderId: number
     const [inst] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR UPDATE`;
     if (inst?.builder_id != null && inst.builder_id !== builderId) throw new LinkRefused('other_builder');
     if (inst?.builder_id == null)
-      await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL WHERE id = ${installationId}`;
+      // Task 9 fix round 1 (N5): a promise kept before the link was never this builder's.
+      await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL, promised = NULL, promised_at = NULL, former_builder_id = NULL WHERE id = ${installationId}`;
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
     // T5-F6 (v6.1.14): the dropped row's application id, carried onto the kept row when that one has none.
-    const both = await tx<{ program_id: string; i_id: string | null; b_id: string | null }[]>`
-      SELECT i.program_id, i.application_id AS i_id, b.application_id AS b_id FROM applications i JOIN applications b
-        ON b.owner = ${to} AND b.program_id = i.program_id WHERE i.owner = ${from}`;
+    // L28-4 (v6.1.16 Task 14): rows are one per program and project, so only the same project's rows meet.
+    const both = await tx<{ program_id: string; project_id: string | null; i_id: string | null; b_id: string | null }[]>`
+      SELECT i.program_id, i.project_id, i.application_id AS i_id, b.application_id AS b_id FROM applications i JOIN applications b
+        ON b.owner = ${to} AND b.program_id = i.program_id AND COALESCE(b.project_id, '') = COALESCE(i.project_id, '') WHERE i.owner = ${from}`;
     // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink); among
     // results, won beats rejected beats no_result whatever the time (v6.1.9 N3): a relink never loses a win.
     await tx`DELETE FROM applications i USING applications b
-      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id
+      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id AND COALESCE(i.project_id, '') = COALESCE(b.project_id, '')
         AND ((CASE i.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
           < (CASE b.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
           OR ((CASE i.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
             = (CASE b.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END) AND i.at <= b.at))`;
     await tx`DELETE FROM applications b USING applications i
-      WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id`;
+      WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id AND COALESCE(i.project_id, '') = COALESCE(b.project_id, '')`;
     const moved = await tx`UPDATE applications SET owner = ${to} WHERE owner = ${from}`;
     for (const p of both) {
       const id = p.i_id ?? p.b_id;
-      if (id) await tx`UPDATE applications SET application_id = ${id} WHERE owner = ${to} AND program_id = ${p.program_id} AND application_id IS NULL`;
+      if (id) await tx`UPDATE applications SET application_id = ${id} WHERE owner = ${to} AND program_id = ${p.program_id} AND COALESCE(project_id, '') = ${p.project_id ?? ''} AND application_id IS NULL`;
     }
     await tx`UPDATE application_history SET owner = ${to} WHERE owner = ${from}`;
     // A done step keeps its project (v6.1.10 L1c-1): only the same project's repeat is merged.
@@ -145,7 +147,11 @@ export async function unlinkInstallation(installationId: number, builderId: numb
     const held = await tx<{ program_id: string }[]>`SELECT program_id FROM applications
       WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId} ORDER BY program_id`;
     for (const h of held) await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + h.program_id}))`;
-    const r = await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked'
+    // Task 9 fix round 1 (N5): the standing-approval promise was the builder's, so it goes with the link.
+    // L28-10 (v6.1.16 Task 14): the builder's rows stay theirs; the installation remembers whose they are, so it never
+    // sends again what that builder sent.
+    const r = await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked', promised = NULL, promised_at = NULL,
+        former_builder_id = ${builderId}
       WHERE id = ${installationId} AND builder_id = ${builderId}`;
     if (r.count === 0) return false;
     await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId}`;
@@ -191,7 +197,11 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;
     await tx`DELETE FROM gaps_done WHERE owner = ${owner}`;
     await tx`DELETE FROM project_reports WHERE owner = ${owner}`;
-    await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted' WHERE builder_id = ${id}`;
+    // v6.1.16 Task 9: the results-question markers and the promised sends go with the account.
+    await tx`DELETE FROM outcome_asks WHERE owner = ${owner}`;
+    await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted', promised = NULL, promised_at = NULL WHERE builder_id = ${id}`;
+    // L28-10: a deleted record is nothing to read back.
+    await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });
 }
