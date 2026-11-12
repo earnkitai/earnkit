@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
+import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
 
 after(() => sql().end());
 
@@ -672,4 +672,10 @@ test('L35-2, L35-3, L35-11, L35-20 (v6.1.16.1 Task 2): sentForRepo by key, id, p
   assert.equal(await unlinkInstallation(i, bd.id, NOW), true);
   assert.ok(await sql().begin((tx) => formerSentAt(tx, `i:${i}`, 'l35-former', '')));
   assert.equal(await sql().begin((tx) => formerSentAt(tx, `i:${i}`, 'l35-former', 'name:c')), null);
+});
+
+test('v6.1.16 Task 15 N4 (v6.1.17): a win sent outside EarnKit has no send date: the line names the result alone', () => {
+  const now = new Date('2026-11-12T12:00:00Z');
+  assert.equal(applicationsLine([{ program_id: 'thiel', title: 'Thiel Fellowship', status: 'won', sent_at: null, result_at: '2026-11-11T10:00:00.000Z', amount: 'EUR 2,000' }], now), 'Your applications: Thiel Fellowship (won EUR 2,000).');
+  assert.equal(applicationsLine([{ program_id: 'a', title: 'A Grant', status: 'won', sent_at: '2026-11-03T10:00:00.000Z', result_at: '2026-11-11T10:00:00.000Z', amount: '$5,000' }], now), 'Your applications: A Grant (sent Nov 3, won $5,000).');
 });

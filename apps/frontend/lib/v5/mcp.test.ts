@@ -21,11 +21,11 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.deepEqual(tools.map((t) => t.name), ['find', 'track', 'record', 'screen']);
   assert.equal(
     FIND_DESCRIPTION,
-    "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and your applications by name. Call it first in every session with the project you are in, and again when the builder asks about money or programs. Pass every project fact you can read before the first call: chains with contract addresses, live_url, users (true only if you know), first_commit_at. Programs match on them, and a missing fact shows as a gap. With program_id: whether the project fits that program, and its details and form. A project needs a description when it has no repo_url. filter.all: every program, names and money for the builder.",
+    "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and your applications by name. Call it first in every session with the project you are in, and again when the builder asks about money or programs. Pass every project fact you can read before the first call: chains with contract addresses, live_url, users (true only if you know), first_commit_at. Programs match on them, and a missing fact shows as a gap. With program_id: whether the project fits that program, and its details and form. A project needs a description when it has no repo_url. filter.all: names and money for the builder of every program that fits or nearly fits; for all of them, call find with no project.",
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), won (with amount_usd, dollars as a number (5000 or 1234.56; convert 5k to 5000), or amount with currency for another currency: amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount; a win with no application here is recorded as the builder's own send), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
+    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find), or won (with amount_usd as dollars, 5000 or 1234.56, converting 5k to 5000; or amount with currency): amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount. A win with no application here is recorded as the builder's own send. Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
@@ -208,7 +208,7 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   const c = await ctx();
   await seed(`mcp:${c.installationId}`, 119);
   const ok = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(ok.reply!.show_to_builder, 'Which program do you mean? Say its name.', ok.text);
+  assert.equal(ok.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', ok.text);
   const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
   assert.equal(busy.text, OWN_LIMIT);
@@ -219,7 +219,7 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   assert.equal(later.text, "Your agent has used this hour's limit. Try again in about 12 minutes.");
   assert.deepEqual(later.structured, { retry_after_seconds: 720 });
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(next.reply!.show_to_builder, 'Which program do you mean? Say its name.', next.text);
+  assert.equal(next.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', next.text);
 });
 
 test('the per-IP floor: the 601st call from one address in an hour is the address line, whatever the installation', async () => {
@@ -230,7 +230,7 @@ test('the per-IP floor: the 601st call from one address in an hour is the addres
   assert.equal(busy.text, ADDRESS_LIMIT);
   assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(other.reply!.show_to_builder, 'Which program do you mean? Say its name.', other.text);
+  assert.equal(other.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', other.text);
 });
 
 test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refuses never count on the address, and a colleague is served', async () => {
@@ -256,7 +256,7 @@ test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refus
   assert.equal(refused.text, OWN_LIMIT);
   assert.deepEqual(refused.structured, { retry_after_seconds: 3_600 });
   const mate = await mcpCall({ ...b, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(mate.reply!.show_to_builder, 'Which program do you mean? Say its name.', mate.text);
+  assert.equal(mate.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', mate.text);
   const [w2] = await sql()`SELECT count FROM rate_windows WHERE key = ${'mcpIp:' + ip} AND window_start = ${windowStart(NOW, 3_600_000)}`;
   assert.equal(w2.count, 121);
 });
@@ -291,7 +291,9 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   plain(num, true);
   const long = await mcpCall(c, 'find', { program_id: 'x'.repeat(200) });
   plain(long, true);
-  assert.equal(long.reply!.show_to_builder, num.reply!.show_to_builder);
+  // L1j-2 (v6.1.17): each names what it was given, through quoteName (cut to 40 characters).
+  assert.equal(num.reply!.show_to_builder, 'I do not know a program called "12345". Say its full name.');
+  assert.equal(long.reply!.show_to_builder, `I do not know a program called "${'x'.repeat(40)}". Say its full name.`);
   // A string filter.all reads as the boolean; a category that is not one is dropped and named for the agent.
   const P = { name: 'Lenient App', description: 'An app for lenient tests.' };
   const all = await mcpCall(c, 'find', { project: P, filter: { all: 'true' } });
