@@ -20,7 +20,16 @@ export type Guide = {
   /** The program's description; a closed program's drops each sentence that reads as still taking entries. */
   description: string;
   rules: string[];
+  /**
+   * Who can apply: the file's eligibility items as sentences; with none, its rule sentences (L43-13, v6.1.19), so
+   * GUIDE_NO_ELIGIBILITY shows only when both are empty. `eligibility_from_rules` says the list is the rules.
+   */
   eligibility: string[];
+  eligibility_from_rules: boolean;
+  /**
+   * What the form asks; none on a closed or ended guide (L43-13, v6.1.19). `todo` is '' when it only repeats the label
+   * (L43-18: `Full name: Your full name.` reads `Full name.`).
+   */
   fields: { label: string; todo: string }[];
   /** Who sends it, as a sentence: "Your agent sends it." or "You send it." (v6.1.15, #4). */
   submit: string | null;
@@ -72,6 +81,11 @@ function eligibilityWords(i: EligibilityItem, now: Date): string {
     default: return sentence(featureWords(i));
   }
 }
+
+/** The words of a label or a to-do, compared: lower case, letters and digits only, a leading your, the or a dropped. Pure. */
+const gist = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/^\s*(?:your|the|a|an)\s+/, '').replace(/\s+/g, ' ').trim();
+/** A field's to-do, '' when it only repeats the label (L43-18, v6.1.19). Pure. */
+const todoOf = (label: string, todo: string): string => (gist(todo) === gist(label) ? '' : sentence(todo));
 
 /** The items as sentences; the chains of a chain_required program are one item ("On Base or Tempo."). */
 function eligibilityList(items: EligibilityItem[], now: Date): string[] {
@@ -175,6 +189,8 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
   const seen = new Set<string>();
   const closes = closesOf(p, now);
   const closed_on = closedOn(p, now);
+  const rules = closed_on ? p.rules.map(withoutOpenWindow).filter(Boolean) : p.rules;
+  const items = eligibilityList(eligibilityOf(p), now);
   return {
     title: p.title,
     money: moneyOf(p),
@@ -183,9 +199,12 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     // L21-2 (v6.1.16): a closed program's text never reads as still taking entries.
     // L21-23 (v6.1.16): the description ends as a sentence.
     description: sentence(closed_on ? withoutOpenWindow(p.description) : p.description),
-    rules: closed_on ? p.rules.map(withoutOpenWindow).filter(Boolean) : p.rules,
-    eligibility: eligibilityList(eligibilityOf(p), now),
-    fields: p.submission_requirements.map((r) => ({ label: r.label, todo: sentence(r.todo ?? (r.required ? r.label.toLowerCase() : 'optional')) })),
+    rules,
+    // L43-13 (v6.1.19): with no eligibility items, who can apply is the file's own rule sentences.
+    eligibility: items.length > 0 ? items : rules.map(sentence),
+    eligibility_from_rules: items.length === 0 && rules.length > 0,
+    // L43-13 (v6.1.19): a closed or ended program takes no entries, so no form block.
+    fields: closed_on ? [] : p.submission_requirements.map((r) => ({ label: r.label, todo: todoOf(r.label, r.todo ?? (r.required ? r.label.toLowerCase() : 'optional')) })),
     // A closed program takes no entries: no word on who submits (v6.1.7 C7); nor one not open yet (Low 21, v6.1.13).
     submit: closes === CLOSED || closes === NOT_OPEN_YET ? null : p.submit === 'builder' ? 'You send it.' : 'Your agent sends it.',
     sign_in: signInOf(p),

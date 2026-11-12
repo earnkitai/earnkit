@@ -244,7 +244,8 @@ test('/programs/<id> renders the guide; a missing logo file renders no image', a
   const m = html(await ProgramGuidePage(params('zz-page-open')));
   const t = textOf(m);
   assert.ok(t.includes('Page Open Grants') && /\$\s?5,000/.test(t));
-  assert.ok(t.includes('Project name') && t.includes('A project name.'));
+  // L43-18 (v6.1.19): a to-do that only repeats its label shows the label alone.
+  assert.ok(t.includes('Project name.') && !t.includes('A project name.'), t);
   assert.ok(t.includes('Apply from a public repo.'));
   assert.ok(t.includes('https://example.com/grants') || t.includes('Program page.'));
   assert.ok(!m.includes('/programs/zz-page-open.svg'), 'no image for a logo file that does not exist');
