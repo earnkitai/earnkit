@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CODE_CLOSING, agentNote, replyParts, attendRuleGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
+import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendRuleGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
 import { NEEDS_CODE, PUBLIC_REPO } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
@@ -202,7 +202,8 @@ test('in person: its own block, with the setup, never in the count to apply to; 
   assert.deepEqual(parts.hidden, ['4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. First: apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.']);
   assert.match(agentNote(r, { more: 0, hidden: parts.hidden }), /^Not shown to the builder:\n4\. ETHGlobal Mumbai/m);
   assert.equal(replyText(r, false, new Date(), null, { all: true }).split('\n').slice(0, 4).join('\n'),
-    ['1. Alliance ALL19, $400K at admission.', '2. Arc Builders Fund, investment from Circle Ventures.', '3. Circle Developer Grants, $5,000 to $100,000 USDC grants.', '4. ETHGlobal Mumbai, up to $15K per partner prize.'].join('\n'));
+    // L1i-6 (v6.1.16.1): the full view keeps the close and in person.
+    ['1. Alliance ALL19, $400K at admission, closes in 14 days.', '2. Arc Builders Fund, investment from Circle Ventures.', '3. Circle Developer Grants, $5,000 to $100,000 USDC grants.', '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days, in person.'].join('\n'));
   const only = replyText(base({ ready: [mumbai] }), false);
   assert.ok(only.startsWith('In person (1):\n1. ETHGlobal Mumbai'), only);
   assert.doesNotMatch(only, /Say yes to apply/);
@@ -439,6 +440,8 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       "Ready to apply (1):",
       "1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. First: sign in to the portal.",
       "One step away (2):",
+      // L1i-2 (v6.1.16.1): every step row the budget allows.
+      "2. Goose Grants, $10K. Their rules: a project built with or for goose; work not already funded by an employer or client.",
       "3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.",
       "Say yes and I apply to Base Ecosystem Fund.",
     ].join('\n'),
@@ -505,6 +508,8 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
     replyText(r, true),
     [
       "One step away (2):",
+      // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
+      "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.",
       "2. OTF, $900K. Their rule: advances internet freedom.",
       "In person (2):",
       "3. Y Combinator, $500K investment. Needs a YC account.",
@@ -539,7 +544,8 @@ test('O1 (v6.1.10): a step closing within 7 days says so after its money', () =>
   const paypal = gap({ title: 'PayPal AI Hackathon', money: '$67,500 in prizes', closes_in: 'in 2 days', gap: VIDEO, also: [ruleGap('uses a PayPal API')] });
   assert.equal(replyText(base({ gaps: [paypal] }), true).split('\n')[1], '1. PayPal AI Hackathon, $67,500 in prizes, closes in 2 days: a demo video. Their rule: uses a PayPal API.');
   const rule = gap({ title: 'Kiroween', money: '$100K', closes_in: 'in 5 days', gap: ruleGap('built with Kiro') });
-  assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n')[2], 'Nothing is ready yet. Say "yes 2" if that rule fits you and I get it ready.');
+  assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 2" if that rule fits you and I get it ready.');
+  assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n')[2], '2. Kiroween, $100K, closes in 5 days. Their rule: built with Kiro.');
 });
 
 test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
@@ -760,8 +766,8 @@ test('L1e-5 and L1e-2 (v6.1.13, Review Focus 7): the closing asks a keyword-hit 
   const all = replyText(base({ gaps: [a, hit] }), true);
   assert.equal(all.split('\n').at(-1), 'Nothing is ready yet. Say "yes 2" if that rule fits you and I get it ready.');
   // T3-R5: the closing is the only Say; the other rule line reads its rule alone.
-  // L29-26 (v6.1.16 Task 15): the default view shows the gap the closing asks; the other is the agent's to mention.
-  assert.doesNotMatch(all, /Open Rule/);
+  // L1i-2 (v6.1.16.1): both rows fit, numbered as shown; only the closing asks.
+  assert.match(all, /^1\. Open Rule, \$9K\. Their rule: an open licence\.$/m);
   assert.equal(all.match(/\bSay\b/g)?.length, 1, all);
   // No hit: the first in list order, as before.
   assert.equal(replyText(base({ gaps: [a, { ...hit, keyword_hit: undefined }] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.');
@@ -1075,13 +1081,13 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   assert.equal(gapLine(floss, true), 'FLOSS/fund, $1K: a public repo. First: make the repo public; publish a funding manifest on your site or repo.');
   // Fix round 1 (I1): the closing names the step, so the lines leave it out: said once.
   const both = replyText(base({ gaps: [floss, hero] }), true);
-  // L1h-8, L29-26 (v6.1.16 Task 15): one gap line, the one the closing speaks to; the gap once, the step once.
+  // L1i-2 (v6.1.16.1): both gap lines; the step once, in the closing.
   assert.equal(both, [
     'One step away (2):',
     '1. FLOSS/fund, $1K: a public repo. First: publish a funding manifest on your site or repo.',
+    '2. HeroDevs, $1K: a public repo. Their rule: an OSI-approved open source license.',
     'Nothing is ready yet. Tell me when the repo is public and I look again.',
   ].join('\n'));
-  assert.ok(replyParts(base({ gaps: [floss, hero] }), true).hidden.includes('2. HeroDevs, $1K: a public repo. Their rule: an OSI-approved open source license.'));
   // L1g-5 (v6.1.16): the closing names the step as "the repo is public", the lines leave it out: said once.
   assert.equal(both.match(/make the repo public|the repo is public/g)?.length, 1);
   assert.doesNotMatch(both, /Say yes and I apply/);
@@ -1170,7 +1176,8 @@ test('L1g-5 fix round 1 (v6.1.16, I1): a below-bar tier gap, a feature and a use
   const tier = list(gap({ title: 'Used Grant', gap: TIER_GAP, n: 1 }));
   assert.equal(tier[1], '1. Used Grant, $1K: about 25 outside users in 90 days; I count 4.');
   assert.equal(tier.at(-1), 'Nothing is ready yet. Tell me when people outside the team use it live and I look again. Say "do 2" and I add the codes.');
-  assert.equal(tier.length, 3);
+  // L1i-2 (v6.1.16.1): both step rows are shown.
+  assert.equal(tier.length, 4);
   const feature = list(gap({ title: 'Kiro Prize', gap: FEATURE, n: 1 }));
   assert.equal(feature[1], '1. Kiro Prize, $1K: a Kiro folder in the repo.');
   assert.equal(feature.at(-1), 'Nothing is ready yet. Tell me when a Kiro folder in the repo is in and I look again. Say "do 2" and I add the codes.');
@@ -1354,4 +1361,41 @@ test('M3: one week reads "1 week"; the rare step kinds close on their own clause
   const mixed = gap({ title: 'Mixed', gap: CODES, also: [{ kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false }] });
   assert.doesNotMatch(replyText(base({ gaps: [mixed] }), true), /that is done/);
   for (const x of [CODES, g({ kind: 'integration', item: 'integration:x', what: 'add X', effort: 'days' })]) assert.doesNotMatch(singleStepClosing(x), /that is done/);
+});
+
+test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row the budget allows, numbered as shown, the more line naming the rest', () => {
+  assert.deepEqual(defaultRows([1, 2, 3], 3), { shown: [1, 2, 3], hidden: 0 });
+  assert.deepEqual(defaultRows([1, 2, 3, 4, 5], 3), { shown: [1, 2], hidden: 3 });
+  assert.deepEqual(defaultRows([1, 2, 3], 0), { shown: [1], hidden: 2 });
+  assert.equal(moreInFull(2), 'And 2 more in the full list.');
+  const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
+  const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
+  const steps = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'].map((t) => gap({ title: `${t} Grant` }));
+  // The rule the closing asks sits fifth: it is shown first among the rows kept, and the Say names its shown number.
+  steps[4] = gap({ title: 'Five Grant', gap: ruleGap('a rule'), rules: ['a rule'] });
+  const r = base({ ready: [yc, alliance], gaps: steps });
+  const p = replyParts(r, true);
+  const lines = p.text.split('\n');
+  assert.equal(lines.length, 10, p.text);
+  assert.equal(lines[0], 'One step away (7):');
+  const rows = lines.filter((l) => /^\d+\. /.test(l)).map((l) => Number(l.split('.')[0]));
+  assert.deepEqual(rows, rows.map((_, i) => i + 1), p.text);
+  assert.ok(lines.includes(moreInFull(7 - (lines.indexOf('In person (2):') - 1 - 1))), p.text);
+  const five = lines.find((l) => l.includes('Five Grant'))!;
+  assert.equal(lines.at(-1), `Nothing is ready yet. Say "yes ${five.split('.')[0]}" if that rule fits you and I get it ready.`);
+  // Every program the default leaves out is in the full view, and the full view asks no rule.
+  const full = replyText(r, true, new Date(), null, { all: true });
+  for (const g of steps) assert.ok(full.includes(`. ${g.title}, $1K.`), g.title);
+  assert.doesNotMatch(full, /Say "yes/);
+  assert.equal(full.split('\n').at(-1), `Nothing is ready yet. ${FULL_RULE_SAY}`);
+  // `shown` names the rows by their shown number, in order.
+  assert.equal(p.shown.length, rows.length);
+});
+
+test('L1i-6 (v6.1.16.1): the full view carries closes and in person; a hidden ready row leaves no gap in the shown numbers', () => {
+  const rs = ['A', 'B', 'C', 'D', 'E'].map((t) => ready({ title: `${t} Grant`, closes_in: t === 'A' ? 'Dec 6' : null }));
+  const r = base({ ready: rs, gaps: [gap({ title: 'Step Grant' })] });
+  const text = replyText(r, true);
+  assert.match(text, /^4\. Step Grant, \$1K: deploy the contract on Arc\.$/m);
+  assert.match(replyText(r, true, new Date(), null, { all: true }), /^1\. A Grant, \$1K, closes Dec 6\.$/m);
 });

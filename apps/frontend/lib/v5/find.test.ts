@@ -10,7 +10,7 @@ import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
 import { shownReadyOf } from './find';
 import { parseProject } from './project-input';
-import { FULL_LIST_STYLE_NOTE, REPO_STEP_NOTE, gapLine, inPersonLine, readyLine } from './reply';
+import { FULL_LIST_STYLE_NOTE, FULL_RULE_SAY, REPO_STEP_NOTE, gapLine, inPersonLine, readyLine } from './reply';
 import type { GapProgram, ReadyProgram } from './find';
 /** L29-7 (v6.1.16 Task 15): every ready program of a find reply: what the agent may send, in person and the builder's to send. */
 const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unknown[]) ?? []), ...((r.in_person as unknown[]) ?? []), ...((r.you_send as unknown[]) ?? [])];
@@ -108,6 +108,9 @@ test('first find has no since', async () => {
       "Ready to apply (1):",
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
       "One step away (3):",
+      // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
+      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
+      "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
       "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
       // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first.
@@ -657,7 +660,8 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.deepEqual(blockers.find((b) => b.program_id === 'z-fellows')?.needs, ['founder_video']);
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
-  assert.equal(show.split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000.');
+  // L1i-6 (v6.1.16.1): the full view keeps the close.
+  assert.equal(show.split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6.');
   // v6.1.6 (R21): Y Combinator is in person, so its line names what attending takes and the Before block does not.
   // L29-26 (v6.1.16 Task 15): the full view is names and money; the Before line and the evidence line are the default's.
   const d = (await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT })).reply!.show_to_builder as string;
@@ -1273,6 +1277,9 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       "Ready to apply (1):",
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
       "One step away (3):",
+      // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
+      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
+      "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
       "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
       // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first.
@@ -1418,6 +1425,9 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
     [
       "One step away (3):",
       "1. FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.",
+      // L1i-2 (v6.1.16.1): every step row the budget allows.
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: an OSI-approved open source license.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
@@ -1498,8 +1508,10 @@ test('L1e-2 and L1e-5 (v6.1.13, persona 7): a student project sees Thiel by defa
   assert.ok(g, show);
   assert.equal(lineOf(show, g.n), `${g.n}. ${THIEL_LINE}`);
   const all = await mcpCall(await dashCtx(), 'find', { project: STUDENT, filter: { all: true } });
-  const t = (all.reply!.gaps as G[]).find((x) => x.program_id === 'thiel-fellowship')!;
-  assert.equal((listText(all.reply!)).split('\n').at(-1), `Nothing is ready yet. Say "yes ${t.n}" if that rule fits you and I get it ready.`);
+  // L1i-5 (v6.1.16.1): the full list shows no rule, so it asks none; a number gets that program's details.
+  assert.equal((listText(all.reply!)).split('\n').at(-1), `Nothing is ready yet. ${FULL_RULE_SAY}`);
+  assert.doesNotMatch(all.reply!.show_to_builder as string, /Say "yes/);
+  assert.match(all.reply!.agent_note as string, /When the builder says a number from the full list, call find with that item's program_id\./);
 });
 
 test('L1e-4 (v6.1.13, Review Focus 9, persona 4): after the users yes on FLOSS/fund, HeroDevs never asks it again', async () => {
@@ -1610,6 +1622,9 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
     [
       "One step away (3):",
       "1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo. First: set aside a security budget to co-fund the audit. Their rule: smart contracts for Ethereum mainnet with a defined audit scope (lines of code and contract count).",
+      // L1i-2 (v6.1.16.1): every step row the budget allows.
+      "2. Uniswap Foundation Open Grants, amount not stated, set by milestone budget: code in a repo. Their rule: work that contributes to the Uniswap ecosystem and benefits people beyond your own product.",
+      "3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% of the audit cost: code in a repo. First: register a legal entity for KYB; finalize the contracts for audit. Their rule: smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
@@ -1799,7 +1814,10 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
     r.reply!.show_to_builder,
     [
       "One step away (3):",
+      // L1i-2 (v6.1.16.1): every step row the budget allows.
+      "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it. Their rule: an OSI-approved open source license.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
@@ -1823,6 +1841,9 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     [
       "One step away (3):",
       "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      // L1i-2 (v6.1.16.1): every step row the budget allows.
+      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rules: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform; a public code repo with a visible open source license.",
+      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: an OSI-approved open source license.",
     ].join('\n'),
   );
   // Two days out it is listed first, ahead of the cap; a keyword hit, it leaves the one rule slot to HeroDevs (N1, v6.1.12).
@@ -1832,6 +1853,8 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     [
       "One step away (3):",
       "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rules: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform; a public code repo with a visible open source license.",
+      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: an OSI-approved open source license.",
     ].join('\n'),
   );
   assert.equal((late.gaps as { program_id: string; closes_in?: string }[])[0].closes_in, 'in 2 days');
@@ -1993,7 +2016,10 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
   const id = await installation();
   const d = await mcpCall(ctx(id), 'find', { project: PROJECT });
   assert.ok(!ids(d.reply!.gaps).includes('antler-us-residency'));
-  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+  // L1i-6 (v6.1.16.1): the whole full list now passes its cap (its lowest rows lose their details), so the investment
+  // list, under the cap, carries Antler's whole line.
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true, category: 'investment' } });
+  assert.doesNotMatch(r.reply!.agent_note as string, /More programs than fit/);
   const g = (r.reply!.gaps as G[]).find((x) => x.program_id === 'antler-us-residency');
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(
@@ -3323,4 +3349,37 @@ test('L28-3 (v6.1.16 Task 14): a signed-in builder whose login a read shows is n
   const told = await mcpCall(c, 'find', { project: PROJECT });
   assert.equal((told.reply!.show_to_builder as string).split('\n')[0], 'This repo is not yours; I apply only with repos you commit to.');
   assert.match(told.reply!.agent_note as string, /The signed-in GitHub account is not the repo owner/);
+});
+
+test('L1i-5 (v6.1.16.1): a program keeps its number across the default and the full list of one project; another project starts fresh', async () => {
+  const SOL = { name: 'Solflare Tips', description: 'Tipping for creators on Solana', chains: [{ chain: 'solana', mainnet: true }] };
+  const id = await installation();
+  const d = await mcpCall(ctx(id), 'find', { project: SOL });
+  const dn = (d.reply!.gaps as G[]).find((g) => g.program_id === 'solana-foundation-grants')!.n;
+  assert.match(d.reply!.show_to_builder as string, new RegExp(`^${dn}\\. Solana Foundation Grants, `, 'm'));
+  // The default view's rows read 1, 2, 3 as shown, with no gaps, and the JSON numbers are those.
+  const shown = (d.reply!.show_to_builder as string).split('\n').filter((l) => /^\d+\. /.test(l)).map((l) => Number(l.split('.')[0]));
+  assert.deepEqual(shown, shown.map((_, i) => i + 1));
+  const full = await mcpCall(ctx(id), 'find', { project: SOL, filter: { all: true } });
+  const fn = (full.reply!.gaps as G[]).find((g) => g.program_id === 'solana-foundation-grants')!.n;
+  assert.equal(fn, dn);
+  assert.match(full.reply!.show_to_builder as string, new RegExp(`^${fn}\\. Solana Foundation Grants, `, 'm'));
+  assert.doesNotMatch(full.reply!.show_to_builder as string, /Say "yes/);
+  // Every program the default left out is in the full list.
+  const listed = new Set(ids(full.reply!.gaps).concat(ids(allReady(full.reply!))));
+  for (const g of [...(d.reply!.gaps as G[]), ...(allReady(d.reply!) as G[])]) assert.ok(listed.has(g.program_id), g.program_id);
+  // The default again: the same numbers; a different project on the same installation numbers from 1.
+  const rowsOf = (x: { reply: Record<string, unknown> | null }) => (x.reply!.show_to_builder as string).split('\n').filter((l) => /^\d+\. /.test(l)).join('\n');
+  const again = await mcpCall(ctx(id), 'find', { project: SOL });
+  assert.equal(rowsOf(again), rowsOf(d));
+  const other = await mcpCall(ctx(id), 'find', { project: PROJECT_B });
+  const fresh = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_B });
+  assert.equal(rowsOf(other), rowsOf(fresh));
+  assert.deepEqual((other.reply!.gaps as G[]).map((g) => g.n), (fresh.reply!.gaps as G[]).map((g) => g.n));
+});
+
+test('L1i-5 (v6.1.16.1): stableNumbers keeps the last list\'s numbers and numbers new programs on after them', async () => {
+  const { stableNumbers } = await import('./installations');
+  assert.deepEqual([...stableNumbers([], ['a', 'b'])], [['a', 1], ['b', 2]]);
+  assert.deepEqual([...stableNumbers(['a', '', 'c'], ['c', 'd', 'a'])], [['a', 1], ['c', 3], ['d', 4]]);
 });
