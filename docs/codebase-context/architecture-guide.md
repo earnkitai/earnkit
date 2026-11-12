@@ -1571,6 +1571,14 @@ means what the last `Say` offered.
   otherwise the proof's bar: `your users`, `that your product is live`, `that your project has code`.
 - `signInLookAgain` and ledger's own `lower` are gone (ledger imports `lowerFirst`); `proofBarOf` stays, for the bar.
 
+## v6.1.19 Task 7: tool inputs and the ledger's money (lane 45)
+
+- A result never erases a win (`WIN_KEPT` in `ledger.record`): the builder's rejected or no result over a win writes nothing; a screen's rejection is a history row beside the win (`beside`), and `screen_outcomes` never replaces a kept win with a non-win (`OUTCOME_NOTES.beside`).
+- Money: only `KNOWN_CURRENCIES`; a non-USD amount converts for the cap only at a static rate, else it is recorded uncapped and the agent hears `UNCAPPED_NOTE`; a win under $1 after conversion is refused. Money arguments on any status but won are an input error; payment keys are cleaned before compare; a key repeated in one screen call counts once.
+- Next needs (`installations.next_needs`) keep each need's form field (`{ w, k, p, j }`), so record drops a need as soon as the record fills it (`recordValue`, `heldWords`); get then says `Saved. The next application needs nothing more.`
+- Inputs: gap items match loosely (`gapItemOf`), a wrong one is an input error; any number off the last list reads `LIST_GONE`; `earnkit.com/programs/<id>` is the id (`programIdOf`); echoes cut on a word (`echoName`); unknown chain words are kept as given (`CHAIN_KEPT`), a bare chain id reads through the registry; repo links with no scheme, SSH or `/tree/` read alike in find and record (`withScheme`, `githubRepoLink`); empty-after-cleaning record values and screen refs are refused; ISO country codes and post-1970 commit dates only; `/me` policy numbers take digits only.
+- Protocol: `answerParams` (-32602, unknown tool names the four), `distinctIds` (duplicate batch ids), boolean id -32600, non-UTF-8 arguments `I could not read that.`
+
 ## What v5 deliberately does not do
 
 - Submit any form, hold or ask for a wallet, pay anyone, launch or offer a token.
