@@ -45,6 +45,9 @@ export function signInSentence(link: string | null, repoRead: boolean, proof = f
   return repoRead ? `Sign in once at ${link} and I read your repo for proof and remember you.` : `Sign in once at ${link} and I remember you across agents.`;
 }
 
+/** L1i-3 (v6.1.16.1): the proof line when the reply's Say already asks to sign in: no link, no second ask. */
+export const SIGN_IN_PROOF = 'I read your repo for proof once you sign in.';
+
 /** The first find after a link (security M2): the account this agent now writes to, and where to undo it. Pure. */
 export const linkedNoticeLine = (login: string) => `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;
 

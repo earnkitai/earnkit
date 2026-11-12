@@ -51,7 +51,7 @@ const CLOSINGS = [
   // L29-17, L29-27 (v6.1.16 Task 15): no second action; a yes that needs answers names them.
   /Say yes and (?:tell me [^\n]+, and )?I apply to all \d+( ready)?\.$/,
   /Say yes and tell me [^\n]+, and I (?:apply to|draft) [^\n]+\.$/,
-  /Nothing is ready yet\. Do real people use it\? Say yes, sign in once, and I check\.$/,
+  /Nothing is ready yet\. Do real people use it\? Say yes, sign in once( at \S+)?, and I check\.$/,
   // L24-8, L24-10 (v6.1.16 Task 11): the do offer and the drafts fold into this one.
   /Say yes and I apply to (?!all \d+( ready)?\. )[^\n]+\.$/,
   // L24-28 (v6.1.16 Task 11): the one ready program over the limit.
@@ -1338,6 +1338,25 @@ const SAAS = { name: 'Dashboard', description: 'An admin dashboard.', repo_url: 
 const dashCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch });
 /** The VR persona: its own name and words, on the replayed public Next.js repo (code read), users said. */
 const VR = { name: 'ALVR', description: 'Stream VR games from your PC to your headset over Wi-Fi', repo_url: `https://github.com/${dash.repo}`, users: true };
+
+test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users question carries the one sign-in; the proof line has no link', async () => {
+  const link = 'https://earnkit.com/link/abc';
+  const c = { ...(await dashCtx()), linkUrl: async () => link };
+  const d = await mcpCall(c, 'find', { project: SAAS });
+  const show = d.reply!.show_to_builder as string;
+  assert.equal(show, [
+    "One step away (1):",
+    "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+    "In person (2):",
+    "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
+    "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+    'I read your repo for proof once you sign in.',
+    `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`,
+  ].join('\n'));
+  assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, show);
+  assert.ok(!show.includes(`Sign in once at ${link} and I read your repo for proof and remember you.`));
+  assert.equal(show.split(link).length, 2, show);
+});
 
 test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full replies hold no chain step; contract programs are not a fit', async () => {
   const d = await mcpCall(await dashCtx(), 'find', { project: SAAS });

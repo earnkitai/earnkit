@@ -4,7 +4,7 @@
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
 import { EARNKIT_CUT_NOTE } from './prefill';
-import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, SIGN_IN_PROOF, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
@@ -484,6 +484,8 @@ export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I sta
 export const ruleSay = (n: number): string => `Say "yes ${n}" if that rule fits you and I get it ready.`;
 /** L29-34 (v6.1.16 Task 15): the users question, unlinked. */
 export const USERS_UNLINKED = 'Do real people use it? Say yes, sign in once, and I check.';
+/** L1i-3 (v6.1.16.1): the users question with the sign-in link in it, the reply's one sign-in sentence. Pure. */
+export const usersUnlinkedAt = (link: string): string => `Do real people use it? Say yes, sign in once at ${link}, and I check.`;
 /** L29-19 (v6.1.16 Task 15): one way to pass the users yes. */
 export const USERS_NOTE = 'On yes, call find again with users: true.';
 /** L29-27 (v6.1.16 Task 15): how a number skips, for the agent only. */
@@ -815,11 +817,17 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const notes = [...new Set(r.repo_notes ?? [])].filter((n) => !(n === 'archived' && archivedShown));
   const read = !r.as_reported && !notes.includes('empty');
   const proof = showsProof(r.gaps);
+  // L1i-3 (v6.1.16.1): one sign-in sentence per reply. When the closing's Say already asks to sign in (the unlinked
+  // users question), the link goes into it and the proof line says only what the sign-in lets EarnKit read.
+  const asksSignIn = !r.linked && closingOf.text.includes(USERS_UNLINKED);
+  if (asksSignIn && r.sign_in && !r.linked_notice) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
   const signIn = r.linked
     ? null
-    : r.sign_in
-      ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
-      : proof ? signInSentence(null, read, true) : null;
+    : asksSignIn
+      ? (read && r.sign_in && !r.linked_notice ? SIGN_IN_PROOF : null)
+      : r.sign_in
+        ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
+        : proof ? signInSentence(null, read, true) : null;
 
   // ONE_SAY_ORDER (L23-21): the first line through it that carries a Say keeps it, and (L29-33, v6.1.16 Task 15) goes
   // last; every other line keeps its fact sentence only.
