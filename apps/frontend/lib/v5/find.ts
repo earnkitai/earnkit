@@ -16,7 +16,7 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, lastProjectKey, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, askSent, sentAsksDue, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -188,6 +188,10 @@ export type FindReply = {
   /** L23-4 (v6.1.16): applied programs past their results date with no result, that this installation has not asked
    *  about today; the builder text asks each. */
   ask_outcome: OutcomeDue[];
+  /** L18-4, L36-1 (v6.1.18 Task 4): programs the builder sends themselves, started over an hour ago with no send
+   *  recorded, that this installation has not asked about in the last 7 days; the builder text asks each. Always set by
+   *  a project find. */
+  ask_sent?: SentAsk[];
   as_reported: boolean;
   problems?: string[];
   /** What the builder is told about the repo read, one sentence each (v6.1.8, B20 and C59). */
@@ -1033,13 +1037,22 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // A project_id the record does not hold is named, and the match goes on by the repo (v6.1.7, C17).
   if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
   // L23-7, L23-19 (v6.1.16): stale claims are released on every project find, linked or not, and said by title.
-  const released = await releaseStale(owner, ctx.now);
+  const releasedAll = await releaseStale(owner, ctx.now);
+  // L18-4, L36-1 (v6.1.18 Task 4): a program the builder sends themselves, started over an hour ago with nothing
+  // recorded, is asked about (once per installation every 7 days) and, while the ask is open, never listed to draft again.
+  const sentOpen = await askSent(owner, open, ctx.now);
+  const sentAsked = await sentAsksDue(ctx.installationId, owner, sentOpen, ctx.now);
+  const sentIds = new Set(sentOpen.map((a) => a.program_id));
+  const askedIds = new Set(sentAsked.map((a) => a.program_id));
+  // L36-2: a kept claim's release line is its ask; said only when the ask is due, and then not asked twice.
+  const released = releasedAll.filter((p) => !p.ask || askedIds.has(p.program_id));
+  const askSentNow = sentAsked.filter((a) => !released.some((p) => p.program_id === a.program_id));
   // L28-4 (v6.1.16 Task 14): a send leaves only its own project's list (`here`, below).
   const skip = await excluded(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
   const all = i.filter?.all === true;
   // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
   const listed = side ? notNever(side.record) : () => true;
-  const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
+  const programs = open.filter((r) => !skip.has(r.id) && !sentIds.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneOn(owner, key);
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
@@ -1166,7 +1179,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const r0: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
-    ledger, applications: await applicationsOf(owner), ask_outcome: ask, as_reported: facts.as_reported,
+    ledger, applications: await applicationsOf(owner), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
     ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),

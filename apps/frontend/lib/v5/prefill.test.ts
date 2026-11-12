@@ -616,3 +616,50 @@ test('L28-8, L28-9 (v6.1.16 Task 14): each team question reads its own record fa
   const fullTime = mergeRecord(record, { team: [{ name: 'Tess Lane', full_time: true }, { name: 'Uma Lane', full_time: true }] }, 'builder', NOW).record;
   assert.equal(prefill(row, facts, { record: fullTime, projectId: null, verifiedUsage: null }).fields.find((x) => x.key === 'ft')!.value, 'Yes');
 });
+
+test('L18-4d: the Arbitrum Security Program\'s referral field is from earnkit with "EarnKit (earnkit.com)"', async () => {
+  const facts = await factsOf('earnkit');
+  const f = prefill(fromFile('arbitrum-security-program'), facts).fields.find((x) => x.key === 'referral')!;
+  assert.equal(f.from, 'earnkit');
+  assert.equal(f.value, 'EarnKit (earnkit.com)');
+  assert.equal(f.note, undefined);
+  // A label that asks how they heard counts too (Z Fellows, the UFSF): the text field says EarnKit.
+  for (const [slug, key] of [['z-fellows', 'heard_about'], ['uniswap-foundation-security-fund', 'heard_from'], ['solana-incubator-cohort-6', 'heard_from']]) {
+    const g = prefill(fromFile(slug), facts).fields.find((x) => x.key === key)!;
+    assert.deepEqual([g.from, g.value], ['earnkit', 'EarnKit (earnkit.com)'], slug);
+  }
+});
+
+test('L18-4e: the Arbitrum Stablecoin heard_from choice picks "Referral" with the other-box note', async () => {
+  const facts = await factsOf('earnkit');
+  const p = prefill(fromFile('arbitrum-stablecoin-growth-program'), facts);
+  const f = p.fields.find((x) => x.key === 'heard_from')!;
+  assert.deepEqual([f.from, f.value, f.note], ['earnkit', 'Referral', 'If the form has an "other" box, write EarnKit (earnkit.com).']);
+  assert.ok(!p.need_you.includes('referral source'));
+  // With no referral option, the other one (SPC).
+  const spc = prefill(fromFile('spc-founder-fellowship-spring-2027'), facts).fields.find((x) => x.key === 'heard_from')!;
+  assert.deepEqual([spc.from, spc.value], ['earnkit', 'Other']);
+});
+
+test('L18-4f: GitHub Secure\'s application_type and referral_details are untouched', async () => {
+  const facts = await factsOf('earnkit');
+  const by = Object.fromEntries(prefill(fromFile('github-secure-open-source-fund'), facts).fields.map((f) => [f.key, f]));
+  for (const k of ['application_type', 'referral_details', 'referred_by']) {
+    assert.notEqual(by[k].from, 'earnkit', k);
+    assert.equal(by[k].value, null, k);
+    assert.equal(by[k].note, undefined, k);
+  }
+});
+
+test('L18-4g: Filecoin\'s additional (need "referral source with email") is untouched', async () => {
+  const facts = await factsOf('earnkit');
+  const f = prefill(fromFile('filecoin-open-grants'), facts).fields.find((x) => x.key === 'additional')!;
+  assert.notEqual(f.from, 'earnkit');
+  assert.equal(f.value, null);
+  // The rule itself: more than the source, or a partner or alumni referral, is left as it is.
+  const { heardFrom } = await import('./prefill');
+  assert.equal(heardFrom({ key: 'referral', label: 'Referral', type: 'text', need: 'referral source with email' }), null);
+  assert.equal(heardFrom({ key: 'referral', label: 'Referral partner name', type: 'text' }), null);
+  assert.equal(heardFrom({ key: 'how', label: 'Where did you hear about us?', type: 'text' })?.value, 'EarnKit (earnkit.com)');
+  assert.equal(heardFrom({ key: 'how', label: 'How did you hear?', type: 'choice', options: ['X', 'Friend'] }), null);
+});

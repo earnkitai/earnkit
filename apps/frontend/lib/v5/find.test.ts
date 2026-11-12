@@ -1136,7 +1136,8 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-other-' + Math.random()}, 'Cursor') RETURNING id`;
   const { linkInstallation } = await import('../v6/builders');
   await linkInstallation(other.id as number, builderId, NOW);
-  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', other.id as number, new Date(NOW.getTime() - H));
+  // L36-1 (v6.1.18 Task 4): Y Combinator is sent by the builder; within the hour it is still listed (no sent ask yet).
+  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', other.id as number, new Date(NOW.getTime() - 0.5 * H));
   await claim(`b:${builderId}`, 'arbitrum-mentorship-cohort-2', 'earnkit', id, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   // L23-7 (v6.1.16): released by title, with when it was started; the builder hears it, and the agent note names the title.
@@ -1146,7 +1147,7 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   assert.match(r.reply!.show_to_builder as string, /\nAlliance ALL19: started Nov 3, nothing sent\. Say yes to apply or say skip\.$/);
   const ready = allReady(r.reply!) as { program_id: string; claimed_since?: string }[];
   assert.ok(ids(ready).includes('alliance-all19'));
-  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - 0.5 * H).toISOString());
   assert.ok(ids(ready).includes('arbitrum-mentorship-cohort-2'));
   assert.equal(ready.find((p) => p.program_id === 'arbitrum-mentorship-cohort-2')?.claimed_since, undefined);
   assert.match(r.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
@@ -1804,13 +1805,14 @@ test('L1d-1 (v6.1.11), C1 (v6.1.13), ruling 12 (v6.1.16): another agent\'s claim
   const { linkInstallation } = await import('../v6/builders');
   await linkInstallation(other.id as number, builderId, NOW);
   const before = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
-  await claim(`b:${builderId}`, 'y-combinator', 'name:another project', other.id as number, new Date(NOW.getTime() - H));
+  // L36-1 (v6.1.18 Task 4): Y Combinator is sent by the builder; within the hour it is still listed (no sent ask yet).
+  await claim(`b:${builderId}`, 'y-combinator', 'name:another project', other.id as number, new Date(NOW.getTime() - 0.5 * H));
   // L13-8, L12-1 (v6.1.14): a claim with no project holds the program on every project's list (here in person).
   await claim(`b:${builderId}`, 'alliance-all19', null, other.id as number, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   const ready = allReady(r.reply!) as { program_id: string; claimed_since?: string; title: string }[];
   assert.ok(ids(ready).includes('y-combinator'));
-  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - 0.5 * H).toISOString());
   assert.equal(ready.find((p) => p.program_id === 'alliance-all19')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   // L29-26 (v6.1.16 Task 15): something is ready, so the in-person lines are the agent's (Not shown).
   const both = seen(r.reply!);
@@ -1827,7 +1829,7 @@ test('L1d-1 (v6.1.11), C1 (v6.1.13), ruling 12 (v6.1.16): another agent\'s claim
   const allShow = listText(all.reply!);
   assert.match(allShow.split('\n').find((l) => l.includes('Y Combinator'))!, / Being handled by your other agent\.$/);
   const everyReady = allReady(all.reply!) as { program_id: string; claimed_since?: string }[];
-  assert.equal(everyReady.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.equal(everyReady.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - 0.5 * H).toISOString());
 });
 
 test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users question; its line reads the archive as a gap', async () => {
@@ -3134,7 +3136,7 @@ test('Review Focus 12 (v6.1.16, L23-1): no pinned reply and no exported text pro
 
 test('ONE_SAY_ORDER (v6.1.16, L23-21): no pinned reply carries two Says (L24-8, Task 11: the do offer is the closing\'s)', async () => {
   const { ONE_SAY_ORDER, oneSay, withoutSay } = await import('./reply');
-  assert.deepEqual([...ONE_SAY_ORDER], ['not_sent', 'started_not_sent', 'record_sign_in', 'closing']);
+  assert.deepEqual([...ONE_SAY_ORDER], ['not_sent', 'started_not_sent', 'sent_ask', 'record_sign_in', 'closing']);
   const say = oneSay();
   assert.equal(say('A: started Nov 3, nothing sent. Say yes to apply or say skip.'), 'A: started Nov 3, nothing sent. Say yes to apply or say skip.');
   assert.equal(say('Nothing is ready yet. Say "yes 2" if that rule fits you and I get it ready.'), 'Nothing is ready yet.');
@@ -3727,5 +3729,50 @@ test('v6.1.16 Task 15 N2 (v6.1.17): find never reads as, am or mm as initials; Y
     const r = await mcpCall(ctx(id), 'find', { program_id: w });
     assert.equal(r.isError, false, w);
     assert.match(r.reply!.show_to_builder as string, /^Y Combinator/, w);
+  }
+});
+
+test('L36-1, L36-2 (v6.1.18 Task 4): a builder-sent program started an hour ago is asked once, not drafted again, and its claim is kept past 24 hours', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'tt-sent', title: 'Kiroween 2026', submit: 'builder' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const owner = `b:${builderId}`;
+    const find = async (now: Date, all = false) => (await mcpCall({ ...ctx(id, now), builderId, evidence: LIVE }, 'find', { project: PROJECT, ...(all ? { filter: { all: true } } : {}) })).reply!;
+    // Before the hour, it is still the builder's draft to send.
+    const st = await mcpCall({ ...ctx(id, new Date(NOW.getTime() - 0.5 * H)), builderId }, 'track', { program_id: 'tt-sent', status: 'started', project: PROJECT });
+    assert.equal(st.isError, false, st.text);
+    const early = await find(NOW, true);
+    assert.ok(ids(allReady(early)).includes('tt-sent'));
+    assert.deepEqual(early.ask_sent, []);
+    // Once an hour has passed: asked on the next find, and not offered as a draft while the ask is open.
+    const at = new Date(NOW.getTime() + H);
+    const r = await find(at);
+    assert.deepEqual(r.ask_sent, [{ program_id: 'tt-sent', title: 'Kiroween 2026', started_at: new Date(NOW.getTime() - 0.5 * H).toISOString() }]);
+    assert.match(r.show_to_builder as string, /Did you send Kiroween 2026\?/);
+    assert.match(r.agent_note as string, /The reply asks whether each was sent: Kiroween 2026\. "sent" is track applied with submitted_by builder; "not yet" needs no call\./);
+    const full = await find(at, true);
+    assert.ok(!ids(allReady(full)).includes('tt-sent') && !ids(full.gaps).includes('tt-sent'));
+    assert.doesNotMatch(listText(full), /Kiroween 2026 needs your|draft Kiroween/);
+    // Asked once: the next find a minute later does not ask again.
+    assert.deepEqual((await find(new Date(at.getTime() + 60_000))).ask_sent, []);
+    // L36-2: past 24 hours the claim is kept; inside 7 days nothing is said again.
+    const day2 = await find(new Date(NOW.getTime() + 30 * H));
+    assert.deepEqual(day2.released, []);
+    assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'tt-sent'`)[0]?.status, 'started');
+    // A week on, the release line asks instead of saying nothing sent; the ask is not said twice.
+    const week = await find(new Date(NOW.getTime() + 8 * 24 * H));
+    assert.deepEqual((week.released as { program_id: string; ask?: true }[]).map((p) => [p.program_id, p.ask]), [['tt-sent', true]]);
+    assert.deepEqual(week.ask_sent, []);
+    assert.match(week.show_to_builder as string, /Kiroween 2026: started Nov 4; did you send it\? Say sent and I note it\./);
+    assert.doesNotMatch(week.show_to_builder as string, /nothing sent/);
+    // The builder says sent: the agent records it, and the ask ends.
+    const t = await mcpCall({ ...ctx(id, new Date(NOW.getTime() + 8 * 24 * H)), builderId }, 'track', { program_id: 'tt-sent', status: 'applied', submitted_by: 'builder', project: PROJECT });
+    assert.equal(t.isError, false, t.text);
+    const after = await find(new Date(NOW.getTime() + 16 * 24 * H));
+    assert.deepEqual(after.ask_sent, []);
+    assert.deepEqual(after.released, []);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-sent'`;
   }
 });

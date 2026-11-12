@@ -682,7 +682,7 @@ export const standingLine = (titles: string[], also: string[] = []): string =>
  * sentence; the others keep their fact sentence and drop the `Say` one: (1) the not-sent-since-yes line, (2) the
  * started-not-sent line, (3) the record sign-in line, (4) the closing.
  */
-export const ONE_SAY_ORDER = ['not_sent', 'started_not_sent', 'record_sign_in', 'closing'] as const;
+export const ONE_SAY_ORDER = ['not_sent', 'started_not_sent', 'sent_ask', 'record_sign_in', 'closing'] as const;
 /** A sentence that asks the builder to say something ("Say yes ...", "Or say the numbers ..."). */
 const SAY_SENTENCE = /^(Or )?[Ss]ay\b/;
 /** Whether a line carries a `Say` sentence. Pure. */
@@ -711,9 +711,23 @@ export function notSentLine(r: Pick<R, 'not_sent'>, now: Date): string | null {
 const RELEASED_SHOWN = 3;
 /** L23-7 (v6.1.16): a claim left unsent for 24 hours, one line per program (at most three, the rest counted). Pure. */
 export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[] {
-  const shown = r.released.slice(0, RELEASED_SHOWN).map((p) => `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
+  // L36-2 (v6.1.18 Task 4): a program the builder sends themselves is asked about, never said unsent.
+  const shown = r.released.slice(0, RELEASED_SHOWN).map((p) => p.ask
+    ? `${p.title}: started ${dayWords(new Date(p.started_at), now)}; did you send it? ${SENT_SAY}`
+    : `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
   const rest = r.released.length - shown.length;
-  return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
+  return rest > 0 ? [...shown, r.released.slice(RELEASED_SHOWN).some((p) => p.ask) ? `And ${rest} more started.` : `And ${rest} more started, nothing sent.`] : shown;
+}
+
+/** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
+const SENT_SAY = 'Say sent and I note it.';
+/** L18-4, L36-1 (v6.1.18 Task 4): whether each form the builder sends themselves went out. Pure. */
+export const sentLines = (r: Pick<R, 'ask_sent'>, _now?: Date): string[] =>
+  (r.ask_sent ?? []).map((a) => `Did you send ${a.title}? ${SENT_SAY}`);
+/** L18-4 (v6.1.18 Task 4): the agent note for the sent questions (the ask lines and the release lines that ask); null when none. Pure. */
+export function sentNote(r: Pick<R, 'ask_sent' | 'released'>): string | null {
+  const titles = [...(r.ask_sent ?? []), ...r.released.filter((p) => p.ask)].map((a) => a.title);
+  return titles.length > 0 ? `The reply asks whether each was sent: ${titles.join(', ')}. "sent" is track applied with submitted_by builder; "not yet" needs no call.` : null;
 }
 
 /** L23-4 (v6.1.16): the results question for each program past its results date, shown once a day per installation. Pure. */
@@ -917,11 +931,14 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // v6.1.16 Task 9 N4 (v6.1.17): a program the not-sent line names gets no started line too.
   const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
   const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
-  const sayers = [notSent, ...started, closingOf.text].filter((x): x is string => x !== null);
+  // L18-4 (v6.1.18 Task 4): the sent question after the started lines (ONE_SAY_ORDER).
+  const sent = sentLines(r, now);
+  const sayers = [notSent, ...started, ...sent, closingOf.text].filter((x): x is string => x !== null);
   const sayLine = sayers.find(carriesSay) ?? closingOf.text;
   const early = sayLine !== closingOf.text;
   const plain = (x: string | null) => (x === null || x === sayLine ? null : carriesSay(x) ? withoutSay(x) || null : x);
-  const offer = early ? 'apply' : closingOf.offer;
+  // L18-4: a sent question offers nothing to apply.
+  const offer = early ? (sayLine.endsWith(SENT_SAY) ? null : 'apply') : closingOf.offer;
 
   const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(signIn ? [signIn] : []), ...(notice ? [notice] : [])];
   // L1i-5 (v6.1.16.1): the full view closes on the default view's Say, never on a rule it does not show.
@@ -990,6 +1007,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     { lines: [since ?? nothingNew].filter((x): x is string => !!x), rank: 6 },
     // L1i-2 (v6.1.16.1): the results question is asked once a day, so it stays ahead of what moved since.
     { lines: outcomeLines(r, now), rank: 5.8 },
+    // L18-4 (v6.1.18 Task 4): the sent question beside the results question; its Say only when it is the reply's one.
+    { lines: sent.map(plain).filter((x): x is string => !!x), rank: 5.8 },
     // What was sent under standing approval meanwhile is the applications' news: kept beside Task 9's lines.
     // Fix round 1 (I1): ahead of the step rows past the first, as the Before line.
     { lines: reportLines(r), rank: 5.5 },
@@ -1162,8 +1181,9 @@ export const FULL_LIST_STYLE_NOTE = 'Fit approved answers by cutting, never by a
 
 export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null; hidden?: string[]; all?: boolean }): string {
   // L29-29 (v6.1.16 Task 15): only the lines that apply; an empty reply has a one-line note.
+  const sentAsked = sentNote(r);
   if (r.ready.length === 0 && r.gaps.length === 0)
-    return "Show find's reply as given. Nothing is listed for this project now; pass users, live_url and chains whenever you know them, and call find again when the builder asks.";
+    return ["Show find's reply as given. Nothing is listed for this project now; pass users, live_url and chains whenever you know them, and call find again when the builder asks.", ...(sentAsked ? [sentAsked] : [])].join('\n');
   const tonightIds = tonightIn(r).list.map((t) => t.program_id);
   const lines = [
     "Show find's reply as given; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts.",
@@ -1212,6 +1232,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   // L23-4 (v6.1.16): the builder text asks; the agent passes the answers on.
   if (r.ask_outcome.length > 0)
     lines.push(`The reply asks how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
+  // L18-4 (v6.1.18 Task 4): the sent question's answer is the agent's to record.
+  if (sentAsked) lines.push(sentAsked);
   if (r.not_sent && r.not_sent.programs.length > 0)
     lines.push(`Nothing was sent for ${r.not_sent.programs.map((p) => p.title).join(', ')} after the standing-approval line named them; on the builder's yes, send them now within the limits.`);
   // Fix round 1 (M2): the full list's fields carry no style (L26-4); the program's own find has it.
@@ -1220,7 +1242,9 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     lines.push('Ask for the missing record items once, all together, and save each with record. record_missing names only what these programs need; record get names everything the record lacks.');
   if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by another of the builder\'s agents: do not submit it.');
   // L23-7 (v6.1.16): by title, as the builder's lines name them.
-  if (r.released.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${r.released.map((p) => p.title).join(', ')}.`);
+  // L36-2 (v6.1.18 Task 4): a builder-sent program's claim is kept and asked about (sentNote), never released.
+  const freed = r.released.filter((p) => !p.ask);
+  if (freed.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${freed.map((p) => p.title).join(', ')}.`);
   // L23-14 (v6.1.16): the repo read failed; the stored tier and its date stood.
   if (r.problems?.includes(EVIDENCE_NOT_READ)) lines.push("The builder's repo could not be read today; the tier from the last read was used.");
   const paused = r.problems?.includes(READS_PAUSED) === true;

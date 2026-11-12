@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, storedPaymentKeys, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
+import { claim } from '../v6/claims';
+import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
 
 after(() => sql().end());
 
@@ -745,4 +746,45 @@ test('I3 (v6.1.17 Task 5): ten untied strangers at once, each a find with the vi
   for (const { sent, start } of ids) for (const id of [sent, start]) {
     assert.equal((await send({ ...vic, now: new Date(NOW.getTime() + 3_600_000) }, id, VIC)).show_to_builder, `Sent I3L ${id}.`);
   }
+});
+
+test('L18-4: askSent lists a builder-submit program started 2 days ago with no send, not one started an hour ago, not an agent-sent one, not one with an applied row', async () => {
+  const i = await install();
+  const H = 3_600_000;
+  const own = await prog('l-sent', { title: 'Kiroween 2026', submit: 'builder' });
+  const fresh = await prog('l-sent-new', { submit: 'builder' });
+  const agent = await prog('l-sent-agent', { submit: 'either' });
+  const done = await prog('l-sent-done', { submit: 'builder' });
+  const held = await prog('l-sent-held', { submit: 'builder' });
+  const twoDays = new Date(NOW.getTime() - 2 * DAY);
+  assert.deepEqual(await claim(o(i), 'l-sent', 'p1', i, twoDays), { ok: true });
+  assert.deepEqual(await claim(o(i), 'l-sent-agent', 'p1', i, twoDays), { ok: true });
+  assert.deepEqual(await claim(o(i), 'l-sent-done', 'p1', i, twoDays), { ok: true });
+  assert.deepEqual(await claim(o(i), 'l-sent-held', 'p1', i, twoDays), { ok: true });
+  await record(o(i), 'l-sent-done', 'applied', { now: new Date(NOW.getTime() - DAY), projectKey: 'p1', project_id: 'p1' });
+  await record(o(i), 'l-sent-held', 'held', { now: new Date(NOW.getTime() - DAY), projectKey: 'p1', project_id: 'p1' });
+  // L36-1: asked once an hour has passed, not before.
+  assert.equal(SENT_ASK_AFTER_HOURS, 1);
+  assert.deepEqual(await claim(o(i), 'l-sent-new', 'p1', i, new Date(NOW.getTime() - 0.5 * H)), { ok: true });
+  const all = [own, fresh, agent, done, held];
+  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString() }]);
+  assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent', 'l-sent-new']);
+  // The builder says sent: the ask ends.
+  await record(o(i), 'l-sent', 'applied', { now: NOW, submitted_by: 'builder', projectKey: 'p1', project_id: 'p1' });
+  assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent-new']);
+});
+
+test('L18-4b: sentAsksDue asks once, then not for 7 days, then again', async () => {
+  const i = await install();
+  const j = await install();
+  const due = [{ program_id: 'l-sa', title: 'T', started_at: NOW.toISOString() }];
+  assert.equal(SENT_ASK_EVERY_DAYS, 7);
+  assert.deepEqual(await sentAsksDue(i, o(i), due, NOW), due);
+  assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 3_600_000)), []);
+  assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 6 * DAY)), []);
+  // Another installation of the same builder asks on its own.
+  assert.deepEqual(await sentAsksDue(j, o(i), due, new Date(NOW.getTime() + DAY)), due);
+  assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 7 * DAY)), due);
+  assert.deepEqual(await sentAsksDue(i, o(i), due, new Date(NOW.getTime() + 8 * DAY)), []);
+  assert.deepEqual(await sentAsksDue(i, o(i), [], NOW), []);
 });

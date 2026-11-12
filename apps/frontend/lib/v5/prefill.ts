@@ -32,7 +32,31 @@ export type Field = {
   form_id?: string;
   /** L28-8 (v6.1.16 Task 14): a team question the record holds no fact for: `Needs your answer.` */
   todo?: string;
+  /** L18-4 (v6.1.18 Task 4): how to fill the how-you-heard choice's "other" box (HEARD_OTHER_NOTE). */
+  note?: string;
 };
+
+/** L18-4 (v6.1.18 Task 4): what a how-you-heard field says. */
+export const HEARD_VALUE = 'EarnKit (earnkit.com)';
+/** L18-4: beside the option a how-you-heard choice picks. */
+export const HEARD_OTHER_NOTE = 'If the form has an "other" box, write EarnKit (earnkit.com).';
+const HEARD_KEYS = new Set(['referral', 'heard_from', 'how_did_you_hear', 'hear_about', 'referral_source']);
+const HEARD_LABEL = /^(how did you (hear|find|learn)( about us)?|referral|where did you hear)/i;
+
+/**
+ * L18-4 (v6.1.18 Task 4): a field that asks only how the builder heard of the program says EarnKit: the text, or for
+ * a choice the referral option, else the other one, with HEARD_OTHER_NOTE. A field about a partner or alumni referral,
+ * or one that asks for more than the source (its need holds "with"), is left as it is; so is a choice with neither
+ * option. Null when the field is not one. Pure.
+ */
+export function heardFrom(r: Pick<SubmissionRequirement, 'key' | 'label' | 'type' | 'need' | 'options'>): { value: string; note?: string } | null {
+  if (!HEARD_KEYS.has(r.key) && !HEARD_LABEL.test(r.label)) return null;
+  if (/partner|alumni/i.test(r.label) || /\bwith\b/i.test(r.need ?? '')) return null;
+  if (r.type === 'text') return { value: HEARD_VALUE };
+  if (r.type !== 'choice' && r.type !== 'multi_choice') return null;
+  const pick = r.options?.find((x) => /referr/i.test(x)) ?? r.options?.find((x) => /^other/i.test(x));
+  return pick ? { value: pick, note: HEARD_OTHER_NOTE } : null;
+}
 
 /** L28-8 (v6.1.16 Task 14): the to-do on a team question with no matching record fact. */
 export const NEEDS_ANSWER = 'Needs your answer.';
@@ -365,6 +389,9 @@ export function prefill(
     if (tk && tk !== 'team') return { ...base, value: null, from: 'builder', todo: NEEDS_ANSWER };
     // Linked or not, traction, money raised, consents, amounts and personal facts are the builder's: never guessed, never drafted.
     if (isPersonal(r)) return { ...base, value: null, from: 'builder' };
+    // L18-4 (v6.1.18 Task 4): how the builder heard of the program is EarnKit's to say.
+    const heard = heardFrom(r);
+    if (heard) return { ...base, value: heard.value, from: 'earnkit', ...(heard.note ? { note: heard.note } : {}) };
     // Contacts (R2a): linked, the record answers first and the rest are the builder's; unlinked, the agent knows who it
     // works for (never asks a stranger who they are, never invents).
     if (r.kind === 'contact') {

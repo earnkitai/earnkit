@@ -1114,6 +1114,51 @@ export async function outcomeAsksDue<T extends { program_id: string }>(installat
   return due.filter((d) => shown.has(d.program_id));
 }
 
+/** L36-1 (v6.1.18 Task 4): hours after a builder-submits program is started before EarnKit asks whether it was sent. */
+export const SENT_ASK_AFTER_HOURS = 1;
+/** L18-4 (v6.1.18 Task 4): days before the same installation asks again whether a form went out. */
+export const SENT_ASK_EVERY_DAYS = 7;
+
+/** A program the builder sends themselves, started and not yet sent (L18-4): its title and when it was started. */
+export type SentAsk = { program_id: string; title: string; started_at: string };
+
+/**
+ * L18-4, L36-1 (v6.1.18 Task 4): every started row (not one the builder held) at least SENT_ASK_AFTER_HOURS old whose
+ * program the builder submits (`submit` 'builder'). A row is one per owner, program and project, so a started row is
+ * one with no send or result on that project. One ask per program, the earliest start; by start time.
+ */
+export async function askSent(owner: string, programs: ProgramRow[], now: Date): Promise<SentAsk[]> {
+  const rows = await sql()<{ program_id: string; started: Date }[]>`
+    SELECT program_id, COALESCE(claimed_at, at) AS started FROM applications
+    WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL
+      AND COALESCE(claimed_at, at) <= ${new Date(now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000)}
+    ORDER BY COALESCE(claimed_at, at), program_id`;
+  const first = new Map<string, Date>();
+  for (const r of rows) if (!first.has(r.program_id)) first.set(r.program_id, r.started);
+  const byId = await withOwn([...first.keys()], programs);
+  return [...first]
+    .map(([id, at]) => ({ p: byId.get(id), at }))
+    .filter((x): x is { p: ProgramRow; at: Date } => x.p?.file.submit === 'builder')
+    .map(({ p, at }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString() }));
+}
+
+/**
+ * L18-4 (v6.1.18 Task 4): of `due`, the ones this installation has not asked in the last SENT_ASK_EVERY_DAYS days
+ * (its own `sent_asks` row for the program, by UTC day), marked as asked today in the same call. A second
+ * installation of the same builder asks on its own.
+ */
+export async function sentAsksDue<T extends { program_id: string }>(installationId: number, owner: string, due: T[], now: Date): Promise<T[]> {
+  if (due.length === 0) return [];
+  const day = utcDate(now);
+  const rows = await sql()<{ program_id: string }[]>`
+    INSERT INTO sent_asks ${sql()(due.map((d) => ({ installation_id: installationId, owner, program_id: d.program_id, asked_on: day })))}
+    ON CONFLICT (installation_id, program_id) DO UPDATE SET owner = EXCLUDED.owner, asked_on = EXCLUDED.asked_on
+      WHERE sent_asks.asked_on <= EXCLUDED.asked_on - ${SENT_ASK_EVERY_DAYS}::int
+    RETURNING program_id`;
+  const shown = new Set(rows.map((r) => r.program_id));
+  return due.filter((d) => shown.has(d.program_id));
+}
+
 /** Stamps `asked_outcome_at` for the record (L23-4: it no longer gates the question). */
 export async function markAsked(owner: string, programIds: string[], now: Date): Promise<void> {
   if (programIds.length === 0) return;

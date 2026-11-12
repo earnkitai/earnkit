@@ -158,6 +158,8 @@ export async function unlinkInstallation(installationId: number, builderId: numb
     await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId}`;
     // v6.1.16 Task 9 N5 (v6.1.17 Task 3): this agent's results-question markers for the builder go with the link.
     await tx`DELETE FROM outcome_asks WHERE installation_id = ${installationId} AND owner = ${owner}`;
+    // v6.1.18 Task 4: and its sent-question markers.
+    await tx`DELETE FROM sent_asks WHERE installation_id = ${installationId} AND owner = ${owner}`;
     return true;
   }) as Promise<boolean>;
 }
@@ -202,6 +204,7 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     await tx`DELETE FROM project_reports WHERE owner = ${owner}`;
     // v6.1.16 Task 9: the results-question markers and the promised sends go with the account.
     await tx`DELETE FROM outcome_asks WHERE owner = ${owner}`;
+    await tx`DELETE FROM sent_asks WHERE owner = ${owner}`;
     await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted', promised = NULL, promised_at = NULL WHERE builder_id = ${id}`;
     // L28-10: a deleted record is nothing to read back.
     await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;
