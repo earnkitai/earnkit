@@ -298,7 +298,7 @@ function teamFact(kind: TeamKind, r: SubmissionRequirement, record: BuilderRecor
 }
 
 /** The record's value for a field (step 1 of the order), or null. Unapproved answers are never used. */
-function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
+export function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
   const { record, projectId } = rec;
   // L28-8 (v6.1.16 Task 14): a team question reads its own fact, a choice of count or yes/no included.
   const tk = teamKindFor(r);

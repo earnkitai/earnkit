@@ -268,15 +268,32 @@ export async function markOffer(id: number, offer: OfferKind | null, now: Date):
 }
 
 /**
- * L29-11 (v6.1.16 Task 15): what the next send needs from the builder (the first ready program's `need_you`, at most
- * two), kept by each linked project find; null before any.
+ * One thing the next send needs from the builder: its words, and (L45-1, v6.1.19) the form field it fills (`key` of
+ * `program_id`, for the find's `project_id`), so record can tell when the record now holds it.
  */
-export async function markNextNeeds(id: number, needs: string[]): Promise<void> {
-  await sql()`UPDATE installations SET next_needs = ${sql().json(needs.slice(0, 2))} WHERE id = ${id}`;
+export type NextNeed = { words: string; key?: string; program_id?: string; project_id?: string | null };
+
+/**
+ * L29-11 (v6.1.16 Task 15): what the next send needs from the builder (the first ready program's `need_you`, at most
+ * two), kept by each linked project find. L45-1 (v6.1.19): each with its field, when known.
+ */
+export async function markNextNeeds(id: number, needs: (string | NextNeed)[]): Promise<void> {
+  const kept = needs.slice(0, 2).map((n) => (typeof n === 'string' ? n : { w: n.words, ...(n.key ? { k: n.key, p: n.program_id ?? null, j: n.project_id ?? null } : {}) }));
+  await sql()`UPDATE installations SET next_needs = ${sql().json(kept)} WHERE id = ${id}`;
 }
 
-/** L29-11: the last linked project find's next needs (at most two), or null before any such find. */
-export async function nextNeedsOf(id: number): Promise<string[] | null> {
+/** L29-11: the last linked project find's next needs (at most two), or null before any such find. A need stored as
+ *  plain words (before v6.1.19) reads with no field. */
+export async function nextNeedsOf(id: number): Promise<NextNeed[] | null> {
   const [row] = await sql()<{ n: unknown }[]>`SELECT next_needs AS n FROM installations WHERE id = ${id}`;
-  return Array.isArray(row?.n) ? (row.n as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 2) : null;
+  if (!Array.isArray(row?.n)) return null;
+  const out: NextNeed[] = [];
+  for (const x of row.n as unknown[]) {
+    if (typeof x === 'string') out.push({ words: x });
+    else if (x && typeof x === 'object' && typeof (x as { w?: unknown }).w === 'string') {
+      const o = x as { w: string; k?: unknown; p?: unknown; j?: unknown };
+      out.push({ words: o.w, ...(typeof o.k === 'string' && typeof o.p === 'string' ? { key: o.k, program_id: o.p, project_id: typeof o.j === 'string' ? o.j : null } : {}) });
+    }
+  }
+  return out.slice(0, 2);
 }

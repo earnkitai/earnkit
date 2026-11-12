@@ -12,6 +12,7 @@ import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { applicationsLine } from './ledger';
 import { closesWords, dayWords } from './deadline';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
+import { isChainKept } from './project-input';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 
@@ -1405,8 +1406,12 @@ export const standingNote = (ids: string[]): string =>
 export const STANDING_ONE = 'Under your standing approval; I apply when your agent next checks. Say stop and I hold it.';
 /** L24-29 (v6.1.16 Task 11): the dropped project facts, said the same on the list and the one-program reply; null when none. Pure. */
 export function droppedNote(problems: string[] | undefined): string | null {
-  const dropped = (problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
-  return dropped.length > 0 ? `Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.` : null;
+  const all = (problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
+  // L45-12 (v6.1.19): a chain kept as given is said apart, with nothing to correct.
+  const kept = all.filter(isChainKept);
+  const dropped = all.filter((p) => !isChainKept(p));
+  const lines = [...(dropped.length > 0 ? [`Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.`] : []), ...(kept.length > 0 ? [`${kept.join('; ').replace(/^c/, 'C')}.`] : [])];
+  return lines.length > 0 ? lines.join(' ') : null;
 }
 
 /** Fix round 1 (M2, v6.1.16 Task 12): the full list's style line. */

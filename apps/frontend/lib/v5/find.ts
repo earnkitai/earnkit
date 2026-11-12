@@ -1452,7 +1452,12 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   for (const p of [...r.ready, ...r.gaps]) byNumber[p.n - 1] = p.program_id;
   await markList(ctx.installationId, hash, ctx.now, Array.from(byNumber, (x) => x ?? ''));
   // L29-11 (v6.1.16 Task 15): what the next send needs from the builder, for record's note (an unfiltered linked find).
-  if (side && i.filter?.category === undefined) await markNextNeeds(ctx.installationId, (sendableOf(r)[0]?.need_you ?? []));
+  // L45-1 (v6.1.19): each need with the form field it fills, so a record set that saves it clears it at once.
+  if (side && i.filter?.category === undefined) {
+    const first = sendableOf(r)[0];
+    const fields = first ? unvouchedRequired(first.fields) : [];
+    await markNextNeeds(ctx.installationId, (first?.need_you ?? []).map((words, n) => (fields.length === first!.need_you.length ? { words, key: fields[n].key, program_id: first!.program_id, project_id: side.projectId } : words)));
+  }
   // L23-1 (v6.1.16): the programs the standing-approval line named, kept with the first time a still-open promise was made.
   if (tonight && tonight.programs.length > 0) {
     const kept = promise && !promiseDue ? promise : null;
