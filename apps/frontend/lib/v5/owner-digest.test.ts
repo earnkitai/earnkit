@@ -247,3 +247,27 @@ test("L18-5c: the digest's applications block counts the previous UTC day's send
     await db`DELETE FROM owner_digests`;
   }
 });
+
+// v6.1.18 Task 6a (L39-5): a submission page that says it is closed is in the failing block even when it answers 200.
+const CLOSED_FORM = '<html><body><div>Base Builder Grant</div><div>Round 2 of Builder Grant Program is now closed. Please look out on X when we open up our Round 3 of applications.</div></body></html>';
+
+test('L39-5: dailyOwnerText names a closed form as `{title}: the form says it is closed ({url})` in the failing block', () => {
+  const text = dailyOwnerText('2026-11-12', [], {
+    closed: [], changed: [],
+    failing: [{ id: 'a', title: 'Alpha Grants', url: 'https://alpha.example/form', closed: true }, { id: 'b', title: 'Beta', url: 'https://beta.example/apply' }],
+  })!;
+  assert.match(text, /Links that did not load\n- Alpha Grants: the form says it is closed \(https:\/\/alpha\.example\/form\)\n- Beta: https:\/\/beta\.example\/apply/);
+});
+
+test('L39-5: the daily run reads the closed phrase on a submission page that answers 200; the digest lists it, never stale; an open form is not listed', async () => {
+  await sql()`DELETE FROM programs WHERE id LIKE 'od-%'`;
+  await upsertProgram(programFixture({ id: 'od-shut', title: 'Shut Form Grants', source_url: 'https://shut.example/about', submission_url: 'https://shut.example/form' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'od-openf', title: 'Open Form Grants', source_url: 'https://openf.example/about', submission_url: 'https://openf.example/form' }), 'file', NOW);
+  const link: LinkCheck = async (u) => ({ ok: true, page: u === 'https://shut.example/form' ? CLOSED_FORM : '<p>Apply here. Applications are open.</p>' });
+  const run = await runHealth(NOW, { link });
+  assert.deepEqual(run.stale, []);
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  const text = sent[0]!.text;
+  assert.match(text, /- Shut Form Grants: the form says it is closed \(https:\/\/shut\.example\/form\)/);
+  assert.doesNotMatch(text, /Open Form Grants/);
+});

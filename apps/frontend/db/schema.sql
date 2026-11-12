@@ -88,6 +88,8 @@ ALTER TABLE program_health ADD COLUMN IF NOT EXISTS body_text text;
 -- v6.1.17 Task 3 (L30-9): when the current run of failures began (null while the links load); stale at 20 hours of
 -- failing, never by counting UTC dates.
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS first_failed_at timestamptz;
+-- v6.1.18 (L39-5): the submission page answered but its text says it is closed; the owner's digest lists it.
+ALTER TABLE program_health ADD COLUMN IF NOT EXISTS submit_closed boolean NOT NULL DEFAULT false;
 -- v6.1.17 Task 3 (L30-14): one row, the last daily run that finished (answered 200); /api/stats shows it and the
 -- owner's digest names a gap over 26 hours.
 CREATE TABLE IF NOT EXISTS cron_state (

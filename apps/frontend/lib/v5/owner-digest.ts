@@ -5,6 +5,8 @@
  * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again. v6.1.17 Task 3:
  * first, a gap of over GAP_HOURS since the last daily run that finished (L30-14); and the programs the walk could not
  * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the previous UTC day's sends, by agents, drafted here, reported.
+ * v6.1.18 (L39-5): a submission page that answers but says it is closed, in the failing block as
+ * `{title}: the form says it is closed ({url})`.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -20,7 +22,8 @@ export type DigestHealth = {
   closed: { id: string; title: string }[];
   /** v6.1.16 Task 16 (L30-1): upcoming programs the daily run opened at their start date. */
   opened?: { id: string; title: string }[];
-  failing: { id: string; title: string; url: string }[];
+  /** `closed` (L39-5, v6.1.18): the submission page answered but says it is closed. */
+  failing: { id: string; title: string; url: string; closed?: boolean }[];
   changed: { id: string; title: string; url: string }[];
   /** v6.1.17 Task 3 (L30-18, L35-18): programs the walk could not read, with the owner's fix. */
   unreadable?: Unreadable[];
@@ -83,7 +86,8 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
     blocks.push(['Opened because the start date came', ...health.opened.map((p) => `- ${oneLine(p.title)} (${p.id})`)].join('\n'));
   }
   if (health.failing.length > 0) {
-    blocks.push(['Links that did not load', ...health.failing.map((p) => `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
+    blocks.push(['Links that did not load', ...health.failing.map((p) =>
+      p.closed ? `- ${oneLine(p.title)}: the form says it is closed (${p.url})` : `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
   }
   if (health.changed.length > 0) {
     blocks.push(['Pages that changed', ...health.changed.map((p) => `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
@@ -160,11 +164,11 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
     WHERE c.at > ${since} AND c.at <= ${now} AND c.fields = ARRAY['status']::text[]
       AND p.status = 'closed' AND p.ends_at IS NOT NULL AND p.ends_at <= c.at ORDER BY p.id`;
-  const healthRows = await db<(TitleRow & { source_ok: boolean; submit_ok: boolean; changed_day: boolean })[]>`
-    SELECT p.id, p.file, h.source_ok, h.submit_ok, (h.changed_at >= ${dayStart} AND h.changed_at < ${dayEnd}) AS changed_day
+  const healthRows = await db<(TitleRow & { source_ok: boolean; submit_ok: boolean; submit_closed: boolean; changed_day: boolean })[]>`
+    SELECT p.id, p.file, h.source_ok, h.submit_ok, h.submit_closed, (h.changed_at >= ${dayStart} AND h.changed_at < ${dayEnd}) AS changed_day
     FROM program_health h JOIN programs p ON p.id = h.program_id
     WHERE p.status IN ('active', 'upcoming') AND h.checked_at >= ${dayStart} AND h.checked_at < ${dayEnd}
-      AND (NOT h.source_ok OR NOT h.submit_ok OR h.changed_at >= ${dayStart})
+      AND (NOT h.source_ok OR NOT h.submit_ok OR h.submit_closed OR h.changed_at >= ${dayStart})
     ORDER BY p.id`;
   const openedRows = await db<TitleRow[]>`
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
@@ -194,6 +198,7 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     if (!f) continue;
     if (!r.source_ok) health.failing.push({ id: r.id, title: f.title, url: f.source_url });
     if (!r.submit_ok) health.failing.push({ id: r.id, title: f.title, url: f.submission_url });
+    else if (r.submit_closed) health.failing.push({ id: r.id, title: f.title, url: f.submission_url, closed: true });
     if (r.changed_day) health.changed.push({ id: r.id, title: f.title, url: f.source_url });
   }
   const links = new Map<string, Link>();

@@ -6,7 +6,9 @@
  * its words with the stored text counts as changed: listed in the owner's digest, never stale. A redirect to another
  * host is alive and logged (L30-2). One program's failure never stops the walk; it is returned in `failed`. A row whose
  * file no longer parses, or an upcoming program at its start with no form, is `unreadable` (v6.1.17 L30-18, L35-18):
- * counted and named in the owner's digest with its fix, never a failure that turns every run red.
+ * counted and named in the owner's digest with its fix, never a failure that turns every run red. v6.1.18 (L39-5): a
+ * submission page that answers but says it is closed (`formSaysClosed`) is stored as `submit_closed`; the owner's digest
+ * lists it with the failing links, and it is never stale.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -18,6 +20,8 @@ import { probeLink, SafeFetchError, visibleText, type ProbeResult, type Resolver
 export type LinkCheck = (url: string, timeoutMs: number) => Promise<ProbeResult>;
 export type Health = {
   source_ok: boolean; submit_ok: boolean; body_hash: string | null; body_text: string | null; changed: boolean;
+  /** L39-5 (v6.1.18): the submission page was read and its text says it is closed (`formSaysClosed`). */
+  submit_closed: boolean;
   /** The other hosts the links redirected to (never requested). */
   redirects: string[];
 };
@@ -94,6 +98,11 @@ const textOf = (html: string): string | null => {
 };
 const hashOf = (text: string) => createHash('sha256').update(text).digest('hex');
 
+/** L39-5 (v6.1.18): the phrases a closed submission page says, in any case. */
+const CLOSED_FORM = /\bis now closed\b|\bapplications are closed\b|\bno longer accepting\b|\bclosed for submissions\b/i;
+/** Whether a submission page's text says it takes no more entries (L39-5). Pure. */
+export const formSaysClosed = (text: string): boolean => CLOSED_FORM.test(text.replace(/\s+/g, ' '));
+
 /** True when fewer than 80% of the words (deduplicated) are shared, out of the larger page's words. Pure. */
 export function pageChanged(prev: string, next: string): boolean {
   const a = new Set(prev.split(' ').filter(Boolean));
@@ -110,10 +119,12 @@ export async function probeProgram(p: Program | { file: Program }, deps: HealthD
   const [source, submit] = await Promise.all([check(file.source_url, deps), same ? null : check(file.submission_url, deps)]);
   const sub = submit ?? source;
   const body_text = source.ok && source.page ? textOf(source.page) : null;
+  // L39-5: a form that answers but says it is closed; a redirect elsewhere is never read, so it never says so.
+  const submit_text = sub.ok && sub.page ? (sub === source ? body_text : textOf(sub.page)) : null;
   const prev = deps.prevText ?? null;
   const redirects = [...new Set([source, sub].flatMap((r) => (r.ok && r.redirect ? [r.redirect] : [])))];
   return {
-    source_ok: source.ok, submit_ok: sub.ok, body_text, redirects,
+    source_ok: source.ok, submit_ok: sub.ok, body_text, redirects, submit_closed: submit_text !== null && formSaysClosed(submit_text),
     body_hash: body_text === null ? null : hashOf(body_text),
     changed: body_text !== null && prev !== null && pageChanged(prev, body_text),
   };
@@ -209,10 +220,10 @@ export async function runHealth(
         const failDays = !failed ? 0 : r.checked_at && sameDay(r.checked_at, now) && r.was_failing ? prevDays : prevDays + 1;
         // A failing check keeps the stored start of the failures (or starts it now); a clean one clears it.
         const [w] = await db<{ first_failed_at: Date | null }[]>`
-          INSERT INTO program_health (program_id, checked_at, source_ok, submit_ok, body_hash, body_text, changed_at, fail_days, first_failed_at)
-          VALUES (${r.id}, ${now}, ${h.source_ok}, ${h.submit_ok}, ${h.body_hash}, ${h.body_text}, ${h.changed ? now : null}, ${failDays}, ${failed ? now : null})
+          INSERT INTO program_health (program_id, checked_at, source_ok, submit_ok, body_hash, body_text, changed_at, fail_days, first_failed_at, submit_closed)
+          VALUES (${r.id}, ${now}, ${h.source_ok}, ${h.submit_ok}, ${h.body_hash}, ${h.body_text}, ${h.changed ? now : null}, ${failDays}, ${failed ? now : null}, ${h.submit_closed})
           ON CONFLICT (program_id) DO UPDATE SET
-            checked_at = EXCLUDED.checked_at, source_ok = EXCLUDED.source_ok, submit_ok = EXCLUDED.submit_ok,
+            checked_at = EXCLUDED.checked_at, source_ok = EXCLUDED.source_ok, submit_ok = EXCLUDED.submit_ok, submit_closed = EXCLUDED.submit_closed,
             body_hash = COALESCE(EXCLUDED.body_hash, program_health.body_hash),
             body_text = COALESCE(EXCLUDED.body_text, program_health.body_text),
             changed_at = CASE WHEN ${h.changed} THEN EXCLUDED.changed_at ELSE program_health.changed_at END,

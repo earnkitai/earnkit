@@ -409,3 +409,32 @@ test('L30-18, L35-18: a stored row whose file no longer parses, and an upcoming 
   assert.ok(logged.includes('[health] h-parse unreadable: the program file does not parse'));
   assert.ok(logged.includes('[health] h-cat unreadable: opens today but has no submission requirements'));
 });
+
+test('L39-5 (v6.1.18): formSaysClosed reads the four closed phrases in any case; a submission page saying one is alive but submit_closed', async () => {
+  const { formSaysClosed } = await import('./health');
+  for (const t of ['Round 2 of Builder Grant Program is now closed.', 'APPLICATIONS ARE CLOSED', 'We are no longer accepting responses', 'This hackathon is Closed for Submissions.'])
+    assert.equal(formSaysClosed(t), true, t);
+  for (const t of ['Applications are open until Dec 1.', 'Closed Grant', 'Doors closed at 5 pm', ''])
+    assert.equal(formSaysClosed(t), false, t);
+  const p = programFixture({ id: 'h-shut', source_url: 'https://shut.example/a', submission_url: 'https://shut.example/form' });
+  const page = (u: string) => (u.endsWith('/form') ? '<div>This form is no longer accepting responses.</div>' : '<p>Grants for builders.</p>');
+  const h = await probeProgram(p, { link: async (u) => ({ ok: true, page: page(u) }), now: D1 });
+  assert.equal(h.submit_ok, true);
+  assert.equal(h.submit_closed, true);
+  // The source page saying it does not count when the form is its own link.
+  const h2 = await probeProgram(p, { link: async (u) => ({ ok: true, page: u.endsWith('/form') ? '<p>Apply</p>' : '<p>Round 1 is now closed.</p>' }), now: D1 });
+  assert.equal(h2.submit_closed, false);
+  // One link for both: its page is the form.
+  const same = programFixture({ id: 'h-shut1', source_url: 'https://shut.example/form', submission_url: 'https://shut.example/form' });
+  assert.equal((await probeProgram(same, { link: async (u) => ({ ok: true, page: page(u) }), now: D1 })).submit_closed, true);
+  // A redirect elsewhere is never read, so it never says closed.
+  assert.equal((await probeProgram(p, { link: async () => ({ ok: true, redirect: 'docs.google.com' }), now: D1 })).submit_closed, false);
+  // Stored by the walk, never stale.
+  await upsertProgram(p, 'file', D1);
+  await only('h-shut');
+  const r = await runHealth(D1, { link: async (u) => ({ ok: true, page: page(u) }) });
+  assert.deepEqual(r.stale, []);
+  assert.equal((await row('h-shut')).submit_closed, true);
+  await runHealth(D2, { link: ok });
+  assert.equal((await row('h-shut')).submit_closed, false);
+});
