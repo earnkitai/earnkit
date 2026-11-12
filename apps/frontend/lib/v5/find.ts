@@ -717,7 +717,7 @@ export const SIGN_IN_FIRST_NOTE = 'Sign-in comes before any claim or send with t
 /** Fix round 1 (M1): the one action when the repo is not the builder's. */
 export const SAY_WHICH_REPO = 'Say which repo is yours.';
 /** Fix round 1 (M1): the agent note when the builder's tie to the repo could not be confirmed (no evidence either way). */
-export const CANT_CONFIRM_NOTE = "EarnKit could not confirm the builder's GitHub login on this repo: do not apply with it; ask for the login, or let the builder send it.";
+export const CANT_CONFIRM_NOTE = "EarnKit could not read this repo to check it is the builder's: do not apply with it; let the builder send it, then call track applied with submitted_by builder.";
 
 /** What find asks or says before any send (L28-3, L28-5, L28-7, v6.1.16 Task 14), filled while the reply is built. */
 type BeforeSend = { join: string | null };
@@ -937,7 +937,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l)));
   return {
     ...r,
-    show_to_builder: (against ? [NOT_YOUR_REPO, ...kept, SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO]).join('\n'),
+    show_to_builder: (against ? [NOT_YOUR_REPO, ...kept, SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO(key)]).join('\n'),
     agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE].filter(Boolean).join('\n'),
   };
 }

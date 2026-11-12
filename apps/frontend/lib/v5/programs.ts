@@ -377,3 +377,15 @@ export function listRef(raw: string, lastList: string[]): string | null {
   if (!Number.isInteger(n) || n < 1 || n > lastList.length) return null;
   return lastList[n - 1] || null;
 }
+
+/**
+ * L36-10 (v6.1.18): a list number whose slot in the last list is empty (that program left the list, as an already-sent
+ * one does): its number, else null. Pure.
+ */
+export function listHole(raw: string, lastList: string[]): number | null {
+  const b = refBody(raw);
+  const n = /^\d{1,4}$/.test(b) ? Number(b) : NUMBER_WORDS.indexOf(b) + 1;
+  return Number.isInteger(n) && n >= 1 && n <= lastList.length && !lastList[n - 1] ? n : null;
+}
+/** L36-10 (v6.1.18): the line for a list number no longer in the list. */
+export const LIST_GONE = (n: number): string => `Number ${n} is not in the list now (already sent). Say a number from the last list.`;

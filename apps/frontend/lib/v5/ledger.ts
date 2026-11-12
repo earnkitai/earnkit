@@ -155,10 +155,16 @@ export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
 export const SIGN_IN_FIRST_SAY = 'Sign in once and I check the repo is yours; then say yes.';
 /** FR-1, N5 (fix round 2): the same line with the sign-in link when the reply has one (one sign-in line, never two). */
 export const SIGN_IN_FIRST_LINK = (link: string): string => `Sign in once at ${link} and I check the repo is yours; then say yes.`;
-/** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours". */
-export const CANT_CONFIRM_REPO = 'I could not confirm this repo is yours; tell me your GitHub login on it or send it yourself.';
+/** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".
+ *  L36-6 (v6.1.18): the builder is signed in, so EarnKit has their login: name the repo it could not read and the one
+ *  way on. */
+export const CANT_CONFIRM_REPO = (key: string): string =>
+  `I could not read ${key.replace(/^https:\/\//, '')}, so I cannot check it is yours. Send it yourself and tell me when it is in.`;
 /** L28-3: the agent note when a builder-submitted send with a repo that is not theirs is kept under the name only. */
 export const NAME_ONLY_NOTE = 'The repo is not yours; recorded under the project name only.';
+/** L36-9 (v6.1.18): a builder's own send of a repo another builder already sent: recorded, and the builder hears it. */
+export const SENT_TWICE = (title: string, day: string, login: string | null): string =>
+  `Sent ${title}. ${login ? quoteName(login) : 'Another builder'} already sent this repo on ${day}, so the program may see two.`;
 /** L28-1: the agent note when a builder-submitted send of a repo another account sent is kept under the name only. */
 export const NAME_ONLY_SENT_NOTE = 'Another account already sent this repo; recorded under the project name only.';
 /** L35-1 (v6.1.16.1 Task 2): a tied builder's yes to the join question when another builder already sent the repo:
@@ -437,7 +443,12 @@ export async function record(
         else if (other && status === 'held') return { ok: false, note: NOTHING_TO_HOLD_REPO } as const;
         // Controller ruling: never the other builder's result; their login only on the caller's strong tie, and (L35-20)
         // only when the match is by this repo's key.
-        else if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin && other.by === 'key' ? other.login : null), repo_taken: true } as const;
+        else if (other) {
+          const day = dayWords(other.at, now);
+          const login = o.showLogin && other.by === 'key' ? other.login : null;
+          // L36-9 (v6.1.18): the day and the login the refusal names, for a builder's own send kept under the name.
+          return { ok: false, note: ALREADY_SENT_REPO(day, login), repo_taken: true, taken: { day, login } } as const;
+        }
       }
       // L35-4: a send over a co-founder's live claim is recorded and clears it (below, on the recording path).
       if (status === 'applied' && repoKey) cofounderClaim = (await claimedForRepo(tx, programId, repoKey, owner, o.repoId ?? null, now)) !== null;
@@ -645,7 +656,7 @@ export async function record(
  */
 export type RecordResult =
   | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
-  | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true };
+  | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true; taken?: { day: string; login: string | null } };
 
 /**
  * Sends under standing approval since `since` (by the send time; a row from before v6.1.9 without one reads its
