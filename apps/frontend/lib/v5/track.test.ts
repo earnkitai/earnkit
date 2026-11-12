@@ -2678,6 +2678,10 @@ test('L41-3 (v6.1.19): after a send with nothing ready, Next names the one-rule 
     'Next: FUTO Microgrants, $1,000 to $5,000. Their rule: open source software from a small or early-stage project. Say yes if that fits you and I draft it for you to send.');
   assert.equal(NEXT_LINE({ title: 'Two Rule Grant', money: 'up to $5,000', draft: false, rules: [{ item: 'rule:a', what: 'a release this year' }, { item: 'rule:b', what: 'a code of conduct' }] }),
     'Next: Two Rule Grant, up to $5,000. Their rules: a release this year; a code of conduct. Say yes if all of that fits you and I apply.');
+  // The find gate reads both one-rule-away forms as apply offers.
+  const { applyOfferOf } = await import('./find');
+  assert.equal(applyOfferOf('Sent X. Next: Y, $1. Their rule: r. Say yes if that fits you and I apply.'), 'Say yes if that fits you and I apply.');
+  assert.equal(applyOfferOf('Sent X. Next: Y, $1. Their rules: a; b. Say yes if all of that fits you and I apply.'), 'Say yes if all of that fits you and I apply.');
   const c = await signedIn('l413');
   const RULE = 'open source software from a small or early-stage project';
   await upsertProgram(programFixture({ id: 'l413-a', title: 'Sent First Grant' }), 'file', NOW);
