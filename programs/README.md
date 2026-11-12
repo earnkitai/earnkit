@@ -39,7 +39,7 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `verified_at` | the day the facts were checked (`YYYY-MM-DD`), never ahead of today |
 | `existing_work` | `allowed`, `new_work_only` or `unknown` |
 | `needs_repo` | whether entering needs a repo or a live product |
-| `open_source` | `true` when the program's rule is an open source license or open source software (a rule or a `rules` line must say so; `programs:check` refuses it otherwise); a private repo is then one step from it, `a public repo`, never ready. Leave it out (false) when open source is judged on, not required, or only the funded work must be released open |
+| `open_source` | `true` when the program's rule is an open source license or open source software (a rule or a `rules` line must say so; `programs:check` refuses it otherwise); a private repo is then one step from it, `a public repo`, never ready, and a project with no repo link on a `needs_repo` program is one step, `code in a public repo`; never also a rule item for it (`programs:check` refuses a `rule` item naming the public repo or the open source license on an `open_source` file). Leave it out (false) when open source is judged on, not required, or only the funded work must be released open |
 | `chains`, `any_chain` | registered chain slugs, or `any_chain: true` and none |
 | `chain_required` | `true` only when the source requires one of `chains` at the project's core |
 | `needs_contract` | a chain (one of `chains`) where a deployed mainnet contract is required |
@@ -100,7 +100,7 @@ gap_done; it never counts toward the two-gap limit. It needs a
 the project must have (`value`), a gap the builder or the agent can build; a `note` on it is what the guide and the reply say instead of the `value` (`"a Kiro folder in the repo, not ignored by git"` for `/.kiro directory at the repo root`), so no path reaches the builder. The guide shows every item as a sentence.
 
 ```json
-{ "kind": "rule", "note": "a clear open source license on the repo" }
+{ "kind": "rule", "note": "maintainer lives in a region supported by GitHub Sponsors" }
 ```
 
 A domain `rule` (one about a platform, product or ecosystem) may carry `keywords`: lower-case words or

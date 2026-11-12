@@ -22,8 +22,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "rule", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software", "keywords": ["qnx"] },
-    { "kind": "rule", "note": "a public code repo with a visible open source license" }
+    { "kind": "rule", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software", "keywords": ["qnx"] }
   ],
   "setup": [
     "join the hackathon with a Devpost account",

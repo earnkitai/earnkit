@@ -20,7 +20,6 @@
   "category": "grant",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "rule", "note": "a public repository under an OSI-approved license with recent releases, commits or issue triage" },
     { "kind": "rule", "note": "an active GitHub Sponsors profile for the maintainer or project" }
   ],
   "setup": [

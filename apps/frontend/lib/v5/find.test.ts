@@ -352,7 +352,7 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   // L16-8 (v6.1.16): a live site alone never clears FLOSS/fund's code step, so the CLI names its repo (not read here).
   const SITE = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
   const site = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: SITE });
-  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a repo and tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Tell me when that is done and I apply.'].join('\n'));
+  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a public repo and tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Tell me when the code is in a public repo and I look again.'].join('\n'));
   const CLI = { ...SITE, repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const ask = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Say yes if they do and I draft it.'].join('\n'));
@@ -1257,19 +1257,22 @@ const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2
  *  sees it; FUTO, a rule with no keywords, takes the one no-hit slot where the project has code to show (L1e-6: an
  *  idea or an empty repo has none, and is left the in-person block alone). */
 const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000. Their rule: open source software from a small or early-stage project.'];
-/** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person. */
-const FUTO_CODE = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
+/** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person.
+ *  L18-2 (v6.1.18): FUTO is open source, so with no repo link the code goes in a public repo; an empty repo read is
+ *  public already, so its step stays code in a repo. */
+const FUTO_CODE = (empty = false) => `1. FUTO Microgrants, $1,000 to $5,000: code in a${empty ? '' : ' public'} repo. Their rule: open source software from a small or early-stage project.`;
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
 // L18-1 (v6.1.18): the rows the rank cap left out are counted before the Say.
-const IDEA_REPLY = (notes: string[] = [], more = 19) => ['One step away (1):', FUTO_CODE, ...inPersonBlock(2), ...notes, `And ${more} more in the full list.`, CODE_FIRST].join('\n');
+const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => ['One step away (1):', FUTO_CODE(empty), ...inPersonBlock(2), ...notes, `And ${more} more in the full list.`, codeFirst(empty)].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
-const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
+// L18-2 (v6.1.18): an idea has no repo, so Colosseum's code in a repo comes before the demo video.
+const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
 const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
 /** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
-const CODE_FIRST = 'Nothing is ready yet. Tell me when the code is in a repo and I look again.';
+const codeFirst = (empty = false) => `Nothing is ready yet. Tell me when the code is in a${empty ? '' : ' public'} repo and I look again.`;
 // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
 const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.';
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
@@ -1453,17 +1456,18 @@ const MWA = 'use Mobile Wallet Adapter and Seed Vault in an Android app. Their r
 
 test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15, 30 and 31 name the gap once in line 1 and the closing names only the step', async () => {
   const signIn = (proof = false) => `Sign in once at ${LANE_1H_LINK} and I ${proof ? 'read your repo for proof and remember you' : 'remember you across agents'}.`;
-  const CODE = 'Nothing is ready yet. Tell me when the code is in a repo and I look again.';
-  const futo = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
+  // L18-2 (v6.1.18): with no repo link FUTO's code goes in a public repo; the empty repo (15) is public already.
+  const CODE = codeFirst();
+  const futo = FUTO_CODE();
   const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}. First: publish a funding manifest on your site or repo.`;
   // L18-1 (v6.1.18): each persona's more line counts the rows the rank cap left out.
   const want: [number, string, string[], string, number][] = [
-    [8, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
+    [8, 'code in a public repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
     [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), 'Private repo: matched on what you told me.', signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
     [12, 'the repo is archived', ['One step away (1):', floss('the repo is archived'), ...inPersonBlock(2), signIn(true)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
-    [15, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), 'The repo is empty, so I matched on what you told me.', signIn()], CODE, 17],
-    [30, 'code in a repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
-    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], CODE, 10],
+    [15, 'code in a repo', ['One step away (1):', FUTO_CODE(true), ...inPersonBlock(2), 'The repo is empty, so I matched on what you told me.', signIn()], codeFirst(true), 17],
+    [30, 'code in a public repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
+    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], codeFirst(true), 10],
   ];
   for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
@@ -1554,7 +1558,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "1. FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: an OSI-approved open source license.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: a developer tool whose versions are near or past official end of life.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
@@ -1675,14 +1679,15 @@ test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule y
     lines.push([after.reply!.show_to_builder as string, lineOf(show, 1), lineOf(show, 2), show.split('\n').at(-1)!]);
     assert.doesNotMatch(show, /Say yes/, show);
   }
-  assert.deepEqual(lines[0], lines[1]);
+  // L18-2 (v6.1.18): the two read alike but for FUTO's step: the idea's code goes in a public repo, the empty repo's in it.
+  assert.deepEqual(lines[1], [...lines[0].slice(0, 2), FUTO_CODE(true).replace(/^1\./, '2.'), lines[0][3]]);
   assert.deepEqual(lines[0], [
     // L24-2 (v6.1.16 Task 11): the rule yes settled only the rule; the next reply offers the draft afresh. After that
     // offer (apply), the list's closing names the answers (Review Focus 1, v6.1.14), so the line does not.
     ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. You give: the online application answers.', 'Say yes and I draft it for you to send.'].join('\n'),
     '1. Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken.',
     // Fix round 1 (T3-R1): FUTO is one real step away, code in a repo, with no yes of its own (T3-R5).
-    FUTO_CODE.replace(/^1\./, '2.'),
+    FUTO_CODE().replace(/^1\./, '2.'),
     'Thiel Fellowship needs your online application answers; then I draft it for you to send.',
   ]);
 });
@@ -1864,7 +1869,7 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   const one = await mcpCall(c, 'find', { program_id: 'herodevs', project: ATOM });
   assert.equal(one.reply!.show_to_builder, [
     // FR-1 (final fix): the telling step is the action, so the line leaves it out.
-    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: the repo is archived. Their rule: an OSI-approved open source license.',
+    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: the repo is archived. Their rule: a developer tool whose versions are near or past official end of life.',
     'Tell me the live repo and I look again.',
   ].join('\n'));
   assert.equal((one.reply!.show_to_builder as string).match(/ell me the live repo/g)!.length, 1);
@@ -1880,7 +1885,7 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   // L1e-2 (v6.1.13, persona 8): no Thiel (no student word); fix round 1 (T3-R1): FUTO one real step away, code in a repo.
   assert.equal(idea.reply!.show_to_builder, IDEA_REPLY());
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY(['The repo is empty, so I matched on what you told me.'], 17));
+  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY(['The repo is empty, so I matched on what you told me.'], 17, true));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();
@@ -1952,7 +1957,7 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it. Their rule: an OSI-approved open source license.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it. Their rule: a developer tool whose versions are near or past official end of life.",
       "In person (2):",
       "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
       "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
@@ -1979,8 +1984,8 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
       "One step away (3):",
       "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rules: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform; a public code repo with a visible open source license.",
-      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: an OSI-approved open source license.",
+      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
+      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
     ].join('\n'),
   );
   // Two days out it is listed first, ahead of the cap; a keyword hit, it leaves the one rule slot to HeroDevs (N1, v6.1.12).
@@ -1989,9 +1994,9 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     blockOf(late.show_to_builder as string, 'One step away'),
     [
       "One step away (3):",
-      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rules: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform; a public code repo with a visible open source license.",
+      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
       "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
-      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: an OSI-approved open source license.",
+      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
     ].join('\n'),
   );
   assert.equal((late.gaps as { program_id: string; closes_in?: string }[])[0].closes_in, 'in 2 days');
@@ -2583,12 +2588,13 @@ test('O3 (v6.1.10, Review Focus 4): a project with no first-commit date is asked
   }
   assert.match(all.reply!.agent_note as string, /"Tell me when you started this" is a question, not work/);
   const one = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
-  assert.equal(one.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: tell me when you started this, a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when that is done and I apply.');
+  // L18-2 (v6.1.18): no repo link, so the code in a public repo comes first and the closing waits on it.
+  assert.equal(one.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: code in a public repo, tell me when you started this, a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when the code is in a public repo and I look again.');
   const item = ((one.reply!.verdict as { gaps: { kind: string; item: string }[] }).gaps.find((x) => x.kind === 'new_work_after'))!.item;
   const t = await mcpCall(c, 'track', { program_id: 'kiroween-2026', status: 'gap_done', item, project: IDEA });
   assert.equal(t.reply!.show_to_builder, 'Tracked.');
   const again = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
-  assert.equal(again.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when that is done and I apply.');
+  assert.equal(again.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: code in a public repo, a demo video and a Kiro folder in the repo, not ignored by git. First: join Kiroween 2026 with a Devpost account; sign up for a Kiro account (free credits by Dec 1). Their rule: built with Kiro.\nTell me when the code is in a public repo and I look again.');
   assert.ok(!(again.reply!.verdict as { gaps: { kind: string }[] }).gaps.some((x) => x.kind === 'new_work_after'));
   // A first-commit date in the project settles it too: after the start fits, before it does not.
   const late = await mcpCall(c, 'find', { program_id: 'ugreen-ai-nas-hackathon-2026', project: { ...IDEA, first_commit_at: '2026-10-25T00:00:00Z' } });
@@ -2872,7 +2878,7 @@ test('L16-7 (v6.1.16, Review Focus 2): a program with a result shows the result 
 
 test('L16-8 (v6.1.16, Review Focus 5): a bit.ly link never clears FUTO\'s code step, nor does a live site; the agent hears to send the real link', async () => {
   const { SHORT_LINK_NOTE } = await import('./project-input');
-  const FUTO_LINE = 'FUTO Microgrants, $1,000 to $5,000: code in a repo.';
+  const FUTO_LINE = 'FUTO Microgrants, $1,000 to $5,000: code in a public repo.';
   for (const project of [
     { name: 'Rent Split', description: 'An app that splits rent.', repo_url: 'https://bit.ly/3xYz' },
     { name: 'Rent Split', description: 'An app that splits rent.', live_url: 'https://rentsplit.app' },
@@ -2882,7 +2888,7 @@ test('L16-8 (v6.1.16, Review Focus 5): a bit.ly link never clears FUTO\'s code s
     assert.equal((r.reply!.agent_note as string).includes(SHORT_LINK_NOTE), project.repo_url !== undefined, r.reply!.agent_note as string);
     // The list says the same, and the shortened link is named for the agent there too.
     const list = await mcpCall(ctx(await installation()), 'find', { project });
-    assert.ok(seen(list.reply!).includes('code in a repo'), list.reply!.show_to_builder as string);
+    assert.ok(seen(list.reply!).includes('code in a public repo'), list.reply!.show_to_builder as string);
     assert.equal((list.reply!.agent_note as string).split('\n').filter((l) => l === SHORT_LINK_NOTE).length, project.repo_url !== undefined ? 1 : 0);
   }
   const short = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Rent Split', description: 'An app that splits rent.', repo_url: 'https://bit.ly/3xYz' } });
@@ -3774,4 +3780,13 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   assert.equal(nov12.reply!.more_count, left);
   assert.equal(lines.at(-2), `And ${left} more in the full list; closing this week: PayPal AI Hackathon: Build What's Next with PayPal and AI (today) and UGREEN Hackathon 2026 on AI NAS (3 days).`, lines.join('\n'));
   assert.ok(lines.length <= 10);
+});
+
+test('L18-2 (v6.1.18): the PayPal one-program look for a project with no repo names code in a public repo as the step, never as a rule', async () => {
+  const project = { name: 'Ledgerly', description: 'Invoices that chase themselves, with PayPal checkout and an AI agent.', live_url: 'https://ledgerly-demo.vercel.app/', users: true };
+  const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'paypal-ai-hackathon', project });
+  assert.equal(r.isError, false, r.text);
+  const lines = (r.reply!.show_to_builder as string).split('\n');
+  assert.equal(lines[0], "PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: code in a public repo and a demo video. First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.", lines.join('\n'));
+  assert.equal(lines.at(-1), 'Tell me when the code is in a public repo and I look again.', lines.join('\n'));
 });

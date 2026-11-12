@@ -160,3 +160,20 @@ test('L30-15 (v6.1.17): an ends_at offset that is not the zone\'s at that instan
   assert.deepEqual(programProblems(programFixture({ id: 'l30-ist', tz: 'Asia/Kolkata', ends_at: '2026-12-06T23:59:00+05:30' }), at), []);
   assert.deepEqual(programProblems(programFixture({ id: 'l30-none', ends_at: '2026-12-06T23:59:00-04:00' }), at), []);
 });
+
+test('L18-2 (v6.1.18): an open source file never also carries the public repo or its license as a rule item; the catalog has none', async () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const REFUSAL = "eligibility: the public repo is the open_source flag's step; drop the rule item";
+  const rules = ['Submit a public code repo with a visible open source license.'];
+  for (const note of ['a public code repo with a visible open source license', 'a clear open source license on the repo', 'an OSI-approved open source license', 'a public repository under an OSI-approved license'])
+    assert.deepEqual(programProblems(programFixture({ id: 'p-dup', open_source: true, rules, eligibility: [{ kind: 'rule', note }] }), NOW), [REFUSAL], note);
+  // The flag off, a keyword rule, or a rule about something else: no refusal.
+  assert.deepEqual(programProblems(programFixture({ id: 'p-off', rules, eligibility: [{ kind: 'rule', note: 'a public code repo with a visible open source license' }] }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-kw', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'a public repo built on the Acme open source SDK license', keywords: ['acme'] }] }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-other', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'an active GitHub Sponsors profile for the maintainer' }] }), NOW), []);
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')))
+    assert.ok(!programProblems(JSON.parse(readFileSync(join(dir, f), 'utf8')), NOW).includes(REFUSAL), f);
+});

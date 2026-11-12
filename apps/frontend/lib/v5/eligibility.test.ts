@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
+import { NEEDS_CODE, NEEDS_PUBLIC_CODE, PUBLIC_REPO, codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
 import { readmeExcerpt, repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile, eligibilityOf } from './program-file';
@@ -296,9 +296,11 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   assert.ok(parsed.ok);
   const idea = await repoFacts(parsed.project, { now: NOW });
   const empty = await factsOf('empty-repo');
-  for (const facts of [idea, empty]) {
+  // L18-2 (v6.1.18): FUTO is open source, so with no repo link the code goes in a public repo; an empty repo read is
+  // already public, so its step stays code in a repo.
+  for (const [facts, what] of [[idea, 'code in a public repo'], [empty, 'code in a repo']] as const) {
     const v = evaluate(futo, facts, new Set(), NOW);
-    assert.deepEqual([v.status, v.reason, v.gaps.map((g) => [g.kind, g.item, g.what])], ['gap', null, [['repo', 'repo', 'code in a repo'], ['rule', ruleItem('open source software from a small or early-stage project'), 'open source software from a small or early-stage project']]]);
+    assert.deepEqual([v.status, v.reason, v.gaps.map((g) => [g.kind, g.item, g.what])], ['gap', null, [['repo', 'repo', what], ['rule', ruleItem('open source software from a small or early-stage project'), 'open source software from a small or early-stage project']]]);
   }
   // The builder's word is not the read: "repo" marked done is re-checked, and the step stays.
   assert.equal(codeChecked('repo'), true);
@@ -306,10 +308,12 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does.
-  assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a repo');
-  // Hackathons are exempt.
+  assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a public repo');
+  // L18-2 (v6.1.18): hackathons no longer exempt: with no repo link the code is the step there too; an empty repo
+  // (the entry itself is the code) stays a step only for a grant for existing code.
   const qnx = fromFile('qnx-global-hackathon-2026');
-  assert.ok(!evaluate(qnx, idea, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  assert.equal(evaluate(qnx, idea, new Set(), NOW).gaps[0].what, 'code in a public repo');
+  assert.ok(!evaluate(qnx, empty, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
 });
 
 test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {
@@ -332,7 +336,7 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
   // L16-8 (v6.1.16): a live link alone keeps the question, and the grant for existing code asks for the code too.
   const live = { ...idea, live_url: 'https://rentsplit.app' };
-  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a repo', 'tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a public repo', 'tell me if real people use it']);
   const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
   assert.ok(pp.ok);
   const priv = await repoFacts(pp.project, { now: NOW });
@@ -604,4 +608,52 @@ test('lane 20 audit (v6.1.16): narrowed keywords miss look-alike projects and st
   for (const t of ['a crypto app that splits rent', 'a DeFi lending pool', 'an NFT marketplace']) assert.equal(hit('colosseum-eternal', t), true, t);
   // OTF keeps "privacy": it is the program's target.
   assert.ok(eligibilityKeywords('otf-internet-freedom-fund').includes('privacy'));
+});
+
+/** L18-2 (v6.1.18): a project with no repo link, as the agent reports it. */
+async function noRepo(over: Record<string, unknown> = {}): Promise<RepoFacts> {
+  const r = parseProject({ name: 'Ledgerly', description: 'Invoices that chase themselves.', ...over });
+  assert.ok(r.ok);
+  return repoFacts(r.project, { now: NOW });
+}
+
+test('L18-2: a hackathon that needs a public repo and a project with no repo: the step is code in a public repo', async () => {
+  assert.deepEqual(NEEDS_PUBLIC_CODE, { kind: 'repo', item: 'repo', what: 'code in a public repo', effort: 'days', agent_can: false });
+  const v = evaluate(fromFile('paypal-ai-hackathon'), await noRepo({ live_url: 'https://ledgerly-demo.vercel.app/', users: true }), new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps[0], NEEDS_PUBLIC_CODE);
+  assert.ok(!v.gaps.some((g) => g.kind === 'rule' && /public/.test(g.what)), JSON.stringify(v.gaps));
+  // QNX the same; the rule the flag covers is gone from the rules too.
+  const qnx = evaluate(fromFile('qnx-global-hackathon-2026'), await noRepo(), new Set(), NOW);
+  assert.deepEqual(qnx.gaps[0], NEEDS_PUBLIC_CODE);
+  assert.ok(!qnx.gaps.some((g) => g.kind === 'rule' && /public/.test(g.what)), JSON.stringify(qnx.gaps));
+  // A grant for existing code with an open source rule: the public one too (FUTO), never two repo steps.
+  const futo = evaluate(fromFile('futo-microgrants'), await noRepo(), new Set(), NOW);
+  assert.deepEqual(futo.gaps.filter((g) => g.kind === 'repo'), [NEEDS_PUBLIC_CODE]);
+});
+
+test('L18-2b: a private repo stays one step from public (PUBLIC_REPO), not two', async () => {
+  for (const slug of ['paypal-ai-hackathon', 'kiroween-2026', 'floss-fund-zerodha']) {
+    const v = evaluate(fromFile(slug), await noRepo({ private: true, users: true, live_url: 'https://ledgerly-demo.vercel.app/' }), new Set(), NOW);
+    assert.deepEqual(v.gaps.filter((g) => g.kind === 'repo'), [PUBLIC_REPO], slug);
+  }
+});
+
+test('L18-2c: a new-work-only hackathon with no repo gets the same step', async () => {
+  const k = fromFile('kiroween-2026');
+  assert.equal(k.file.existing_work, 'new_work_only');
+  const v = evaluate(k, await noRepo(), new Set(), NOW);
+  // The code is the entry itself: it counts toward no limit, so the demo video and the Kiro folder keep it a gap (O3).
+  assert.equal(v.status, 'gap', JSON.stringify(v));
+  assert.deepEqual(v.gaps.map((g) => g.what), ['code in a public repo', 'tell me when you started this', 'a demo video', 'a Kiro folder in the repo, not ignored by git', 'built with Kiro']);
+  // A needs_repo hackathon with no open source rule: code in a repo.
+  const plain = toRow(programFixture({ id: 'p-hack', tag: undefined, category: 'hackathon', needs_repo: true, existing_work: 'new_work_only', reward: '$5,000 in prizes', pool_usd: 5000 }));
+  assert.deepEqual(evaluate(plain, await noRepo(), new Set(), NOW).gaps[0], NEEDS_CODE);
+});
+
+test('L18-2d: a program with needs_repo false and no repo gets no repo step', async () => {
+  const p = toRow(programFixture({ id: 'p-norepo', tag: undefined }));
+  assert.equal(p.file.needs_repo, false);
+  const v = evaluate(p, await noRepo(), new Set(), NOW);
+  assert.ok(!v.gaps.some((g) => g.kind === 'repo'), JSON.stringify(v.gaps));
 });

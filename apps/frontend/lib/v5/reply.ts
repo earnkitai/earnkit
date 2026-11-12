@@ -230,7 +230,7 @@ export const startedQuestion = (x: Gap) => x.kind === 'new_work_after' && x.effo
  * own setup step (not a telling one) as "you {setup}"; else null. Pure.
  */
 export function stepClause(x: Gap): string | null {
-  if (x.item === 'repo') return 'the code is in a repo';
+  if (x.item === 'repo') return x.what === 'code in a public repo' ? 'the code is in a public repo' : 'the code is in a repo';
   if (x.item === 'repo:public') return 'the repo is public';
   if (x.kind === 'chain' || x.kind === 'contract_on')
     return `the contract is on ${chainName(x.details?.chain ?? x.item.split(':')[1] ?? '')}${/\bmainnet\b/.test(x.what) ? ' mainnet' : ''}`;
@@ -288,7 +288,8 @@ function gapActionOf(g: GapProgram, signIn: string | null): { action: string | n
   if (real.every(usersQuestion)) return { action: 'Say yes if they do and I draft it.' };
   if (real.every(startedQuestion)) return { action: STARTED_CLOSING };
   // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
-  const step = real.every(needsCode) ? real[0] : (real.find((x) => x.item === 'repo:public') ?? (real.length === 1 ? real[0] : null));
+  // L18-2 (v6.1.18): with no code yet, the code is the step whatever else is left (the rest waits on it).
+  const step = real.find(needsCode) ?? real.find((x) => x.item === 'repo:public') ?? (real.length === 1 ? real[0] : null);
   if (step) return { action: singleStepClosing(step), step };
   return { action: 'Tell me when that is done and I apply.' };
 }

@@ -789,7 +789,15 @@ wants a rule naming it) is never ready for a private repo (the report's `private
 `private` note): its gap is `a public repo` (`PUBLIC_REPO`, item `repo:public`, setup `make the repo public`). L1f-3: an
 archived repo, for a program that wants the code or its users (`needs_repo`, a users item or a used bar), gets `the repo
 is archived` (`ARCHIVED_REPO`, item `repo:archived`, setup `tell me the live repo`) and never the users question. A gap's
-`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step.
+`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step. v6.1.18
+L18-2: every `needs_repo` program (any category) is one step from a project with no repo link (not reported private):
+`code in a repo`, or `code in a public repo` (`NEEDS_PUBLIC_CODE`, same item `repo`) when the file is `open_source`;
+the empty-repo step stays for grants for existing code only. For a program for new work (a hackathon, an event) the
+code step is the entry itself, so like the started question it counts toward neither gap limit. Wherever it is left,
+it is the one-program closing's step ("Tell me when the code is in a public repo and I look again."), whatever else
+remains. `programs:check` refuses a `rule` item (with no keywords) on an `open_source` file whose note names the
+public repo or the open source license (`eligibility: the public repo is the open_source flag's step; drop the rule
+item`): the flag carries it, never a rule to confirm.
 v6.1.16 (L1g-5): every single step closes in one shape, `Tell me when {step} and I look again.` (`singleStepClosing`,
 the step from `stepClause`: "the code is in a repo", "the repo is public", "the contract is on {Chain}[ mainnet]", "the
 live link is up", "the demo video is ready", "you {setup}"; a telling setup reads "Tell me the live repo and I look

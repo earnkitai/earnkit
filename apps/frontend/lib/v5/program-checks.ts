@@ -93,6 +93,11 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   const OPEN = /open[ -]source|\bOSI\b|free\/libre|\bopen licen[cs]e/i;
   if (q.open_source && ![...q.rules, ...(q.eligibility ?? []).map((i) => i.note ?? '')].some((t) => OPEN.test(t)))
     problems.push('open_source: true needs a rule naming open source code or its license');
+  // L18-2 (v6.1.18): the public repo (or its license) is the flag's step, never also a rule item to confirm; a rule
+  // item with keywords is about something else and stays.
+  const PUBLIC_RULE = /\b(public|open[- ]source)\b.*\b(repo|repository|github|license)\b/i;
+  if (q.open_source && (q.eligibility ?? []).some((i) => i.kind === 'rule' && !i.keywords?.length && PUBLIC_RULE.test(i.note ?? '')))
+    problems.push("eligibility: the public repo is the open_source flag's step; drop the rule item");
   // #12 (v6.1.15): the summary's money is a number or says "Amount not stated", never bare words.
   const piece = q.summary.split(' · ')[0];
   if (!/\d/.test(piece) && !/amount not stated/i.test(piece))

@@ -96,6 +96,8 @@ const date = (s: string) => s.slice(0, 10);
 const startedQuestion = (i: EligibilityItem): Gap => ({ kind: 'new_work_after', item: itemKey(i), what: 'tell me when you started this', effort: 'minutes', agent_can: false });
 /** T3-R1 (v6.1.13): code in a repo, the step a needs_repo grant for existing code is from an idea or an empty repo. */
 export const NEEDS_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a repo', effort: 'days', agent_can: false };
+/** L18-2 (v6.1.18): the same step for an open source program: the code goes in a public repo. */
+export const NEEDS_PUBLIC_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a public repo', effort: 'days', agent_can: false };
 /** L1f-1 (v6.1.14): an open source program and a private repo: the repo made public, re-checked by the next report or read. */
 export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes', agent_can: false };
 /** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question. */
@@ -159,7 +161,10 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does. A repo reported private is a repo: its
   // step is making it public (L1f-1), and the read settles the code then.
-  if (p.needs_repo && forExistingCode(p) && !facts.private && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
+  // L18-2 (v6.1.18): a program that needs a repo (any category) and a project with no repo link: the code is the step,
+  // in a public repo when the program is open source (never also a rule to confirm). The empty-repo rule keeps its test.
+  if (p.needs_repo && !facts.private && !facts.repo_url) gaps.push(p.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
+  else if (p.needs_repo && forExistingCode(p) && !facts.private && (facts.notes ?? []).includes('empty')) gaps.push(NEEDS_CODE);
   // L1f-1 (v6.1.14): an open source program is never ready for a private repo (reported private, or a link not read
   // for being private): its step is making the repo public.
   if (p.open_source && (facts.private || (facts.notes ?? []).includes('private'))) gaps.push(PUBLIC_REPO);
@@ -208,7 +213,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const real = gaps.filter((g) => g.kind !== 'rule');
   const ordered = [...real, ...gaps.filter((g) => g.kind === 'rule')];
   // O3 (v6.1.10): the started question is asked, never a reason to refuse: it counts toward neither limit.
-  const work = real.filter((g) => !(g.kind === 'new_work_after' && g.effort === 'minutes'));
+  // L18-2 (v6.1.18): the code step of a program for new work (a hackathon, an event) is the entry itself, so it counts
+  // toward neither limit either; for a grant for existing code it stays a real change in the ordinary slots (T3-R1).
+  const work = real.filter((g) => !(g.kind === 'new_work_after' && g.effort === 'minutes') && !(g.kind === 'repo' && g.item === 'repo' && !forExistingCode(p)));
   if (work.length > MAX_GAPS || work.some((g) => g.effort === 'weeks')) {
     return out('no', ordered, `needs ${work.map((g) => g.what).join(', ')}`);
   }
