@@ -3789,6 +3789,21 @@ test('L28-3 (v6.1.16 Task 14): a signed-in builder whose login a read shows is n
   assert.match(told.reply!.agent_note as string, /The signed-in GitHub account is not the repo owner/);
 });
 
+test('L41-8 (v6.1.19): a repo not shown to be theirs heads "Ready for you to send (n):" and offers the draft, never "I apply"', async () => {
+  const { id, builderId } = await linkedWith({}, [], 'not-the-owner-l418');
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  await mcpCall(c, 'find', { project: PROJECT });
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{contributors}', '["someone"]'::jsonb) WHERE repo = ${rec.repo.toLowerCase()}`;
+  const told = (await mcpCall(c, 'find', { project: PROJECT })).reply!.show_to_builder as string;
+  const lines = told.split('\n');
+  assert.equal(lines[0], 'This repo is not yours; I apply only with repos you commit to.');
+  assert.match(told, /^Ready for you to send \(\d+\):$/m, told);
+  assert.doesNotMatch(told, /Ready to apply|I apply\b(?! only)/, told);
+  assert.equal(lines.at(-1), 'Say yes and I draft it for you to send.');
+  assert.equal(told.match(/\bSay\b/g)?.length, 1, told);
+  assert.ok(lines.length <= 10, told);
+});
+
 test('L1i-5 (v6.1.16.1), L1k-2 (v6.1.18): the default numbers its rows as shown and the full list its own; another project starts fresh', async () => {
   const SOL = { name: 'Solflare Tips', description: 'Tipping for creators on Solana', chains: [{ chain: 'solana', mainnet: true }] };
   const id = await installation();

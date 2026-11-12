@@ -826,6 +826,8 @@ const withoutApply = (text: string): string[] =>
 export const SIGN_IN_FIRST_NOTE = 'Sign-in comes before any claim or send with this repo: show the sign-in link, then call find again once the builder has signed in.';
 /** Fix round 1 (M1): the one action when the repo is not the builder's. */
 export const SAY_WHICH_REPO = 'Say which repo is yours.';
+/** L41-8 (v6.1.19): the one action when the repo is not the builder's and something was ready: they send it. */
+export const DRAFT_TO_SEND = 'Say yes and I draft it for you to send.';
 /** Fix round 1 (M1): the agent note when the builder's tie to the repo could not be confirmed (no evidence either way). */
 export const CANT_CONFIRM_NOTE = "EarnKit could not read this repo to check it is the builder's: do not apply with it; let the builder send it, then call track applied with submitted_by builder.";
 
@@ -1056,13 +1058,28 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   if (tie !== null) return sentByAnother(ctx, key, tie, given);
   // Not shown to be theirs: no apply yes. Evidence against them says so; none says it could not confirm, never "not yours".
   if (!against && !offersApply(r.show_to_builder)) return given;
-  await markOffer(ctx.installationId, null, ctx.now);
-  const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l)));
+  // L41-8 (v6.1.19): EarnKit applies with neither repo, so a ready heading says the builder sends; under "not yours"
+  // the apply offer becomes the draft for them to send (never "I apply").
+  const drafts = against && offersApply(r.show_to_builder);
+  await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
+  const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l))).map((l) => l.replace(/^Ready to apply \((\d+)\):$/, 'Ready for you to send ($1):'));
   return {
     ...r,
-    show_to_builder: (against ? [NOT_YOUR_REPO, ...kept, SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO(key)]).join('\n'),
+    show_to_builder: withinLines(against ? [NOT_YOUR_REPO, ...kept, drafts ? DRAFT_TO_SEND : SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO(key)]).join('\n'),
     agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE].filter(Boolean).join('\n'),
   };
+}
+
+/** L41-8 (v6.1.19): the gate's added line keeps the default within 10 lines: the more line goes first (the JSON keeps
+ *  more_count), then the Before line. Pure. */
+function withinLines(lines: string[], max = 10): string[] {
+  let out = lines;
+  for (const drop of [/^And \d+ more in the full list\.$/, /^Before applying: /]) {
+    if (out.length <= max) break;
+    const at = out.findIndex((l) => drop.test(l));
+    if (at >= 0) out = out.filter((_, i) => i !== at);
+  }
+  return out;
 }
 
 /** Final fix (M3): a reply without its agent steps (the one program's, and every ready row's in each JSON list) and
