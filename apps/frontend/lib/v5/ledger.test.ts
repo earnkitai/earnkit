@@ -712,7 +712,7 @@ test('I3 (v6.1.17 Task 5): ten untied strangers at once, each a find with the vi
   const key = 'i3v/app';
   const facts = {
     chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
-    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false, license: null,
     readme_lead: 'It keeps time.', contributors: ['i3v'], repo_id: 359901,
   };
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
@@ -772,6 +772,30 @@ test('L18-4: askSent lists a builder-submit program started 2 days ago with no s
   // The builder says sent: the ask ends.
   await record(o(i), 'l-sent', 'applied', { now: NOW, submitted_by: 'builder', projectKey: 'p1', project_id: 'p1' });
   assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent-new']);
+});
+
+test('L41-10 (v6.1.18.1): a builder-submits program started, then closed an hour later, is still asked about for 7 days after the close', async () => {
+  const i = await install();
+  const H = 3_600_000;
+  const close = new Date(NOW.getTime() - 3 * H);
+  await prog('l-sent-closed', { title: 'Late Hackathon', submit: 'builder', ends_at: close.toISOString() });
+  const started = new Date(close.getTime() - H);
+  // The claim was taken while the program was open.
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, project_id, status, at, claimed_at) VALUES (${o(i)}, ${i}, 'l-sent-closed', 'p1', 'started', ${started}, ${started})`;
+  // An hour after the close, a find reads the open list only (the closed program is not in it): still asked.
+  assert.deepEqual(await askSent(o(i), [], NOW), [{ program_id: 'l-sent-closed', title: 'Late Hackathon', started_at: started.toISOString(), project_id: 'p1' }]);
+  assert.deepEqual((await askSent(o(i), [], NOW, (p) => p === 'p1')).map((x) => x.program_id), ['l-sent-closed']);
+  // Seven days after the close it is no longer asked.
+  assert.deepEqual(await askSent(o(i), [], new Date(close.getTime() + 7 * 24 * H + H)), []);
+});
+
+test('v6.1.18.1 review M3: a program closed with no ends_at is asked about for 14 days after the start, then not', async () => {
+  const i = await install();
+  await prog('l-sent-nodate', { title: 'Undated Hackathon', submit: 'builder', status: 'closed', ends_at: null });
+  const started = new Date(NOW.getTime() - 10 * DAY);
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, project_id, status, at, claimed_at) VALUES (${o(i)}, ${i}, 'l-sent-nodate', 'p1', 'started', ${started}, ${started})`;
+  assert.deepEqual((await askSent(o(i), [], NOW)).map((x) => x.program_id), ['l-sent-nodate']);
+  assert.deepEqual(await askSent(o(i), [], new Date(started.getTime() + 15 * DAY)), []);
 });
 
 test('L18-4b: sentAsksDue asks once, then not for 7 days, then again', async () => {

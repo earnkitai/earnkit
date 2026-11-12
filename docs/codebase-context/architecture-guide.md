@@ -616,12 +616,15 @@ also pins the package version equal to the newest `v6.1.*` plan file in
 `docs/design-docs-and-implementation-plans/` (for example `v6.1.17-journeys-11-plan.md` gives 6.1.17), so a release
 whose plan is written but whose package is not bumped fails the suite. Only major.minor.patch is compared (v6.1.17
 final round, `releaseVersionOf`): a four-part patch plan (`v6.1.17.1-patch-plan.md`) is a patch of 6.1.17 and asks
-for 6.1.17, since a fourth part is not semver.
+for 6.1.17, since a fourth part is not semver. A patch release keeps its release's version (v6.1.18.1 ships as
+6.1.18, as v6.1.14.1 and v6.1.16.1 did).
 
 Releases under this gate: 6.1.17 (`v6.1.17-journeys-11-plan.md`), 6.1.18 (`v6.1.18-journeys-12-plan.md`: the more line
 and what closes this week, code in a public repo as the step, the builder-sent closing, the sent ask and how-you-heard
 field, the owner's applications view, lane 1k's file landing and full-list numbers, lanes 36 and 38, the license read
-and FLOSS manifest, and the deferred v6.1.17 FR-3 and FR-5 pins).
+and FLOSS manifest, and the deferred v6.1.17 FR-3 and FR-5 pins), 6.1.18.1 (`v6.1.18.1-patch-plan.md`: a cached repo
+read from before v6.1.18 is re-read for its license, the license rule waits behind every repo step, `started` never asks
+a license rule the read settled (L41-1), and a builder-sent program is asked about for 7 days after it closes (L41-10)).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -1116,7 +1119,10 @@ not keep, and every open or closed decision is read from the clock at request ti
   `SENT_ASK_EVERY_DAYS` (7): `Did you send {title}? Say sent and I note it.` (`ask_sent`, `sentLines`, ONE_SAY_ORDER
   after the started lines). While the ask is open the program is left out of the list (never offered as a draft
   again). `releaseStale` never deletes such a claim: it comes back with `ask: true`, said only when its ask is due, as
-  `{title}: started {date}; did you send it? Say sent and I note it.`. The agent note: `"sent" is track applied with
+  `{title}: started {date}; did you send it? Say sent and I note it.`. A program that closed since the start is still
+  asked about for `SENT_ASK_AFTER_CLOSE_DAYS` (7) after its `ends_at`, then neither line is said (v6.1.18.1, L41-10);
+  one closed by status with no `ends_at` (no close time on record) for `SENT_ASK_CLOSED_NO_DATE_DAYS` (14) after the
+  start. The agent note: `"sent" is track applied with
   submitted_by builder; "not yet" needs no call.` Prefill: a how-you-heard field (`heardFrom`) says `EarnKit
   (earnkit.com)`, or picks the referral (else other) option with the other-box `note`; partner, alumni and
   more-than-the-source fields are left as they are.
@@ -1501,6 +1507,15 @@ means what the last `Say` offered.
   `LICENSE_FILE` (`feature:license`, minutes, agent_can, `do: 'add an MIT license file'`, closing `Say "do" and I add
   an MIT license file first.`; track gap_done accepts the item on these programs); an unknown or other license, a repo
   not read, or an archived repo keeps the rule question. The do offer reads a gap's `do` before its `what`.
+  v6.1.18.1: a cached row with no `license` key (read before v6.1.18) is `usable` (fork and archived) but not
+  `complete`, so it is re-read when the day's reads allow; `license: null` is a read, and every read since carries
+  `license_read: true` (a body without the key stays complete). Until re-read, a usable row under 7 days answers when
+  reads are paused, a slow re-read answers with it and never overwrites it with a miss, and `cachedRepoFacts` serves it
+  with the license unknown (review fix round, I1 to I3). `track` asks a license-check rule only as `evaluate` would
+  (`licenseRule` in track.ts, L41-1 and review M4): on the report kept for the project key and the repo's cached read
+  under 7 days (`cachedRepoFacts(project, { now, ms })`, M1; a `{ miss: 'private' }` row reads as private,
+  `cachedRepoMiss`), a repo step (`repoGaps`, shared with `evaluate`) hides it, an OSI license confirms it, no license
+  file leaves it to the license file step, and anything else (no read, an archived repo, an unknown license) asks it.
 - **Funding manifest (L38-1).** FLOSS/fund's form takes `funding_json_url` and its file has no setup step any more.
   `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
   projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,
@@ -1530,7 +1545,9 @@ means what the last `Say` offered.
   check, so HeroDevs (its users item, its own end-of-life rule and the checked license rule), GitHub Secure Open Source
   Fund, PayPal and QNX keep the checked license rule, and Neon keeps none. In `evaluate`, a license-check rule waits
   while the code step (`NEEDS_CODE` / `NEEDS_PUBLIC_CODE`) stands: with no code there is nothing to read, and the
-  license is never a rule to confirm beside the code step.
+  license is never a rule to confirm beside the code step. v6.1.18.1: it waits while any repo step stands (`PUBLIC_REPO`,
+  the code step, `ARCHIVED_REPO`), so a private repo shows only the public repo step and an archived one only the live
+  repo.
 - **Sent ask in the one Say.** `sent_ask` sits in ONE_SAY_ORDER after the started lines and before the sign-in and the
   closing; the no-project open list keeps L38-31 (no sign-in line) and asks its open sent questions before the ask.
 - **FLOSS manifest in the ready row.** The ready row carries `I add the funding file to your repo, then apply.` when the

@@ -692,8 +692,9 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   // Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it keeps the question too.
   for (const id of ['NOASSERTION', 'BUSL-1.1', 'CC0-1.0', undefined]) assert.deepEqual(items(id), [RULE], String(id));
   assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
-  // An archived repo: its license is not the live repo's, so the rule stays a question beside the live repo step.
-  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo', RULE]);
+  // An archived repo: its license is not the live repo's, so its one step is the live repo, then the read (v6.1.18.1:
+  // never the rule beside it).
+  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo']);
   // The rules marked as license checks; the ones that ask more than a license are not.
   const checked = (slug: string) => eligibilityOf(fromFile(slug).file).filter((i) => i.check === 'license').map((i) => i.note);
   for (const slug of ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund'])
@@ -701,6 +702,35 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   for (const slug of ['neon-open-source-program', 'nlnet-open-call', 'floss-fund-zerodha']) assert.deepEqual(checked(slug), [], slug);
   // Only a rule takes check.
   assert.throws(() => ProgramFile.parse({ ...hero.file, eligibility: [{ kind: 'feature', value: 'x', check: 'license' }] }));
+});
+
+test('v6.1.18.1: a license rule is never shown while a repo step stands (public repo, code, live repo)', async () => {
+  const LICENSE = (g: Gap) => g.item === 'feature:license' || g.what === 'an OSI-approved open source license';
+  const bare = await factsOf('nextjs-dashboard', { users: true });
+  const hero = fromFile('herodevs-sustainability-fund');
+  const EOL = ruleItem('a developer tool whose versions are near or past official end of life');
+  // A private repo on PayPal: the public repo step, no license rule.
+  const parsed = parseProject({ name: 'Billing Core', description: 'Usage-based billing engine for B2B APIs', repo_url: 'https://github.com/acme-private/billing-core', private: true, users: true });
+  assert.ok(parsed.ok);
+  const hidden = await repoFacts(parsed.project, { now: NOW });
+  for (const slug of ['paypal-ai-hackathon', 'herodevs-sustainability-fund', 'github-secure-open-source-fund', 'qnx-global-hackathon-2026', 'sovereign-tech-fund']) {
+    const v = evaluate(fromFile(slug), hidden, new Set(), NOW);
+    assert.ok(v.gaps.some((g) => g.item === 'repo:public'), slug);
+    assert.ok(!v.gaps.some(LICENSE), `${slug}: ${JSON.stringify(v.gaps.map((g) => g.what))}`);
+  }
+  // An empty repo on HeroDevs: the code step, no license rule (with a live link; without one the program is not open to
+  // it yet, and the reason is the code).
+  const empty = await factsOf('empty-repo', { users: true, live_url: 'https://app.example' });
+  assert.ok(empty.notes?.includes('empty'));
+  const e = evaluate(hero, empty, new Set([EOL]), NOW);
+  assert.deepEqual(e.gaps.map((g) => g.what), [NEEDS_CODE.what]);
+  const unlinked = evaluate(hero, await factsOf('empty-repo', { users: true }), new Set([EOL]), NOW);
+  assert.deepEqual([unlinked.status, unlinked.gaps, unlinked.reason], ['no', [], 'needs code in a repo or a live link']);
+  // A public MIT repo on HeroDevs: no license rule and no step.
+  const mit = evaluate(hero, { ...bare, license: 'MIT' }, new Set([EOL]), NOW);
+  assert.deepEqual([mit.status, mit.gaps.map((g) => g.what)], ['ready', []]);
+  // A public repo with no license: only the license file gap.
+  assert.deepEqual(evaluate(hero, { ...bare, license: null }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a license file']);
 });
 
 test('Task 11 fix round 1 (I4, M7): a repo body with no license key is unknown; a truncated tree without funding.json claims nothing', async () => {

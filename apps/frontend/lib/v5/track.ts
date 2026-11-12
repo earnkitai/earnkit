@@ -9,14 +9,14 @@ import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { wantsManifest } from './funding-manifest';
-import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
+import { cachedRepoFacts, cachedRepoMiss, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listHole, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, unreadNote } from './reply';
-import { codeChecked, itemKey } from './eligibility';
+import { codeChecked, itemKey, licenseRead, repoGaps } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
@@ -189,22 +189,49 @@ async function applicationIdOf(owner: string, programId: string, key: string): P
   return r?.application_id ? { application_id: r.application_id } : {};
 }
 
-/** The program's rules the owner has not confirmed yet on this project, by item key with its note. */
-async function openRules(owner: string, programId: string, projectKey: string): Promise<{ item: string; note: string }[]> {
+/** v6.1.18.1 (review M1): how old a cached read track's license check trusts, as find re-reads after 7 days. */
+const LICENSE_READ_MS = 7 * 86_400_000;
+
+/**
+ * v6.1.18.1 (L41-1, review M4): what a license-check rule is at started or a send, as `evaluate` has it on the facts
+ * find last read for this project (the report kept for its key, the repo's cached read under 7 days, never a fetch):
+ * `ask` (the rule question), or `skip` when a repo step hides it (a public repo, code, a live repo), an OSI license on
+ * a live repo confirms it, or no license file makes it the license file step.
+ */
+async function licenseRule(owner: string, file: ProgramRowOf['file'], projectKey: string, now: Date): Promise<'ask' | 'skip'> {
+  const repo = repoKeyOf(projectKey);
+  if (!repo) return 'ask';
+  const kept = await reportOf(owner, projectKey);
+  const project: Project = { ...(kept ?? { name: '', description: '' }), repo_url: repo };
+  // A repo the read found private merges as private, as find merges it (v6.1.14 fix round 1, M1).
+  const hidden = project.private === true || (await cachedRepoMiss(repo)) === 'private';
+  const facts = hidden ? reportOnlyFacts({ ...project, private: true }) : await cachedRepoFacts(project, { now, ms: LICENSE_READ_MS });
+  if (!facts) return 'ask';
+  if (repoGaps(file, facts).length > 0) return 'skip';
+  if ((facts.notes ?? []).includes('archived')) return 'ask';
+  return licenseRead(facts) === 'unknown' ? 'ask' : 'skip';
+}
+
+/** The program's rules the owner has not confirmed yet on this project, by item key with its note. A license rule
+ *  is asked only as find asks it (`licenseRule`, v6.1.18.1). */
+async function openRules(owner: string, programId: string, projectKey: string, now: Date): Promise<{ item: string; note: string }[]> {
   const program = await getProgram(programId);
   if (!program) return [];
   const done = await doneItems(owner, programId, projectKey);
+  const rules = eligibilityOf(program.file).filter((y) => y.kind === 'rule');
+  const license = rules.some((x) => x.check === 'license') ? await licenseRule(owner, program.file, projectKey, now) : 'ask';
   const out: { item: string; note: string }[] = [];
-  for (const x of eligibilityOf(program.file).filter((y) => y.kind === 'rule')) {
+  for (const x of rules) {
     const item = itemKey(x);
+    if (x.check === 'license' && license === 'skip') continue;
     if (!done.has(item) && !out.some((o) => o.item === item)) out.push({ item, note: x.note ?? item });
   }
   return out;
 }
 
 /** The program's rules the owner has not confirmed yet. */
-async function rulesLeft(owner: string, programId: string, projectKey: string): Promise<number> {
-  return (await openRules(owner, programId, projectKey)).length;
+async function rulesLeft(owner: string, programId: string, projectKey: string, now: Date): Promise<number> {
+  return (await openRules(owner, programId, projectKey, now)).length;
 }
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
@@ -563,7 +590,7 @@ async function act(
   /** L29-8 (v6.1.16 Task 15): a rule not confirmed on this project (the last find's when none is passed) stops a claim
    *  and an agent's send; nothing is written. */
   const ruleFirst = async (): Promise<Result | null> => {
-    const rules = await openRules(owner, i.program_id, project.key);
+    const rules = await openRules(owner, i.program_id, project.key, ctx.now);
     if (rules.length === 0) return null;
     // L36-5 (v6.1.18): one gap_done with the first item confirms them all; fix round 1 (I1): the ones this ask listed,
     // remembered for the last find's project (another project's ask names only the item it passes).
@@ -762,11 +789,11 @@ async function act(
     // added since, is still asked. With nothing remembered, only the item passed.
     let also = 0;
     if (i.item!.startsWith('rule:') && !('repeated' in res) && shownRules.includes(i.item!))
-      for (const r of (await openRules(owner, i.program_id, project.key)).filter((x) => shownRules.includes(x.item))) {
+      for (const r of (await openRules(owner, i.program_id, project.key, ctx.now)).filter((x) => shownRules.includes(x.item))) {
         const more = await record(owner, i.program_id, 'gap_done', { installationId: ctx.installationId, item: r.item, projectKey: project.key, now: ctx.now });
         if (more.ok) also++;
       }
-    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key) : 0;
+    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key, ctx.now) : 0;
     const [show, note] = 'repeated' in res
       ? ['Already tracked.', 'Call find again for the updated applications.']
       : i.item!.startsWith('rule:')
