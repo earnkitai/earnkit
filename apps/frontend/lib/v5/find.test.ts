@@ -3580,3 +3580,17 @@ test('v6.1.17 fix round 1 (M1, N1): an in-person lookup ends on its action with 
   const held = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { program_id: 'alliance-all19', project: PROJECT });
   assert.deepEqual((held.reply!.show_to_builder as string).split('\n').slice(-2), ['Another agent of yours started this one on Nov 4.', 'You apply in person; the guide has the steps.']);
 });
+
+test('v6.1.16 Task 15 N2 (v6.1.17): find never reads as, am or mm as initials; YC and yc keep Y Combinator', async () => {
+  const id = await installation();
+  for (const w of ['as', 'am', 'mm', 'AS', 'MM']) {
+    const r = await mcpCall(ctx(id), 'find', { program_id: w });
+    assert.equal(r.isError, true, w);
+    assert.equal(r.reply!.show_to_builder, `I do not know a program called "${w}". Say its full name.`, w);
+  }
+  for (const w of ['YC', 'yc']) {
+    const r = await mcpCall(ctx(id), 'find', { program_id: w });
+    assert.equal(r.isError, false, w);
+    assert.match(r.reply!.show_to_builder as string, /^Y Combinator/, w);
+  }
+});

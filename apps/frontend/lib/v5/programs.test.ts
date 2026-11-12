@@ -214,8 +214,12 @@ test('L24-3 (v6.1.16 Task 11): the strict lookup takes an id, an exact title or 
   assert.equal((await programByName('yc', now, { strict: true })).row?.id, 'y-combinator');
   for (const w of ['as', 'am', 'mm', 'AS']) assert.equal((await programByName(w, now, { strict: true })).row, null, w);
   assert.equal((await programByName('ai', now, { strict: true })).row, null);
-  // find's lookup is unchanged.
+  // find's lookup keeps yc and YC; v6.1.16 Task 15 N2 (v6.1.17): an English word never stands for initials there either,
+  // alone or beside another word.
   assert.equal((await programByName('yc', now)).row?.id, 'y-combinator');
+  assert.equal((await programByName('YC', now)).row?.id, 'y-combinator');
+  for (const w of ['as', 'am', 'mm', 'AS', 'Am', 'as speedrun', 'mm hackathon']) assert.notEqual((await programByName(w, now)).row?.id, ({ as: 'a16z-speedrun', am: 'arc-microgrants', mm: 'monad-metropolis' } as Record<string, string>)[w.toLowerCase().split(' ')[0]], w);
+  assert.equal((await programByName('yc batch', now)).row?.id, 'y-combinator');
 });
 
 test('L35-6 (v6.1.16.1 Task 2): listRef reads #N, N., No. N, no N and number words one to twenty; anything else is null', async () => {

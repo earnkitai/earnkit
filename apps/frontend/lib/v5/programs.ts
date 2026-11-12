@@ -103,8 +103,15 @@ const YEAR = /^\d{4}$/;
  *  ("FLOSS/fund (Zerodha)" answers to "zerodha"). Pure. */
 const wordsOfProgram = (r: ProgramRow) => new Set([r.id, r.file.title, r.file.organizer].flatMap((x) => plain(x).split(' ')).filter(Boolean));
 /** The words a short word (under four characters) may name (fix round 1, T7-F3): the id's and title's words and the
- *  id's initials ("arc", "yc"), never an organizer's ("aws" from "Kiro (AWS)"). Pure. */
-const shortWordsOfProgram = (r: ProgramRow) => new Set([...[r.id, r.file.title].flatMap((x) => plain(x).split(' ')), initials(r.id)].filter(Boolean));
+ *  id's initials ("arc", "yc"; initials only for an initialsWord, v6.1.17), never an organizer's ("aws" from "Kiro (AWS)"). Pure. */
+const shortWordsOfProgram = (r: ProgramRow, w: string) =>
+  [r.id, r.file.title].some((x) => plain(x).split(' ').includes(w)) || (initialsWord(w) && initials(r.id) === w);
+/**
+ * v6.1.16 Task 15 N2 (v6.1.17): whether a lookup word may stand for a program's initials: two letters or more and never
+ * an English word (COMMON_WORDS), in any case, so "as", "am" and "mm" name no program while "yc" and "YC" name Y
+ * Combinator. One rule for find's lookup and track's strict one. Pure.
+ */
+const initialsWord = (w: string) => w.length >= 2 && !COMMON_WORDS.has(w);
 /** L1h-2 (v6.1.16): a program's rule keywords as catalog words a short lookup may name ("otf"). Pure. */
 const keywordsOfProgram = (r: ProgramRow) =>
   new Set((r.file.eligibility ?? []).flatMap((e) => (e.kind === 'rule' ? e.keywords ?? [] : [])).map((k) => squash(k)));
@@ -158,8 +165,7 @@ function strictMatch(rows: ProgramRow[], words: string, now: Date): { row: Progr
   if (asked.length === 0 || asked.every((w) => COMMON_WORDS.has(w))) return { row: null, suggest: [] };
   // v6.1.16 Task 15 (controller's ruling; fix round 1b): the initials of the title, and of the id, count as a title
   // word in any case, two letters or more ("yc" and "YC" name Y Combinator); an English word (COMMON_WORDS: "as",
-  // "am", "mm") never does.
-  const initialsWord = (w: string) => w.length >= 2 && !COMMON_WORDS.has(w);
+  // "am", "mm") never does (initialsWord).
   const fit = titled.length > 1 ? titled : rows.filter((r) => {
     const words = plain(r.file.title).split(' ').filter(Boolean);
     const initials = (ws: string[]) => (ws.length > 1 ? [ws.map((w) => w[0]).join('')] : []);
@@ -198,7 +204,7 @@ export async function programByName(name: string, now: Date = new Date(), o: { s
   const orgWord = rows.some((r) => led(r) && !organizers(r.file.organizer).includes(q));
   const tests: [(r: ProgramRow) => boolean, boolean][] = [
     // L1h-2 (v6.1.16): a short word (under four characters) may also be one of the program's rule keywords ("otf").
-    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && (initials(r.id) === q || (q.length < MIN_PREFIX && keywordsOfProgram(r).has(q)))), true],
+    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && ((initialsWord(q) && initials(r.id) === q) || (q.length < MIN_PREFIX && keywordsOfProgram(r).has(q)))), true],
     [(r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)), !orgWord],
     [(r) => organizers(r.file.organizer).includes(q), true],
   ];
@@ -221,8 +227,7 @@ export async function programByName(name: string, now: Date = new Date(), o: { s
   if (asked.every((w) => w === 'foundation') || (all.length === 1 && asked[0].length < MIN_PREFIX)) return { row: null, suggest: [] };
   const fit = rows.filter((r) => {
     const own = wordsOfProgram(r);
-    const short = shortWordsOfProgram(r);
-    return asked.every((w) => (w.length < MIN_PREFIX ? short : own).has(w));
+    return asked.every((w) => (w.length < MIN_PREFIX ? shortWordsOfProgram(r, w) : own.has(w)));
   });
   if (fit.length === 1) return { row: fit[0], suggest: [] };
   return { row: null, suggest: titles(fit) };
