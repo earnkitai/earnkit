@@ -9,5 +9,8 @@ export REPRO_AUTH_SECRET=${REPRO_AUTH_SECRET:-journeys-local-secret-not-for-prod
 export REPRO_CRON_SECRET=${REPRO_CRON_SECRET:-journeys-cron-secret}
 # The in-process helpers (sessions, CSRF, programs) read the app's own names.
 export DATABASE_URL=$REPRO_DATABASE_URL EARNKIT_URL=$REPRO_BASE_URL EARNKIT_AUTH_SECRET=$REPRO_AUTH_SECRET CRON_SECRET=$REPRO_CRON_SECRET
+# FR-4 (v6.1.18): the exit code is the script's (0 PASS, 1 FAIL or an error), and an error the script did not catch is
+# one `FAIL <id>: <message>` line, never a stack (fail-line.mjs).
+export REPRO_SCRIPT=${${1:t}%.*}
 cd $FRONTEND
-exec ${FRONTEND:h:h}/node_modules/.bin/tsx "$@"
+exec ${FRONTEND:h:h}/node_modules/.bin/tsx --import $DIR/fail-line.mjs "$@"

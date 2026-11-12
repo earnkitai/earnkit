@@ -1,8 +1,13 @@
 # The repro pack
 
 One script per Break from the journey lanes 22 to 29 and 1h (v6.1.16). Each prints exactly one line, `PASS <id>` or
-`FAIL <id>: <actual>`, judged against the ruled behaviour, then deletes every row it made. It drives a running EarnKit
-over plain HTTP (OAuth, POST /mcp, /me forms, pages) and reads and seeds its database directly.
+`FAIL <id>: <actual>`, judged against the ruled behaviour, then deletes every row it made (its OAuth client
+registrations too, v6.1.18). It drives a running EarnKit over plain HTTP (OAuth, POST /mcp, /me forms, pages) and reads
+and seeds its database directly.
+
+Through `run.sh` a script's exit code is its result: 0 on PASS, 1 on FAIL. An error the script does not catch (a
+refused target, a database error) prints one line, `FAIL <id>: <message>`, never a stack, and exits 1 (`fail-line.mjs`,
+v6.1.18 FR-4). `run-all.sh` reads the lines, not the codes.
 
 It is never part of `pnpm test`: nothing here is a `*.test.ts` file. `lib/v5/repro-target.test.ts` pins only the
 target guard (`target.ts`).
@@ -21,8 +26,12 @@ Only against a local instance. The target comes from the environment:
 
 The guard (`target.ts`, read by `lib.mts`, `run.sh` and `run-all.sh`):
 - a base URL whose host is not `localhost`, `127.0.0.1` or `::1` is refused (`local only`) unless `REPRO_ALLOW_REMOTE=1`;
-- `earnkit.com` and its subdomains are refused always;
-- the database must be a local Postgres.
+- `earnkit.com` and its subdomains are refused always, with trailing dots removed and in look-alike letters too
+  (`еarnkit.com`, `ꓰꓮꓣꓠꓗꓲꓔ.com`; each label read through the reserved-name `fold`);
+- the Railway app domain (`*.up.railway.app`) is refused always;
+- the database must be a local Postgres named by its host: `localhost`, `127.0.0.1` or `::1` (an empty host, which
+  leaves the choice to `PGHOST`, is refused), no `hostaddr=` parameter, and a `host=` parameter only as a socket path or
+  a local name.
 
 The default secrets are the throwaway values of the local journeys server; they sign nothing anywhere else.
 
@@ -34,11 +43,11 @@ post whose Origin is not the public origin (403), so `http://127.0.0.1:4600` aga
 
 ```
 cd apps/frontend/scripts/repro
-./run-all.sh               # every Break, then the pack cleanup, then a summary table (about 35 s)
+./run-all.sh               # every Break, then the pack cleanup, then a summary table (about 35 s, plus up to
+                           # 12 minutes for L23-2's guide wait)
 ./run-all.sh 'l28-*'       # one lane
-./run.sh $PWD/l24-3.mts    # one Break
-./run.sh $PWD/l23-2-wait.mts  # L23-2 once the guide cache has expired (run-all skips *-wait)
-./run.sh $PWD/cleanup.mts  # remove every l33 row (run-all does this at the end)
+./run.sh $PWD/l24-3.mts    # one Break; exit 0 on PASS, 1 on FAIL
+./run.sh $PWD/cleanup.mts  # remove every l33 row, OAuth clients included (run-all does this at the end)
 ```
 
 The scripts import a few helpers from this checkout (`upsertBuilder`, `createSession`, `csrfToken`,
@@ -76,7 +85,7 @@ The template's catalog is synced at the tests' clock (2026-11-04), so a program 
 - Files: `target.ts` (the guard), `target-check.mts` (prints the target; run-all runs it first), `lib.mts` (agents over
   real OAuth, MCP calls, builders with sessions, /me posts, programs, repo seeds, per-script cleanup), `standing.mts`
   (standing approval on through /me), `team.mts` (two co-founders on one repo), `fields.mts` (a find field by key),
-  `run.sh`, `run-all.sh`, `cleanup.mts`.
+  `run.sh`, `fail-line.mjs` (the one-line error and exit code), `run-all.sh`, `cleanup.mts`.
 
 ## Method notes (read before trusting a PASS)
 
@@ -92,7 +101,9 @@ The template's catalog is synced at the tests' clock (2026-11-04), so a program 
 - **L27-4:** locally GitHub sign-in is not set up, so every /link page is the `not set up` state (503).
 - **L27-5** passes when the home page's og:image names a 1200x630 PNG whose bytes differ from dafd2ade's; the path is
   fetched from the target, never from earnkit.com.
-- **L23-2** uses a fresh program id per run; a cached guide can still answer for up to 10 minutes (use `l23-2-wait.mts`).
+- **L23-2** uses a fresh program id per run. The guide id list is cached 60 s and the guide page revalidates at 600 s,
+  so a freshly seeded program's guide answers 404 for up to about 10 minutes: the script polls it every 20 s, at most
+  700 s, until it answers 200, then judges (lane 37 waited 583 s). The time waited goes to stderr.
 - **L24-2** first checks the one-program users text (`... : tell me if real people use it.`), then the yes.
 
 ## History
@@ -100,3 +111,6 @@ The template's catalog is synced at the tests' clock (2026-11-04), so a program 
 - Lane 33 (2026-11-11, dafd2ade): 47 FAIL, 0 PASS (the pack written against the open Breaks).
 - Lane 34 (2026-11-12, v6.1.16 at fee51c94): 47 of 47 PASS with the script fixes (l24-2, l29-1, l28-4 to l28-7).
 - v6.1.17 Task 5: moved into the repo, the target read from the environment.
+- Lane 37 (v6.1.17): 46 PASS, 1 FAIL (L23-2 before the guide refreshed); 353 `l33-` OAuth client rows left behind.
+- v6.1.18 Task 6a: L23-2 waits for the guide (the wait variant deleted), the cleanups delete the `l33-` OAuth clients,
+  exit codes and one-line errors (FR-4), the guard's trailing dot, look-alike, Railway and database rules.

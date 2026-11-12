@@ -11,7 +11,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 $BASE/api/stats)
 [[ $code == 200 ]] || { echo "the instance at $BASE is not answering /api/stats (got $code); start it first (README.md)"; exit 2; }
 typeset -a rows; pass=0; fail=0
 for f in $DIR/${~PAT}.mts(n); do
-  [[ ${f:t} == lib.mts || ${f:t} == cleanup.mts || ${f:t} == target-check.mts || ${f:t} == *-wait.mts ]] && continue
+  [[ ${f:t} == lib.mts || ${f:t} == cleanup.mts || ${f:t} == target-check.mts ]] && continue
   out=$($DIR/run.sh $f 2>/dev/null | tail -1)
   [[ -z $out ]] && out="FAIL ${f:t:r}: no output (script crashed)"
   echo "$out"

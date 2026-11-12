@@ -24,7 +24,7 @@ const ENV_ALLOWED = new Set([
   // Railway's git SHA; a deploy never sets EK_BUILD_ID itself.
   'EK_BUILD_ID', 'RAILWAY_GIT_COMMIT_SHA',
   // v6.1.17 Task 5: the repro pack's local target (scripts/repro/target.ts); a deploy never sets them.
-  'REPRO_BASE_URL', 'REPRO_DATABASE_URL', 'REPRO_AUTH_SECRET', 'REPRO_CRON_SECRET', 'REPRO_ALLOW_REMOTE',
+  'REPRO_BASE_URL', 'REPRO_DATABASE_URL', 'REPRO_AUTH_SECRET', 'REPRO_CRON_SECRET', 'REPRO_ALLOW_REMOTE', 'REPRO_SCRIPT',
   // Task 17 (v6.1.16): the boot check runs on the Node runtime only.
   'NEXT_RUNTIME',
 ]);
