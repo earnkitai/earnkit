@@ -419,6 +419,32 @@ export function gapLine(g: GapProgram, alone = false, closed: string | null = nu
 }
 
 /**
+ * L38 big 3 (v6.1.18 Task 10): what a step row asks, in order: its real gaps (the change, the users question, the
+ * proof), the program's setup steps, then each rule still to confirm. A rule-only row is one ask (L36-5), so one step.
+ * Pure.
+ */
+export function stepItems(g: GapProgram): string[] {
+  const all = [g.gap, ...g.also];
+  const real = all.filter((x) => x.kind !== 'rule');
+  const listed = [...real.filter((x) => !readingGap(x)), ...real.filter(readingGap)].map((x) => x.what);
+  return [...listed, ...g.setup, ...all.filter((x) => x.kind === 'rule').map((x) => x.what)];
+}
+/** L38 big 3: one step means one step: a rule-only row (one yes), or a row whose only item is one gap or one setup step. Pure. */
+export const oneStep = (g: GapProgram): boolean => ruleOnlyGap(g) || stepItems(g).length === 1;
+/** L38 big 3 (v6.1.18 Task 10): a row under "More to do first": the first thing to do, then how many more:
+ *  "2. Colosseum Eternal, $25,000 award: a demo video, then 4 more steps." The one-program reply keeps the whole line. Pure. */
+export function moreStepsLine(g: GapProgram): string {
+  const [first, ...rest] = stepItems(g);
+  const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
+  const more = rest.length === 0 ? '' : `, then ${rest.length} more ${rest.length === 1 ? 'step' : 'steps'}`;
+  return `${g.n}. ${g.title}, ${money}: ${first}${more}.`;
+}
+/** L38 big 3: the default view's step headings, and the full list's one heading for every row not ready. */
+export const ONE_STEP_HEAD = 'One step away';
+export const MORE_STEPS_HEAD = 'More to do first';
+export const NOT_READY_HEAD = 'Not ready yet';
+
+/**
  * What waits on the builder from the time since this agent's last find (C48) and what was sent under standing
  * approval meanwhile; a find with no project carries them too (v6.1.8 fix round 1). Pure.
  */
@@ -1067,7 +1093,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     const say = fullSay(o.defaultSay ?? sayLine);
     const blocks: [string, (ReadyProgram | GapProgram)[]][] = [
       ['Ready to apply', free], ['Being handled by your other agent', heldReady], ['On hold until you say go', onHold],
-      ['One step away', steps], [IN_PERSON_HEAD, [...inPerson, ...attendRules]],
+      // L38 big 3 (v6.1.18 Task 10): the full list heads every row not ready as one block.
+      [NOT_READY_HEAD, steps], [IN_PERSON_HEAD, [...inPerson, ...attendRules]],
     ];
     // L1k-2 (v6.1.18): `shown` is the full view's rows in display order, which find numbers 1..N.
     const shown = blocks.flatMap(([, ps]) => [...ps].sort((a, b) => a.n - b.n).map((p) => p.program_id));
@@ -1102,10 +1129,23 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     ?? steps.find((g) => g.n === doOffer?.n) ?? steps[0];
   // L1i-2 (v6.1.16.1): every step row the budget allows, the one the closing speaks to first; the heading keeps the
   // true count and a more line says what is left for the full list.
-  const stepLines = steps.map((g) => gapLine(g, false, closed));
-  const gapBlock: Block | null = steps.length > 0
-    ? { head: `One step away (${steps.length}):`, ids: steps.map((g) => g.program_id), line: (i) => stepLines[i], order: [steps.indexOf(gapShown), ...steps.map((_, i) => i).filter((i) => steps[i] !== gapShown)] }
-    : null;
+  // L38 big 3 (v6.1.18 Task 10): one step means one step: rows with one step stay under One step away, whole; the rest
+  // go under More to do first, each as its first step and how many more. The row a rule Say names keeps its whole line,
+  // so the rules it asks about are on screen.
+  const ruleNamed = closingOf.offer === 'rule' ? steps.find((g) => g.n === (firstRule ?? stepRule)) : undefined;
+  const stepLine = (g: GapProgram): string => (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g));
+  const stepBlock = (head: string, gs: GapProgram[]): Block | null => {
+    if (gs.length === 0) return null;
+    const lines = gs.map(stepLine);
+    const at = gs.indexOf(gapShown);
+    return { head: `${head} (${gs.length}):`, ids: gs.map((g) => g.program_id), line: (i) => lines[i], order: at < 0 ? gs.map((_, i) => i) : [at, ...gs.map((_, i) => i).filter((i) => i !== at)] };
+  };
+  const oneSteps = steps.filter(oneStep);
+  const moreSteps = steps.filter((g) => !oneStep(g));
+  const oneBlock = stepBlock(ONE_STEP_HEAD, oneSteps);
+  const moreBlock = stepBlock(MORE_STEPS_HEAD, moreSteps);
+  // The More block keeps one row at the step rank only when it holds the row the closing speaks to.
+  const shownInMore = moreSteps.includes(gapShown);
   const l = r.ledger;
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
   const apps = applicationsLine(r.applications ?? [], now);
@@ -1122,7 +1162,10 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     // L1i-2: one step row (and its more line) right after the ready rows; the rest of the rows before the repo notes
     // and the sign-in.
     // Fix round 1 (I1): when lines are short, the since line gives way first, then the results question, then these.
-    { block: gapBlock, lines: [], rank: 2, min: 2, grow: 5.7 },
+    // L38 big 3 (v6.1.18 Task 10): two step blocks, One step away then More to do first. A one-step row keeps its
+    // place as the step rows did; the More rows past the one the closing speaks to give way after the results question.
+    { block: oneBlock, lines: [], rank: 2, min: 2, grow: 5.7 },
+    { block: moreBlock, lines: [], ...(shownInMore ? { rank: 2, min: 2, grow: 5.85 } : { rank: 5.85 }) },
     { block: attendBlock, lines: [], rank: 2 },
     { lines: apps ? [apps] : [], rank: 3 },
     { lines: [plain(notSent)].filter((x): x is string => !!x), rank: 4 },

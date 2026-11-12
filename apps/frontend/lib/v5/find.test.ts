@@ -110,11 +110,13 @@ test('first find has no since', async () => {
     [
       "Ready to apply (1):",
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
-      "One step away (3):",
+      // L38 big 3 (v6.1.18 Task 10): one step means one step: the rule-only row, then the rows with more to do.
+      "One step away (1):",
+      "2. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
+      "More to do first (2):",
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
-      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and real users.",
-      "3. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
-      "4. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
+      "3. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app, then 1 more step.",
+      "4. FLOSS/fund, $10,000 to $100,000: real users, then 1 more step.",
       // L1j-3 (v6.1.17): the in-person rows left out are counted. L18-1 (v6.1.18): with the rows the rank cap left out.
       'And 32 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
@@ -1266,6 +1268,9 @@ const inPersonBlock = (n: number, _noRepo = false) => [
   `In person, long odds: ${n}. Y Combinator Winter 2027 Batch, $500,000. ${n + 1}. Alliance ALL19, $400,000, closes in 14 days.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
+// L38 big 3 (v6.1.18 Task 10): the whole line, as the one-program reply and a row the rule Say names keep it.
+/** L38 big 3 (v6.1.18 Task 10): Meta VR under More to do first: the demo video, then the setup steps and the rule. */
+const META_VR_MORE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working), then 4 more steps.`;
 const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.`;
 /** L1c-2 (v6.1.10): with the VR rule unlikely (no keyword named), the rule slot goes to a rule with no keywords.
  *  L1d-2 (v6.1.11): Colosseum's crypto-product rule is unlikely for a project naming no crypto word. */
@@ -1276,18 +1281,24 @@ const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000.
 /** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person.
  *  L18-2 (v6.1.18): FUTO is open source, so with no repo link the code goes in a public repo; an empty repo read is
  *  public already, so its step stays code in a repo. */
-const FUTO_CODE = (empty = false) => `1. FUTO Microgrants, $1,000 to $5,000: code in a${empty ? '' : ' public'} repo. Their rule: open source software from a small or early-stage project.`;
+// L38 big 3 (v6.1.18 Task 10): the code and the rule are two steps: under More to do first, the first, then the count.
+const FUTO_CODE = (empty = false) => `1. FUTO Microgrants, $1,000 to $5,000: code in a${empty ? '' : ' public'} repo, then 1 more step.`;
+/** L38 big 3 (v6.1.18 Task 10): the More to do first heading for one row. */
+const MORE_ONE = 'More to do first (1):';
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
 // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): on the line after the rows, the repo
 // notes after it.
 // The And-more counts (`more`, here and in every pinned reply) cover the whole fixture catalog, so every program added
 // to it changes them.
-const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => ['One step away (1):', FUTO_CODE(empty), ...inPersonBlock(2), `And ${more} more in the full list.`, ...notes, codeFirst(empty)].join('\n');
+const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => [MORE_ONE, FUTO_CODE(empty), ...inPersonBlock(2), `And ${more} more in the full list.`, ...notes, codeFirst(empty)].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft FUTO Microgrants.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
 // L18-2 (v6.1.18): an idea has no repo, so Colosseum's code in a repo comes before the demo video.
-const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product, new in the sprint; the team has not raised venture capital for the startup it submits.`;
+// L38 big 3 (v6.1.18 Task 10): six steps: the first, then the count (the one-program reply keeps the whole line).
+const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo, then 5 more steps.`;
+/** The whole line (the one-program reply's and the agent's), naming the account and the sprint. */
+const COLOSSEUM_FULL = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product, new in the sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
 const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft Meta VR Start Developer Competition 2026.';
 /** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
@@ -1295,7 +1306,8 @@ const codeFirst = (empty = false) => `Nothing is ready yet. Tell me when the cod
 // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
 const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.';
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
-const META_VR_ONLY = ['One step away (1):', META_VR_LINE(1)];
+// L38 big 3 (v6.1.18 Task 10): five steps, under More to do first; the rule the closing asks keeps the whole line.
+const META_VR_ONLY = [MORE_ONE, META_VR_LINE(1)];
 
 test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets the rule-only program on its first reported chain, Base (v6.1.6, v6.1.7)', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
@@ -1305,11 +1317,13 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
     [
       "Ready to apply (1):",
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
-      "One step away (3):",
+      // L38 big 3 (v6.1.18 Task 10): one step means one step: the rule-only row, then the rows with more to do.
+      "One step away (1):",
+      "2. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
+      "More to do first (2):",
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
-      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and real users.",
-      "3. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
-      "4. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
+      "3. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app, then 1 more step.",
+      "4. FLOSS/fund, $10,000 to $100,000: real users, then 1 more step.",
       // L1j-3 (v6.1.17): the in-person rows left out are counted. L18-1 (v6.1.18): with the rows the rank cap left out.
       'And 32 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
@@ -1346,7 +1360,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
     paused.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'And 24 more in the full list.', 'Repo reads are paused until tomorrow, so this is from what you told me.', USERS_FIRST].join('\n'),
+    [MORE_ONE, '1. FLOSS/fund, $10,000 to $100,000: real users, then 1 more step.', ...inPersonBlock(2), 'And 24 more in the full list.', 'Repo reads are paused until tomorrow, so this is from what you told me.', USERS_FIRST].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
@@ -1384,8 +1398,9 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   const d = await mcpCall(c, 'find', { project: SAAS });
   const show = d.reply!.show_to_builder as string;
   assert.equal(show, [
-    "One step away (1):",
-    "1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
+    // L38 big 3 (v6.1.18 Task 10): the users answer and the manifest are two steps.
+    "More to do first (1):",
+    "1. FLOSS/fund, $10,000 to $100,000: real users, then 1 more step.",
     // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
     "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
     // L1j-1 (v6.1.17): the closing carries the sign-in, so no other line mentions it.
@@ -1477,16 +1492,17 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   // L18-2 (v6.1.18): with no repo link FUTO's code goes in a public repo; the empty repo (15) is public already.
   const CODE = codeFirst();
   const futo = FUTO_CODE();
-  const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}. First: publish a funding manifest on your site or repo.`;
+  const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}, then 1 more step.`;
   // L18-1 (v6.1.18): each persona's more line counts the rows the rank cap left out.
   const want: [number, string, string[], string, number][] = [
-    [8, 'code in a public repo', ['One step away (1):', futo, ...inPersonBlock(2)], CODE, 19],
+    // L38 big 3 (v6.1.18 Task 10): each row has more than one step: More to do first.
+    [8, 'code in a public repo', [MORE_ONE, futo, ...inPersonBlock(2)], CODE, 19],
     // L38-6 (v6.1.18): the gap names the private repo, so its note is left out (persona 9); so is the empty one (15).
-    [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2)], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
-    [12, 'a live repo', ['One step away (1):', floss('a live repo'), ...inPersonBlock(2)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
-    [15, 'code in a repo', ['One step away (1):', FUTO_CODE(true), ...inPersonBlock(2)], codeFirst(true), 17],
-    [30, 'code in a public repo', ['One step away (1):', futo, ...inPersonBlock(2)], CODE, 19],
-    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2)], codeFirst(true), 10],
+    [9, 'a public repo', [MORE_ONE, floss('a public repo'), ...inPersonBlock(2)], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
+    [12, 'a live repo', [MORE_ONE, floss('a live repo'), ...inPersonBlock(2)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
+    [15, 'code in a repo', [MORE_ONE, FUTO_CODE(true), ...inPersonBlock(2)], codeFirst(true), 17],
+    [30, 'code in a public repo', [MORE_ONE, futo, ...inPersonBlock(2)], CODE, 19],
+    [31, 'code in a repo', [MORE_ONE, '1. Solana Foundation Grants, milestone grants: code in a repo, then 1 more step.', ...inPersonBlock(2)], codeFirst(true), 10],
   ];
   for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
@@ -1522,8 +1538,9 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.equal(
     d.reply!.show_to_builder,
     [
-      "One step away (1):",
-      "1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
+      // L38 big 3 (v6.1.18 Task 10): the users answer and the manifest are two steps.
+      "More to do first (1):",
+      "1. FLOSS/fund, $10,000 to $100,000: real users, then 1 more step.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1555,8 +1572,9 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
     [
       "Ready to apply (1):",
       "1. FLOSS/fund, $10,000 to $100,000.",
-      "One step away (1):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
+      // L38 big 3 (v6.1.18 Task 10): the demo video, three setup steps and a rule: the first, then the count.
+      "More to do first (1):",
+      META_VR_MORE(2),
       // L1j-3 (v6.1.17): YC and Alliance, left out, are counted.
       'And 23 more in the full list.',
       'Sign in so I know the repo is yours, then publish a funding manifest on your site or repo, then say yes and tell me the funding manifest link, and I apply to FLOSS/fund.',
@@ -1575,11 +1593,12 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
   assert.equal(
     hidden.reply!.show_to_builder,
     [
-      "One step away (3):",
-      "1. FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.",
+      // L38 big 3 (v6.1.18 Task 10): every row has more than one step.
+      "More to do first (3):",
+      "1. FLOSS/fund, $10,000 to $100,000: a public repo, then 1 more step.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: a developer tool whose versions are near or past official end of life.",
+      META_VR_MORE(2),
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo, then 1 more step.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): right after the rows.
@@ -1606,7 +1625,8 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
 test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and Meta VR heads the next default list as rule-only with its yes', async () => {
   const c = await dashCtx();
   const first = await mcpCall(c, 'find', { project: VR });
-  assert.equal(blockOf(first.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
+  // L38 big 3 (v6.1.18 Task 10): five steps, so More to do first.
+  assert.equal(blockOf(first.reply!.show_to_builder as string, 'More to do first'), ['More to do first (1):', META_VR_MORE(2)].join('\n'));
   // L29-8 (v6.1.16 Task 15): a claim waits on the rule; the refusal says so and nothing is written.
   const started = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started' });
   assert.equal(started.isError, true, started.text);
@@ -1615,10 +1635,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   await claim(`i:${c.installationId}`, 'meta-vr-start-competition-2026', `https://github.com/${dash.repo}`.toLowerCase(), c.installationId, NOW);
   // A live claim (another path) pins it: it heads the step list with its demo video and rule.
   const claimed = await mcpCall(c, 'find', { project: VR });
-  assert.equal(
-    blockOf(claimed.reply!.show_to_builder as string, 'One step away'),
-    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.'].join('\n'),
-  );
+  assert.equal(blockOf(claimed.reply!.show_to_builder as string, 'More to do first'), ['More to do first (1):', META_VR_MORE(2)].join('\n'));
   const done = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'gap_done', item: 'demo_video' });
   assert.equal(done.isError, false, done.text);
   const again = await mcpCall(c, 'find', { project: VR });
@@ -1632,7 +1649,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   assert.equal(show.split('\n').at(-1), 'Sign in so I know the repo is yours, then publish a funding manifest on your site or repo, then say yes and tell me the funding manifest link, and I apply to FLOSS/fund.');
   // Another installation, with no claim and no step done, still sees the demo video step.
   const other = await mcpCall(await dashCtx(), 'find', { project: VR });
-  assert.equal(blockOf(other.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
+  assert.equal(blockOf(other.reply!.show_to_builder as string, 'More to do first'), ['More to do first (1):', META_VR_MORE(2)].join('\n'));
   // Skipped, it leaves the list.
   await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'skipped' });
   const skipped = await mcpCall(c, 'find', { project: VR });
@@ -1728,8 +1745,9 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
   assert.equal(
     show,
     [
-      "One step away (1):",
-      "1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.",
+      // L38 big 3 (v6.1.18 Task 10): the code and the rule are two steps.
+      "More to do first (1):",
+      "1. Solana Foundation Grants, milestone grants: code in a repo, then 1 more step.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1766,7 +1784,7 @@ test('fix round 1 (v6.1.14, T7-F1, T7-F2): an owner-only link meets no bar; gap_
   assert.equal(done.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
   // The read settles it: with no repo yet the step still shows.
   const again = await mcpCall(c, 'find', { project: SOL });
-  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: code in a repo\./);
+  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: code in a repo, then 1 more step\./);
 });
 
 test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows on a chain as it does with none; a student on a chain still sees Thiel', async () => {
@@ -1776,11 +1794,12 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
   assert.equal(
     eth.split('\n\n')[0],
     [
-      "One step away (3):",
-      "1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo. First: set aside a security budget to co-fund the audit. Their rule: a defined audit scope: lines of code and contract count.",
+      // L38 big 3 (v6.1.18 Task 10): the code, then the setup steps and the rule, counted.
+      "More to do first (3):",
+      "1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo, then 2 more steps.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "2. Uniswap Foundation Open Grants, set by milestone budget: code in a repo. Their rule: work that contributes to the Uniswap ecosystem and benefits people beyond your own product.",
-      "3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% of the audit cost: code in a repo. First: register a legal entity for KYB; finalize the contracts for audit. Their rule: smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit.",
+      "2. Uniswap Foundation Open Grants, set by milestone budget: code in a repo, then 1 more step.",
+      "3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% of the audit cost: code in a repo, then 3 more steps.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1874,8 +1893,9 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   const show = r.reply!.show_to_builder as string;
   assert.doesNotMatch(show, /real people use it/);
   assert.equal(show, [
-    'One step away (1):',
-    '1. FLOSS/fund, $10,000 to $100,000: a live repo. First: publish a funding manifest on your site or repo.',
+    // L38 big 3 (v6.1.18 Task 10): a live repo and the manifest are two steps.
+    MORE_ONE,
+    '1. FLOSS/fund, $10,000 to $100,000: a live repo, then 1 more step.',
     ...inPersonBlock(2),
     // L1g-5 (v6.1.16): the line reads the archive, so the archived note is left out.
     // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1932,20 +1952,24 @@ test('L1d-2 (v6.1.11, Review Focus 2 and 3): an idea or an empty repo naming no 
   const all = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' }, filter: { all: true } });
   const g = (all.reply!.gaps as G[]).find((x) => x.program_id === 'colosseum-eternal')!;
   assert.ok(g, listText(all.reply!));
-  assert.equal(lineOf(listText(all.reply!), g.n), COLOSSEUM_LINE(g.n));
+  assert.equal(lineOf(listText(all.reply!), g.n), COLOSSEUM_FULL(g.n));
   // An idea that says crypto sees it in the default list, never as "a demo video" alone.
   const crypto = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: a crypto app that splits rent between roommates onchain' } });
   const show = crypto.reply!.show_to_builder as string;
   const c = (crypto.reply!.gaps as G[]).find((x) => x.program_id === 'colosseum-eternal');
   assert.ok(c, show);
-  assert.equal(lineOf(seen(crypto.reply!), c.n), COLOSSEUM_LINE(c.n));
+  // L38 big 3 (v6.1.18 Task 10): the rule Say names it, so its row keeps the whole line, the rules it asks on screen.
+  assert.equal(lineOf(seen(crypto.reply!), c.n), COLOSSEUM_FULL(c.n));
+  assert.match(show, /^More to do first \(1\):$/m);
   assert.doesNotMatch(show, /a demo video link \(a short screen recording of it working\)\. Their rule: the team has not raised/);
   // Fix round 1 (v6.1.16): with bare "crypto" gone, a crypto app, a DeFi and an NFT idea still hit with no "onchain" in the text.
   for (const description of ['An idea: a crypto app that splits rent between roommates', 'An idea: a DeFi lending pool for students', 'An idea: an NFT ticket for concerts']) {
     const r = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description } });
     const x = (r.reply!.gaps as G[]).find((y) => y.program_id === 'colosseum-eternal');
     assert.ok(x, `${description}: ${r.reply!.show_to_builder as string}`);
-    assert.equal(lineOf(seen(r.reply!), x.n), COLOSSEUM_LINE(x.n));
+    // L38 big 3 (v6.1.18 Task 10): the whole line only when the rule Say names it; else its first step and the count.
+    const named = /I draft Colosseum Eternal\.$/.test(r.reply!.show_to_builder as string);
+    assert.equal(lineOf(seen(r.reply!), x.n), named ? COLOSSEUM_FULL(x.n) : COLOSSEUM_LINE(x.n), description);
   }
 });
 
@@ -1973,11 +1997,12 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
   assert.equal(
     r.reply!.show_to_builder,
     [
-      "One step away (3):",
+      // L38 big 3 (v6.1.18 Task 10): every row has more than one step.
+      "More to do first (3):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
-      "2. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: real users. Their rule: a developer tool whose versions are near or past official end of life.",
+      META_VR_MORE(1),
+      "2. FLOSS/fund, $10,000 to $100,000: real users, then 1 more step.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: real users, then 1 more step.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1998,24 +2023,27 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
   // PayPal line says it closes in 8 days; one yes per reply, the ready program's.
   const early = (await at(NOW)).reply!;
   assert.equal(
-    blockOf(early.show_to_builder as string, 'One step away'),
+    blockOf(early.show_to_builder as string, 'One step away') + '\n' + blockOf(early.show_to_builder as string, 'More to do first'),
     [
-      "One step away (3):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
+      // L38 big 3 (v6.1.18 Task 10): the rule-only row is one step; the two with a demo video have more to do.
+      "One step away (1):",
+      "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
+      "More to do first (2):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
-      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
+      META_VR_MORE(3),
+      "4. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video link (a short screen recording of it working), then 3 more steps.",
     ].join('\n'),
   );
   // Two days out it is listed first, ahead of the cap; a keyword hit, it leaves the one rule slot to HeroDevs (N1, v6.1.12).
   const late = (await at(new Date('2026-11-10T08:00:00Z'))).reply!;
   assert.equal(
-    blockOf(late.show_to_builder as string, 'One step away'),
+    blockOf(late.show_to_builder as string, 'One step away') + '\n' + blockOf(late.show_to_builder as string, 'More to do first'),
     [
-      "One step away (3):",
-      "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
-      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
-      "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
+      "One step away (1):",
+      "2. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
+      "More to do first (2):",
+      "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video link (a short screen recording of it working), then 3 more steps.",
+      "4. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video link (a short screen recording of it working), then 4 more steps.",
     ].join('\n'),
   );
   assert.equal((late.gaps as { program_id: string; closes_in?: string }[])[0].closes_in, 'in 2 days');
@@ -3848,10 +3876,10 @@ test('L1k-2: the full list numbers 1..N in display order and the JSON n matches'
   const show = full.reply!.show_to_builder as string;
   const rows = show.split('\n').filter((l) => /^\d+\. /.test(l));
   assert.ok(rows.length > 10, show);
-  // 1, 2, 3 ... down the page, across the Ready, One step and In person blocks.
+  // 1, 2, 3 ... down the page, across the Ready, Not ready yet and In person blocks.
   assert.deepEqual(rows.map((l) => Number(l.split('.')[0])), rows.map((_, i) => i + 1), show);
   const heads = show.split('\n').filter((l) => /^[A-Z][^.]*\(\d+\):$/.test(l));
-  assert.deepEqual(heads.map((h) => h.replace(/ \(\d+\):$/, '')), ['Ready to apply', 'One step away', 'In person'], show);
+  assert.deepEqual(heads.map((h) => h.replace(/ \(\d+\):$/, '')), ['Ready to apply', 'Not ready yet', 'In person'], show);
   // Every number names the JSON item with that n.
   const items = [...(full.reply!.gaps as G[]), ...(allReady(full.reply!) as G[])] as unknown as { n: number; title: string; program_id: string }[];
   assert.equal(items.length, rows.length);
@@ -3902,7 +3930,8 @@ test('v6.1.18 Task 9 fix round 1 (I1): signed out with a repo, the users-plus-ch
     const project = { name: 'Tipper', description: 'Tips on Base.', repo_url: `https://github.com/${f.repo}`, chains: [{ chain: 'base', mainnet: true }] };
     const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: f.fetch, linkUrl: async () => link }, 'find', { project, filter: { category: 'bounty' } });
     const show = r.reply!.show_to_builder as string;
-    assert.match(show, /Codes Bounty, up to \$5,000: add Base Builder Codes to the app and real users\./, show);
+    // L38 big 3 (v6.1.18 Task 10): the change and the users answer are two steps.
+    assert.match(show, /Codes Bounty, up to \$5,000: add Base Builder Codes to the app, then 1 more step\./, show);
     assert.doesNotMatch(show, /then apply to|I apply/, show);
     assert.equal(show.split('\n').at(-1), `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`);
   } finally {
@@ -3953,5 +3982,30 @@ test('L38 big 1 (v6.1.18 Task 10): unlinked, a one-program proof beside a rule a
     assert.equal(r.sign_in, link);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-sign-rule'`;
+  }
+});
+
+test('L38 big 3 (v6.1.18 Task 10): the full list lists an in-person program with a real gap under In person, never under a step heading (the Monad Blitz bug)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-blitz', title: 'Blitz Meetup', in_person: true, chains: [], any_chain: true, eligibility: [{ kind: 'demo_video' }] } as never), 'file', NOW);
+  try {
+    const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+    const show = r.reply!.show_to_builder as string;
+    const lines = show.split('\n');
+    const head = lines.findIndex((l) => /^In person \(\d+\):$/.test(l));
+    assert.ok(head > 0, show);
+    const blitz = lines.findIndex((l) => /^\d+\. Blitz Meetup, /.test(l));
+    assert.ok(blitz > head, show);
+    assert.ok(!lines.some((l) => /^(One step away|More to do first) /.test(l)), show);
+    assert.match(show, /^Not ready yet \(\d+\):$/m);
+    // Its JSON n is the number it is shown under, after every step row.
+    const g = (r.reply!.gaps as { program_id: string; n: number; in_person: boolean }[]).find((x) => x.program_id === 'f-blitz')!;
+    assert.equal(Number(lines[blitz].split('.')[0]), g.n);
+    assert.ok((r.reply!.gaps as { n: number; in_person: boolean }[]).filter((x) => !x.in_person).every((x) => x.n < g.n));
+    // The default list keeps it off: only rule-only in-person programs list there.
+    const d = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
+    assert.doesNotMatch(d.reply!.show_to_builder as string, /Blitz Meetup/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-blitz'`;
   }
 });
