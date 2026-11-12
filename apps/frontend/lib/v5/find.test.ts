@@ -1365,6 +1365,20 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   assert.equal(show.split(link).length, 2, show);
 });
 
+// Placed beside L1i-3, so it sees the same catalog (later tests add ready programs).
+test('Task 2 (v6.1.16.1, Task 1 leftover): after an unlink, a find closing on the users question has one sign-in sentence, the closing\'s', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const link = 'https://earnkit.com/link/t2leftover';
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  assert.equal(await unlinkInstallation(id, builderId, NOW), true);
+  const d = await mcpCall({ installationId: id, builderId: null, now: new Date(NOW.getTime() + H), gh: dash.fetch, linkUrl: async () => link }, 'find', { project: SAAS });
+  const show = d.reply!.show_to_builder as string;
+  assert.equal(show.split('\n').at(-1), `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`, show);
+  assert.ok(show.includes('This agent was unlinked from your account.'), show);
+  assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, show);
+  assert.equal(show.split(link).length, 2, show);
+});
+
 test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full replies hold no chain step; contract programs are not a fit', async () => {
   const d = await mcpCall(await dashCtx(), 'find', { project: SAAS });
   assert.equal(d.isError, false, d.text);
@@ -3385,19 +3399,6 @@ test('L1i-5 (v6.1.16.1): stableNumbers keeps the last list\'s numbers and number
 });
 
 // ---- v6.1.16.1 Task 2 ----
-
-test('Task 2 (v6.1.16.1, Task 1 leftover): after an unlink, a find closing on the users question has one sign-in sentence, the closing\'s', async () => {
-  const { unlinkInstallation } = await import('../v6/builders');
-  const link = 'https://earnkit.com/link/t2leftover';
-  const { id, builderId } = await linkedWith(OWNER_RECORD);
-  assert.equal(await unlinkInstallation(id, builderId, NOW), true);
-  const d = await mcpCall({ installationId: id, builderId: null, now: new Date(NOW.getTime() + H), gh: dash.fetch, linkUrl: async () => link }, 'find', { project: SAAS });
-  const show = d.reply!.show_to_builder as string;
-  assert.equal(show.split('\n').at(-1), `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`, show);
-  assert.ok(show.includes('This agent was unlinked from your account.'), show);
-  assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in once/i.test(x)).length, 1, show);
-  assert.equal(show.split(link).length, 2, show);
-});
 
 test('L35-6 (v6.1.16.1 Task 2): find\'s program_id takes a list reference as the last list\'s number; any other falls to the name lookup', async () => {
   const { markList } = await import('./installations');
