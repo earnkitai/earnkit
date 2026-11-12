@@ -491,6 +491,22 @@ test('ledgerCounts (L21-1, v6.1.16): the counts the find reply and /me share', a
   assert.equal(ledgerCounts({ ...l, won: 0, won_usd: 0, rejected: 0, pending: 6 }), '6 sent, 6 waiting.');
 });
 
+test('L43-8: ledgerCounts names no result apart', async () => {
+  const { ledgerCounts } = await import('./ledger');
+  const l = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+  assert.equal(ledgerCounts({ ...l, applied: 5, won: 1, won_usd: 5000, rejected: 1, no_result: 1, pending: 2 }), '5 sent, 1 won ($5,000), 1 rejected, 1 no result, 2 waiting.');
+  // summary counts a no result apart from the applied rows that wait.
+  const i = await install();
+  const a = await prog('l43-nr-a');
+  const b = await prog('l43-nr-b');
+  await record(o(i), 'l43-nr-a', 'applied', { now: NOW });
+  await record(o(i), 'l43-nr-b', 'applied', { now: NOW });
+  await record(o(i), 'l43-nr-b', 'no_result', { now: NOW });
+  const s = await summary(o(i), [a, b], NOW);
+  assert.deepEqual([s.applied, s.pending, s.no_result], [2, 1, 1]);
+  assert.equal(ledgerCounts(s), '2 sent, 1 no result, 1 waiting.');
+});
+
 test('L17-8 (v6.1.16): paymentKeyOf strips a legacy s: or t: prefix only', () => {
   assert.equal(paymentKeyOf('final'), 'final');
   assert.equal(paymentKeyOf('s:final'), 'final');
@@ -536,7 +552,7 @@ test('L17-2, L17-8 (v6.1.16): an older correction changes nothing; a key stored 
   assert.deepEqual([Number(row.amount_usd), row.at.getTime()], [2000, t(5).getTime()]);
 });
 
-test('L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to the sent count', async () => {
+test('L22-8 (v6.1.16), L43-8 (v6.1.19): no result is counted apart, and the parts always sum to the sent count', async () => {
   const i = await install();
   for (const id of ['l-nr-a', 'l-nr-b']) {
     await prog(id, { max_award_usd: 10_000 });
@@ -546,7 +562,7 @@ test('L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to t
   await record(o(i), 'l-nr-b', 'no_result', { now: NOW });
   const { ledgerCounts } = await import('./ledger');
   const l = await summary(o(i), [], NOW);
-  assert.equal(ledgerCounts(l), '2 sent, 1 won ($5,000), 1 waiting.');
+  assert.equal(ledgerCounts(l), '2 sent, 1 won ($5,000), 1 no result.');
   const base = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
   for (const f of [l, { ...base, applied: 6, won: 3, won_usd: 12_000, rejected: 1, pending: 2 }, { ...base, applied: 3, won: 3, won_usd: 3500.5, won_other: [{ currency: 'EUR', amount: 2000 }] }]) {
     const parts = ledgerCounts(f).replace(/\([^)]*\)/g, '').replace(/\.$/, '').split(', ').map((x) => Number(x.split(' ')[0]));

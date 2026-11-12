@@ -230,6 +230,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at   timestamptz NOT NULL,
   last_seen_at timestamptz NOT NULL DEFAULT now()
 );
+-- v6.1.19 L43-4: what the builder typed into a /me form that was refused, kept 15 minutes so the page shows it again.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS draft jsonb, ADD COLUMN IF NOT EXISTS draft_at timestamptz;
 
 -- The ledger's owner: 'b:<builder>' once linked, else 'i:<installation>'. installation_id stays the
 -- writing installation. Duplicates per owner are merged (the newest kept) before the unique indexes.

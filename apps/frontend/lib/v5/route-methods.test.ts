@@ -42,7 +42,8 @@ test('L31-1 (v6.1.16 Task 17): every route outside Task 5 serves its METHODS_BY_
       const r = await handler(new Request(`https://earnkit.test${path}`, { method: m }));
       assert.equal(r.status, 405, `${m} ${path}`);
       assert.equal(r.headers.get('allow'), allow, `${m} ${path}`);
-      assert.equal(r.headers.get('access-control-allow-origin'), '*');
+      // L43-20 (v6.1.19): CORS only on the MCP, OAuth and well-known handlers, never here.
+      assert.equal(r.headers.get('access-control-allow-origin'), null, `${m} ${path}`);
       assert.deepEqual(await r.json(), { error: 'method_not_allowed' });
     }
   }
@@ -59,4 +60,25 @@ test('L31-1 (v6.1.16 Task 17): PATCH on /me/edit is 405 with Allow: GET, POST; p
   // L18-5 (v6.1.18 Task 5): the owner's list of sends is read only.
   assert.equal(allowOf('/api/programs/applications'), 'GET, HEAD');
   assert.ok(serves('GET', 'head') && !serves('GET, HEAD', 'TRACE') && !serves('POST', 'HEAD'));
+});
+
+test('L43-20: OPTIONS /api/me/signed-in is 405 with no CORS header; OPTIONS /mcp keeps it', async () => {
+  const signedIn = (await import('../../app/api/me/signed-in/route')) as unknown as Record<string, () => Response>;
+  const r = signedIn.OPTIONS();
+  assert.equal(r.status, 405);
+  assert.equal(r.headers.get('allow'), 'GET, HEAD');
+  assert.equal(r.headers.get('access-control-allow-origin'), null);
+  assert.equal(r.headers.get('access-control-allow-methods'), null);
+  const mcp = (await import('../../app/mcp/route')) as unknown as Record<string, () => Response>;
+  const put = mcp.PUT();
+  assert.equal(put.status, 405);
+  assert.equal(put.headers.get('access-control-allow-origin'), '*');
+  // The two files a crawler reads answer OPTIONS as the pages do, through the proxy.
+  const { proxy } = await import('../../proxy');
+  for (const path of ['/sitemap.xml', '/robots.txt']) {
+    const o = await proxy(new Request(`https://earnkit.test${path}`, { method: 'OPTIONS' }) as never);
+    assert.equal(o.status, 405, path);
+    assert.equal(o.headers.get('allow'), 'GET, HEAD', path);
+    assert.equal(o.headers.get('access-control-allow-origin'), null, path);
+  }
 });

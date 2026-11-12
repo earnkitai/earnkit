@@ -12,7 +12,8 @@ export const PAGE_METHODS = 'GET, HEAD';
 /** Route by route, first match wins; the Allow is the route's own exports (HEAD served wherever GET is). */
 export const METHODS_BY_ROUTE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/me$/, PAGE_METHODS],
-  // GET on a /me form route is a 303 to /me, so a reload or an opened link lands on the page.
+  // GET on a /me form route is a 303 to /me, so a reload or an opened link lands on the page (L43-9, v6.1.19:
+  // /me/sent is one of them).
   [/^\/me\/[^/]+$/, 'GET, POST'],
   [/^\/link\/[^/]+\/confirm$/, 'POST'],
   [/^\/link\/[^/]+$/, 'GET'],

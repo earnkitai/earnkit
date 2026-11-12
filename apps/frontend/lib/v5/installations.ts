@@ -25,14 +25,17 @@ export function cleanClientName(name: string | null | undefined): string | null 
 }
 
 /**
- * The agent's name as /me and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)" group
- * dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. The stored
- * `client_name` is untouched. Pure.
+ * The agent's name as /me, /link and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)"
+ * group dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. L43-14
+ * (v6.1.19): the group is dropped from the full cleaned name first, then the name is cut once at 60 characters keeping
+ * the start, so every surface shows the same cut. The stored `client_name` is untouched. Pure.
  */
 export function displayName(name: string | null | undefined): string | null {
-  const s = cleanClientName(name);
-  if (s === null) return null;
-  return s.replace(/\s*\([^()]*\)$/, '').trim() || s;
+  if (!name) return null;
+  const full = cleanText(name.replace(/\s+/g, ' '), Infinity);
+  if (!full) return null;
+  const shown = full.replace(/\s*\([^()]*\)$/, '').trim() || full;
+  return cleanText(shown, 60) || null;
 }
 
 /**

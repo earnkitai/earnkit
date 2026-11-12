@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { CARD_PANEL, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
+import { LINK_ASK_PARTS } from '../../../lib/v5/site-copy';
 import type { LinkState } from '../../../lib/v6/link-routes';
 
 const LINE = 'text-[16px] leading-[1.6] text-s-muted';
@@ -19,7 +20,10 @@ export default function LinkView({ s, code, host }: { s: LinkState; code: string
         <h1 id="link-title" className="ek-serif text-[32px] leading-none [overflow-wrap:anywhere] md:text-[44px]">
           {s.agent ? (
             <>
-              Connect <bdi>{s.title.slice('Connect '.length, -1)}</bdi>?
+              {/* L43-17 (v6.1.19): one question naming the agent, its own name isolated. */}
+              {LINK_ASK_PARTS(s.agent)[0]}
+              <bdi>{LINK_ASK_PARTS(s.agent)[1]}</bdi>
+              {LINK_ASK_PARTS(s.agent)[2]}
             </>
           ) : (
             s.title
@@ -27,22 +31,8 @@ export default function LinkView({ s, code, host }: { s: LinkState; code: string
         </h1>
         {s.state === 'live' ? (
           <>
-            {/* The builder line as ruled before (v6.1.7, L25-1): the agent's own full name, isolated. */}
-            <p className="text-[18px] leading-[1.5]">
-              {s.agent ? (
-                <>
-                  Link the agent calling itself{' '}
-                  <strong>
-                    <bdi>{s.agent}</bdi>
-                  </strong>
-                  , first seen {s.seen}, to your GitHub account?
-                </>
-              ) : (
-                <>Link your agent, first seen {s.seen}, to your GitHub account?</>
-              )}
-            </p>
             <p className={LINE}>
-              {s.line} You can unlink it any time at {host}/me.
+              First seen {s.seen}. {s.line} You can unlink it any time at {host}/me.
             </p>
             <form method="post" action={`/link/${code}/confirm`}>
               <button type="submit" className={PILL_WHITE}>
