@@ -134,10 +134,10 @@ export const kindAnswers = (record: BuilderRecord, kind: AnswerKind): KindAnswer
 export const waitingAnswers = (record: BuilderRecord): number => answersOf(record).filter((a) => !isApproved(record, a.path)).length;
 
 /** L26-7: `{n} answers wait for your approval.`; null at none. Pure. */
+export const waitingLine = (n: number): string | null => (n === 0 ? null : n === 1 ? '1 answer waits for your approval.' : `${n} answers wait for your approval.`);
 /** L38-15 (v6.1.18): what the next application needs (at most two named) and the one action. Pure. */
 export const nextNeedsLine = (missing: string[]): string =>
   `The next application needs ${listWords(missing, 2)}. Tell me ${missing.length === 1 ? 'it and I save it' : 'them and I save them'}.`;
-export const waitingLine = (n: number): string | null => (n === 0 ? null : n === 1 ? '1 answer waits for your approval.' : `${n} answers wait for your approval.`);
 
 const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
 

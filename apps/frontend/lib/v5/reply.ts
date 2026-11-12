@@ -249,6 +249,8 @@ export function doUsersOf(gaps: GapProgram[]): { program: GapProgram; verb: stri
 /** L38-3 (v6.1.18): the closing that answers the users question and makes the change in one yes. Pure. */
 export const doUsersClosing = (verb: string, title: string): string =>
   `Nothing is ready yet. Do real people use it? Say yes and I ${verb}, then apply to ${title}.`;
+/** Fix round 1 (M3): whether a Say is that closing, so the agent note names it only then. Pure. */
+export const isDoUsersSay = (say: string): boolean => /Do real people use it\? Say yes and I .+, then apply to /.test(say);
 /** L38-3 (v6.1.18): the agent's part of that yes. */
 export const DO_USERS_NOTE = "When the closing offers a change with the users question, a yes is both: make that change, push, call track with gap_done and the gap's item, then call find again with users: true.";
 /** T3-R1 (v6.1.13): the code-in-a-repo step of a grant for existing code (eligibility's NEEDS_CODE). Pure. */
@@ -639,6 +641,8 @@ export function closingLine(o: {
   if (o.held > 0) return withDo({ text: 'Your other agent is handling these.', offer: null });
   if (o.gaps > 0) {
     // L38-3 (v6.1.18): the users answer and EarnKit's change in one yes, ahead of a rule with no stated amount.
+    // Fix round 1 (I1): signed out, no apply is promised: the users question asks for the sign-in that checks it.
+    if (o.doUsers && o.linked === false) return { text: `Nothing is ready yet. ${USERS_UNLINKED}`, offer: 'look_again' };
     if (o.doUsers) return { text: doUsersClosing(o.doUsers.verb, o.doUsers.title), offer: 'apply' };
     // L29-28 (v6.1.16 Task 15): the rule Say says what the yes does.
     if (o.firstRule !== null) return { text: `Nothing is ready yet. ${ruleSay(o.firstRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
@@ -1288,7 +1292,7 @@ export function droppedNote(problems: string[] | undefined): string | null {
 /** Fix round 1 (M2, v6.1.16 Task 12): the full list's style line. */
 export const FULL_LIST_STYLE_NOTE = 'Fit approved answers by cutting, never by adding. Call find with program_id for a field\'s style before drafting it.';
 
-export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null; hidden?: string[]; all?: boolean }): string {
+export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null; hidden?: string[]; all?: boolean; say?: string }): string {
   // L29-29 (v6.1.16 Task 15): only the lines that apply; an empty reply has a one-line note.
   if (r.ready.length === 0 && r.gaps.length === 0)
     return "Show find's reply as given. Nothing is listed for this project now; pass users, live_url and chains whenever you know them, and call find again when the builder asks.";
@@ -1333,7 +1337,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(DEMO_NOTE);
   // L29-19 (v6.1.16 Task 15): one way.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
-    lines.push(`"Do real people use it" is a question, not work: ask the builder once. ${USERS_NOTE}${doUsersOf(r.gaps) ? ` ${DO_USERS_NOTE}` : ''}`);
+    lines.push(`"Do real people use it" is a question, not work: ask the builder once. ${USERS_NOTE}${o.say !== undefined && isDoUsersSay(o.say) ? ` ${DO_USERS_NOTE}` : ''}`);
   if (r.gaps.some((g) => [g.gap, ...g.also].some(startedQuestion)))
     lines.push('"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at in the project next time, or, when they started after the program\'s start, call track with gap_done and that gap\'s item. Never invent the date.');
   // L29-26 (v6.1.16 Task 15): the default view's left-out lines, and what "say more" is.

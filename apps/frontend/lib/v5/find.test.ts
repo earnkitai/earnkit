@@ -3881,3 +3881,29 @@ test('L1k-4: a no-project online lookup ends on "Tell me about your project and 
   const withProject = (await mcpCall(ctx(await installation()), 'find', { program_id: 'base-ecosystem-fund', project: PROJECT })).reply!.show_to_builder as string;
   assert.doesNotMatch(withProject, /Tell me about your project/);
 });
+
+test('v6.1.18 Task 9 fix round 1 (I1): signed out with a repo, the users-plus-change closing is never offered; the users question asks for the sign-in', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'fr9-codes', title: 'Codes Bounty', category: 'bounty', max_award_usd: 5000, reward: 'Up to $5,000', summary: 'Up to $5,000 · rolling', chains: ['base'], any_chain: false, eligibility: [{ kind: 'builder_codes' }, { kind: 'users', note: 'real users' }] } as never), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'fr9-fund', title: 'Unstated Bounty', category: 'bounty', max_award_usd: undefined, min_award_usd: undefined, reward: 'A bounty (amount not stated)', summary: 'A bounty · rolling', eligibility: [{ kind: 'rule', note: 'a team that likes bounties' }] } as never), 'file', NOW);
+  try {
+    const f = replayFetch('nextjs-dashboard');
+    const link = 'https://earnkit.com/link/fr9';
+    const project = { name: 'Tipper', description: 'Tips on Base.', repo_url: `https://github.com/${f.repo}`, chains: [{ chain: 'base', mainnet: true }] };
+    const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: f.fetch, linkUrl: async () => link }, 'find', { project, filter: { category: 'bounty' } });
+    const show = r.reply!.show_to_builder as string;
+    assert.match(show, /Codes Bounty, up to \$5,000: add Base Builder Codes to the app and real users\./, show);
+    assert.doesNotMatch(show, /then apply to|I apply/, show);
+    assert.equal(show.split('\n').at(-1), `Nothing is ready yet. Do real people use it? Say yes, sign in once at ${link}, and I check.`);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('fr9-codes', 'fr9-fund')`;
+  }
+});
+
+test('v6.1.18 Task 9 fix round 1 (I1, M5): the sign-in gate reads the users-plus-change and setup-first closings as apply offers', async () => {
+  const { APPLY_OFFER } = await import('./find');
+  assert.match('Nothing is ready yet. Do real people use it? Say yes and I add Base Builder Codes, then apply to Base Builder Grant Program.', APPLY_OFFER);
+  assert.match('Publish the manifest at site.com first, then say yes and I apply.', APPLY_OFFER);
+  assert.match('Sign in to the Hub first, then say yes and I apply to FLOSS/fund.', APPLY_OFFER);
+  assert.doesNotMatch('Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.', APPLY_OFFER);
+});

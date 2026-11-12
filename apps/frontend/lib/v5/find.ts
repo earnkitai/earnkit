@@ -737,9 +737,10 @@ export const NOT_YOUR_REPO_NOTE = 'The signed-in GitHub account is not the repo 
  * the line that gives way when the repo is not shown to be the builder's. A draft for the builder to send, a rule or a
  * users question stays. L38-30 (v6.1.18): "{Setup step} first, then say yes and I apply." too.
  */
-export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold|[^.]* first, then say yes\b.*\bI apply\b)/;
+export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold|.*, then say yes\b.*\bI apply\b|.*\bSay yes and I .+, then apply\b)/;
 /** An apply offer closing a line that says something first ("X needs your amount; then I apply. Say yes and I apply."). */
-const TAIL_OFFER = / Say yes\b.*\bI (also )?apply\b.*$/;
+// Fix round 1 (I1): and the users-plus-change closing ("Say yes and I add ..., then apply to {title}.").
+const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
 /** Whether the builder text offers an apply anywhere. Pure. */
 const offersApply = (text: string): boolean => text.split('\n').some((l) => APPLY_OFFER.test(l) || TAIL_OFFER.test(l));
 /** The builder lines with every apply offer taken out (a whole line, or a line's closing sentence). Pure. */
@@ -1259,7 +1260,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more: said.more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more: said.more, description, hidden: said.hidden, all, say: said.say }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
     more: said.more > 0 || said.hidden.length > 0,
     more_count: said.more,

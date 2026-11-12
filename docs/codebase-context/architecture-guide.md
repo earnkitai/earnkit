@@ -68,7 +68,7 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    no longer stale: one re-read per code step, then the row is trusted as before until the next push (F7, v6.1.12). A public read
    beats a reported `builder_codes: true`: none in the code is none, said once as "The repo does not send Builder
    Codes yet." (repo note `no_builder_codes`). An empty repo with no Builder Codes is one sentence, "The repo is empty and
-   does not send Builder Codes yet, so I matched on what you told me." (`repoNoteText`, F9, v6.1.12). With no read to confirm them (none, or an empty repo), the name,
+   does not send Builder Codes yet, so this is from what you told me." (v6.1.18 L38-7; "so I matched on" before) (`repoNoteText`, F9, v6.1.12). With no read to confirm them (none, or an empty repo), the name,
    description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
    EarnKit's value (S12); they count as the agent's drafts, never as "need you" (F2, v6.1.10). `need_you` is one list:
    every required `builder` field without a record value, and the ready line's "Needs your ..." and "k need you" read
@@ -807,7 +807,7 @@ question is "Tell me when you started and I check it."; fix round 1 gives the la
 below-bar tier gap "people outside the team use it live", a feature "{feature} is in", a users gap of weeks "it has been
 live for {n} weeks", or "real people use it" when no number is given); several real changes keep "Tell me when that is done and I
 apply.", or "Tell me when that is done and I draft it for you to send." on a program the builder sends (`draftOnly`, L18-3
-v6.1.18); the archived repo note is left out when a shown line reads `the repo is archived`. A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
+v6.1.18); the archived repo note is left out when a shown line asks for `a live repo` (v6.1.18 L38-9; `the repo is archived` before). A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
 the one-program line keeps it), and the code closing is picked by the gap's kind (`FirstStep.code`, M3). A repo the
 read itself finds private (`RepoPrivateError` from `github.ts`, fresh or on the cached row's re-check) is private, never
 gone (M1); neither is closed by gap_done: the agent passes `private: false` or the live `repo_url` (`REPO_STEP_NOTE`).
@@ -1302,7 +1302,7 @@ means what the last `Say` offered.
   idea, with proof of need`, `your insight on the competition` (Task 15 N5).
 - **Says and notes (L29-5, L29-6, L29-17, L29-19, L29-27 to L29-29, L29-31, L29-34).** A yes that needs answers names
   them: "Say yes and tell me {needs}, and I apply to ...". No "Or say the numbers to skip." (the note's "A number skips
-  that program: call track skipped with its id."). The rule Say ends "and I get it ready."; unlinked, the users question
+  that program: call track skipped with its id."). The rule Say ends "and I draft {title}." (v6.1.18 L38-2; "and I get it ready." before); unlinked, the users question
   is "Do real people use it? Say yes, sign in once, and I check." and the one note is "On yes, call find again with
   users: true." The standing line is "Applying now to {titles} under your standing approval."; its note
   (`standingNote(ids)`) names only those ids, with `STOP_NOTE`. The agent note carries only the lines that apply, one
@@ -1322,7 +1322,7 @@ means what the last `Say` offered.
 
 - **Every rule in one ask (L36-5).** A gap row already lists every open rule (`Their rules: a; b.`); its ask now covers
   them all: the one-program action `Say yes if all of that is you and I draft it.` (`RULES_ACTION`) and the list closing
-  `Say "yes n" if all of that is you and I get it ready.` (`ruleSay(n, many)`, closingLine's `ruleMany`). `track`
+  `Say "yes n" if all of that is you and I draft {title}.` (from Task 9, L38-2; `ruleSay(n, many, title)`, closingLine's `ruleMany`). `track`
   `gap_done` with a rule item confirms the other rules that program's row listed (`Tracked: those rules fit you.`,
   `RULES_CONFIRMED`), so `started` never asks for a rule the row showed. Fix round 1 (I1): the rows' rule items are kept
   in `last_gaps` (`RememberedGap.rules`: the list find for every gap, the one-program look and track's rule ask through
@@ -1364,7 +1364,9 @@ means what the last `Say` offered.
   users answer and EarnKit's change (`doUsersOf`, `canDoWithUsers`: every other real gap `agent_can`, no rule, no setup)
   closes ahead of the rule of a program with no stated amount, and ahead of its own change step: `Nothing is ready yet.
   Do real people use it? Say yes and I add Base Builder Codes, then apply to {title}.` (`doUsersClosing`, offer
-  `apply`; the users agent line adds `DO_USERS_NOTE`). Every ready program on hold closes on `Say go and I apply.`
+  `apply`; the users agent line adds `DO_USERS_NOTE` only when the Say is that closing, `isDoUsersSay`). Linked only:
+  signed out it closes on `USERS_UNLINKED` (the sign-in that checks users, with its link), and find's `APPLY_OFFER` and
+  `TAIL_OFFER` read `..., then apply` so an unconfirmed repo strips it (Task 9 fix round 1). Every ready program on hold closes on `Say go and I apply.`
   (`HOLD_CLOSING`). The one ready program whose setup has steps of the builder's own (`ownSteps`: not a thing to have,
   not in person) closes on them, and its row leaves them out: `{Step} first, then say yes and I apply.` (named `to
   {title}` when other blocks are listed; the one-program reply too). `SAY_SENTENCE` and find's `APPLY_OFFER` read that
@@ -1421,8 +1423,8 @@ means what the last `Say` offered.
   guide.rules); over its cap it cuts long field sources, the program file's copy of the form (keeping `todo`/`need`),
   sources, descriptions, then the guide's form, and names the guide page.
 - GitHub reads (`github.ts`): one 20 s budget for the whole read (`readBudget`, `READ_BUDGET_MS`); the first commit runs
-  beside the tree and its raw files; past it, `GitHubSlow`, and find says "GitHub was slow; matched on what you told me.
-  I read it again next time." (note `slow`). In `repo-facts.ts` a 404 or private answer is kept in `repo_cache` as
+  beside the tree and its raw files; past it, `GitHubSlow`, and find says "GitHub was slow, so this is from what you told me.
+  I read it again next time." (note `slow`; v6.1.18 L38-7). In `repo-facts.ts` a 404 or private answer is kept in `repo_cache` as
   `{ miss }` for 30 minutes (`MISS_KEEP_MS`), a slow one for 10 (`SLOW_KEEP_MS`), answered with no call and no count;
   a fresh miss or slow read gives the day's real read back and counts on `repoMiss` (20 a day per installation,
   controller ruling), over which the reply is the paused line.

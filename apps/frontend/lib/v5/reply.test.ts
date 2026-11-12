@@ -1723,8 +1723,13 @@ test('L38-3 (v6.1.18): the users answer and EarnKit\'s change in one yes close a
   // A rule of a program with a stated amount keeps its yes.
   const stated = { ...fund, money: '$10K', max_award_usd: 10000 };
   assert.equal(replyText(base({ linked: true, gaps: [grant, stated] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 2" if that rule fits you and I draft Base Ecosystem Fund.');
-  // The agent hears what the yes covers.
-  assert.match(agentNote(base({ linked: true, gaps: [grant, fund] }), { more: 0 }), /When the closing offers a change with the users question, a yes is both: make that change, push, call track with gap_done and the gap's item, then call find again with users: true\./);
+  // The agent hears what the yes covers, only when the closing is that Say (fix round 1, M3).
+  const linkedSay = replyParts(base({ linked: true, gaps: [grant, fund] }), true).say;
+  assert.match(agentNote(base({ linked: true, gaps: [grant, fund] }), { more: 0, say: linkedSay }), /When the closing offers a change with the users question, a yes is both: make that change, push, call track with gap_done and the gap's item, then call find again with users: true\./);
+  assert.doesNotMatch(agentNote(base({ linked: true, gaps: [grant, stated] }), { more: 0, say: replyParts(base({ linked: true, gaps: [grant, stated] }), true).say }), /When the closing offers a change/);
+  // Fix round 1 (I1): signed out, no apply is promised: the users question asks for the sign-in, with its link.
+  assert.equal(replyText(base({ gaps: [grant, fund] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.');
+  assert.equal(replyText(base({ gaps: [grant, fund], sign_in: 'https://earnkit.com/link/x' }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes, sign in once at https://earnkit.com/link/x, and I check.');
 });
 
 test('L38-4 (v6.1.18): the users gap reads "real users"; the closing keeps "Do real people use it?"', () => {

@@ -93,7 +93,7 @@ The template's catalog is synced at the tests' clock (2026-11-04), so a program 
 - **L27-5** passes when the home page's og:image names a 1200x630 PNG whose bytes differ from dafd2ade's; the path is
   fetched from the target, never from earnkit.com.
 - **L23-2** uses a fresh program id per run; a cached guide can still answer for up to 10 minutes (use `l23-2-wait.mts`).
-- **L24-2** first checks the one-program users text (`... : tell me if real people use it.`), then the yes.
+- **L24-2** first checks the one-program users text (`...: real users.`, v6.1.18 L38-4), then the yes.
 
 ## History
 
