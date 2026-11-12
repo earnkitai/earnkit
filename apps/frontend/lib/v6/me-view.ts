@@ -210,6 +210,22 @@ function blocksOf(record: BuilderRecord): MeData['blocks'] {
 }
 
 
+/** An answer's path on /me: `answers.{kind}` or `projects.{id}.answers.{kind}`. Pure. */
+export const isAnswerPath = (path: string): boolean => /^(?:projects\.[a-z0-9]+(?:-[a-z0-9]+)*\.)?answers\.[a-z_]+$/.test(path);
+
+/**
+ * An answer collapsed to its first line (L35-24, v6.1.17 Task 4): the first line with text, cut at a word to `max`
+ * characters (code points) with an ellipsis. Pure.
+ */
+export function firstLineOf(text: string, max = 60): string {
+  const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const chars = Array.from(line);
+  if (chars.length <= max) return line;
+  const cut = chars.slice(0, max).join('');
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}\u2026`;
+}
+
 /** Approvable paths holding a value the builder has not approved, with the text they would approve. Pure. */
 export function pendingApprovals(record: BuilderRecord): MeData['pending_approvals'] {
   const out: MeData['pending_approvals'] = [];

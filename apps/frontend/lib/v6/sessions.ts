@@ -5,7 +5,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sql } from '../v5/db';
 import { getBuilder, type Builder } from './builders';
 
-/** The session cookie's old name, read for one release (drop in v6.1.17) so signed-in builders stay signed in. */
+/**
+ * The session cookie's old name, read for one more release (v6.1.17 Task 4: never promoted; ignored from v6.1.18), so a
+ * builder signed in under it stays signed in until that session ends or a /me write asks for a new sign-in.
+ */
 export const OLD_COOKIE = 'ek_me';
 /**
  * The session cookie's name (L31-6, v6.1.16 Task 17): `__Host-ek_me` in production, so the browser takes it only with
@@ -34,14 +37,13 @@ export const sessionToken = (cookieHeader: string | null): string | null =>
 const tokenOf = sessionToken;
 
 /**
- * L31-6 (v6.1.16 Task 17): for a request carrying the session only under the old name, the Set-Cookie values that
- * move it to the new one (the same token, a fresh Max-Age) and clear the old; none otherwise. Pure.
+ * Whether the request's session token is held under the current name (v6.1.17 Task 4, L35-17). The old `ek_me` is
+ * still read for this release but never promoted into `__Host-ek_me` (a planted old-name cookie would be minted into
+ * the new one for 30 days): a page reads it, a /me write asks for a new sign-in. On local http the two names are one.
+ * Pure.
  */
-export function renewedCookies(cookieHeader: string | null): string[] {
-  if (cookieName() === OLD_COOKIE || cookieValue(cookieHeader, cookieName())) return [];
-  const old = cookieValue(cookieHeader, OLD_COOKIE);
-  return old ? [cookieOf(cookieName(), old, SESSION_DAYS * 86_400), cookieOf(OLD_COOKIE, '', 0)] : [];
-}
+export const currentName = (cookieHeader: string | null): boolean =>
+  cookieName() === OLD_COOKIE || cookieValue(cookieHeader, cookieName()) !== null;
 
 export async function createSession(builderId: number, now: Date): Promise<{ token: string; cookie: string }> {
   const token = randomBytes(32).toString('base64url');
@@ -57,6 +59,17 @@ export async function sessionBuilder(cookieHeader: string | null, now: Date): Pr
   const [r] = await sql()<{ builder_id: number }[]>`
     UPDATE sessions SET last_seen_at = ${now} WHERE token_hash = ${hash(token)} AND expires_at > ${now} RETURNING builder_id`;
   return r ? getBuilder(r.builder_id) : null;
+}
+
+/**
+ * Whether the request carries a live session, read only (v6.1.17 Task 4): no last_seen_at write, so the header's
+ * check after every page load costs one indexed read for a visitor with a cookie and none without.
+ */
+export async function hasSession(cookieHeader: string | null, now: Date): Promise<boolean> {
+  const token = tokenOf(cookieHeader);
+  if (!token) return false;
+  const [r] = await sql()<{ one: number }[]>`SELECT 1 AS one FROM sessions WHERE token_hash = ${hash(token)} AND expires_at > ${now}`;
+  return Boolean(r);
 }
 
 /**

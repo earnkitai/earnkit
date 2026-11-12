@@ -21,9 +21,8 @@
 import { NextResponse } from 'next/server';
 import { notAllowed } from './lib/v5/http';
 import { meGet } from './lib/v6/me-routes';
-import { renewedCookies } from './lib/v6/sessions';
 import { publicOrigin } from './lib/v5/oauth';
-import { listGuideIds } from './lib/v5/guide-page';
+import { definiteGuideIds } from './lib/v5/guide-page';
 import { allowOf, serves } from './lib/v5/route-methods';
 
 /** The methods a route handler can be asked for; any other never reaches one. */
@@ -45,12 +44,18 @@ const NOT_A_PAGE = /^\/(?:_next\/|api\/|\.well-known\/|mcp(?:\/|$)|oauth\/|link\
 
 /** A path no route serves: a rewrite to it renders the site's 404 page with status 404. */
 export const NOT_A_ROUTE = '/_ek/not-found';
+/**
+ * The page a guide path is rewritten to when the guide ids could not be read (N3, v6.1.17 Task 4): the guide route is
+ * ISR, where a failed render is an empty shell without JavaScript, so the proxy sends the request to this per-request
+ * page (the unavailable panel, never cached, never a 404); the next request reads again.
+ */
+export const GUIDE_DOWN = '/guide-unavailable';
 /** A guide path: never a logo file (`/programs/<id>.svg` has a dot). */
 const GUIDE = /^\/programs\/([^/.]+)$/;
 
 /**
- * The rewrite for a guide path whose id `ids` does not hold (NOT_A_ROUTE on the request's origin), else null: any other
- * path, a listed id, or a failed read (the page then answers as it does today).
+ * The rewrite for a guide path whose id `ids` does not hold (NOT_A_ROUTE on the request's origin), or GUIDE_DOWN when
+ * the read failed; else null: any other path or a listed id.
  */
 export async function guideGate(url: URL, ids: () => Promise<ReadonlySet<string>>): Promise<URL | null> {
   const m = GUIDE.exec(url.pathname);
@@ -59,18 +64,27 @@ export async function guideGate(url: URL, ids: () => Promise<ReadonlySet<string>
   try {
     known = await ids();
   } catch {
-    return null;
+    return new URL(GUIDE_DOWN, url);
   }
   return known.has(m[1]) ? null : new URL(NOT_A_ROUTE, url);
 }
 
-/** The listed guide ids, read at most once a minute per process (a new program shows within a minute). */
-let guideCache: { at: number; ids: ReadonlySet<string> } | null = null;
-async function guideIds(): Promise<ReadonlySet<string>> {
-  if (guideCache && Date.now() - guideCache.at < 60_000) return guideCache.ids;
-  guideCache = { at: Date.now(), ids: new Set(await listGuideIds()) };
-  return guideCache.ids;
+/**
+ * A read kept for `ttl` ms after it succeeds (N3, v6.1.17 Task 4): a failed read (an empty id list throws, see
+ * definiteGuideIds) keeps nothing and throws, so the gate sends that request to GUIDE_DOWN and the next one reads again.
+ */
+export function okFor<T>(read: () => Promise<T>, ttl: number, clock: () => number = Date.now): () => Promise<T> {
+  let kept: { at: number; value: T } | null = null;
+  return async () => {
+    if (kept && clock() - kept.at < ttl) return kept.value;
+    const value = await read();
+    kept = { at: clock(), value };
+    return value;
+  };
 }
+
+/** The listed guide ids, read at most once a minute per process (a new program shows within a minute). */
+const guideIds = okFor(async (): Promise<ReadonlySet<string>> => new Set(await definiteGuideIds()), 60_000);
 
 export async function proxy(request: Request) {
   const url = new URL(request.url);
@@ -83,12 +97,8 @@ export async function proxy(request: Request) {
   // Read on the lower-case path, so a capitalised route path (/Me/Edit) keeps its 308 for the methods it serves.
   const allow = allowOf(pathname.toLowerCase());
   if (!serves(allow, request.method)) return notAllowed(allow);
-  if (pathname === '/me') {
-    const res = await meGet(request);
-    // L31-6 (v6.1.16 Task 17): signed in under the old cookie name only, the page's response moves it to the new one.
-    if (res.status !== 302) for (const c of renewedCookies(request.headers.get('cookie'))) res.headers.append('Set-Cookie', c);
-    return res;
-  }
+  // L35-17 (v6.1.17 Task 4): an old-name session is read, never promoted into the new name.
+  if (pathname === '/me') return meGet(request);
   const lower = NOT_A_PAGE.test(pathname) ? null : lowerPath(url);
   if (lower) return new Response(null, { status: 308, headers: { Location: `${publicOrigin(request)}${lower.pathname}${lower.search}` } });
   const gone = await guideGate(url, guideIds);

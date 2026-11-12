@@ -175,12 +175,21 @@ export const ME_DESCRIPTION = 'Your facts, links, documents and answers, kept on
 export const ME_SIGNED_IN = (login: string): string => `Signed in as ${login}.`;
 export const ME_SIGN_OUT = 'Sign out';
 export const ME_SAVE = 'Save';
+/** L35-24 (v6.1.17 Task 4): a collapsed answer's link that opens it on the page, the only one open. */
+export const ME_ANSWER_OPEN = 'Open this answer';
 export const ME_APPROVE = 'Approve';
 export const ME_UNAPPROVE = 'Unapprove';
 export const ME_APPROVED = (day: string): string => `Approved ${day}.`;
 export const ME_BY_AGENT = 'From your agent';
 export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
+/**
+ * L35-24 (v6.1.17 Task 4): Waiting for you counts the answers instead of repeating them; each waits collapsed in its
+ * section with this mark, and opens with its Approve.
+ */
+export const ME_PENDING_ANSWERS = (n: number) => (n === 1 ? '1 answer waits for you below.' : `${n} answers wait for you below.`);
+export const ME_PENDING_FIRST = 'Open the first one';
+export const ME_WAITING = 'Waiting for you.';
 export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
 /** A project the applications name that the record does not hold (L21-12, v6.1.16): read-only, by its repo link or name. */
 export const ME_PROJECT_SEEN = (label: string, n: number): string => `${label}: ${n} ${n === 1 ? 'application' : 'applications'}.`;
