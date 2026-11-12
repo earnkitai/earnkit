@@ -873,11 +873,14 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L1i-3 (v6.1.16.1): one sign-in sentence per reply. When the closing's Say already asks to sign in (the unlinked
   // users question), the link goes into it and the proof line says only what the sign-in lets EarnKit read.
   const asksSignIn = !r.linked && closingOf.text.includes(USERS_UNLINKED);
-  if (asksSignIn && r.sign_in && !r.linked_notice) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
+  // Task 2 (v6.1.16.1, Task 1 leftover): with the unlinked notice too, the closing still carries the link and the
+  // notice keeps only its first sentence, so the reply has one sign-in sentence.
+  if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
+  const notice = asksSignIn && r.sign_in && r.linked_notice ? r.linked_notice.replace(/ Sign in once at \S+ to link it again\.$/, '') : r.linked_notice;
   const signIn = r.linked
     ? null
     : asksSignIn
-      ? (read && r.sign_in && !r.linked_notice ? SIGN_IN_PROOF : null)
+      ? (read && r.sign_in ? SIGN_IN_PROOF : null)
       : r.sign_in
         ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
         : proof ? signInSentence(null, read, true) : null;
@@ -893,7 +896,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const offer = early ? 'apply' : closingOf.offer;
   const saysAny = carriesSay(sayLine);
 
-  const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(signIn ? [signIn] : []), ...(r.linked_notice ? [r.linked_notice] : [])];
+  const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(signIn ? [signIn] : []), ...(notice ? [notice] : [])];
   // L1i-5 (v6.1.16.1): the full view closes on the default view's Say, never on a rule it does not show.
   if (o.all) {
     const say = fullSay(o.defaultSay ?? sayLine);
@@ -958,7 +961,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     // L1i-3 (v6.1.16.1): the reply's one sign-in carries the link (or settles a proof gap), so it stays ahead of the
     // step rows past the first.
     { lines: signIn && saysAny ? [signIn] : [], rank: 7.45 },
-    { lines: r.linked_notice && saysAny ? [r.linked_notice] : [], rank: 10 },
+    { lines: notice && saysAny ? [notice] : [], rank: 10 },
     // The closing's fact sentence when another line keeps the Say ("Nothing is ready yet.").
     { lines: [plain(closingOf.text)].filter((x): x is string => !!x), rank: 15 },
   ];
@@ -969,7 +972,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     ...((free.length > 0 || heldReady.length > 0) && onHold.length > 0 ? readyLines(onHold) : []),
     ...(attendBlock ? [] : inPersonLines),
   ];
-  const tail = saysAny ? [] : [signIn, r.linked_notice].filter((x): x is string => !!x);
+  const tail = saysAny ? [] : [signIn, notice].filter((x): x is string => !!x);
   const { kept, hidden, shown } = fit(slots, DEFAULT_LINES - 1 - tail.length);
   return { text: [...kept, sayLine, ...tail].join('\n'), offer, hidden: [...rest, ...hidden], shown, say: sayLine };
 }
