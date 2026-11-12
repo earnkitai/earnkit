@@ -1118,8 +1118,9 @@ means what the last `Say` offered.
   per line with no blank lines: the ready block (heading and three lines; else the held, on-hold or in-person block), one
   gap line (the one the closing speaks to), the applications, Task 9's lines (not sent, started not sent, since or
   nothing new, the overnight sends, the results question), the Before line, repo notes, sign-in, the linked notice,
-  then the one Say last (`ONE_SAY_ORDER`'s first Say moves to the end); with no Say the closing comes before the
-  sign-in and the notice. What does not fit goes to the agent note under "Not shown to the builder:", one per line.
+  then the one Say last (`ONE_SAY_ORDER`'s first Say moves to the end); v6.1.17 (L1j-6): with no Say the closing still
+  comes last, after the sign-in and the notice, except a bare "Nothing is ready yet." (`NOTHING_READY`), after which the
+  sign-in is the action and follows it. What does not fit goes to the agent note under "Not shown to the builder:", one per line.
   `filter.all` ("say more") is `fullView`: "{n}. {title}, {money}." per program, the repo notes, sign-in and notice,
   then the Say. An unknown `filter.category` and a top-level project key are named in the problems line. The project
   schema advertises a type on every field, `required: ["name"]` and "A project needs a description when it has no
@@ -1146,12 +1147,37 @@ means what the last `Say` offered.
   and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
   closes and in person per line (`openLine`); with `filter.all` it lists every open program, for no project and a
   name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on): when the closing's Say is the unlinked users question, the link
-  goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and the proof line reads `I read
-  your repo for proof once you sign in.` (`SIGN_IN_PROOF`, only when there is a link). `findInputOf` returns an input
+  goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and (v6.1.17, L1j-1) no other line
+  mentions signing in (`SIGN_IN_PROOF` is gone). `findInputOf` returns an input
   error (isError, no builder text, the field named) for an unknown top-level key and a project with no name; an
   unknown category stays a problems line in the agent note, project or not. `closesWords` counts calendar days in the
   program's zone on every surface (reply, tile, guide). `programs:check` also refuses a figure beside "million" or
   "billion" (`MONEY_WORDS`).
+- **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35).** One count line: every ready or step row the
+  default view leaves out (in-person and held rows too, and ready programs past the default caps) is counted once, on
+  `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown, extra)` gives
+  `{ readyShown, readyHidden, stepShown, stepHidden }`; `fit` runs again one line shorter when anything is hidden; the
+  step block has no more line of its own). Ready rows closing within a day go first (`soonFirst`). The yes counts every
+  ready program it covers: find passes `readyAll` (every remote ready program not held or claimed, past the caps), the
+  Ready heading and `all {n} ready` use it, and when rows are hidden the yes reads `Say yes and I apply to all {n} ready
+  ({k} not shown: say more).` (the full list's Say drops the parenthesis; `PAST_LIST_NOTE` tells the agent when the yes
+  covers programs past the JSON). The full view (`fullView(blocks, ...)`) writes the default's block headings with their
+  true counts: `Ready to apply ({n}):`, `Being handled by your other agent ({n}):`, `On hold until you say go ({n}):`,
+  `One step away ({n}):`, `In person ({n}):`. The Before line ranks 5.55 and a linkless notice 5.6, ahead of the step
+  rows past the first (5.7). The sign-in after a repo read names what it checks by the proof gap's bar
+  (`signInSentence(link, read, bar)`, `proofBarOf`): "Sign in once at {link} and I check your users and remember you."
+  The one-program reply puts the sign-in before its action, and an in-person ready program ends `You apply in person;
+  the guide has the steps.` (`IN_PERSON_ONE`). An unknown name with no candidates reads `I do not know a program called
+  "{name}". Say its full name.` (`unknownProgramLine(suggest, name)`, find and track). A same-day repeat reads `Nothing
+  new since your last look.`; a later day keeps the date. A program the not-sent line names gets no started line. With
+  every ready program under "Your yes stands", a do gap is still offered (`..., or "do {n}" and I {verb} first.`). An
+  unknown key inside `project` is a problems line `project.{key} was not read.` (`unknownProjectKeys`, find and track);
+  `unreadNote` (in `reply.ts`, shared by find and track) keeps the outer "Some arguments were not read:" only for items
+  that do not say it themselves. An outside-EarnKit win reads `(won EUR 2,000)` with no date. `record`: a policy set
+  reads `STANDING_YOURS(on)` ("... turn on at earnkit.com/me." when off); `page` without `get` with a kind, and `get`
+  with `brief`, are input errors; a page past the end adds `There are {n} pages of {kind}.` to the agent note. In-person
+  sends carry no `fields_used` note. find's `filter.all` description: every program that fits or nearly fits; for all of
+  them, find with no project. TRACK_DESCRIPTION lists won last, with its amount clause as one sentence.
 - **Says and notes (L29-5, L29-6, L29-17, L29-19, L29-27 to L29-29, L29-31, L29-34).** A yes that needs answers names
   them: "Say yes and tell me {needs}, and I apply to ...". No "Or say the numbers to skip." (the note's "A number skips
   that program: call track skipped with its id."). The rule Say ends "and I get it ready."; unlinked, the users question
