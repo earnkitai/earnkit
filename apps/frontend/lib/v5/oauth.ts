@@ -273,8 +273,11 @@ export type ClientDeps = {
   transport?: Transport;
   timeoutMs?: number;
   now?: () => number;
-  /** Counts one uncached fetch for a document host; throws RateLimitError over the cap (default: cimdFetch). */
-  fetchLimit?: (host: string) => Promise<unknown>;
+  /** Counts one uncached fetch for a document host and the caller's address block; throws RateLimitError over the cap
+   *  (default: cimdFetch, `CIMD_FETCH_KEY`). */
+  fetchLimit?: (host: string, block: string) => Promise<unknown>;
+  /** L35-5 (v6.1.16.1 Task 2): the caller's address block (`blockOf(clientIp)`), the second half of the fetch cap's key. */
+  block?: string;
 };
 
 const CIMD_OK_MS = 60 * 60 * 1000;
@@ -296,13 +299,49 @@ function remember(url: string, entry: CimdEntry) {
   while (cimdCache.size > CIMD_CACHE_MAX) cimdCache.delete(cimdCache.keys().next().value as string);
 }
 
+/** L35-5 (v6.1.16.1 Task 2): the window the uncached-fetch cap counts in: per document host and caller address block. */
+export const CIMD_FETCH_KEY = (host: string, block: string) => `cimdFetch:${host}:${block}`;
+/** The block a caller with no address is counted under. */
+const NO_BLOCK = 'none';
+
 /**
  * Fetches of document URLs with no cache entry, per document host an hour (fix rounds 1 and 2): nobody can use the
  * authorize page to make EarnKit hammer a public site (a query string per request misses the cache). A refetch of a
  * URL already in the cache never counts, so cache-busting URLs can never stop a vendor's own document being read. Over
- * it: no fetch, the failure page, nothing cached.
+ * it: no fetch, the failure page, nothing cached. L35-5 (v6.1.16.1 Task 2): per host and caller address block, so one
+ * network's cache-busting never stops anyone else's sign-in through that host.
  */
-const cimdFetchLimit = (host: string) => enforce('cimdFetch', host, 'Too many client document reads for this host.');
+const cimdFetchLimit = (host: string, block: string) => enforce('cimdFetch', `${host}:${block}`, 'Too many client document reads for this host.');
+
+/** L35-5: the stored good copy of a document URL (its document and when it was read), or null; never a failure. */
+async function storedDocument(url: string): Promise<{ doc: unknown; at: number } | null> {
+  try {
+    const [r] = await sql()<{ document: unknown; fetched_at: Date }[]>`SELECT document, fetched_at FROM cimd_documents WHERE url = ${url}`;
+    return r ? { doc: r.document, at: r.fetched_at.getTime() } : null;
+  } catch {
+    return null;
+  }
+}
+/** L35-5: keeps a document read good (upsert), or drops a withdrawn one; a store failure never fails the sign-in. */
+async function storeDocument(url: string, doc: unknown, at: number): Promise<void> {
+  try {
+    await sql()`INSERT INTO cimd_documents (url, document, fetched_at) VALUES (${url}, ${sql().json(doc as never)}, ${new Date(at)})
+      ON CONFLICT (url) DO UPDATE SET document = EXCLUDED.document, fetched_at = EXCLUDED.fetched_at`;
+    // A copy past the 6 hours is never served, so it goes: the table holds at most the last 6 hours of good reads.
+    await sql()`DELETE FROM cimd_documents WHERE fetched_at < ${new Date(at - CIMD_STALE_MS)}`;
+  } catch (err) {
+    console.warn('[oauth] client document not stored', err instanceof Error ? err.message : String(err));
+  }
+}
+async function dropDocument(url: string): Promise<void> {
+  try {
+    await sql()`DELETE FROM cimd_documents WHERE url = ${url}`;
+  } catch {
+    // The in-process failure entry already refuses it for 5 minutes.
+  }
+}
+/** Empties the stored documents (tests only). */
+export const clearCimdStore = () => sql()`DELETE FROM cimd_documents`;
 
 /** A fetched document's client, or null when any check fails. Pure. */
 function cimdPayload(url: string, doc: unknown): ClientPayload | null {
@@ -328,6 +367,13 @@ function cimdPayload(url: string, doc: unknown): ClientPayload | null {
  */
 export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<ClientPayload> {
   const now = (deps.now ?? Date.now)();
+  // L35-5 (v6.1.16.1 Task 2): with no entry in this process, the copy another process (or this one before a restart)
+  // read good is the entry, checked again as a fetched one is.
+  if (!cimdCache.has(url)) {
+    const kept = await storedDocument(url);
+    const client = kept && now - kept.at < CIMD_STALE_MS ? cimdPayload(url, kept.doc) : null;
+    if (client) remember(url, { at: kept!.at, ok: client });
+  }
   const hit = cimdCache.get(url);
   const good = hit && 'ok' in hit && now - hit.at < CIMD_STALE_MS ? hit : null;
   if (good && (now - good.at < CIMD_OK_MS || (good.failedAt !== undefined && now - good.failedAt < CIMD_FAILED_MS))) return good.ok;
@@ -337,7 +383,7 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   // with a failed entry counts again, so failed cache-busting URLs cannot be refetched for free every 5 minutes.
   if (!good) {
     try {
-      await (deps.fetchLimit ?? cimdFetchLimit)(new URL(url).host);
+      await (deps.fetchLimit ?? cimdFetchLimit)(new URL(url).host, deps.block ?? NO_BLOCK);
     } catch (err) {
       if (!(err instanceof RateLimitError)) throw err;
       // Over the cap: no fetch, and nothing cached (a cap is not the document's fault).
@@ -354,15 +400,18 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
       return good.ok;
     }
     remember(url, { at: now, failed: true });
+    if (good) await dropDocument(url);
     throw refused();
   }
   const client = cimdPayload(url, doc);
   if (!client) {
     // The vendor's document now fails a check: it replaces any good copy.
     remember(url, { at: now, failed: true });
+    if (good) await dropDocument(url);
     throw refused();
   }
   remember(url, { at: now, ok: client });
+  await storeDocument(url, doc, now);
   return client;
 }
 

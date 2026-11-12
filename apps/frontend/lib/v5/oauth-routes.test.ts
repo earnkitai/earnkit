@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { RateLimitError } from './rate-limit';
-import { clearCimdCache, registerClient, registrationLimitKey, type ClientDeps } from './oauth';
+import { CIMD_FETCH_KEY, cimdClient, clearCimdCache, clearCimdStore, registerClient, registrationLimitKey, type ClientDeps } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { connectInstallation } from './installations';
 import { type CimdResponse, cimdFixture } from './fixtures/cimd';
@@ -12,8 +12,13 @@ import { type CimdResponse, cimdFixture } from './fixtures/cimd';
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
 process.env.EARNKIT_URL = 'https://earnkit.test';
 after(() => sql().end());
-beforeEach(async () => {
+/** L35-5 (v6.1.16.1 Task 2): a new process with no stored documents either: the cache in memory and in the database. */
+const clearAll = async () => {
   clearCimdCache();
+  await clearCimdStore();
+};
+beforeEach(async () => {
+  await clearAll();
   await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch:%'`;
 });
 
@@ -84,7 +89,7 @@ test('every failed document check gives the one failure page and no code (Review
     ['a 404', { status: 404, body: doc() }],
   ];
   for (const [what, response] of cases) {
-    clearCimdCache();
+    await clearAll();
     const f = cimdFixture(response);
     await assertFailed(await authorize(DOC_URL, f), what);
     assert.equal(f.requests.length, 1, `${what}: one request, never a second`);
@@ -95,7 +100,7 @@ test('every failed document check gives the one failure page and no code (Review
 
 test('a document on a private or loopback address is refused before any request (Review Focus 18)', async () => {
   for (const address of ['10.0.0.5', '127.0.0.1', '169.254.169.254', '::1']) {
-    clearCimdCache();
+    await clearAll();
     const f = cimdFixture({ body: doc() }, address);
     await assertFailed(await authorize(DOC_URL, f), address);
     assert.equal(f.requests.length, 0, address);
@@ -140,7 +145,7 @@ test('cache: a failure is kept 5 minutes, a good document 1 hour', async () => {
   await assertFailed(await authorize(DOC_URL, { ...bad, now }), 'after 5 minutes');
   assert.equal(bad.requests.length, 2);
 
-  clearCimdCache();
+  await clearAll();
   const good = cimdFixture({ body: doc() });
   assert.equal((await authorize(DOC_URL, { ...good, now })).status, 302);
   at += 60 * 60 * 1000 - 1;
@@ -158,8 +163,12 @@ test('cache: at most 1,000 documents, oldest dropped first', async () => {
   assert.equal(f.requests.length, 1_001);
   await authorize(urls[1_000], f);
   assert.equal(f.requests.length, 1_001, 'the newest is kept');
+  // L35-5 (v6.1.16.1 Task 2): the oldest left memory; its stored good copy serves it with no fetch.
   await authorize(urls[0], f);
-  assert.equal(f.requests.length, 1_002, 'the oldest was dropped');
+  assert.equal(f.requests.length, 1_001, 'the oldest is read from the store');
+  await clearAll();
+  await authorize(urls[0], f);
+  assert.equal(f.requests.length, 1_002, 'with no stored copy, it is fetched');
 });
 
 test('a signed (registered) client_id still authorizes and exchanges unchanged, with no fetch', async () => {
@@ -213,7 +222,8 @@ test('fix round 1, M1: at most 30 uncached document fetches per host an hour; ov
   assert.equal((await authorize(`${DOC_URL}?n=0`, f)).status, 302);
   assert.equal((await authorize('https://other-host.example/cimd.json', f)).status, 302);
   assert.equal(f.requests.length, 31);
-  const [row] = await sql()`SELECT count FROM rate_windows WHERE key = 'cimdFetch:client.example'`;
+  // L35-5 (v6.1.16.1 Task 2): counted per host and the caller's address block ('unknown' here: the request has no address).
+  const [row] = await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_FETCH_KEY('client.example', 'unknown')}`;
   assert.equal(row.count, 31);
   // Cache-busting URLs that spent the cap never stop a cached document being refetched (fix round 2).
   const at = Date.now() + 2 * 60 * 60 * 1000;
@@ -284,7 +294,7 @@ test('fix round 2: the last good document is kept up to 6 hours on transport err
     ['a failed check (EarnKit as the name)', { body: doc({ client_name: 'EarnKit' }) }],
   ];
   for (const [what, response] of withdrawals) {
-    clearCimdCache();
+    await clearAll();
     answer = { body: doc() };
     assert.equal((await authorize(DOC_URL, f)).status, 302, what);
     answer = response;
@@ -303,11 +313,42 @@ test('fix round 2: the last good document is kept up to 6 hours on transport err
     assert.equal((await authorize(DOC_URL, f)).status, 302, `${what}: refetched`);
   }
   // A valid document with a new redirect list replaces the old one: the dropped callback is refused at once.
-  clearCimdCache();
+  await clearAll();
   answer = { body: doc() };
   assert.equal((await authorize(DOC_URL, f)).status, 302);
   answer = { body: doc({ redirect_uris: ['https://elsewhere.example/cb'] }) };
   at += 60 * 60 * 1000 + 1;
   await assertFailed(await authorize(DOC_URL, f), 'callback withdrawn');
   assert.equal((await authorize(DOC_URL, f, 'https://elsewhere.example/cb')).status, 302);
+});
+
+test('L35-5 (v6.1.16.1 Task 2, Review Focus 9): 31 cache-busting reads from one block never stop the vendor\'s document for another block; a fresh process serves a stored good document with no fetch', async () => {
+  const VENDOR = 'https://l35-vendor.test/client.json';
+  const f = cimdFixture((u) => ({ body: doc({}, u.href) }));
+  const from = (block: string): ClientDeps => ({ ...f, block });
+  for (let n = 0; n <= 30; n++) {
+    try {
+      await cimdClient(`${VENDOR}?bust=${n}`, from('10.35.0.0/16'));
+    } catch {
+      // The 31st is over block A's cap.
+    }
+  }
+  assert.equal(f.requests.length, 30);
+  const [a] = await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_FETCH_KEY('l35-vendor.test', '10.35.0.0/16')}`;
+  assert.equal(a.count, 31);
+  // The vendor's real document, read from another block, goes through.
+  assert.deepEqual((await cimdClient(VENDOR, from('10.36.0.0/16'))).r, [CALLBACK]);
+  assert.equal(f.requests.length, 31);
+  // Through the authorize page too, the caller's block is the key.
+  const viaPage = await authorizeGet(new Request(`https://earnkit.test/oauth/authorize?${new URLSearchParams({
+    response_type: 'code', client_id: `${VENDOR}?bust=page`, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256',
+  })}`, { headers: { 'x-forwarded-for': '10.37.1.2' } }), { limit: noLimit, client: f });
+  assert.equal(viaPage.status, 302);
+  assert.equal((await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_FETCH_KEY('l35-vendor.test', '10.37.0.0/16')}`)[0].count, 1);
+  // A fresh process (no cache in memory) serves the stored good copy with no fetch and no count, from block A too.
+  clearCimdCache();
+  const before = f.requests.length;
+  assert.deepEqual((await cimdClient(VENDOR, from('10.35.0.0/16'))).r, [CALLBACK]);
+  assert.equal(f.requests.length, before);
+  assert.equal((await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_FETCH_KEY('l35-vendor.test', '10.35.0.0/16')}`)[0].count, 31);
 });
