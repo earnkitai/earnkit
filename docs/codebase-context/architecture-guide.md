@@ -1068,6 +1068,16 @@ not keep, and every open or closed decision is read from the clock at request ti
   program another agent holds says `Another agent of yours started this one on {date}.` in place of the yes. A send
   (`applied`) over another agent's live claim is recorded and clears the claim (`other_claim`, agent note
   `OTHER_CLAIM_NOTE`); B3 refuses only claims and skips.
+- **Did you send it (v6.1.18 Task 4, L18-4, L36-1, L36-2).** For a program the builder submits themselves
+  (`submit: 'builder'`), `askSent` (ledger.ts) lists every unheld `started` row at least `SENT_ASK_AFTER_HOURS` (1) old;
+  `sentAsksDue` (table `sent_asks`, one row per installation and program) asks each once per installation every
+  `SENT_ASK_EVERY_DAYS` (7): `Did you send {title}? Say sent and I note it.` (`ask_sent`, `sentLines`, ONE_SAY_ORDER
+  after the started lines). While the ask is open the program is left out of the list (never offered as a draft
+  again). `releaseStale` never deletes such a claim: it comes back with `ask: true`, said only when its ask is due, as
+  `{title}: started {date}; did you send it? Say sent and I note it.`. The agent note: `"sent" is track applied with
+  submitted_by builder; "not yet" needs no call.` Prefill: a how-you-heard field (`heardFrom`) says `EarnKit
+  (earnkit.com)`, or picks the referral (else other) option with the other-box `note`; partner, alumni and
+  more-than-the-source fields are left as they are.
 - **Results.** `askOutcome` lists every applied row past its results date with no result on every find;
   `outcomeAsksDue` (table `outcome_asks`, one row per installation and program) shows the builder line `Results for
   {title} were due {date}. Did you hear back?` once a day per installation. `asked_outcome_at` is kept for the record
@@ -1076,7 +1086,7 @@ not keep, and every open or closed decision is read from the clock at request ti
   closing soon. A closed program the builder sent reads `Closed. You applied {date}; results {date | not announced}.`.
 - **Nothing new.** `installations.last_list_hash` / `last_list_at` (sha256 of the shown ids); the same list with no
   since line starts `Nothing new since {date}.`.
-- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the record sign-in line, the
+- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the sent questions (v6.1.18), the record sign-in line, the
   closing; only the first that carries a `Say` keeps it (`oneSay`, `withoutSay`). A gap line's own `Say "do n"` is
   Task 11's to fold. Record get unlinked with no link: `Sign in once and I remember you.` (`REMEMBER_YOU`).
 - **Sweeps.** `sweepReports` deletes only cached evidence past `REPORT_DAYS` (repo_cache, evidence_cache), never
