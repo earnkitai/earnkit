@@ -768,14 +768,15 @@ export const APPLICATIONS_SHOWN = 5;
 
 /**
  * L29-1 (v6.1.16 Task 15): "Your applications: PayPal AI Hackathon (sent Nov 3, waiting), Thiel Fellowship (sent Oct 30,
- * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)"; a win sent outside EarnKit
+ * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(on hold, say go to send)"; a win sent outside EarnKit
  * has no send date: "(won EUR 2,000)" (v6.1.16 Task 15 N4, v6.1.17). Null when there are none. Pure.
  */
 export function applicationsLine(apps: ApplicationItem[], now: Date): string | null {
   if (apps.length === 0) return null;
   const words = (a: ApplicationItem): string => {
     const day = a.sent_at ? dayWords(new Date(a.sent_at), now) : null;
-    if (a.status === 'held') return 'held';
+    // L38-26 (v6.1.18): the row says how to lift the hold, never a Say sentence of its own.
+    if (a.status === 'held') return 'on hold, say go to send';
     const result = a.status === 'won' ? (a.amount ? `won ${a.amount}` : `won, ${AMOUNT_NOT_GIVEN}`) : a.status === 'no_result' ? 'no result' : a.status;
     // v6.1.16 Task 15 N4 (v6.1.17): with no send date (a send outside EarnKit), the result alone.
     return day ? `sent ${day}, ${result}` : result;

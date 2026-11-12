@@ -14,11 +14,12 @@ export function listWords(items: string[], max = 3): string {
   return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
 }
 
-const CONFIRM: Record<'used' | 'live' | 'building', string> = { used: 'real people use it', live: 'your product is live', building: 'your project has code' };
+/** L38-4 (v6.1.18): the users bar reads "real users", the one wording of the users gap. */
+const CONFIRM: Record<'used' | 'live' | 'building', string> = { used: 'of real users', live: 'that your product is live', building: 'that your project has code' };
 
 /** Unlinked, a program whose tier bar the repo read alone does not clear: what is missing, naming the bar (R3b). It is
  *  one of the program's gaps; the sign-in that settles it is asked once, in the reply's closing (v6.1.14). Pure. */
-export const confirmLine = (min: 'used' | 'live' | 'building') => `proof that ${CONFIRM[min]}.`;
+export const confirmLine = (min: 'used' | 'live' | 'building') => `proof ${CONFIRM[min]}.`;
 
 /** Linked, with no tier of the builder's own yet (a private repo, a failed read, the 24-hour window): the bar's line,
  *  since the builder has already signed in (v6.1.8 final fix, I2). Pure. */

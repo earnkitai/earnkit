@@ -58,7 +58,7 @@ const CLOSINGS = [
   /[^\n]+ is over your limit\. Say yes and I apply\.$/,
   /Say yes and I draft all \d+ for you to send\.$/,
   /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I get it ready\.| Say "do \d+" and I [^\n]+\.)?$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I draft [^\n]+\.| Say "do \d+" and I [^\n]+\.)?$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. Ask again any time and I show what is new\.$/,
@@ -109,9 +109,9 @@ test('first find has no since', async () => {
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
       "One step away (3):",
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
-      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
-      "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
-      "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and real users.",
+      "3. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
+      "4. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
       // L1j-3 (v6.1.17): the in-person rows left out are counted. L18-1 (v6.1.18): with the rows the rank cap left out.
       'And 32 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
@@ -258,7 +258,7 @@ test('find with program_id: the fields and the verdict; no link and no rules lis
   assert.equal((reply.program as { submission_url: string }).submission_url, 'https://alliance.xyz/apply');
   assert.ok(reply.verdict);
   // In person and ready: the in-person line of the list without its number; L1j-7 (v6.1.17): then its one action.
-  assert.equal(reply.show_to_builder, "Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.\nYou apply in person; the guide has the steps.");
+  assert.equal(reply.show_to_builder, "Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.\nYou apply in person; the guide has the steps.");
   const bare = await mcpCall(ctx(id), 'find', { program_id: 'alliance-all19' });
   assert.ok((bare.reply!.fields as { value: unknown }[]).every((f) => f.value === null));
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
@@ -274,7 +274,7 @@ test('find with program_id for YC: in person, the line says what attending takes
   const r = await mcpCall(ctx(id), 'find', { program_id: 'y-combinator', project: PROJECT });
   assert.equal(r.isError, false, r.text);
   // L1j-7 (v6.1.17): one closing action.
-  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.\nYou apply in person; the guide has the steps.');
+  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.\nYou apply in person; the guide has the steps.');
 });
 
 test('find with program_id and no project: the money, the rules list, no link and no draft offer; the agent is told to pass the project (v6.1.8, 1b)', async () => {
@@ -300,7 +300,7 @@ test('#12, L1g-4 (v6.1.15): the reply reads the money lowercase mid-sentence; EU
   assert.equal(await first('sovereign-tech-fund'), 'Sovereign Tech Fund, funds work from EUR 50,000, rolling.');
   assert.match(await first('lido-lego-grants'), /^LEGO: Lido Ecosystem Grants Organization, up to \$100,000 by tier, more by DAO vote, /);
   assert.equal(await first('base-builder-grants'), 'Base Builder Grant Program, up to $5,000, rolling.');
-  assert.match(await first('uniswap-foundation-open-grants'), /^Uniswap Foundation Open Grants, amount not stated, set by milestone budget, /);
+  assert.match(await first('uniswap-foundation-open-grants'), /^Uniswap Foundation Open Grants, set by milestone budget, /);
 });
 
 const dash1b = replayFetch('nextjs-dashboard');
@@ -340,7 +340,7 @@ test('1b (v6.1.8): Solana Foundation Grants for a Solana dapp names the one rule
   assert.equal(
     r.reply!.show_to_builder,
     [
-      'Solana Foundation Grants, milestone grants, amount not stated. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.',
+      'Solana Foundation Grants, milestone grants. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.',
       'Say yes if that is you and I draft it.',
     ].join('\n'),
   );
@@ -353,14 +353,14 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   // L16-8 (v6.1.16): a live site alone never clears FLOSS/fund's code step, so the CLI names its repo (not read here).
   const SITE = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
   const site = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: SITE });
-  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a public repo and tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Tell me when the code is in a public repo and I look again.'].join('\n'));
+  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a public repo and real users. First: publish a funding manifest on your site or repo.', 'Tell me when the code is in a public repo and I look again.'].join('\n'));
   const CLI = { ...SITE, repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const ask = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Say yes if they do and I draft it.'].join('\n'));
+  assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.', 'Say yes if they do and I draft it.'].join('\n'));
   const yes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...CLI, users: true } });
   // F3 fix round 1 (v6.1.10): the users yes stands only for a fully ready program; FLOSS still needs its manifest link.
   assert.equal((yes.reply!.verdict as { status: string }).status, 'ready');
-  assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
+  assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
   // With no live link and the repo not read, nothing EarnKit can see exists (B20c, v6.1.9): not a fit, even on a yes.
   const { live_url: _l, repo_url: _r, ...bare } = CLI;
   const bareYes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...bare, users: true } });
@@ -377,7 +377,7 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   const live = { ...CLI, live_url: 'https://ripgrep.dev', repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const gap = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: live });
   // F2 (fix round 1, v6.1.14): no link in this context and nothing read: the sign-in is the one action, without a link.
-  assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof that real people use it. First: publish a funding manifest on your site or repo.', 'Sign in once and I remember you.'].join('\n'));
+  assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof of real users. First: publish a funding manifest on your site or repo.', 'Sign in once and I remember you.'].join('\n'));
   // Linked, with the used tier stored: ready, the list's ready line and the one yes.
   const { getRecord, saveRecord } = await import('../v6/builders');
   // L28-3 (v6.1.16 Task 14): signed in as the repo's owner.
@@ -392,8 +392,9 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   assert.equal((r.reply!.verdict as { status: string }).status, 'ready', JSON.stringify(r.reply!.verdict));
   const lines = (r.reply!.show_to_builder as string).split('\n');
   assert.equal(lines.length, 2, r.reply!.show_to_builder as string);
-  assert.equal(lines[0], 'FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.');
-  assert.equal(lines[1], 'Say yes and I apply to FLOSS/fund.');
+  assert.equal(lines[0], 'FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.');
+  // L38-30 (v6.1.18): the builder's own setup step comes first, in the closing.
+  assert.equal(lines[1], 'Publish a funding manifest on your site or repo first, then say yes and I apply.');
 });
 
 test('find with program_id: a closed program is closed, an upcoming one not open yet; neither offers a draft', async () => {
@@ -447,11 +448,11 @@ test('I1 (v6.1.15 fix round 1): a public GitLab repo with users is the builder\'
   const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project });
   const show = r.reply!.show_to_builder as string;
   assert.notEqual((r.reply!.verdict as { status: string }).status, 'no', show);
-  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
+  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Sign in once and I check the repo is yours; then say yes.'].join('\n'));
   // The project reply: the host said once, and nothing says the code is missing.
   const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
   const text = listText(all.reply!);
-  assert.equal(text.match(/I read GitHub repos only; matched on what you told me\./g)?.length, 1, text);
+  assert.equal(text.match(/I read GitHub repos only, so this is from what you told me\./g)?.length, 1, text);
   assert.ok(!/needs code in a repo|I could not read the repo|code in a repo\./.test(text), text);
   assert.ok(!(all.reply!.not_fit as { reason: string }[]).some((n) => n.reason === 'needs code in a repo or a live link'));
 });
@@ -851,7 +852,7 @@ test('unlinked: each bar names itself in the gap line (R3b)', async () => {
   const ready = { program_id: 'f', status: 'ready' as const, gaps: [], reason: null, long_shot: null, rules: [] };
   const line = (min: 'used' | 'live' | 'building', tier: 'building' | 'unverified' | 'live') =>
     provisionalGate(ready, { id: 'f', file: programFixture({ id: 'f', min_tier: min }) } as never, tier, { onchain: true, linked: false }).gaps[0]?.what;
-  assert.equal(line('used', 'live'), 'proof that real people use it');
+  assert.equal(line('used', 'live'), 'proof of real users');
   assert.equal(line('live', 'building'), 'proof that your product is live');
   assert.equal(line('building', 'unverified'), 'proof that your project has code');
 });
@@ -944,7 +945,9 @@ test('B20 (v6.1.8): an unread repo gets the bar from the report: a live link or 
   // A repo named and not read (private): building, under a live bar.
   const priv = await tierOf({ ...noLink, private: true, chains: [{ chain: 'base', mainnet: true }] });
   assert.deepEqual([priv.ready, priv.gap, priv.no], [false, `tier: ${CONFIRM}`, null]);
-  assert.equal(priv.show.split('Private repo: matched on what you told me.').length, 2, priv.show);
+  // L38-6 (v6.1.18): the shown public repo gap names the private repo, so its note is left out.
+  assert.equal(priv.show.split('The repo is private, so this is from what you told me.').length, 1, priv.show);
+  assert.match(priv.show, /: a public repo/, priv.show);
   // A live link reported is a claim (fix round 4): building, the same gap, read or not.
   assert.deepEqual((({ ready, gap, no }) => [ready, gap, no])(await tierOf({ ...PROJECT, private: true, chains: [{ chain: 'base', mainnet: true }] })), [false, `tier: ${CONFIRM}`, null]);
   assert.deepEqual((({ ready, gap, no }) => [ready, gap, no])(await tierOf({ name: 'Site', description: 'A site.', live_url: 'https://c.example.com', chains: [{ chain: 'base', mainnet: true }] })), [false, `tier: ${CONFIRM}`, null]);
@@ -1001,8 +1004,8 @@ test('B20 (v6.1.8): reads paused gives the same answer as the read would, and sa
   // The read (building) and the report (a repo named: building) agree: the same live bar gap.
   const g = (r.reply!.gaps as { program_id: string; gap: { kind: string } }[]).find((x) => x.program_id === 'f-live');
   assert.equal(g?.gap.kind, 'tier');
-  assert.equal(show.split('Repo reads are paused until tomorrow; matched on what you told me.').length, 2, show);
-  assert.doesNotMatch(show, /Private repo/);
+  assert.equal(show.split('Repo reads are paused until tomorrow, so this is from what you told me.').length, 2, show);
+  assert.doesNotMatch(show, /The repo is private/);
   // The agent hears it once too: the paused line, not the as-reported line beside it.
   const note = r.reply!.agent_note as string;
   assert.match(note, /Repo reads are paused for this installation until tomorrow/);
@@ -1192,8 +1195,8 @@ test('a failed own read keeps the stored tier line; a broken link never fails fi
     assert.match(link, /\/link\//);
     assert.match(open.reply!.show_to_builder as string, /^Open now:\n/);
     const openLines = (open.reply!.show_to_builder as string).split('\n');
-    // L1j-6 (v6.1.17 fix round 1 I3): the ask is last, the sign-in sentence before it.
-    assert.equal(openLines.at(-2), `Sign in once at ${link} so I remember you across agents.`);
+    // L38-31 (v6.1.18): no sign-in line with no project; the link stays in the JSON.
+    assert.ok(!openLines.some((l) => l.includes(link)), openLines.join('\n'));
     assert.equal(openLines.at(-1), 'Tell me which project and I match it.');
     assert.ok(openLines.length <= 10, openLines.join('\n'));
     for (const line of openLines.slice(1, -2)) assert.ok(line.endsWith('.'), line);
@@ -1247,11 +1250,11 @@ const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and 
  *  (its file says so), so its line names them for every project; `_noRepo` is kept for the callers. */
 const inPersonBlock = (n: number, _noRepo = false) => [
   'In person (2):',
-  `${n}. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.`,
-  `${n + 1}. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
+  `${n}. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.`,
+  `${n + 1}. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
-const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
+const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.`;
 /** L1c-2 (v6.1.10): with the VR rule unlikely (no keyword named), the rule slot goes to a rule with no keywords.
  *  L1d-2 (v6.1.11): Colosseum's crypto-product rule is unlikely for a project naming no crypto word. */
 /** L1e-2 (v6.1.13): Thiel's age rule names who it is for (student, college), so a project naming none of those never
@@ -1269,12 +1272,12 @@ const FUTO_CODE = (empty = false) => `1. FUTO Microgrants, $1,000 to $5,000: cod
 // to it changes them.
 const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => ['One step away (1):', FUTO_CODE(empty), ...inPersonBlock(2), `And ${more} more in the full list.`, ...notes, codeFirst(empty)].join('\n');
 /** The closing on a rule-only program the reply lists first. */
-const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
+const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft FUTO Microgrants.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
 // L18-2 (v6.1.18): an idea has no repo, so Colosseum's code in a repo comes before the demo video.
-const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
+const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product, new in the sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
-const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I get it ready.';
+const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft Meta VR Start Developer Competition 2026.';
 /** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
 const codeFirst = (empty = false) => `Nothing is ready yet. Tell me when the code is in a${empty ? '' : ' public'} repo and I look again.`;
 // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
@@ -1292,9 +1295,9 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       "1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes Dec 6. Long odds: few prizes for many entries.",
       "One step away (3):",
       // L1i-2 (v6.1.16.1): every step row the budget allows, numbered as shown.
-      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.",
-      "3. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
-      "4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and real users.",
+      "3. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.",
+      "4. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
       // L1j-3 (v6.1.17): the in-person rows left out are counted. L18-1 (v6.1.18): with the rows the rank cap left out.
       'And 32 more in the full list.',
       // L28-8 (v6.1.16 Task 14): the founders count and the time commitment are the builder's team facts to give.
@@ -1318,7 +1321,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(b.reply!.repo_notes, ['unread']);
   assert.equal(
     b.reply!.show_to_builder,
-    [...FUTO_ONLY, ...inPersonBlock(2), 'And 19 more in the full list.', 'I could not read the repo; matched on what you told me.', THAT_RULE_FIRST].join('\n'),
+    [...FUTO_ONLY, ...inPersonBlock(2), 'And 19 more in the full list.', 'I could not read the repo, so this is from what you told me.', THAT_RULE_FIRST].join('\n'),
   );
   // The same repo with reads paused for the day (the daily cap): the repo likely exists, the users question stands.
   const { hit, LIMITS } = await import('./rate-limit');
@@ -1330,7 +1333,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
     paused.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'And 24 more in the full list.', 'Repo reads are paused until tomorrow; matched on what you told me.', USERS_FIRST].join('\n'),
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.', ...inPersonBlock(2), 'And 24 more in the full list.', 'Repo reads are paused until tomorrow, so this is from what you told me.', USERS_FIRST].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
@@ -1369,10 +1372,10 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   const show = d.reply!.show_to_builder as string;
   assert.equal(show, [
     "One step away (1):",
-    "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+    "1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
     "In person (2):",
-    "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-    "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+    "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
+    "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
     // L1j-1 (v6.1.17): the closing carries the sign-in, so no other line mentions it.
     // L18-1 (v6.1.18): the rows the rank cap left out are counted.
     'And 22 more in the full list.',
@@ -1467,11 +1470,12 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   // L18-1 (v6.1.18): each persona's more line counts the rows the rank cap left out.
   const want: [number, string, string[], string, number][] = [
     [8, 'code in a public repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
-    [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), 'Private repo: matched on what you told me.', signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
-    [12, 'the repo is archived', ['One step away (1):', floss('the repo is archived'), ...inPersonBlock(2), signIn(true)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
-    [15, 'code in a repo', ['One step away (1):', FUTO_CODE(true), ...inPersonBlock(2), 'The repo is empty, so I matched on what you told me.', signIn()], codeFirst(true), 17],
+    // L38-6 (v6.1.18): the gap names the private repo, so its note is left out (persona 9); so is the empty one (15).
+    [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2), signIn()], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
+    [12, 'a live repo', ['One step away (1):', floss('a live repo'), ...inPersonBlock(2), signIn(true)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
+    [15, 'code in a repo', ['One step away (1):', FUTO_CODE(true), ...inPersonBlock(2), signIn()], codeFirst(true), 17],
     [30, 'code in a public repo', ['One step away (1):', futo, ...inPersonBlock(2), signIn()], CODE, 19],
-    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], codeFirst(true), 10],
+    [31, 'code in a repo', ['One step away (1):', '1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.', ...inPersonBlock(2), signIn()], codeFirst(true), 10],
   ];
   for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
@@ -1507,10 +1511,10 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
     d.reply!.show_to_builder,
     [
       "One step away (1):",
-      "1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
+      "1. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
       "In person (2):",
-      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
+      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 22 more in the full list.',
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
@@ -1519,7 +1523,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.match(d.reply!.agent_note as string, /^The full list holds \d+ more; show it when the builder asks for all, more or the full list\. Call find with filter\.all for it\.$/m);
   // C1 (final fix, B20b): the users question is the whole step; once said, FLOSS/fund is ready, never the bar.
   const said = await mcpCall(await dashCtx(), 'find', { project: { ...SAAS, users: true } });
-  assert.match(blockOf(said.reply!.show_to_builder as string, 'Ready to apply'), /^1\. FLOSS\/fund, \$10,000 to \$100,000\. /m);
+  assert.match(blockOf(said.reply!.show_to_builder as string, 'Ready to apply'), /^1\. FLOSS\/fund, \$10,000 to \$100,000\.$/m);
   assert.doesNotMatch(said.reply!.show_to_builder as string, /proof that |funded wallets/);
   const all = await mcpCall(await dashCtx(), 'find', { project: SAAS, filter: { all: true } });
   const show = listText(all.reply!);
@@ -1539,9 +1543,9 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
     r.reply!.show_to_builder,
     [
       "Ready to apply (1):",
-      "1. FLOSS/fund, $10,000 to $100,000. First: publish a funding manifest on your site or repo.",
+      "1. FLOSS/fund, $10,000 to $100,000.",
       "One step away (1):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
       // L1j-3 (v6.1.17): YC and Alliance, left out, are counted.
       'And 23 more in the full list.',
       'Sign in once and I check the repo is yours; then say yes.',
@@ -1563,14 +1567,14 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       "One step away (3):",
       "1. FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
       "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. Their rule: a developer tool whose versions are near or past official end of life.",
       "In person (2):",
-      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
+      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): right after the rows.
       'And 21 more in the full list.',
-      "Private repo: matched on what you told me.",
+      // L38-6 (v6.1.18): the public repo gap names it, so the private note is left out.
       "Nothing is ready yet. Tell me when the repo is public and I look again.",
     ].join('\n'),
   );
@@ -1596,14 +1600,14 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   // L29-8 (v6.1.16 Task 15): a claim waits on the rule; the refusal says so and nothing is written.
   const started = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started' });
   assert.equal(started.isError, true, started.text);
-  assert.match(started.reply!.show_to_builder as string, /^Confirm the rule first: a hands-first experience for Meta VR devices, entered by a Meta VR Start member\. Say yes if that is you\.$/);
+  assert.match(started.reply!.show_to_builder as string, /^Confirm the rule first: a hands-first experience for Meta VR devices\. Say yes if that is you\.$/);
   const { claim } = await import('../v6/claims');
   await claim(`i:${c.installationId}`, 'meta-vr-start-competition-2026', `https://github.com/${dash.repo}`.toLowerCase(), c.installationId, NOW);
   // A live claim (another path) pins it: it heads the step list with its demo video and rule.
   const claimed = await mcpCall(c, 'find', { project: VR });
   assert.equal(
     blockOf(claimed.reply!.show_to_builder as string, 'One step away'),
-    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.'].join('\n'),
+    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.'].join('\n'),
   );
   const done = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'gap_done', item: 'demo_video' });
   assert.equal(done.isError, false, done.text);
@@ -1611,7 +1615,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   const show = again.reply!.show_to_builder as string;
   assert.equal(
     blockOf(show, 'One step away'),
-    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.'].join('\n'),
+    ['One step away (1):', '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.'].join('\n'),
   );
   assert.equal(ids(again.reply!.gaps)[0], 'meta-vr-start-competition-2026');
   assert.doesNotMatch(show, /Codegeist/);
@@ -1715,10 +1719,10 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
     show,
     [
       "One step away (1):",
-      "1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.",
+      "1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.",
       "In person (2):",
-      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      "2. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
+      "3. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 10 more in the full list.',
       "Nothing is ready yet. Tell me when the code is in a repo and I look again.",
@@ -1729,8 +1733,9 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
   const all = await mcpCall(ctx(await installation()), 'find', { project: SOL, filter: { all: true } });
   const shown = listText(all.reply!);
   for (const id of ['solana-foundation-grants', 'solana-incubator-cohort-6', 'base-ecosystem-fund', 'monad-blitz-guangzhou']) assert.ok(ids(all.reply!.gaps).includes(id), id);
-  assert.match(shown, /\d+\. Base Ecosystem Fund, pre-seed and seed investment, amount not stated: deploy the contract on Base\. /);
-  assert.match(shown, /\d+\. Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated: code in a repo\. /);
+  assert.match(shown, /\d+\. Base Ecosystem Fund, pre-seed and seed investment: deploy the contract on Base\. /);
+  // L38-5 (v6.1.18): never "amount not stated".
+  assert.match(shown, /\d+\. Solana Incubator Cohort 6, NYC incubator with relocation stipend: code in a repo\. /);
   // The own chain's grant carries code in a repo as its real gap.
   const gaps = (all.reply!.gaps as { program_id: string; gap: { what: string } }[]).find((g) => g.program_id === 'solana-foundation-grants')!;
   assert.equal(gaps.gap.what, 'code in a repo');
@@ -1752,7 +1757,7 @@ test('fix round 1 (v6.1.14, T7-F1, T7-F2): an owner-only link meets no bar; gap_
   assert.equal(done.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
   // The read settles it: with no repo yet the step still shows.
   const again = await mcpCall(c, 'find', { project: SOL });
-  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants, amount not stated: code in a repo\./);
+  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: code in a repo\./);
 });
 
 test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows on a chain as it does with none; a student on a chain still sees Thiel', async () => {
@@ -1763,13 +1768,13 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
     eth.split('\n\n')[0],
     [
       "One step away (3):",
-      "1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo. First: set aside a security budget to co-fund the audit. Their rule: smart contracts for Ethereum mainnet with a defined audit scope (lines of code and contract count).",
+      "1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo. First: set aside a security budget to co-fund the audit. Their rule: a defined audit scope: lines of code and contract count.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "2. Uniswap Foundation Open Grants, amount not stated, set by milestone budget: code in a repo. Their rule: work that contributes to the Uniswap ecosystem and benefits people beyond your own product.",
+      "2. Uniswap Foundation Open Grants, set by milestone budget: code in a repo. Their rule: work that contributes to the Uniswap ecosystem and benefits people beyond your own product.",
       "3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% of the audit cost: code in a repo. First: register a legal entity for KYB; finalize the contracts for audit. Their rule: smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit.",
       "In person (2):",
-      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
+      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 9 more in the full list.',
       "Nothing is ready yet. Tell me when the code is in a repo and I look again.",
@@ -1862,7 +1867,7 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   assert.doesNotMatch(show, /real people use it/);
   assert.equal(show, [
     'One step away (1):',
-    '1. FLOSS/fund, $10,000 to $100,000: the repo is archived. First: publish a funding manifest on your site or repo.',
+    '1. FLOSS/fund, $10,000 to $100,000: a live repo. First: publish a funding manifest on your site or repo.',
     ...inPersonBlock(2),
     // L1g-5 (v6.1.16): the line reads the archive, so the archived note is left out.
     // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1875,7 +1880,7 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   const one = await mcpCall(c, 'find', { program_id: 'herodevs', project: ATOM });
   assert.equal(one.reply!.show_to_builder, [
     // FR-1 (final fix): the telling step is the action, so the line leaves it out.
-    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: the repo is archived. Their rule: a developer tool whose versions are near or past official end of life.',
+    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a live repo. Their rule: a developer tool whose versions are near or past official end of life.',
     'Tell me the live repo and I look again.',
   ].join('\n'));
   assert.equal((one.reply!.show_to_builder as string).match(/ell me the live repo/g)!.length, 1);
@@ -1891,7 +1896,8 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   // L1e-2 (v6.1.13, persona 8): no Thiel (no student word); fix round 1 (T3-R1): FUTO one real step away, code in a repo.
   assert.equal(idea.reply!.show_to_builder, IDEA_REPLY());
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY(['The repo is empty, so I matched on what you told me.'], 17, true));
+  // L38-6 (v6.1.18): the code-in-a-repo gap names the empty repo, so its note is left out.
+  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY([], 17, true));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();
@@ -1961,12 +1967,12 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
     [
       "One step away (3):",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
-      "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
-      "2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.",
-      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: tell me if real people use it. Their rule: a developer tool whose versions are near or past official end of life.",
+      "1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
+      "2. FLOSS/fund, $10,000 to $100,000: real users. First: publish a funding manifest on your site or repo.",
+      "3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: real users. Their rule: a developer tool whose versions are near or past official end of life.",
       "In person (2):",
-      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.",
-      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      "4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account, your answers and the batch you want.",
+      "5. Alliance ALL19, $400,000 at admission, closes in 14 days. Long odds: many apply, few are taken. Needs your email.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
       'And 20 more in the full list.',
       "Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.",
@@ -1988,7 +1994,7 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     blockOf(early.show_to_builder as string, 'One step away'),
     [
       "One step away (3):",
-      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "3. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
       "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
@@ -2001,7 +2007,7 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
     [
       "One step away (3):",
       "2. PayPal AI Hackathon: Build What's Next with PayPal and AI, $67,500 in prizes, closes in 2 days: a demo video link (a short screen recording of it working). First: join the hackathon with a Devpost account; sign up for a PayPal Developer account (sandbox). Their rule: meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform.",
-      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.",
+      "3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 8 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.",
       "4. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000. Their rule: a developer tool whose versions are near or past official end of life.",
     ].join('\n'),
   );
@@ -2016,8 +2022,8 @@ test('fix round 1 (v6.1.8): a repo link that answers 404 is matched on the repor
   assert.equal(r.reply!.as_reported, true);
   assert.deepEqual(r.reply!.repo_notes, ['unread']);
   const show = r.reply!.show_to_builder as string;
-  assert.equal(show.split('I could not read the repo; matched on what you told me.').length, 2, show);
-  assert.doesNotMatch(show, /Private repo|paused/);
+  assert.equal(show.split('I could not read the repo, so this is from what you told me.').length, 2, show);
+  assert.doesNotMatch(show, /The repo is private|paused/);
   assert.match(r.reply!.agent_note as string, /No public repo was read/);
 });
 
@@ -2032,28 +2038,28 @@ test('C59 (v6.1.8): a fork, an archived repo and an empty repo each get their on
   };
   const once = (show: string, s: string) => assert.equal(show.split(s).length, 2, show);
   const fork = await run('fork-dashboard');
-  once(fork.show_to_builder as string, 'This repo is a fork; programs judge the original.');
+  once(fork.show_to_builder as string, 'This repo is a fork, and programs fund the original.');
   assert.ok(ids(fork.ready).includes('f-live'));
   const archived = await run('archived-dashboard');
-  // L1g-5 (v6.1.16): a shown line reads the archive ("the repo is archived"), so the note is left out; the archive is said once.
+  // L1g-5 (v6.1.16): a shown line reads the archive ("a live repo"), so the note is left out; the archive is said once.
   assert.doesNotMatch(archived.show_to_builder as string, /This repo is archived; programs want active work\./);
-  assert.match(listText(archived), /: the repo is archived\./);
+  assert.match(listText(archived), /: a live repo\./);
   // Its homepage is not a live link: the live bar is a gap.
   assert.ok(ids(archived.gaps).includes('f-live'), JSON.stringify(ids(archived.gaps)));
   const empty = await run('empty-repo');
   // An empty repo holds no proof of code (final review M6): with no live link, a program with a bar is not a fit.
   assert.ok((empty.not_fit as { program_id: string }[]).some((n) => n.program_id === 'f-live'), JSON.stringify(ids(empty.gaps)));
   const show = empty.show_to_builder as string;
-  once(show, 'The repo is empty, so I matched on what you told me.');
+  once(show, 'The repo is empty, so this is from what you told me.');
   assert.doesNotMatch(show, /I read your repo/);
   // L29-33 (v6.1.16 Task 15): the note, then the sign-in, then the Say.
   const lines = show.split('\n');
-  assert.deepEqual(lines.slice(-3, -1), ['The repo is empty, so I matched on what you told me.', 'Sign in once at https://earnkit.com/link/abc and I remember you across agents.']);
+  assert.deepEqual(lines.slice(-3, -1), ['The repo is empty, so this is from what you told me.', 'Sign in once at https://earnkit.com/link/abc and I remember you across agents.']);
   // F9 (v6.1.12): Builder Codes reported on the empty repo: the two notes are one sentence.
   const codes = await run('empty-repo', { builder_codes: true });
   assert.deepEqual(codes.repo_notes, ['empty', 'no_builder_codes']);
   const codesShow = codes.show_to_builder as string;
-  assert.equal(codesShow.split('\n').at(-3), 'The repo is empty and does not send Builder Codes yet, so I matched on what you told me.');
+  assert.equal(codesShow.split('\n').at(-3), 'The repo is empty and does not send Builder Codes yet, so this is from what you told me.');
   assert.doesNotMatch(codesShow, /The repo does not send Builder Codes yet\./);
   const plain = await run('nextjs-dashboard');
   assert.doesNotMatch(plain.show_to_builder as string, /fork|archived|empty|told me/);
@@ -2099,11 +2105,11 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   assert.match(g.gap.item, /^rule:[0-9a-f]{8}$/);
   const line = lineOf(show, g.n);
   // L1e-2 (v6.1.13): a ready program takes the closing's yes, so the rule reads as a plain sentence.
-  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment, amount not stated. Their rule: ${BASE_RULE}.`);
+  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}.`);
   assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again; with several rules on one row, one gap_done with the first rule item confirms every rule that row listed. Draft it and show the builder; submit only on a yes to the draft.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
-  assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Tracked. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
+  assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Tracked: that rule fits you.', 'Call find again; the program comes back ready.']);
   const again = await mcpCall(ctx(id), 'find', { project: PROJECT_A, filter: { all: true } });
   const show2 = listText(again.reply!);
   const p = (allReady(again.reply!) as { program_id: string; n: number }[]).find((x) => x.program_id === 'base-ecosystem-fund');
@@ -2153,7 +2159,7 @@ test('R18c: a rule-only program above the project tier shows the tier gap first,
     assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
     assert.deepEqual([g.gap.kind, g.also.map((a) => a.kind)], ['tier', ['rule']]);
     const line = lineOf(listText(r.reply!), g.n);
-    assert.equal(line, `${g.n}. Rule Grant, up to $5,000: proof that real people use it. Their rule: a team of two or more.`);
+    assert.equal(line, `${g.n}. Rule Grant, up to $5,000: proof of real users. Their rule: a team of two or more.`);
     assert.doesNotMatch(line, /Say "yes/);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-rule-used'`;
@@ -2291,7 +2297,7 @@ test('fix round 1 (v6.1.8, 1b): unlinked, with signing in the one step left, the
       (await mcpCall({ ...ctx(await installation()), linkUrl: async () => link }, 'find', { program_id, project })).reply!;
     const pub = await call('f-sign', { ...PROJECT, users: true });
     // Review Focus 2 (v6.1.14): the sign-in is asked once, in the closing.
-    assert.equal(pub.show_to_builder, ['Sign Grant, up to $5,000: proof that real people use it.', `Sign in once at ${link} and I check your users and remember you.`].join('\n'));
+    assert.equal(pub.show_to_builder, ['Sign Grant, up to $5,000: proof of real users.', `Sign in once at ${link} and I check your users and remember you.`].join('\n'));
     assert.equal((pub.show_to_builder as string).match(/Sign in/g)!.length, 1);
     assert.equal(pub.sign_in, link);
     assert.ok((pub.agent_note as string).split('\n').includes('Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.'));
@@ -2301,7 +2307,7 @@ test('fix round 1 (v6.1.8, 1b): unlinked, with signing in the one step left, the
     assert.equal((priv.show_to_builder as string).split('\n')[1], `Sign in once at ${link} and I remember you.`);
     // No link can be made (F2): the one-program reply still ends on the sign-in, without a link.
     const noLink = (await mcpCall({ ...ctx(await installation()), linkUrl: async () => { throw new Error('no link'); } }, 'find', { program_id: 'f-sign', project: { ...PROJECT, users: true } })).reply!;
-    assert.equal(noLink.show_to_builder, ['Sign Grant, up to $5,000: proof that real people use it.', 'Sign in once and I check your users.'].join('\n'));
+    assert.equal(noLink.show_to_builder, ['Sign Grant, up to $5,000: proof of real users.', 'Sign in once and I check your users.'].join('\n'));
     assert.equal(noLink.sign_in, undefined);
     assert.equal(priv.sign_in, link);
     // A gap that is not signing in carries no link.
@@ -2388,7 +2394,7 @@ test('C48: when another agent\'s change takes answers back from approval, the ne
   await saveRecord(builderId, mergeRecord(await getRecord(builderId), { answers: { why_you: { short: 'Ship.' }, team: { short: 'Two.' } } }, 'agent', later).record, later);
   const next = await mcpCall({ ...c, now: new Date(later.getTime() + H) }, 'find', { project: PROJECT });
   assert.equal(next.reply!.approvals_again, 2);
-  assert.ok((next.reply!.show_to_builder as string).includes('\n2 answers wait for your approval again at earnkit.com/me.\n'), next.reply!.show_to_builder as string);
+  assert.ok((next.reply!.show_to_builder as string).includes('\n2 answers you changed wait for your approval at earnkit.com/me.\n'), next.reply!.show_to_builder as string);
   const third = await mcpCall({ ...c, now: new Date(later.getTime() + 2 * H) }, 'find', { project: PROJECT });
   assert.equal(third.reply!.approvals_again, undefined);
 });
@@ -2410,12 +2416,12 @@ test('fix round 1: a linked find with no project reports the overnight sends and
   const list = await mcpCall({ ...c, now: morning }, 'find', {});
   const show = list.reply!.show_to_builder as string;
   assert.ok(show.includes(`Applied under your standing approval: ${p.title}.`), show);
-  assert.ok(show.includes('One answer waits for your approval again at earnkit.com/me.'), show);
+  assert.ok(show.includes('One answer you changed waits for your approval at earnkit.com/me.'), show);
   assert.deepEqual((list.reply!.applied_overnight as { program_id: string }[]).map((x) => x.program_id), ['z-fellows']);
   assert.equal(list.reply!.approvals_again, 1);
   const next = await mcpCall({ ...c, now: new Date(morning.getTime() + H) }, 'find', { project: PROJECT });
   assert.deepEqual(next.reply!.applied_overnight, []);
-  assert.doesNotMatch(next.reply!.show_to_builder as string, /Applied under your standing approval|wait for your approval again|waits for your approval again/);
+  assert.doesNotMatch(next.reply!.show_to_builder as string, /Applied under your standing approval|you changed waits? for your approval/);
 });
 
 test('N-5 (v6.1.9): a step marked done that the read still misses is said once per find after its line; the builder\'s word counts done', async () => {
@@ -2499,7 +2505,7 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   const after = await mcpCall(c, 'find', { program_id: 'solana-foundation-grants', project });
   // L24-2 (v6.1.16 Task 11): the yes to the rule settled the rule only; the next reply offers apply afresh.
   const lines = (after.reply!.show_to_builder as string).split('\n');
-  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants, amount not stated. You give: the requested amount.');
+  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants. You give: the requested amount.');
   assert.equal(lines.at(-1), 'Sign in once and I check the repo is yours; then say yes.');
   assert.doesNotMatch(after.reply!.show_to_builder as string, /Your yes stands/);
   // After that apply offer the yes stands (N3, v6.1.12): the closing names the answers still missing.
@@ -2564,7 +2570,7 @@ test('Review Focus 1 (v6.1.10, L1c-1): two projects of one builder never share a
   };
   // A's yes to the rule (the track carries no project: the last find was A's).
   assert.ok((await listed(A)).gaps.includes('pk-users'));
-  assert.equal((await mcpCall(c, 'track', { program_id: 'pk-users', status: 'gap_done', item: ruleItem(RULE) })).reply!.show_to_builder, 'Tracked. That rule counts as confirmed.');
+  assert.equal((await mcpCall(c, 'track', { program_id: 'pk-users', status: 'gap_done', item: ruleItem(RULE) })).reply!.show_to_builder, 'Tracked: that rule fits you.');
   assert.ok((await listed(A)).ready.includes('pk-users'));
   const b = await listed(B);
   assert.ok(b.gaps.includes('pk-users') && !b.ready.includes('pk-users'));
@@ -2628,8 +2634,11 @@ test('L1i-4, L1i-6 (v6.1.16.1): with filter.all, no project and a name only list
     const lines = show.split('\n');
     assert.equal(lines[0], 'Open now:');
     assert.doesNotMatch(show, /^And \d+ more\.$/m);
+    // L38-13 (v6.1.18): the full list numbers its rows 1..N, and the agent note maps each number to its program.
+    assert.deepEqual(lines.slice(1, 1 + open.length).map((l) => Number(l.split('.')[0])), open.map((_, k) => k + 1), show);
+    assert.match(r.reply!.agent_note as string, /The full list's numbers are these program_ids in order: 1 \S+, 2 \S+/);
     for (const p of open) {
-      const line = lines.find((l) => l.startsWith(`${p.file.title}, `));
+      const line = lines.find((l) => l.replace(/^\d+\. /, '').startsWith(`${p.file.title}, `));
       assert.ok(line, `${p.id} missing: ${show}`);
       if (p.file.in_person) assert.match(line!, /, in person\.$/, p.id);
       if (p.file.ends_at && !/rolling/.test(p.file.summary)) assert.match(line!, /, closes /, p.id);
@@ -2682,7 +2691,7 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   // L24-2 (v6.1.16 Task 11): the yes answered the users question only ("I draft it"); the next reply offers apply
   // afresh. After that offer the list's closing names the manifest link (N3, v6.1.12) and line 1 does not.
   const floss = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link. First: publish a funding manifest on your site or repo.', 'Say yes and I apply to FLOSS/fund.'].join('\n'));
+  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. You give: the funding manifest link.', 'Publish a funding manifest on your site or repo first, then say yes and I apply.'].join('\n'));
   const listed = await mcpCall(c, 'find', { project: CLI });
   assert.match((listed.reply!.show_to_builder as string), /FLOSS\/fund needs your funding manifest link; then I apply\./);
   assert.equal((listed.reply!.show_to_builder as string).match(/funding manifest link/g)!.length, 1, listed.reply!.show_to_builder as string);
@@ -3165,7 +3174,7 @@ test('ONE_SAY_ORDER (v6.1.16, L23-21): no pinned reply carries two Says (L24-8, 
   assert.deepEqual([...ONE_SAY_ORDER], ['not_sent', 'started_not_sent', 'record_sign_in', 'closing']);
   const say = oneSay();
   assert.equal(say('A: started Nov 3, nothing sent. Say yes to apply or say skip.'), 'A: started Nov 3, nothing sent. Say yes to apply or say skip.');
-  assert.equal(say('Nothing is ready yet. Say "yes 2" if that rule fits you and I get it ready.'), 'Nothing is ready yet.');
+  assert.equal(say('Nothing is ready yet. Say "yes 2" if that rule fits you and I draft Thiel Fellowship.'), 'Nothing is ready yet.');
   assert.equal(withoutSay('Say yes and I apply to all 3.'), '');
   const says = (t: string) => (t.match(/\bSay\b/g) ?? []).length;
   for (const f of ['find.test.ts', 'reply.test.ts', 'track.test.ts']) for (const t of pinnedTexts(f)) assert.ok(says(t) <= 1, `${f}: ${t}`);
@@ -3728,7 +3737,10 @@ test('v6.1.17 fix round 1 (I3): with no project, the ask is last and the sign-in
   ] as const) {
     const r = await mcpCall({ ...ctx(await installation()), linkUrl: async () => link }, 'find', args);
     const show = r.reply!.show_to_builder as string;
-    assert.deepEqual(show.split('\n').slice(-2), [`Sign in once at ${link} so I remember you across agents.`, ask], JSON.stringify(args));
+    // L38-31 (v6.1.18): the ask alone, no sign-in line; the link stays in the JSON.
+    assert.equal(show.split('\n').at(-1), ask, JSON.stringify(args));
+    assert.ok(!show.includes(link), show);
+    assert.equal(r.reply!.sign_in, link);
   }
 });
 

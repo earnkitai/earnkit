@@ -11,13 +11,13 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, stableNumbers, type Promised } from './installations';
+import { clearPromised, lastFindAt, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
-import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
+import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -125,6 +125,10 @@ export type ReadyProgram = {
   total: number;
   /** The program's setup items, then the to-dos of the required fields only the builder can give. */
   needs: string[];
+  /** L38-28 (v6.1.18): need_you in each field's own to-do words ("the batch you want"), in the same order; set only
+   *  on an in-person program whose setup is a thing to have, and when one differs from its need word. The in-person
+   *  Needs list reads these. */
+  todos?: string[];
   /** What taking part needs before applying (in person: attending). */
   setup: string[];
   /** The notes of all the program's rules; a ready program has confirmed them, so its line shows none (v6.1.6). */
@@ -329,6 +333,16 @@ async function factsOf(project: Project, ctx: FindContext, key: string): Promise
 const usersYes = (p: Program, facts: RepoFacts, done: Set<string>): boolean =>
   (eligibilityOf(p).some((i) => i.kind === 'users') || (p.min_tier === 'used' && facts.chains.length === 0)) && done.has('users');
 
+/** L38-28 (v6.1.18): the `todos` of a ready program, when a to-do differs from its need word. Pure. */
+function todosOf(p: Program, fields: Field[], needYou: string[]): { todos?: string[] } {
+  // Only the in-person Needs list of things ("a YC account") reads them, so no other program carries them (the full
+  // list stays under its cap).
+  if (!p.in_person || !/^(a|an|the|your)\s/i.test(p.setup[0] ?? '')) return {};
+  const todo = new Map(p.submission_requirements.map((r) => [r.key, r.todo]));
+  const todos = unvouchedRequired(fields).map((f, i) => todo.get(f.key) ?? needYou[i]);
+  return todos.length === needYou.length && todos.some((t, i) => t !== needYou[i]) ? { todos } : {};
+}
+
 function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null, done: Set<string> = new Set()): Omit<ReadyProgram, 'n'> {
   const p = row.file;
   const rec = side ? { record: side.record, projectId: side.projectId, verifiedUsage: side.verifiedUsage } : null;
@@ -340,6 +354,7 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     fields, filled, facts_from_repo, repo_required, from_record, need_you, total,
     // Lane 8 #8 (v6.1.10): the builder's answers are need_you itself, so the line and the count never disagree.
     needs: [...p.setup, ...need_you],
+    ...todosOf(p, fields, need_you),
     setup: p.setup,
     rules: v.rules,
     ...((v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:'))) || usersYes(p, facts, done) ? { rule_yes: true as const } : {}),
@@ -397,8 +412,11 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   // N3 (v6.1.12): the yes stands for one that still needs answers too; the closing names them, never a second yes.
   const yesWaits = said && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you, ...(o.draftOnly ? { draft: true as const } : {}) }] : [];
   // Review Focus 1 (v6.1.14): the closing names the needs of a yes that waits, so the line does not.
-  const c = closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands: yesStandsFor, draftStands, yesWaits, title: r.title });
-  return { lines: [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, c.text], offer: c.offer };
+  // L38-30 (v6.1.18): the builder's own setup steps go in the closing, said there only.
+  const first = stands.length === 0 && yesWaits.length === 0 ? ownSteps(r) : [];
+  const c = closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands: yesStandsFor, draftStands, yesWaits, title: r.title, ...(first.length > 0 ? { setupFirst: first } : {}) });
+  const shown = first.length > 0 ? { ...r, needs: r.needs.filter((x) => !first.includes(x)) } : r;
+  return { lines: [readyLine(shown, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, c.text], offer: c.offer };
 }
 
 /** L1j-7 (v6.1.17): the one action of an in-person program's own reply. */
@@ -568,6 +586,9 @@ export const openLine = (p: Program, now: Date): string => {
   return `${p.title}, ${moneyOf(p)}${closes ? `, ${closes}` : ''}${p.in_person ? ', in person' : ''}.`;
 };
 
+/** L38-13 (v6.1.18): the agent line that maps the open full list's numbers to programs. Pure. */
+export const openNumbersNote = (ids: string[]): string =>
+  `The full list's numbers are these program_ids in order: ${ids.map((id, i) => `${i + 1} ${id}`).join(', ')}. When the builder says a number, call find with that program_id and the project.`;
 /** L1i-5 (v6.1.16.1): the agent line beside the full list's number ask. */
 export const FULL_NUMBER_NOTE = "When the builder says a number from the full list, call find with that item's program_id.";
 /** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
@@ -578,7 +599,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   // row 12, v6.1.15: its own sentence). L1i-4 (v6.1.16.1): filter.all lists every open program, no cap. L1i-6: each line
   // keeps its close and in person.
   const shown = all ? programs : programs.slice(0, OPEN_SHOWN);
-  const lines = shown.map((r) => openLine(r.file, ctx.now));
+  // L38-13 (v6.1.18): the full list numbers its rows, as every other list does; the agent note maps them.
+  const lines = shown.map((r, i) => `${all ? `${i + 1}. ` : ''}${openLine(r.file, ctx.now)}`);
   if (programs.length > shown.length) lines.push(`And ${programs.length - shown.length} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   // L29-1, L29-2 (v6.1.16 Task 15): the applications by name whenever there are any, project or not; then the ask for
@@ -599,10 +621,12 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const reply = {
     // One line each, no blank lines (fix round 1, M4).
     // L1j-6 (v6.1.17 fix round 1 I3): the ask is last; the sign-in, the notice or the report before it.
-    show_to_builder: [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [link ? signInLine(link) : null, notice]), action].filter(Boolean).join('\n'),
+    // L38-31 (v6.1.18): no sign-in line: with no project, signing in buys the builder nothing yet (sign_in stays in the JSON).
+    show_to_builder: [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [notice]), action].filter(Boolean).join('\n'),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
+      ...(all && !appsLine && shown.length > 0 ? [openNumbersNote(shown.map((r) => r.id))] : []),
     ].join('\n'),
     since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, applications, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
@@ -702,9 +726,9 @@ export const NOT_YOUR_REPO_NOTE = 'The signed-in GitHub account is not the repo 
 /**
  * FR-1, M1 (fix round 1): a builder line that offers an apply (a yes that EarnKit sends on, or a standing-approval send):
  * the line that gives way when the repo is not shown to be the builder's. A draft for the builder to send, a rule or a
- * users question stays.
+ * users question stays. L38-30 (v6.1.18): "{Setup step} first, then say yes and I apply." too.
  */
-export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold)/;
+export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold|[^.]* first, then say yes\b.*\bI apply\b)/;
 /** An apply offer closing a line that says something first ("X needs your amount; then I apply. Say yes and I apply."). */
 const TAIL_OFFER = / Say yes\b.*\bI (also )?apply\b.*$/;
 /** Whether the builder text offers an apply anywhere. Pure. */
@@ -1193,7 +1217,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     ...(notSent.length > 0 ? { not_sent: { programs: notSent, since: promise!.at.toISOString() } } : {}),
     ...(prevList && prevList.hash === hash ? { nothing_new_since: prevList.at.toISOString() } : {}),
   };
-  // L1i-2 (v6.1.16.1); fix round 1 (I4 ruling): the numbers the builder sees are the numbers the JSON and track read.
+  // L1i-2 (v6.1.16.1): the numbers the builder sees are the numbers the JSON and track read.
   // The default view numbers its shown rows 1, 2, 3 (the rest after them). L1k-2 (v6.1.18): the full list numbers its
   // own rows 1..N in the order it shows them (ready, one step, in person), never the default view's numbers under its
   // other headings. Passes: `laid` lays the view out once for its shown order; `defaultSay` (full list only) writes
@@ -1201,7 +1225,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
   const laid = replyParts(r0, last === null, ctx.now, lastOffer, all ? { all: true } : { ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
-  const stable = stableNumbers([], [...laid, ...byN.filter((id) => !laid.includes(id))]);
+  // Task 7 review (v6.1.18): plain 1..N in that order.
+  const stable = new Map([...laid, ...byN.filter((id) => !laid.includes(id))].map((id, k) => [id, k + 1]));
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = { ...r0, ready: r0.ready.map(renum), gaps: r0.gaps.map(renum) };
   // L1i-5: the full list closes on the default view's Say, from the programs the default view lists.

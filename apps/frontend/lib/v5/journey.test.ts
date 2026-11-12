@@ -38,7 +38,7 @@ const CLOSINGS = [
   /[^\n]+ is over your limit\. Say yes and I apply\.$/,
   /Say yes and I draft all \d+ for you to send\.$/,
   /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I get it ready\.| Say "do \d+" and I [^\n]+\.)?$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I draft [^\n]+\.| Say "do \d+" and I [^\n]+\.)?$/,
   // Final fix (v6.1.12, I1): the users yes on a program with a setup step or a rule left.
   /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.

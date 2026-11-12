@@ -152,7 +152,7 @@ test('users: not reported is a gap only the builder can answer; false is no; tru
   assert.equal(unknown.users, null);
   const u = evaluate(q, unknown, new Set(), NOW);
   assert.equal(u.status, 'gap');
-  assert.deepEqual(u.gaps, [{ kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false }]);
+  assert.deepEqual(u.gaps, [{ kind: 'users', item: 'users', what: 'real users', effort: 'hours', agent_can: false }]);
   assert.equal(evaluate(q, unknown, new Set(['users']), NOW).status, 'ready');
   assert.equal(evaluate(q, await factsOf('earnkit', { users: true }), new Set(), NOW).status, 'ready');
   const no = evaluate(q, await factsOf('earnkit', { users: false }), new Set(), NOW);
@@ -279,7 +279,7 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   const chainless = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   const ask = evaluate(p, chainless, new Set(), NOW);
   assert.equal(ask.status, 'gap');
-  assert.deepEqual(ask.gaps.map((g) => [g.item, g.what]), [['users', 'tell me if real people use it']]);
+  assert.deepEqual(ask.gaps.map((g) => [g.item, g.what]), [['users', 'real users']]);
   // Confirmed through track gap_done with item 'users', or users: true on the project.
   assert.equal(evaluate(p, chainless, new Set(['users']), NOW).status, 'ready');
   assert.equal(evaluate(p, { ...chainless, users: true }, new Set(), NOW).status, 'ready');
@@ -333,17 +333,17 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   }
   // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
-  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   // L16-8 (v6.1.16): a live link alone keeps the question, and the grant for existing code asks for the code too.
   const live = { ...idea, live_url: 'https://rentsplit.app' };
-  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a public repo', 'tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a public repo', 'real users']);
   const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
   assert.ok(pp.ok);
   const priv = await repoFacts(pp.project, { now: NOW });
   assert.deepEqual([priv.as_reported, priv.notes], [true, ['private']]);
   // L1f-1 (v6.1.14): FLOSS/fund is open source, so the private repo is a step from it too, never ready.
-  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['a public repo', 'tell me if real people use it']);
-  assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['a public repo', 'real users']);
+  assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   assert.equal(evaluate(usersOnly, { ...priv, users: true }, new Set(), NOW).status, 'ready');
   assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'gap');
   // L16-8 (v6.1.16): an empty repo with a live site still has no code in a repo.
@@ -351,7 +351,7 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
   // failed read) does not exist for the question.
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
-  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   // L1g-6 (v6.1.15): the builder said it has users, so what is missing is something to read.
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs code in a repo or a live link');
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'] }, new Set(), NOW).reason, 'needs a product people use');
@@ -362,7 +362,7 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   assert.equal(contracted.repo_url, null);
   assert.equal(contracted.contracts.length, 1);
   assert.equal(exists(contracted), true);
-  assert.deepEqual(evaluate(usersOnly, contracted, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(usersOnly, contracted, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   assert.equal(exists({ ...contracted, chains: contracted.chains.map((c) => ({ ...c, mainnet: false })) }), false);
   // A program that asks for no users is unchanged.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');
@@ -376,6 +376,8 @@ test('N-5 (v6.1.9): code-checked items are re-read, each said as the thing the r
   assert.deepEqual(lookedAgain(gaps, new Set(['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'demo_video'])),
     ['the contract on Base', 'a contract on Base', 'Base Builder Codes in the app', 'a live link']);
   assert.deepEqual(lookedAgain(gaps, new Set()), []);
+  // Task 9 (v6.1.18, Task 2 review minor): the repo gap reads its own words.
+  assert.deepEqual(lookedAgain([NEEDS_PUBLIC_CODE, NEEDS_CODE], new Set(['repo'])), ['code in a public repo', 'code in a repo']);
 });
 
 test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names one, as a whole word or phrase, in its name, description, README or topics', async () => {
@@ -547,7 +549,7 @@ test('L1f-3 (v6.1.14): an archived repo is never asked the users question: its o
   const facts = await factsOf('archived-dashboard');
   assert.ok(facts.notes?.includes('archived'));
   const v = evaluate(fromFile('floss-fund-zerodha'), facts, new Set(), NOW);
-  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'the repo is archived', 'tell me the live repo']]]);
+  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'a live repo', 'tell me the live repo']]]);
   assert.ok(!v.gaps.some((g) => g.kind === 'users'));
   // A live repo gets the users question as before.
   const live = evaluate(fromFile('floss-fund-zerodha'), { ...facts, notes: [] }, new Set(), NOW);

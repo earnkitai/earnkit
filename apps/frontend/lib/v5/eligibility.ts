@@ -89,7 +89,8 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
       case 'contract_on': return `a contract on ${chain}`;
       case 'builder_codes': return 'Base Builder Codes in the app';
       case 'live_product': return 'a live link';
-      case 'repo': return g.item === 'repo' ? 'code in a repo' : g.what;
+      // Task 2 review minor (v6.1.18): the gap's own words, so an open source program reads "code in a public repo".
+      case 'repo': return g.what;
       default: return g.what.replace(/^add /, '');
     }
   });
@@ -104,10 +105,12 @@ export const NEEDS_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a re
 export const NEEDS_PUBLIC_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a public repo', effort: 'days', agent_can: false };
 /** L1f-1 (v6.1.14): an open source program and a private repo: the repo made public, re-checked by the next report or read. */
 export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes', agent_can: false };
-/** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question. */
-export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'the repo is archived', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
-/** Users not reported: a question only the builder answers, not weeks of work. */
-const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
+/** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question.
+ *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
+export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+/** Users not reported: a question only the builder answers, not weeks of work. L38-4 (v6.1.18): `real users`, the one
+ *  wording of the users gap. */
+const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'real users', effort: 'hours', agent_can: false };
 
 /**
  * B20d (v6.1.9, fix round 2): whether the project exists for the users question: a repo read that holds code (not
