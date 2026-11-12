@@ -241,7 +241,7 @@ test('started for an unknown program refuses and records nothing', async () => {
   const c = await ctx();
   const r = await track(c, { program_id: 'nope-started', status: 'started' });
   assert.equal(r.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  assert.equal(r.show_to_builder, 'Which program do you mean?');
+  assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.');
   const bad = await track(c, { program_id: 't6-a', status: 'applied', submitted_by: 'robot' });
   // L29-10 (v6.1.16 Task 15): an input error has no builder text; the note says what to fix.
   assert.equal(bad.show_to_builder, '');
@@ -983,8 +983,8 @@ test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program 
   // Fix round 1b: in any case; an English word never names a program.
   assert.match((await track(c, { program_id: 'YC', status: 'skipped' })).agent_note, /^Matched y-combinator\. /);
   await sql()`DELETE FROM applications WHERE program_id = 'y-combinator'`;
-  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, 'Which program do you mean?', w);
-  assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean?');
+  for (const w of ['as', 'am', 'mm']) assert.equal((await track(c, { program_id: w, status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.', w);
+  assert.equal((await track(c, { program_id: 'Thiel Foundation', status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.');
   const started = await track(c, { program_id: 'Y Combinator Winter 2027 Batch', status: 'started' });
   assert.equal(started.show_to_builder, '');
   assert.match(started.agent_note, /^Matched y-combinator\. /);
@@ -992,9 +992,9 @@ test('F4 (v6.1.12), re-pinned by L24-3 (v6.1.16 Task 11): track takes a program 
   const skipped = await track(c, { program_id: 'Thiel Fellowship', status: 'skipped' });
   assert.equal(skipped.show_to_builder, 'Skipped Thiel Fellowship for good. Say bring it back and I list it again.');
   const several = await track(c, { program_id: 'uniswap', status: 'applied', submitted_by: 'builder' });
-  assert.equal(several.show_to_builder, "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
+  assert.equal(several.show_to_builder, "Which program do you mean: Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
   assert.equal(several.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, 'Which program do you mean?');
+  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, 'Which program do you mean? Say its name.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 2);
 });
 
@@ -1017,7 +1017,7 @@ test('final fix (v6.1.12, I2), re-pinned by L24-3 (v6.1.16 Task 11): loose names
   const count = async () => (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
   // A parent organizer in brackets, two letters, the start of a title: no program, nothing written.
   for (const name of ['aws', 'fi', 'kiro'])
-    assert.equal((await track(c, { program_id: name, status: 'applied', submitted_by: 'builder' })).show_to_builder, 'Which program do you mean?', name);
+    assert.equal((await track(c, { program_id: name, status: 'applied', submitted_by: 'builder' })).show_to_builder, 'Which program do you mean? Say its name.', name);
   assert.equal(await count(), 0);
   // A whole title word that is one program resolves, and the line names it.
   const sent = await track(c, { program_id: 'kiroween', status: 'applied', submitted_by: 'builder' });
@@ -1523,7 +1523,7 @@ test('L24-3: next, build, start and first name no program on any status; nothing
   for (const word of ['next', 'build', 'start', 'first'])
     for (const status of ['applied', 'won', 'rejected', 'started']) {
       const r = await track(c, { program_id: word, status, ...(status === 'won' ? { amount_usd: 100 } : {}), project: { name: 'Neutral Tool' } });
-      assert.equal(r.show_to_builder, 'Which program do you mean?', `${word} ${status}`);
+      assert.equal(r.show_to_builder, 'Which program do you mean? Say its name.', `${word} ${status}`);
     }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 0);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n, 0);
@@ -1638,7 +1638,7 @@ test('L29-15, L29-21, L29-23, L29-32: a list number, any case, agent by default;
   assert.equal(row.submitted_by, 'agent');
   // A number past the list asks which; started has no builder text, its note names it.
   const far = await track(c, { program_id: '9', status: 'started' });
-  assert.equal(far.show_to_builder, 'Which program do you mean?');
+  assert.equal(far.show_to_builder, 'Which program do you mean? Say its name.');
   const s = await track(c, { program_id: '1', status: 'STARTED', submitted_by: 'Agent' });
   assert.equal(s.show_to_builder, '');
   assert.match(s.agent_note, /^Matched list number 1 to l2915-a\. Started Number One Grant\. /);

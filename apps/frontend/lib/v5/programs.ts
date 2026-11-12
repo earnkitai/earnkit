@@ -121,12 +121,14 @@ export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
     standing(a.file) - standing(b.file) || awardOf(b.file) - awardOf(a.file) || ends(a.file) - ends(b.file) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** The builder line for a name that is no one program: up to two titles to pick from, as a question alone (L1e-1,
- *  v6.1.13); "Which program do you mean?" when nothing is offered (L29-15, v6.1.16). Pure. */
+/** L1i-8 (v6.1.16.1): at most this many programs a lookup offers to pick from. */
+export const SUGGESTED = 3;
+/** The builder line for a name that is no one program (L1i-8, v6.1.16.1): up to three titles to pick from, as one
+ *  question ("Which program do you mean: A, B or C?"); with none, "Which program do you mean? Say its name.". Pure. */
 export function unknownProgramLine(suggest: readonly string[]): string {
-  const [a, b] = suggest;
-  // L29-15 (v6.1.16 Task 15): a question, never a dead end.
-  return a === undefined ? 'Which program do you mean?' : `Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
+  const shown = suggest.slice(0, SUGGESTED);
+  if (shown.length === 0) return 'Which program do you mean? Say its name.';
+  return `Which program do you mean: ${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`}?`;
 }
 
 /**
@@ -162,7 +164,7 @@ function strictMatch(rows: ProgramRow[], words: string, now: Date): { row: Progr
     return asked.every((w) => own.has(w) || (initialsWord(w) && short.has(w)));
   });
   if (fit.length === 1) return { row: fit[0], suggest: [] };
-  return { row: null, suggest: byLookupRank(fit, now).slice(0, 2).map((r) => r.file.title) };
+  return { row: null, suggest: byLookupRank(fit, now).slice(0, SUGGESTED).map((r) => r.file.title) };
 }
 
 /**
@@ -196,7 +198,7 @@ export async function programByName(name: string, now: Date = new Date(), o: { s
     [(r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)), !orgWord],
     [(r) => organizers(r.file.organizer).includes(q), true],
   ];
-  const titles = (hits: ProgramRow[]) => byLookupRank(hits, now).slice(0, 2).map((r) => r.file.title);
+  const titles = (hits: ProgramRow[]) => byLookupRank(hits, now).slice(0, SUGGESTED).map((r) => r.file.title);
   for (const [t, takes] of tests) {
     const hits = rows.filter(t);
     // `takes` false: the hits are weighed with the organizer's other programs.

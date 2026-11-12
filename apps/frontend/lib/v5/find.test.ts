@@ -259,7 +259,7 @@ test('find with program_id: the fields and the verdict; no link and no rules lis
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
   // L29-9, L29-15 (v6.1.16 Task 15): a refusal, and a question.
   assert.equal(none.isError, true);
-  assert.equal(none.reply!.show_to_builder, 'Which program do you mean?');
+  assert.equal(none.reply!.show_to_builder, 'Which program do you mean? Say its name.');
   assert.ok((none.reply!.show_to_builder as string).length > 0);
 });
 
@@ -2253,35 +2253,35 @@ test('v6.1.9: find with program_id takes the id or the name in any case; L12-3 (
   }
   // L12-3 (v6.1.14): a word naming no program ("labs") is no program, never a guess from the other word.
   const near = await mcpCall(ctx(await installation()), 'find', { program_id: 'Combinator Labs' });
-  assert.equal(near.reply!.show_to_builder, 'Which program do you mean?');
+  assert.equal(near.reply!.show_to_builder, 'Which program do you mean? Say its name.');
   for (const [name, id] of [['paypal hackathon', 'paypal-ai-hackathon'], ['thiel fellowship 2027', 'thiel-fellowship'], ['zerodha', 'floss-fund-zerodha']]) {
     const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
     assert.equal((r.reply!.program as { id: string }).id, id, name);
   }
   for (const name of ['l12-nope', 'base-nope', 'monad-xyz'])
-    assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, 'Which program do you mean?', name);
-  // F4 (v6.1.12, Review Focus 3): the common names; one match resolves, several are asked about, two by rank.
+    assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, 'Which program do you mean? Say its name.', name);
+  // F4 (v6.1.12, Review Focus 3): the common names; one match resolves, several are asked about, three by rank (L1i-8, v6.1.16.1).
   // L1e-1 (v6.1.13, Review Focus 6): an organizer's first word that leads to one program resolves: floss, thiel.
   for (const [name, id] of [['ycombinator', 'y-combinator'], ['Thiel Foundation', 'thiel-fellowship'], ['monad blitz oregon', 'monad-blitz-oregon'], ['floss', 'floss-fund-zerodha'], ['thiel', 'thiel-fellowship']]) {
     const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
     assert.equal((r.reply!.program as { id: string }).id, id, name);
   }
   for (const [name, line] of [
-    ['Base', "Did you mean Base Builder Grant Program or Base Ecosystem Fund?"],
+    ['Base', "Which program do you mean: Base Builder Grant Program, Base Ecosystem Fund or Base Batches 005?"],
     // Lane 20 (v6.1.16): Monad Blitz Oregon is closed, so the open ones lead.
-    ['monad', "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Nitro?"],
-    ['Monad Blitz', "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Blitz Oregon?"],
-    ['uniswap', "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
+    ['monad', "Which program do you mean: Monad Blitz @广州 (Guangzhou), Monad Nitro or Monad Metropolis Hackathon?"],
+    ['Monad Blitz', "Which program do you mean: Monad Blitz @广州 (Guangzhou) or Monad Blitz Oregon?"],
+    ['uniswap', "Which program do you mean: Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
     // Final fix (v6.1.12, I2): a bracketed parent organizer, two letters: no program.
-    ['aws', "Which program do you mean?"],
-    ['fi', "Which program do you mean?"],
+    ['aws', "Which program do you mean? Say its name."],
+    ['fi', "Which program do you mean? Say its name."],
   ]) assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, line, name);
   // Final fix (v6.1.12, I2): a loose name that is one program: the detail's first line names it.
   const kiro = await mcpCall(ctx(await installation()), 'find', { program_id: 'kiro' });
   assert.equal((kiro.reply!.program as { id: string }).id, 'kiroween-2026');
   assert.match(kiro.reply!.show_to_builder as string, /^Kiroween 2026, /);
   const none = await mcpCall(ctx(await installation()), 'find', { program_id: 'qqq-unknown' });
-  assert.equal(none.reply!.show_to_builder, "Which program do you mean?");
+  assert.equal(none.reply!.show_to_builder, "Which program do you mean? Say its name.");
 });
 
 test('v6.1.9: after the builder says yes to the rule, the program comes back ready and the yes stands', async () => {
@@ -2705,7 +2705,7 @@ test('L1h-1, L1h-2 (v6.1.16): the lookup JSON carries full figures; "otf" and "O
   assert.match(JSON.stringify((await mcpCall(ctx(id), 'find', { program_id: 'alliance-all19' })).reply!.program), /\$400,000 upon admission/);
   for (const name of ['otf', 'OTF', 'internet freedom'])
     assert.equal(((await mcpCall(ctx(id), 'find', { program_id: name })).reply!.program as { id: string } | null)?.id, 'otf-internet-freedom-fund', name);
-  assert.equal((await mcpCall(ctx(id), 'find', { program_id: 'zzqx' })).reply!.show_to_builder, 'Which program do you mean?');
+  assert.equal((await mcpCall(ctx(id), 'find', { program_id: 'zzqx' })).reply!.show_to_builder, 'Which program do you mean? Say its name.');
 });
 
 test('L1h-1 (v6.1.16): EarnKit\'s own hint for the Solana Incubator reads in full figures', async () => {

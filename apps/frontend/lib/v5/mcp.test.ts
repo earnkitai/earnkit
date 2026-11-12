@@ -207,7 +207,7 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   const c = await ctx();
   await seed(`mcp:${c.installationId}`, 119);
   const ok = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(ok.reply!.show_to_builder, 'Which program do you mean?', ok.text);
+  assert.equal(ok.reply!.show_to_builder, 'Which program do you mean? Say its name.', ok.text);
   const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
   assert.equal(busy.text, OWN_LIMIT);
@@ -218,7 +218,7 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   assert.equal(later.text, "Your agent has used this hour's limit. Try again in about 12 minutes.");
   assert.deepEqual(later.structured, { retry_after_seconds: 720 });
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(next.reply!.show_to_builder, 'Which program do you mean?', next.text);
+  assert.equal(next.reply!.show_to_builder, 'Which program do you mean? Say its name.', next.text);
 });
 
 test('the per-IP floor: the 601st call from one address in an hour is the address line, whatever the installation', async () => {
@@ -229,7 +229,7 @@ test('the per-IP floor: the 601st call from one address in an hour is the addres
   assert.equal(busy.text, ADDRESS_LIMIT);
   assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(other.reply!.show_to_builder, 'Which program do you mean?', other.text);
+  assert.equal(other.reply!.show_to_builder, 'Which program do you mean? Say its name.', other.text);
 });
 
 test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refuses never count on the address, and a colleague is served', async () => {
@@ -255,7 +255,7 @@ test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refus
   assert.equal(refused.text, OWN_LIMIT);
   assert.deepEqual(refused.structured, { retry_after_seconds: 3_600 });
   const mate = await mcpCall({ ...b, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(mate.reply!.show_to_builder, 'Which program do you mean?', mate.text);
+  assert.equal(mate.reply!.show_to_builder, 'Which program do you mean? Say its name.', mate.text);
   const [w2] = await sql()`SELECT count FROM rate_windows WHERE key = ${'mcpIp:' + ip} AND window_start = ${windowStart(NOW, 3_600_000)}`;
   assert.equal(w2.count, 121);
 });

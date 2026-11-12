@@ -68,11 +68,11 @@ const p = (id: string, over: Record<string, unknown> = {}) => upsertProgram(prog
 
 test('track and find: an unknown program and a common word ask which; nothing is written', async () => {
   const a = await agent();
-  refused(await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' }), 'Which program do you mean?');
-  refused(await a.call('track', { program_id: 'next', status: 'started' }), 'Which program do you mean?');
+  refused(await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' }), 'Which program do you mean? Say its name.');
+  refused(await a.call('track', { program_id: 'next', status: 'started' }), 'Which program do you mean? Say its name.');
   const r = await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' });
   assert.equal(r.reply!.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
-  refused(await a.call('find', { program_id: 'zz-no-such-thing' }), 'Which program do you mean?');
+  refused(await a.call('find', { program_id: 'zz-no-such-thing' }), 'Which program do you mean? Say its name.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${a.id}`)[0].n, 0);
 });
 

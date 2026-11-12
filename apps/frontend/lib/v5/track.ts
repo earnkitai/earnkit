@@ -196,7 +196,7 @@ function caseFolded(args: Record<string, unknown>): Record<string, unknown> {
 }
 
 /** L24-3 (v6.1.16 Task 11), L29-15 (Task 15): a name that is no one program by the strict lookup; nothing is written. */
-export const WHICH_PROGRAM = 'Which program do you mean?';
+export const WHICH_PROGRAM = unknownProgramLine([]);
 /** L29-15 (v6.1.16 Task 15): the agent note beside WHICH_PROGRAM. */
 export const WHICH_PROGRAM_NOTE = 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.';
 /** L29-23 (v6.1.16 Task 15): an applied with no fields_used is accepted, and the agent hears it. */
@@ -342,7 +342,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
   const acted = !row && !sentRow
-    ? await refuse(suggest.length > 0 ? unknownProgramLine(suggest) : WHICH_PROGRAM, WHICH_PROGRAM_NOTE)
+    ? await refuse(unknownProgramLine(suggest), WHICH_PROGRAM_NOTE)
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
