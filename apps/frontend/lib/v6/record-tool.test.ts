@@ -475,3 +475,11 @@ test('v6.1.17 fix round 1 (N2): a policy set that saved facts while approval is 
   assert.equal(r.reply!.agent_note, 'Saved; standing approval is set on earnkit.com/me only.');
   assert.match(r.reply!.show_to_builder as string, /Standing approval is yours to turn on at earnkit\.com\/me\.$/);
 });
+
+test('L35-15 (v6.1.17): characters are code points, so 1,996 emoji (3,992 UTF-16 units) save and get counts 1,996', async () => {
+  const c = await linked();
+  const wide = await mcpCall(c, 'record', { set: { answers: { traction: { text: '\u{1F680}'.repeat(1_996) } } } });
+  assert.equal(wide.reply!.show_to_builder, 'Saved 1 answer. Approve the answer at earnkit.com/me and it goes into drafts.');
+  const got = await mcpCall(c, 'record', { get: true });
+  assert.equal((got.reply!.summary as { answers: { kind: string; length: number }[] }).answers.find((a) => a.kind === 'traction')?.length, 1_996);
+});

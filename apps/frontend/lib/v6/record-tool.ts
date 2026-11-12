@@ -108,7 +108,8 @@ function answersOf(record: BuilderRecord): { kind: AnswerKind; project: string |
 
 /**
  * L26-2 (v6.1.16 Task 12): the record's summary: its facts (the answers' approval rows left out), and one line per
- * answer kind: the record's own answer, else the first project's, as its length and first 120 characters. Pure.
+ * answer kind: the record's own answer, else the first project's, as its length in characters (code points, L35-15) and first
+ * 120 characters. Pure.
  */
 export function recordSummary(record: BuilderRecord): RecordSummary {
   const { answers: _a, projects, meta, ...rest } = record;
@@ -120,7 +121,7 @@ export function recordSummary(record: BuilderRecord): RecordSummary {
   const all = answersOf(record);
   const answers = ANSWER_KINDS.flatMap((k) => {
     const a = all.find((x) => x.kind === k);
-    return a ? [{ kind: k, length: a.answer.text.length, start: cleanText(a.answer.text, 120), approved: isApproved(record, a.path) }] : [];
+    return a ? [{ kind: k, length: Array.from(a.answer.text).length, start: cleanText(a.answer.text, 120), approved: isApproved(record, a.path) }] : [];
   });
   return { facts, answers };
 }

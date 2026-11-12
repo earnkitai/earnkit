@@ -17,6 +17,10 @@ export const onceEach = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
  * (bidi overrides, zero-width marks) is dropped, and runs of spaces collapse to one. Pure.
  */
 export const cleanLine = (s: string): string => cleanText(s, Infinity);
+/**
+ * L35-15 (v6.1.17): every length here is in characters as people count them, code points, never UTF-16 units: zod 4's
+ * string max counts code points (pinned in record.test.ts), so 1,996 emoji fit an answer of at most 2,000 characters.
+ */
 const line = (max: number) => z.string().overwrite(cleanLine).max(max);
 /** Prose keeps its line breaks; every other control or format character (NUL, bidi, zero-width) is dropped (L24-21). */
 const prose = (max: number) => z.string().overwrite(cleanProse).max(max);
