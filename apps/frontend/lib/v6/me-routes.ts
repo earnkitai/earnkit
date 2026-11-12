@@ -15,7 +15,7 @@ import {
 } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
-import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
+import { type MeField, agentList, authSecret, isAnswerPath, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
 import { clearCookies, currentName, endSession, sessionBuilder, sessionToken } from './sessions';
 
@@ -44,9 +44,16 @@ const signed = (key: 'problem' | 'note', who: For, line: string, place = '') =>
  * Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. `section` (L27-9,
  * v6.1.16): the card the line is about, where it shows (`at`, unsigned: it only places the signed line) and the anchor.
  */
-const problemAt = (who: For, line: string, section?: string) => signed('problem', who, line, section ? `&at=${section}#${section}` : '');
+const problemAt = (who: For, line: string, section?: string, open: string | null = null) =>
+  signed('problem', who, line, section ? `${openPart(open)}&at=${section}#${section}` : '');
 /** After a section's Save (L27-10, v6.1.16): `Saved.` beside that section's button. */
-const savedSection = (section: string) => back(`/me?saved=${section}#${section}`);
+const savedSection = (section: string, open: string | null = null) => back(`/me?saved=${section}${openPart(open)}#${section}`);
+/** The answer the form kept open (L35-24, v6.1.17 Task 4), an answer's path or null. Pure. */
+const openOf = (form: URLSearchParams): string | null => {
+  const v = form.get('open');
+  return v && isAnswerPath(v) ? v : null;
+};
+const openPart = (open: string | null) => (open ? `&open=${encodeURIComponent(open)}` : '');
 /** Back to /me with a plain line that is not a refusal (v6.1.7 C2). */
 const noteAt = (who: For, line: string) => signed('note', who, line);
 /**
@@ -289,13 +296,14 @@ async function sectionPost(g: { builder: Builder; form: URLSearchParams; now: Da
       }
       return { record: changed > 0 ? record : null, result: { lines, kept } };
     });
-    if (out.broken) return problemAt(g, ME_ERRORS.broken, section);
+    if (out.broken) return problemAt(g, ME_ERRORS.broken, section, openOf(g.form));
     refused.push(...out.result.lines);
     saved = out.result.kept;
   }
-  if (refused.length === 0) return savedSection(section);
+  const open = openOf(g.form);
+  if (refused.length === 0) return savedSection(section, open);
   const lines = [...new Set(refused)];
-  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section);
+  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section, open);
 }
 
 /**

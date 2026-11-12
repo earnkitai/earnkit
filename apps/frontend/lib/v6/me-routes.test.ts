@@ -677,3 +677,13 @@ test('L35-17 (v6.1.17 Task 4): in production a write with only the old ek_me ask
     (process.env as Record<string, string | undefined>).NODE_ENV = saved;
   }
 });
+
+test('L35-24 (v6.1.17 Task 4): the open answer stays open after its section saves; a non-answer open is dropped', async () => {
+  const { cookie, csrf } = await signedIn();
+  const ok = await editPost(post('/me/edit', { csrf, section: 'answers', open: 'answers.problem', 'answers.problem': 'Builders miss grants.' }, { cookie }), deps);
+  assert.equal(ok.headers.get('location'), '/me?saved=answers&open=answers.problem#answers');
+  const bad = await editPost(post('/me/edit', { csrf, section: 'answers', open: 'person.name', 'answers.problem': 'Builders still miss grants.' }, { cookie }), deps);
+  assert.equal(bad.headers.get('location'), '/me?saved=answers#answers');
+  const refused = await editPost(post('/me/edit', { csrf, section: 'answers', open: 'answers.risks', 'answers.risks': 'x'.repeat(2001) }, { cookie }), deps);
+  assert.match(refused.headers.get('location') ?? '', /&open=answers\.risks&at=answers#answers$/);
+});

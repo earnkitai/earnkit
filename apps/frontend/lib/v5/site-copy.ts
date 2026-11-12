@@ -175,6 +175,8 @@ export const ME_DESCRIPTION = 'Your facts, links, documents and answers, kept on
 export const ME_SIGNED_IN = (login: string): string => `Signed in as ${login}.`;
 export const ME_SIGN_OUT = 'Sign out';
 export const ME_SAVE = 'Save';
+/** L35-24 (v6.1.17 Task 4): a collapsed answer's link that opens it on the page, the only one open. */
+export const ME_ANSWER_OPEN = 'Open this answer';
 export const ME_APPROVE = 'Approve';
 export const ME_UNAPPROVE = 'Unapprove';
 export const ME_APPROVED = (day: string): string => `Approved ${day}.`;

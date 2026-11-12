@@ -1,10 +1,10 @@
 import { CARD_NAVY, CARD_PANEL, CARD_RUST, H1_SITE, PAGE_COL, PILL_WHITE } from '../components/site/ui';
 import {
   ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
-  ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
+  ME_ANSWER_OPEN, ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
   ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SAVED, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
 } from '../../lib/v5/site-copy';
-import { approvalPathOf, type MeData, type MeField } from '../../lib/v6/me-view';
+import { approvalPathOf, firstLineOf, isAnswerPath, type MeData, type MeField } from '../../lib/v6/me-view';
 
 /** /me: plain HTML forms only (no client script); every form carries the day's csrf token. */
 const TITLE = 'ek-serif text-[32px] leading-none';
@@ -112,6 +112,41 @@ function Field({ f, csrf, form }: { f: MeField; csrf: string; form: string }) {
   );
 }
 
+/** The link that opens one answer (L35-24, v6.1.17 Task 4): the page again with only that one open, at its anchor. */
+const openHref = (path: string, anchor: string) => `/me?open=${encodeURIComponent(path)}#${anchor}`;
+/** Kept short: a 154-answer record repeats these 308 times. */
+const SUMMARY = 'cursor-pointer py-3 text-[15px]';
+const OPEN_LINK = 'inline-flex min-h-11 items-center underline';
+
+/**
+ * An answer (L35-24, v6.1.17 Task 4): a `<details>` collapsed to its label and first line. The one named by `?open=` is
+ * open with its field; any other holds only the link that opens it, so a record of 154 answers stays a small page and
+ * only one is open at a time, with no script.
+ */
+function AnswerRow({ f, csrf, form, open }: { f: MeField; csrf: string; form: string; open: boolean }) {
+  const id = `a-${f.path}`;
+  return (
+    <details id={id} name="answers" open={open} className="border-t border-s-line first:border-t-0">
+      <summary className={SUMMARY}>
+        <span className="block">{f.label}</span>
+        <span className="block break-words text-s-muted">{f.value ? firstLineOf(f.value) : `${ME_NOT_SET}.`}</span>
+      </summary>
+      {open ? (
+        <Field f={f} csrf={csrf} form={form} />
+      ) : (
+        <a href={openHref(f.path, id)} className={OPEN_LINK}>
+          {ME_ANSWER_OPEN}
+        </a>
+      )}
+    </details>
+  );
+}
+
+/** A record row: an answer collapsed (AnswerRow), any other field as it is. */
+function Row({ f, csrf, form, open }: { f: MeField; csrf: string; form: string; open: string | null }) {
+  return isAnswerPath(f.path) ? <AnswerRow f={f} csrf={csrf} form={form} open={open === f.path} /> : <Field f={f} csrf={csrf} form={form} />;
+}
+
 /** A refusal beside the control it is about (L27-9, v6.1.16). */
 function Problem({ text }: { text: string | null }) {
   return text ? (
@@ -122,11 +157,13 @@ function Problem({ text }: { text: string | null }) {
 }
 
 /** A section's one form (L27-8, L27-10, v6.1.16): the day's token, the section, one Save, `Saved.` and any problem beside it. */
-function SectionForm({ id, section, csrf, saved, problem }: { id: string; section: string; csrf: string; saved: boolean; problem: string | null }) {
+function SectionForm({ id, section, csrf, saved, problem, open = null }: { id: string; section: string; csrf: string; saved: boolean; problem: string | null; open?: string | null }) {
   return (
     <form id={id} method="post" action="/me/edit" className="flex flex-col gap-3 border-t border-s-line pt-4">
       <Csrf token={csrf} />
       <input type="hidden" name="section" value={section} />
+      {/* The open answer stays open after its Save (L35-24, v6.1.17 Task 4). */}
+      {open && <input type="hidden" name="open" value={open} />}
       <Problem text={problem} />
       <div className="flex flex-wrap gap-3">
         <button type="submit" className={`${SAVE} self-start`}>
@@ -150,7 +187,7 @@ function Card({ id, title, card = CARD_PANEL, children }: { id: string; title: s
 }
 
 /** The projects block: one inner card per project. */
-function Projects({ fields, seen, csrf }: { fields: MeField[]; seen: MeData['projects_seen']; csrf: string }) {
+function Projects({ fields, seen, csrf, open }: { fields: MeField[]; seen: MeData['projects_seen']; csrf: string; open: string | null }) {
   // L21-12 (v6.1.16): the empty line only when the record holds no project and no application names one.
   if (fields.length === 0 && seen.length === 0) return <p className="text-[15px] text-s-muted">{ME_NO_PROJECTS}</p>;
   const byId = new Map<string, MeField[]>();
@@ -164,7 +201,7 @@ function Projects({ fields, seen, csrf }: { fields: MeField[]; seen: MeData['pro
         <div key={id} className="rounded-[24px] bg-s-panel-inner px-4 py-2 md:px-6">
           <h3 className="ek-serif pt-3 text-[24px] leading-none">{fs.find((f) => f.path.endsWith('.name'))?.value || id}</h3>
           {fs.map((f) => (
-            <Field key={f.path} f={f} csrf={csrf} form="form-projects" />
+            <Row key={f.path} f={f} csrf={csrf} form="form-projects" open={open} />
           ))}
         </div>
       ))}
@@ -250,9 +287,10 @@ function Policy({ fields, csrf, saved, problem, status }: { fields: MeField[]; c
  * `saved`: the section a save came back from (L27-10, v6.1.16: `/me?saved={section}#{section}`); its `Saved.` shows
  * beside that section's Save, not as a banner. `at`: the section a refusal is about (L27-9: the delete card for a
  * failed delete); the line shows inside that card, else above the record. With a linked agent the page carries
- * `data-me-linked`, so the header hides its install pill (L21-22, v6.1.16).
+ * `data-me-linked`, so the header hides its install pill (L21-22, v6.1.16). `open`: the one answer shown in full
+ * (L35-24, v6.1.17 Task 4: `?open={path}`); every other answer, here and in Waiting for you, is its first line.
  */
-export default function MeView({ data, problem, note = null, saved = null, at = null }: { data: MeData; problem: string | null; note?: string | null; saved?: string | null; at?: string | null }) {
+export default function MeView({ data, problem, note = null, saved = null, at = null, open = null }: { data: MeData; problem: string | null; note?: string | null; saved?: string | null; at?: string | null; open?: string | null }) {
   const { csrf } = data;
   const banner = note === ME_SAVED ? null : note;
   const placed = new Set([...data.blocks.map((b) => b.key), 'delete']);
@@ -319,14 +357,37 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
         <Card id="approvals" title={ME_PENDING_TITLE} card={CARD_NAVY}>
           <p className="text-[15px] text-s-on-navy-soft">{ME_PENDING_LINE}</p>
           <ul className="flex flex-col gap-2.5">
-            {data.pending_approvals.map((p) => (
-              <li key={p.path} className="flex flex-col gap-2 rounded-[24px] bg-s-navy-inner p-4 md:p-5">
-                <span className="text-[13px] text-s-on-navy">{p.label}</span>
-                <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
-                <Short text={p.short} tone="text-[13px] text-s-on-navy" />
-                <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
-              </li>
-            ))}
+            {data.pending_approvals.map((p) =>
+              isAnswerPath(p.path) ? (
+                // L35-24 (v6.1.17 Task 4): an answer waits collapsed to its first line; opened, it is read in full and approved here.
+                <li key={p.path} className="rounded-[24px] bg-s-navy-inner px-4 md:px-5">
+                  <details id={`p-${p.path}`} name="approvals" open={open === p.path}>
+                    <summary className={SUMMARY}>
+                      <span className="block text-[13px] text-s-on-navy">{p.label}</span>
+                      <span className="block break-words">{firstLineOf(p.text)}</span>
+                    </summary>
+                    {open === p.path ? (
+                      <div className="flex flex-col gap-2 pb-4 md:pb-5">
+                        <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
+                        <Short text={p.short} tone="text-[13px] text-s-on-navy" />
+                        <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
+                      </div>
+                    ) : (
+                      <a href={openHref(p.path, `p-${p.path}`)} className={OPEN_LINK}>
+                        {ME_ANSWER_OPEN}
+                      </a>
+                    )}
+                  </details>
+                </li>
+              ) : (
+                <li key={p.path} className="flex flex-col gap-2 rounded-[24px] bg-s-navy-inner p-4 md:p-5">
+                  <span className="text-[13px] text-s-on-navy">{p.label}</span>
+                  <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
+                  <Short text={p.short} tone="text-[13px] text-s-on-navy" />
+                  <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
+                </li>
+              ),
+            )}
           </ul>
         </Card>
       )}
@@ -334,18 +395,18 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
       {data.blocks.map((b) => (
         <Card key={b.key} id={b.key} title={b.title}>
           {b.key === 'projects' ? (
-            <Projects fields={b.fields} seen={data.projects_seen} csrf={csrf} />
+            <Projects fields={b.fields} seen={data.projects_seen} csrf={csrf} open={open} />
           ) : b.key === 'policy' ? (
             <Policy fields={b.fields} csrf={csrf} saved={saved === 'policy'} problem={problemIn('policy')} status={data.policy_status ?? []} />
           ) : (
             <div>
               {b.fields.map((f) => (
-                <Field key={f.path} f={f} csrf={csrf} form={`form-${b.key}`} />
+                <Row key={f.path} f={f} csrf={csrf} form={`form-${b.key}`} open={open} />
               ))}
             </div>
           )}
           {b.key !== 'policy' && b.fields.length > 0 && (
-            <SectionForm id={`form-${b.key}`} section={b.key} csrf={csrf} saved={saved === b.key} problem={problemIn(b.key)} />
+            <SectionForm id={`form-${b.key}`} section={b.key} csrf={csrf} saved={saved === b.key} problem={problemIn(b.key)} open={open && b.fields.some((f) => f.path === open) ? open : null} />
           )}
         </Card>
       ))}

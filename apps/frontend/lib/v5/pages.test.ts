@@ -444,7 +444,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   const b = await upsertBuilder({ github_id: 990_001, login: 'pagesme', name: null, avatar_url: null }, now);
   const patch = { person: { name: 'Pat' }, answers: { problem: { text: 'Builders <miss> grants.' } }, projects: [{ id: 'kit', name: 'Kit' }] };
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', now).record, now);
-  const m = html(MeView({ data: await meData(b, now, 'sess'), problem: '<b>Email: bad.</b>' }));
+  const m = html(MeView({ data: await meData(b, now, 'sess'), problem: '<b>Email: bad.</b>', open: 'answers.problem' }));
   const t = textOf(m);
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
@@ -519,4 +519,41 @@ test('v6.1.17 Task 4: /api/me/signed-in answers only { signedIn } and is never s
   assert.ok(!/headers\(\)|cookies\(\)/.test(layout));
   const { default: Header } = await import('../../app/components/common/Header');
   assert.ok(!html(Header()).includes('Your record'));
+});
+
+test('L35-24 (v6.1.17 Task 4): /me collapses each answer to its first line, one open at a time, and a 154-answer record stays under 500 KB', async () => {
+  process.env.EARNKIT_AUTH_SECRET ??= 'pages-secret-0123456789abcdef0123456789';
+  const { ANSWER_KINDS } = await import('./program-file');
+  const { firstLineOf } = await import('../v6/me-view');
+  const now = new Date();
+  // Lane 35's H.19 fixture: 14 kinds in 11 places (the record and 10 projects), each near the 2,000 cap (emoji count
+  // two toward it today).
+  for (const [n, body] of [[0, '\u{1F600}'.repeat(960)], [1, 'x'.repeat(1930)]] as const) {
+    const b = await upsertBuilder({ github_id: 990_200 + n, login: `bigrecord${n}`, name: null, avatar_url: null }, now);
+    const ans = (tag: string) => Object.fromEntries(ANSWER_KINDS.map((k) => [k, { text: `${tag} ${k} ${body}\nSecond line ${k}.` }]));
+    const patch = { answers: ans('rec'), projects: Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `Proj ${i}`, answers: ans(`p${i}`) })) };
+    const merged = mergeRecord(await getRecord(b.id), patch, 'agent', now);
+    assert.deepEqual(merged.problems, []);
+    await saveRecord(b.id, merged.record, now);
+    const data = await meData(b, now, 'sess');
+    const closed = html(MeView({ data, problem: null }));
+    assert.equal((closed.match(/<details[^>]*name="answers"/g) ?? []).length, 154);
+    assert.equal((closed.match(/<details[^>]*name="approvals"/g) ?? []).length, 154);
+    assert.ok(!/<details[^>]* open=""/.test(closed), 'none open');
+    assert.ok(!closed.includes('Second line'), 'collapsed to the first line');
+    const size = Buffer.byteLength(closed);
+    assert.ok(size < 500 * 1024, `${Math.round(size / 1024)} KB`);
+    // One open: its field (the edit box and Approve) in full, here and in Waiting for you; every other stays one line.
+    const opened = html(MeView({ data, problem: null, open: 'projects.p3.answers.risks' }));
+    assert.equal((opened.match(/<details[^>]* open=""/g) ?? []).length, 2);
+    assert.equal(opened.split('Second line risks.').length - 1, 2);
+    assert.ok(opened.includes('name="projects.p3.answers.risks"'));
+    assert.ok(/<input type="hidden" name="open" value="projects\.p3\.answers\.risks"\/>/.test(opened), 'the open answer stays open after Save');
+    assert.ok(Buffer.byteLength(opened) < 500 * 1024);
+    assert.ok(closed.includes(`href="/me?open=answers.problem#a-answers.problem"`));
+  }
+  // The first line: cut at a word with an ellipsis, by characters.
+  assert.equal(firstLineOf('\n  First one.\nSecond.'), 'First one.');
+  assert.equal(firstLineOf(`${'word '.repeat(40)}`), `${'word '.repeat(16).trim()}…`);
+  assert.equal(Array.from(firstLineOf('\u{1F600}'.repeat(300))).length, 81);
 });
