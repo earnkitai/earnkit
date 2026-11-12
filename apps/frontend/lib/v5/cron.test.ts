@@ -24,7 +24,7 @@ type Body = {
   health: Record<string, number> | null; swept: Record<string, number | null>; screen: { read: number; requeued: number; left: number; jobs_finished: string[] } | null;
   digest: string | null; failed: { id: string | null; step: string; error: string }[];
 };
-const quietHealth = async () => ({ checked: 0, stale: [], changed: [], closed: [], opened: [], unreadable: [], failed: [] });
+const quietHealth = async () => ({ checked: 0, stale: [], changed: [], closed: [], opened: [], unreadable: [], failed: [], form_unread: [] });
 const idleQueue = async () => ({ read: 0, requeued: 0, left: 0, jobs_finished: [] });
 /** A statement trigger that refuses every DELETE on `table` (a sweep that fails). */
 const refuseDeletes = async (table: string) => {
@@ -78,7 +78,8 @@ test('cronPost: runs every step and answers the counts, the swept counts per tab
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
   assert.deepEqual(Object.keys(body), ['health', 'swept', 'screen', 'digest', 'failed']);
-  assert.deepEqual(Object.keys(body.health!), ['checked', 'stale', 'changed', 'closed', 'opened', 'unreadable']);
+  // v6.1.19 (L44-16): form_unread counts the forms whose landing page could not be read.
+  assert.deepEqual(Object.keys(body.health!), ['checked', 'stale', 'changed', 'closed', 'opened', 'unreadable', 'form_unread']);
   assert.deepEqual(Object.keys(body.swept), ['repo_cache', 'reports', 'screens', 'link_codes', 'sessions', 'oauth_codes', 'oauth_clients', 'evidence', 'windows', 'outcome_asks']);
   assert.ok(Object.values(body.swept).every((n) => typeof n === 'number'));
   assert.deepEqual(Object.keys(body.screen!), ['read', 'requeued', 'left', 'jobs_finished']);
@@ -419,7 +420,7 @@ test('L22-13 (v6.1.16): the daily status flip expires every catalog surface (rev
   let n = 0;
   watchCatalogRevalidation(() => n++);
   try {
-    const flip = async () => ({ checked: 2, stale: [], changed: [], closed: ['cr-a'], opened: ['cr-b'], unreadable: [], failed: [] });
+    const flip = async () => ({ checked: 2, stale: [], changed: [], closed: ['cr-a'], opened: ['cr-b'], unreadable: [], failed: [], form_unread: [] });
     const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: flip, workQueue: idleQueue });
     assert.equal(res.status, 200);
     assert.equal(n, 2);

@@ -131,17 +131,58 @@ class ErrorPageError extends SafeFetchError {
  * Next.js RSC chunk holds the default "This page could not be found." tree on every page), a comment
  * or a tag: what is left open at the end is dropped too, never read as visible text. Pure.
  */
-export function visibleText(html: string): { title: string; text: string } {
+export function visibleText(html: string, opts: { dropHidden?: boolean } = {}): { title: string; text: string } {
   const title = cleanTitle(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '');
-  const text = html
+  const shown = html
     .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
-    .replace(/<(script|style|noscript|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, ' ')
+    .replace(/<(script|style|noscript|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, ' ');
+  const text = (opts.dropHidden ? dropHiddenElements(shown) : shown)
     .replace(/<[^>]*$/, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return { title, text };
+}
+
+/** Elements with no content (an `<input type="hidden">` hides nothing else). */
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+/** Whether an opening tag's attributes hide the element: `hidden`, `aria-hidden="true"`, or a display:none or visibility:hidden style. Pure. */
+function hidesElement(attrs: string): boolean {
+  const names = attrs.replace(/=\s*("[^"]*"|'[^']*'|[^\s>]+)/g, '=');
+  if (/(^|\s)hidden(=|\s|\/|$)/i.test(names)) return true;
+  if (/aria-hidden\s*=\s*["']?\s*true\b/i.test(attrs)) return true;
+  return /\bstyle\s*=\s*("[^"]*(display\s*:\s*none|visibility\s*:\s*hidden)[^"]*"|'[^']*(display\s*:\s*none|visibility\s*:\s*hidden)[^']*')/i.test(attrs);
+}
+
+/**
+ * v6.1.19 (L44-7): the HTML without the elements a reader never sees (`hidesElement`), each with everything inside it,
+ * nested elements of the same name counted; one never closed hides the rest of the page. Pure.
+ */
+function dropHiddenElements(html: string): string {
+  const open = /<([a-z][\w-]*)\b([^>]*)>/gi;
+  let out = '';
+  let from = 0;
+  for (let m = open.exec(html); m; m = open.exec(html)) {
+    const name = m[1].toLowerCase();
+    if (VOID_TAGS.has(name) || m[2].trim().endsWith('/') || !hidesElement(m[2])) continue;
+    const tag = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
+    tag.lastIndex = open.lastIndex;
+    let depth = 1;
+    let end = html.length;
+    for (let t = tag.exec(html); t; t = tag.exec(html)) {
+      if (t[1] && --depth === 0) {
+        end = tag.lastIndex;
+        break;
+      }
+      if (!t[1] && !t[0].endsWith('/>')) depth++;
+    }
+    out += html.slice(from, m.index) + ' ';
+    from = end;
+    open.lastIndex = end;
+  }
+  return out + html.slice(from);
 }
 
 /**
@@ -509,25 +550,37 @@ export async function safeProbePage(
 export const LANDING_MAX_REDIRECTS = 3;
 
 /**
- * The page a link finally lands on (v6.1.18 fix round 1, L39-5), for the closed-form check only: follows up to
- * LANDING_MAX_REDIRECTS redirects on any host, each hop the same guarded GET as every other fetch here (https on 443,
- * a domain name, every resolved address public and the connection pinned to it, `timeoutMs` per hop). Returns the
- * first 64 KB of the final page's HTML ('' when it is not HTML), or null when it could not be read: a refused hop (http,
- * a private address), a 4th redirect, an error status or a transport error. Never throws. The link's status never
- * comes from here (probeLink).
+ * The page a link finally lands on (v6.1.18 fix round 1, L39-5): follows redirects on any host, each hop the same
+ * guarded GET as every other fetch here (https on 443, a domain name, every resolved address public and the connection
+ * pinned to it, `timeoutMs` per hop), LANDING_MAX_REDIRECTS in all counting the `hops` the caller already followed.
+ * v6.1.19 (L44-4, L44-15): the daily run judges a redirected link on its landing page, starting at the Location its
+ * probe already read (`hops` 1 or 2), so hop 0 is fetched once. Returns `{ ok: true, page }` (the first 64 KB of HTML,
+ * '' when it is not HTML or the landing is a 401, 403 or 429 wall), `{ ok: false, why }` for a landing that is a 4xx,
+ * 5xx, an error page (a program link's phrases, as probeLink) or a name that does not resolve, and null when it could not
+ * be read: a refused hop (http, a private address, a port), one redirect too many, no Location, a timeout or a refused
+ * connection. Never throws.
  */
+export type Landing = { ok: true; page: string; url: string } | { ok: false; why: '4xx' | '5xx' | 'dns'; url: string };
 export async function landingPage(
   url: string,
-  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
-): Promise<string | null> {
-  const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number; hops?: number } = {},
+): Promise<Landing | null> {
+  const { hops = 0, ...rest } = deps;
+  const opts = { ...rest, probe: true, userAgent: LINKCHECK_UA };
   let at = url;
-  for (let hop = 0; ; hop++) {
+  for (let hop = hops; ; hop++) {
     try {
-      return await safeFetchText(at, opts);
+      const page = await safeFetchText(at, opts);
+      return errorPageText(page, PROGRAM_ERROR_PHRASES) ? { ok: false, why: '4xx', url: at } : { ok: true, page, url: at };
     } catch (err) {
-      if (!(err instanceof RedirectError) || !err.location || !URL.canParse(err.location, at) || hop >= LANDING_MAX_REDIRECTS) return null;
-      at = new URL(err.location, at).href;
+      if (err instanceof RedirectError) {
+        if (!err.location || !URL.canParse(err.location, at) || hop >= LANDING_MAX_REDIRECTS) return null;
+        at = new URL(err.location, at).href;
+        continue;
+      }
+      const dead = deadWhy(err);
+      if (dead.ok) return { ok: true, page: '', url: at };
+      return dead.why === '4xx' || dead.why === '5xx' || dead.why === 'dns' ? { ok: false, why: dead.why, url: at } : null;
     }
   }
 }
@@ -536,7 +589,9 @@ export async function landingPage(
  * A program link's answer for the daily stale check (v6.1.16 Task 16, L30-2): alive, or dead and why. `redirect` names
  * the other host a 3xx pointed to (never followed); `page` is the first 64 KB of an HTML page that loaded ('' otherwise).
  */
-export type ProbeResult = { ok: true; redirect?: string; page?: string } | { ok: false; why: '4xx' | '5xx' | 'dns' | 'timeout' | 'refused' };
+export type ProbeResult =
+  | { ok: true; redirect?: string; page?: string; location?: string; hops?: number }
+  | { ok: false; why: '4xx' | '5xx' | 'dns' | 'timeout' | 'refused' };
 
 /** A bot wall or a sign-in still means the page exists. */
 const WALLS = [401, 403, 429];
@@ -559,24 +614,26 @@ export async function probeLink(
     const page = await safeFetchText(target, opts);
     return errorPageText(page, PROGRAM_ERROR_PHRASES) ? { ok: false, why: '4xx' } : { ok: true, page };
   };
-  const redirected = (err: RedirectError, from: string): ProbeResult | URL => {
+  // v6.1.19 (L44-15): a redirect elsewhere also carries its Location and the redirects it took (`hops`), so the
+  // landing read starts there; the Location itself is never requested here.
+  const redirected = (err: RedirectError, from: string, hops: number): ProbeResult | URL => {
     if (!err.location || !URL.canParse(err.location, from)) return { ok: true };
     const next = new URL(err.location, from);
-    return sameSite(next.hostname, host) ? next : { ok: true, redirect: next.hostname };
+    return sameSite(next.hostname, host) ? next : { ok: true, redirect: next.hostname, location: next.href, hops };
   };
   try {
     try {
       return await read(url);
     } catch (err) {
       if (!(err instanceof RedirectError)) throw err;
-      const next = redirected(err, url);
+      const next = redirected(err, url, 1);
       if (!(next instanceof URL)) return next;
       try {
         return await read(next.href);
       } catch (err2) {
         // A second redirect is not followed either; the host answered, so the link is alive.
         if (!(err2 instanceof RedirectError)) throw err2;
-        const again = redirected(err2, next.href);
+        const again = redirected(err2, next.href, 2);
         return again instanceof URL ? { ok: true } : again;
       }
     }

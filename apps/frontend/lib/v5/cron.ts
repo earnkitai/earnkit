@@ -216,7 +216,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   return json({
     health: health && {
       checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length,
-      opened: health.opened.length, unreadable: health.unreadable.length,
+      opened: health.opened.length, unreadable: health.unreadable.length, form_unread: health.form_unread.length,
     },
     swept, screen, digest, failed: fails,
   }, status);

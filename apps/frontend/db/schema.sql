@@ -90,6 +90,11 @@ ALTER TABLE program_health ADD COLUMN IF NOT EXISTS body_text text;
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS first_failed_at timestamptz;
 -- v6.1.18 (L39-5): the submission page answered but its text says it is closed; the owner's digest lists it.
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS submit_closed boolean NOT NULL DEFAULT false;
+-- v6.1.19 (L44-7, L44-8, L44-19): only a round or a region is closed while the page says something is open
+-- (`closed_round`); which page said it, 'form' or 'source' (`closed_on`); since when it has said the same (`closed_since`),
+-- for the digest's age and the round line's one day.
+ALTER TABLE program_health ADD COLUMN IF NOT EXISTS closed_round boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS closed_on text, ADD COLUMN IF NOT EXISTS closed_since timestamptz;
 -- v6.1.17 Task 3 (L30-14): one row, the last daily run that finished (answered 200); /api/stats shows it and the
 -- owner's digest names a gap over 26 hours.
 CREATE TABLE IF NOT EXISTS cron_state (
