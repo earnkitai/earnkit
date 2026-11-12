@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CODE_CLOSING, FULL_RULE_SAY, defaultRows, moreInFull, agentNote, replyParts, attendGap, closingLine, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
-import { NEEDS_CODE, PUBLIC_REPO } from './eligibility';
+import { LICENSE_FILE, NEEDS_CODE, PUBLIC_REPO } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 import { DELETED_NOTICE } from '../v6/reply-words';
@@ -1619,6 +1619,15 @@ test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under Mo
   assert.equal(tight.more, 12 - rows);
 });
 
+test('L38-27 (v6.1.18 Task 11): the license file gap reads "a license file" and its do offer adds an MIT license file', () => {
+  const hero = gap({ title: 'HeroDevs Open Source Sustainability Fund', money: '$2,500 to $15,000', gap: LICENSE_FILE, n: 1 });
+  assert.equal(gapLine(hero, true), 'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.');
+  assert.equal(gapAction(hero), 'Say "do" and I add an MIT license file first.');
+  const list = replyText(base({ gaps: [hero] }), true);
+  assert.equal(list, ['One step away (1):', '1. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.', 'Nothing is ready yet. Say "do 1" and I add an MIT license file.'].join('\n'));
+  assert.doesNotMatch(list, /\u2014|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
+});
+
 // Registered last, so it reads every reply the tests above rendered.
 test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
   assert.ok(rendered.length >= 100, `${rendered.length}`);
@@ -1880,4 +1889,41 @@ test('L38-30 (v6.1.18): a ready program whose setup step is the builder\'s own c
   // A thing to have ("your email") is no step.
   const mail = ready({ title: 'Mail Fund', setup: ['your email'], needs: ['your email'] });
   assert.match(replyText(base({ ready: [mail] }), true), /\nSay yes and I apply to Mail Fund\.$/);
+});
+
+test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I note it." and sits before the Say (or is it, last)', async () => {
+  const { sentLines, replyParts: parts } = await import('./reply');
+  const NOW = new Date('2026-11-12T12:00:00Z');
+  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-12T10:00:00.000Z', project_id: null };
+  assert.deepEqual(sentLines({ ask_sent: [kiro] }), ['Did you send Kiroween 2026? Say sent and I note it.']);
+  const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
+  // ONE_SAY_ORDER: after the started lines, before the closing; alone, the sent question is the reply's one Say, last.
+  const p = parts({ ...one, ask_sent: [kiro] }, false, NOW);
+  assert.equal(p.text, 'Ready to apply (1):\n1. Alpha Grant, $1K.\nDid you send Kiroween 2026? Say sent and I note it.');
+  assert.equal(p.offer, null);
+  // Beside a started line's Say, the question sits before it, its own Say left out.
+  const started = { program_id: 'a', title: 'A Grant', started_at: '2026-11-10T10:00:00.000Z' };
+  const t = renderReply({ ...one, ask_sent: [kiro], released: [started] }, false, NOW);
+  assert.ok(t.endsWith('\nDid you send Kiroween 2026?\nA Grant: started Nov 10, nothing sent. Say yes to apply or say skip.'), t);
+  assert.equal(t.match(/\bSay\b/g)?.length, 1, t);
+  // Two asks: the first keeps the Say.
+  const two = renderReply({ ...one, ask_sent: [kiro, { ...kiro, program_id: 'b', title: 'Beta Jam' }] }, false, NOW);
+  assert.ok(two.endsWith('\nDid you send Beta Jam?\nDid you send Kiroween 2026? Say sent and I note it.'), two);
+  // The agent note says how to record each answer, also when nothing is listed.
+  const note = 'The reply asks whether each was sent: Kiroween 2026. "sent" is track applied with submitted_by builder; "not yet" needs no call.';
+  assert.ok(agentNote({ ...one, ask_sent: [kiro] }, { more: 0 }).split('\n').includes(note));
+  assert.ok(agentNote(base({ ask_sent: [kiro] }), { more: 0 }).split('\n').includes(note));
+  assert.equal(renderReply(base({ ask_sent: [kiro] }), false, NOW).split('\n').at(-1), 'Did you send Kiroween 2026? Say sent and I note it.');
+});
+
+test('L36-2: a builder-sent claim past 24 hours asks instead of saying nothing sent; its agent note is the sent note', () => {
+  const NOW = new Date('2026-11-12T12:00:00Z');
+  const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
+  const futo = { program_id: 'futo', title: 'FUTO Microgrants', started_at: '2026-11-11T09:00:00.000Z', ask: true as const };
+  const t = renderReply({ ...one, released: [futo] }, false, NOW);
+  assert.equal(t.split('\n').at(-1), 'FUTO Microgrants: started Nov 11; did you send it? Say sent and I note it.');
+  assert.doesNotMatch(t, /nothing sent/);
+  const n = agentNote({ ...one, released: [futo] }, { more: 0 });
+  assert.match(n, /The reply asks whether each was sent: FUTO Microgrants\./);
+  assert.doesNotMatch(n, /were released/);
 });

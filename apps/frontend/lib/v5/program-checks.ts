@@ -96,7 +96,8 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   // L18-2 (v6.1.18): the public repo (or its license) is the flag's step, never also a rule item to confirm.
   const PUBLIC_RULE = /\b(public|open[- ]source)\b.*\b(repo|repository|github|license)\b/i;
   // Task 2 review minor (v6.1.18): a keyworded rule item too; its keywords never make the public repo a rule.
-  if (q.open_source && (q.eligibility ?? []).some((i) => i.kind === 'rule' && PUBLIC_RULE.test(i.note ?? '')))
+  // v6.1.18 merge with L38-27 (Task 11): a license rule the repo read settles (`check: license`) is not the flag's step.
+  if (q.open_source && (q.eligibility ?? []).some((i) => i.kind === 'rule' && i.check !== 'license' && PUBLIC_RULE.test(i.note ?? '')))
     problems.push("eligibility: the public repo is the open_source flag's step; drop the rule item");
   // #12 (v6.1.15): the summary's money is a number, never bare words unless the file says the amount is not stated.
   // L38-5 (v6.1.18): the list rows never show "amount not stated", so the summary leaves it out and the reward says it.

@@ -5,7 +5,7 @@ import { apiTextProblems } from './api-text';
 import { programFixture } from './fixtures/program';
 
 test('L1f-1 (v6.1.14): open_source needs a rule naming open source code, and defaults to false', () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   assert.equal(programFixture({ id: 'p-default' }).open_source, false);
   assert.deepEqual(programProblems(programFixture({ id: 'p-os', open_source: true, rules: ['The project must carry an OSI-approved open source license.'] }), NOW), []);
   assert.deepEqual(programProblems(programFixture({ id: 'p-os-rule', open_source: true, eligibility: [{ kind: 'rule', note: 'code under a free/libre license' }] }), NOW), []);
@@ -13,7 +13,7 @@ test('L1f-1 (v6.1.14): open_source needs a rule naming open source code, and def
 });
 
 test('#12 (v6.1.15), L38-5 (v6.1.18): a money line needs a number, or words with "amount not stated" in the reward; never in the summary; the whole catalog passes', async () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   assert.deepEqual(programProblems(programFixture({ id: 'p-words', summary: 'milestone grants · rolling', reward: 'Milestone grants' }), NOW), [
     'summary: the money "milestone grants" needs a number, or the reward must say "amount not stated"',
   ]);
@@ -32,7 +32,7 @@ test('#12 (v6.1.15), L38-5 (v6.1.18): a money line needs a number, or words with
 });
 
 test('lane 22 (v6.1.15 fix round 1, I1): a money line in K or M is refused; full figures pass', () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   const full = (piece: string) => `summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`;
   assert.deepEqual(programProblems(programFixture({ id: 'p-k', summary: '$500K investment · rolling' }), NOW), [full('$500K investment')]);
   assert.deepEqual(programProblems(programFixture({ id: 'p-m', summary: 'up to $1M · rolling' }), NOW), [full('up to $1M')]);
@@ -49,14 +49,14 @@ test('Task 1 N1 (v6.1.15 fix round 1, M3): the program write lints a requirement
 });
 
 test('FR-6 (v6.1.15): rules and eligibility notes in K or M are refused; the catalog\'s rules are in full figures', () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   assert.deepEqual(programProblems(programFixture({ id: 'p-rule-k', rules: ['Deal: up to $1M on a SAFE.'] }), NOW), ['rules.0: money must be in full figures ("$100,000", never "$100K")']);
   assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$100,000", never "$100K")']);
   assert.deepEqual(programProblems(programFixture({ id: 'p-rule-full', rules: ['Deal: up to $1,000,000 on a SAFE.'] }), NOW), []);
 });
 
 test('L21-2 (v6.1.16): a closed program carries no open-window sentence; the same file active passes', () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   const rules = ['Applications are open until Dec 6.', 'Winners are named in January.'];
   assert.deepEqual(programProblems(programFixture({ id: 'p-closed-open', status: 'closed', summary: 'Up to $5,000', rules }), NOW), [
     'status: a closed program carries no open-window sentence: "Applications are open until Dec 6."',
@@ -70,7 +70,7 @@ test('L21-2 (v6.1.16): a closed program carries no open-window sentence; the sam
 });
 
 test('fix round 1 (v6.1.16): a closed program carries no present rolling sentence and no rolling summary; the past passes', () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   const rules = ['Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline.'];
   assert.deepEqual(programProblems(programFixture({ id: 'p-closed-rolling', status: 'closed', summary: 'Up to $5,000', rules }), NOW), [
     'status: a closed program carries no rolling-window sentence: "Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline."',
@@ -84,7 +84,7 @@ test('fix round 1 (v6.1.16): a closed program carries no present rolling sentenc
 });
 
 test('L1h-1 (v6.1.16): K or M in a description, reward, past round or todo is refused (any case); a requirement label is the program\'s own', async () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   const msg = (path: string) => `${path}: money must be in full figures ("$100,000", never "$100K")`;
   const round = { label: 'Round one: $325k to 9 projects', source_url: 'https://example.org/r' };
   assert.deepEqual(programProblems(programFixture({ id: 'p-d', description: 'Invests $100K per team.' }), NOW), [msg('description')]);
@@ -112,7 +112,7 @@ test('L24-25 (v6.1.16 Task 11): EarnKit\'s own files never use the copy-rule wor
 });
 
 test('L1h-8 (v6.1.16 Task 15): a required field\'s need (or the todo standing in for it) holds no "and"; every catalog file passes', async () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   const req = (over: Record<string, unknown>) => ({ key: 'q1', label: 'Question one', type: 'text', required: true, from: 'builder', kind: 'other', ...over });
   const p = (over: Record<string, unknown>) => programProblems(programFixture({ id: 'p-need', submission_requirements: [req(over)] as never }), NOW);
   assert.deepEqual(p({ todo: 'the problem and your solution' }), ['submission_requirements.q1.need: one need, no "and"; use "with" or split the field']);
@@ -128,7 +128,7 @@ test('L1h-8 (v6.1.16 Task 15): a required field\'s need (or the todo standing in
 });
 
 test('L1i-10 (v6.1.16.1): a figure beside "million" or "billion" is refused in any field; FLOSS/fund and HeroDevs read full figures', async () => {
-  const NOW = new Date('2026-11-11T00:00:00Z');
+  const NOW = new Date('2026-11-12T00:00:00Z');
   const msg = (path: string) => `${path}: money must be in full figures ("$1,000,000", never "$1 million")`;
   assert.deepEqual(programProblems(programFixture({ id: 'p-w', description: 'A fund for open source, $1 million a year.' }), NOW), [msg('description')]);
   assert.deepEqual(programProblems(programFixture({ id: 'p-w2', rules: ['A fresh $1.5 Billion was planned.'] }), NOW), [msg('rules.0')]);
@@ -171,6 +171,8 @@ test('L18-2 (v6.1.18): an open source file never also carries the public repo or
     assert.deepEqual(programProblems(programFixture({ id: 'p-dup', open_source: true, rules, eligibility: [{ kind: 'rule', note }] }), NOW), [REFUSAL], note);
   // Task 9 (v6.1.18, Task 2 review minor): a keyworded rule item too.
   assert.deepEqual(programProblems(programFixture({ id: 'p-kw', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'a public repo built on the Acme open source SDK license', keywords: ['acme'] }] }), NOW), [REFUSAL]);
+  // v6.1.18 merge with L38-27 (Task 11): a license rule the repo read settles is not the flag's step.
+  assert.deepEqual(programProblems(programFixture({ id: 'p-check', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'a public code repo with a visible open source license', check: 'license' }] }), NOW), []);
   // The flag off, or a rule about something else: no refusal.
   assert.deepEqual(programProblems(programFixture({ id: 'p-off', rules, eligibility: [{ kind: 'rule', note: 'a public code repo with a visible open source license' }] }), NOW), []);
   assert.deepEqual(programProblems(programFixture({ id: 'p-other', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'an active GitHub Sponsors profile for the maintainer' }] }), NOW), []);

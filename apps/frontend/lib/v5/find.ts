@@ -16,7 +16,7 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, listRef, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -26,8 +26,9 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
+import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
 /**
  * find as agents see it (v6.1.14 T5: track's project schema), registered leniently (L13-4): `find` reads the arguments
@@ -142,6 +143,8 @@ export type ReadyProgram = {
   /** The builder confirmed its rules (track gap_done) or, F3 (v6.1.10), said real people use it: that yes stands, so
    *  the closing asks for no second one (v6.1.9). */
   rule_yes?: true;
+  /** L38-1 (v6.1.18 Task 11): what the agent writes into the repo on yes before it applies (the funding manifest). */
+  agent_step?: ManifestStep;
 };
 export type GapProgram = {
   program_id: string;
@@ -195,6 +198,10 @@ export type FindReply = {
   /** L23-4 (v6.1.16): applied programs past their results date with no result, that this installation has not asked
    *  about today; the builder text asks each. */
   ask_outcome: OutcomeDue[];
+  /** L18-4, L36-1 (v6.1.18 Task 4): programs the builder sends themselves, started over an hour ago with no send
+   *  recorded, that this installation has not asked about in the last 7 days; the builder text asks each. Always set by
+   *  a project find. */
+  ask_sent?: SentAsk[];
   as_reported: boolean;
   problems?: string[];
   /** What the builder is told about the repo read, one sentence each (v6.1.8, B20 and C59). */
@@ -235,6 +242,8 @@ export type ProgramReply = {
   linked: boolean;
   /** L24-29 (v6.1.16 Task 11): what the project report had dropped or cut, as the list reply names them. */
   problems?: string[];
+  /** L38-1 (v6.1.18 Task 11): a ready program's funding manifest for the agent to write and push before it applies. */
+  agent_step?: ManifestStep;
 };
 export type FindContext = {
   installationId: number;
@@ -254,6 +263,8 @@ const MAX_GAPS = 3;
 const MAX_REMEMBERED_GAPS = 60;
 /** Fix round 1 (M4, v6.1.16 Task 15): the open list (no project) names this many programs, then the count. */
 const OPEN_SHOWN = 5;
+/** L18-4 fix round 1 (v6.1.18 Task 4): the most lines the open list's builder text holds (as DEFAULT_LINES). */
+const OPEN_LINES = 10;
 
 /** O1 (v6.1.10): a program closing within this many days is always in the default reply, ahead of the caps. */
 const SOON_DAYS = 7;
@@ -317,9 +328,11 @@ const EMPTY_FACTS: RepoFacts = {
 
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
  *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
-async function factsOf(project: Project, ctx: FindContext, key: string): Promise<RepoFacts> {
+async function factsOf(project: Project, ctx: FindContext, key: string, startedAt: Date | null = null): Promise<RepoFacts> {
   try {
-    const staleAfter = await codeDoneAt(ownerOf(ctx), key);
+    const done = await codeDoneAt(ownerOf(ctx), key);
+    // L38-1 (v6.1.18 Task 11): a start since the read (`startedAt`) checks for a push too.
+    const staleAfter = done && startedAt ? new Date(Math.max(done.getTime(), startedAt.getTime())) : (done ?? startedAt);
     return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
     // v6.1.14 (L1f-1): the report alone, never marked private for a failed read (a private repo is a step from open source programs).
@@ -358,8 +371,17 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     setup: p.setup,
     rules: v.rules,
     ...((v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:'))) || usersYes(p, facts, done) ? { rule_yes: true as const } : {}),
+    ...withStep(manifestStep(p, facts, rec)),
   };
 }
+/** Fix round 1 (M6): a ready program another agent holds, without its agent step. Pure. */
+const withoutStep = (r: Omit<ReadyProgram, 'n'>, held: boolean): Omit<ReadyProgram, 'n'> => {
+  if (!held) return r;
+  const { agent_step: _step, ...rest } = r;
+  return rest;
+};
+/** L38-1: the agent step, when there is one. Pure. */
+const withStep = (step: ManifestStep | null): { agent_step?: ManifestStep } => (step ? { agent_step: step } : {});
 
 const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date, hit = false, unlikelyHere = false): Omit<GapProgram, 'n'> => {
   const again = lookedAgain(v.gaps, done);
@@ -463,7 +485,10 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
-  const facts = project ? await factsOf(project, ctx, key) : EMPTY_FACTS;
+  // L38-1 (v6.1.18 Task 11): a manifest program the builder started is read again for a push since (the agent wrote the
+  // funding file, pushed, then called track started), so its URL fills the field.
+  const startedAt = project && wantsManifest(p) ? (await claimed(ownerOf(ctx), (x) => x === key || (x !== null && x === projectId))).get(id)?.since : undefined;
+  const facts = project ? await factsOf(project, ctx, key, startedAt ? new Date(startedAt) : null) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match. With a project, the same record side the list reads (the
   // 24-hour rule), so the two gate on the same tier (v6.1.8 final fix, I3); with none, the stored record alone.
   const side = ctx.builderId !== null && project
@@ -532,7 +557,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ready: [{ ...readyOf(row, verdict, facts, ctx.now, rec, ownDone), n: 1 }], blockers: blockersOf([row], rec.record),
     }).list.length === 1;
   const said = !closed && !upcoming && verdict
-    ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done, lastOffer, standing })
+    ? verdictText(row, verdict, () => withoutStep(readyOf(row, verdict, facts, ctx.now, rec, ownDone), heldSince !== null), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done, lastOffer, standing })
     : null;
   let offer: OfferKind | null = said?.offer ?? null;
   const show = closed
@@ -560,6 +585,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     else show.push(heldLine);
   }
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
+  // L38-1 (v6.1.18 Task 11): a ready program whose form takes a manifest not yet in the repo: what the agent writes.
+  const step = open && verdict?.status === 'ready' && !heldSince ? manifestStep(p, facts, rec) : null;
   if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
   await markOffer(ctx.installationId, offer, ctx.now);
   const dropped = droppedNote(problems);
@@ -580,6 +607,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
+              ...(step ? [MANIFEST_NOTE] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
               ...(verdict?.status === 'gap' && contractLookedAgain(gapOf(row, verdict, done)) ? [CONTRACT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
@@ -592,6 +620,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     fields,
     guide,
     ...(verdict ? { verdict } : {}),
+    ...withStep(step),
     rules,
     ...(problems.length > 0 ? { problems } : {}),
     ...(link ? { sign_in: link } : {}),
@@ -638,18 +667,27 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   // that wait again (C48) and what was sent under standing approval, in the closing block, since this find stamps.
   const report = ctx.builderId === null ? null : await linkedReport(ctx, programs);
   const closing = report ? [sinceLine(report, ctx.now), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
+  const before = [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [notice])].filter(Boolean) as string[];
+  // L18-4 fix round 1 (v6.1.18 Task 4): a find with no project asks about every open sent question, as plain questions
+  // before the ask (which stays last, L1j-6), within the 10 lines; only the ones shown are marked.
+  const sentAll = await sentAsksOpen(ctx.installationId, await askSent(ownerOf(ctx), programs, ctx.now), ctx.now);
+  const sentShown = sentAll.slice(0, Math.max(0, OPEN_LINES - 1 - before.length));
+  await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => a.program_id), ctx.now);
+  const sentNoteOpen = sentNote({ ask_sent: sentShown, released: [] });
   const reply = {
     // One line each, no blank lines (fix round 1, M4).
     // L1j-6 (v6.1.17 fix round 1 I3): the ask is last; the sign-in, the notice or the report before it.
     // L38-31 (v6.1.18): no sign-in line: with no project, signing in buys the builder nothing yet (sign_in stays in the JSON).
-    show_to_builder: [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [notice]), action].filter(Boolean).join('\n'),
+    // L18-4 (v6.1.18 Task 4): the open sent questions after it, before the ask.
+    show_to_builder: [...before, ...sentShown.map((a) => `Did you send ${a.title}?`), action].join('\n'),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
       ...(all && !appsLine && shown.length > 0 ? [openNumbersNote(shown.map((r) => r.id))] : []),
+      ...(sentNoteOpen ? [`${sentNoteOpen} Pass the project each was started for.`] : []),
     ].join('\n'),
     since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
-    ready: [], gaps: [], ledger, applications, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
+    ready: [], gaps: [], ledger, applications, ask_outcome: [], ask_sent: sentShown, as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
     ...(report ? { applied_overnight: report.applied_overnight, ...(report.approvals_again ? { approvals_again: report.approvals_again } : {}) } : {}),
     ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}), linked_notice: notice,
   };
@@ -1096,13 +1134,24 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // A project_id the record does not hold is named, and the match goes on by the repo (v6.1.7, C17).
   if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
   // L23-7, L23-19 (v6.1.16): stale claims are released on every project find, linked or not, and said by title.
-  const released = await releaseStale(owner, ctx.now);
+  const releasedAll = await releaseStale(owner, ctx.now);
+  // L18-4, L36-1 (v6.1.18 Task 4): a program the builder sends themselves, started on this project (or on none) over an
+  // hour ago with nothing recorded, is asked about (once per installation every 7 days, marked only when the builder
+  // text shows it: fix round 1) and, while the ask is open, never listed to draft again on this project.
+  const sentHere = (p: string) => p === key || p === i.project_id || p === side?.projectId;
+  const sentOpen = await askSent(owner, open, ctx.now, sentHere);
+  const sentDue = await sentAsksOpen(ctx.installationId, sentOpen, ctx.now);
+  const sentIds = new Set(sentOpen.map((a) => a.program_id));
+  const dueIds = new Set(sentDue.map((a) => a.program_id));
+  // L36-2: a kept claim's release line is its ask; said only when the ask is due, and then not asked twice.
+  const released = releasedAll.filter((p) => !p.ask || dueIds.has(p.program_id));
+  const askSentNow = sentDue.filter((a) => !released.some((p) => p.program_id === a.program_id));
   // L28-4 (v6.1.16 Task 14): a send leaves only its own project's list (`here`, below).
   const skip = await excluded(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
   const all = i.filter?.all === true;
   // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
   const listed = side ? notNever(side.record) : () => true;
-  const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
+  const programs = open.filter((r) => !skip.has(r.id) && !sentIds.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneOn(owner, key);
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
@@ -1138,7 +1187,6 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const attending = (v: Verdict) => byId.get(v.program_id)!.file.in_person;
   // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
-  const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
   // L38 big 3 (v6.1.18 Task 10): the full list lists every in-person program with gaps in the In person block (the
   // Monad Blitz bug: only rule-only ones moved); the default list keeps only the rule-only ones there.
   const attendIn = (every: boolean) => (v: Verdict) => attending(v) && (every || rulesOnly(v.gaps));
@@ -1182,7 +1230,12 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const builderHeld = new Set([...allClaims].filter(([, h]) => h.held).map(([id]) => id));
   const marked = (id: string, r: Omit<ReadyProgram, 'n'>): Omit<ReadyProgram, 'n'> => {
     const hold = holds.get(id);
-    return hold ? { ...r, claimed_since: hold.since } : builderHeld.has(id) ? { ...r, held: true } : r;
+    // Fix round 1 (M6): a program another agent holds carries no agent step, as on the one-program reply.
+    if (hold) {
+      const { agent_step: _step, ...rest } = r;
+      return { ...rest, claimed_since: hold.since };
+    }
+    return builderHeld.has(id) ? { ...r, held: true } : r;
   };
   const { ready, gaps } = numbered(
     shownReady.map((v) => marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)))),
@@ -1242,7 +1295,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const r0: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
-    ledger, applications: await applicationsOf(owner), ask_outcome: ask, as_reported: facts.as_reported,
+    ledger, applications: await applicationsOf(owner), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
     ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
@@ -1284,11 +1337,19 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
   const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}), ...(hiddenRows ? { hidden: hiddenRows } : {}) });
   await markOffer(ctx.installationId, said.offer, ctx.now);
+  // L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked only when the builder text shows it; one the full view
+  // or the line cap left out is not marked, not named to the agent, and comes back on the next find.
+  const shownSent = (r.ask_sent ?? []).filter((a) => said.text.includes(`Did you send ${a.title}?`));
+  const shownRel = r.released.filter((p) => p.ask && said.text.includes(`${p.title}: started`));
+  await markSentAsked(ctx.installationId, owner, [...shownSent, ...shownRel].map((x) => x.program_id), ctx.now);
+  const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
+  const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
+  const hiddenOut = said.hidden.filter((l) => !unshown.some((a) => l.startsWith(`Did you send ${a.title}?`) || l.startsWith(`${a.title}: started`)));
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more: said.more, description, hidden: said.hidden, all, say: said.say }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
-    ...jsonLists(r),
+    agent_note: [agentNote(rOut, { more: said.more, description, hidden: hiddenOut, all, say: said.say }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread), rOut.ready.some((p) => p.agent_step) ? MANIFEST_NOTE : ''].filter(Boolean).join('\n'),
+    ...jsonLists(rOut),
     more: said.more > 0 || said.hidden.length > 0,
     more_count: said.more,
   };

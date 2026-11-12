@@ -21,7 +21,7 @@
   "min_tier": "used",
   "eligibility": [
     { "kind": "users", "note": "an open digital base technology that other software depends on; prototypes are not financed" },
-    { "kind": "rule", "note": "code under an OSI-approved or FSF Free/Libre license" },
+    { "kind": "rule", "note": "code under an OSI-approved or FSF Free/Libre license", "check": "license" },
     { "kind": "rule", "note": "work costing over EUR 50,000 on base technology, not a user-facing app" }
   ],
   "setup": [

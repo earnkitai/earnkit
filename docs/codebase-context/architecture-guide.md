@@ -1085,6 +1085,16 @@ not keep, and every open or closed decision is read from the clock at request ti
   program another agent holds says `Another agent of yours started this one on {date}.` in place of the yes. A send
   (`applied`) over another agent's live claim is recorded and clears the claim (`other_claim`, agent note
   `OTHER_CLAIM_NOTE`); B3 refuses only claims and skips.
+- **Did you send it (v6.1.18 Task 4, L18-4, L36-1, L36-2).** For a program the builder submits themselves
+  (`submit: 'builder'`), `askSent` (ledger.ts) lists every unheld `started` row at least `SENT_ASK_AFTER_HOURS` (1) old;
+  `sentAsksDue` (table `sent_asks`, one row per installation and program) asks each once per installation every
+  `SENT_ASK_EVERY_DAYS` (7): `Did you send {title}? Say sent and I note it.` (`ask_sent`, `sentLines`, ONE_SAY_ORDER
+  after the started lines). While the ask is open the program is left out of the list (never offered as a draft
+  again). `releaseStale` never deletes such a claim: it comes back with `ask: true`, said only when its ask is due, as
+  `{title}: started {date}; did you send it? Say sent and I note it.`. The agent note: `"sent" is track applied with
+  submitted_by builder; "not yet" needs no call.` Prefill: a how-you-heard field (`heardFrom`) says `EarnKit
+  (earnkit.com)`, or picks the referral (else other) option with the other-box `note`; partner, alumni and
+  more-than-the-source fields are left as they are.
 - **Results.** `askOutcome` lists every applied row past its results date with no result on every find;
   `outcomeAsksDue` (table `outcome_asks`, one row per installation and program) shows the builder line `Results for
   {title} were due {date}. Did you hear back?` once a day per installation. `asked_outcome_at` is kept for the record
@@ -1093,7 +1103,7 @@ not keep, and every open or closed decision is read from the clock at request ti
   closing soon. A closed program the builder sent reads `Closed. You applied {date}; results {date | not announced}.`.
 - **Nothing new.** `installations.last_list_hash` / `last_list_at` (sha256 of the shown ids); the same list with no
   since line starts `Nothing new since {date}.`.
-- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the record sign-in line, the
+- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the sent questions (v6.1.18), the record sign-in line, the
   closing; only the first that carries a `Say` keeps it (`oneSay`, `withoutSay`). A gap line's own `Say "do n"` is
   Task 11's to fold. Record get unlinked with no link: `Sign in once and I remember you.` (`REMEMBER_YOU`).
 - **Sweeps.** `sweepReports` deletes only cached evidence past `REPORT_DAYS` (repo_cache, evidence_cache), never
@@ -1446,6 +1456,48 @@ means what the last `Say` offered.
 - **One Say.** `SAY_SENTENCE` already reads `, then say` and the full view's rule check reads `say "yes n"` in either
   case (`fullSay`), so the merged forms stay the reply's one Say; a new Say kind joining `ONE_SAY_ORDER` composes with
   them as before (the sign-in is never its own line).
+
+## v6.1.18 Task 11: the license read and the funding manifest (lane 38)
+
+- **License (L38-27).** The repo read keeps GitHub's detected license (`license.spdx_id`) as `RepoFacts.license`
+  (`licenseOf` in repo-facts.ts: the SPDX id, `NOASSERTION` for a license file GitHub does not recognize, null for
+  none; absent when not read, and on rows cached before, which read as unknown until their next read). A program
+  rule with `"check": "license"` (HeroDevs, GitHub Secure Open Source Fund, PayPal, QNX, Sovereign Tech Fund) is
+  settled by it in `evaluate`: an OSI SPDX id (`licenseRead`, a small allow list) confirms it and asks nothing; none is
+  `LICENSE_FILE` (`feature:license`, minutes, agent_can, `do: 'add an MIT license file'`, closing `Say "do" and I add
+  an MIT license file first.`; track gap_done accepts the item on these programs); an unknown or other license, a repo
+  not read, or an archived repo keeps the rule question. The do offer reads a gap's `do` before its `what`.
+- **Funding manifest (L38-1).** FLOSS/fund's form takes `funding_json_url` and its file has no setup step any more.
+  `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
+  projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,
+  topics as tags), every URL the GitHub repo with a `wellKnown` at `.well-known/funding-manifest-urls`, the plan the
+  program's minimum a year by bank; nulls listed in `fill`. It rides on the ready program (list JSON) and the
+  one-program reply, only on a read GitHub repo without the file; the ready row says `I add the funding file to your
+  repo, then apply.` and prefill gives the field to the agent (vouched). The read marks `funding.json` at the tree root
+  and gives `funding_json_url`, the raw URL (`raw.githubusercontent.com/<owner>/<repo>/HEAD/funding.json`), which
+  prefill then fills as EarnKit's. A one-program find on a manifest program the builder started re-checks the push
+  (the claim's time joins `codeDoneAt` as `staleAfter`). With no read (a report, a send's check) the link stays the
+  builder's, so a send under standing approval is outside it until a read finds the file.
+- **Fix round 1.** CC0-1.0 is off the OSI list. A repo body with no `license` key leaves the license unknown. The
+  plan amount is the record's `policy.max_ask_usd` kept within the award floor and ceiling, else the floor
+  (`planAmount`), and there is no step for a program with no floor. The manifest version is v1.1.0, matching its
+  schema. A program another agent holds carries no step, in the list or alone. A truncated tree that does not list
+  funding.json leaves the file unknown (`RepoRead.truncated`); the read never fetches the raw URL, which can lag a push.
+
+## v6.1.18 merge of the two branches (journeys-12 and owner)
+
+- **License rule and the code step.** Task 2 (L18-2) makes code in a public repo the step for an open source program
+  and refuses a rule item that restates it; Task 11 (L38-27) marks the license rules `"check": "license"` so the read
+  settles them. Both stand: `programs:check` refuses a public-repo or license rule item only when it carries no license
+  check, so HeroDevs (its users item, its own end-of-life rule and the checked license rule), GitHub Secure Open Source
+  Fund, PayPal and QNX keep the checked license rule, and Neon keeps none. In `evaluate`, a license-check rule waits
+  while the code step (`NEEDS_CODE` / `NEEDS_PUBLIC_CODE`) stands: with no code there is nothing to read, and the
+  license is never a rule to confirm beside the code step.
+- **Sent ask in the one Say.** `sent_ask` sits in ONE_SAY_ORDER after the started lines and before the sign-in and the
+  closing; the no-project open list keeps L38-31 (no sign-in line) and asks its open sent questions before the ask.
+- **FLOSS manifest in the ready row.** The ready row carries `I add the funding file to your repo, then apply.` when the
+  read gives the agent step; without a read the row keeps `You give: the funding manifest link.` and the L38-30 setup
+  closing no longer applies to FLOSS, whose setup step is gone.
 
 ## What v5 deliberately does not do
 

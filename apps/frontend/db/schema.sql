@@ -88,6 +88,8 @@ ALTER TABLE program_health ADD COLUMN IF NOT EXISTS body_text text;
 -- v6.1.17 Task 3 (L30-9): when the current run of failures began (null while the links load); stale at 20 hours of
 -- failing, never by counting UTC dates.
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS first_failed_at timestamptz;
+-- v6.1.18 (L39-5): the submission page answered but its text says it is closed; the owner's digest lists it.
+ALTER TABLE program_health ADD COLUMN IF NOT EXISTS submit_closed boolean NOT NULL DEFAULT false;
 -- v6.1.17 Task 3 (L30-14): one row, the last daily run that finished (answered 200); /api/stats shows it and the
 -- owner's digest names a gap over 26 hours.
 CREATE TABLE IF NOT EXISTS cron_state (
@@ -125,6 +127,9 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS promised jsonb, ADD COLUMN IF NOT EXISTS promised_at timestamptz, ADD COLUMN IF NOT EXISTS last_list_hash text, ADD COLUMN IF NOT EXISTS last_list_at timestamptz;
 -- v6.1.16 (Task 9, L23-4): the day each installation last showed a program's results question (at most once a day each).
 CREATE TABLE IF NOT EXISTS outcome_asks (installation_id bigint NOT NULL, owner text NOT NULL, program_id text NOT NULL, asked_on date NOT NULL, PRIMARY KEY (installation_id, program_id));
+-- v6.1.18 Task 4 (L18-4, L36-1): which installation asked whether a builder-sent form went out, and on which day; asked
+-- again after SENT_ASK_EVERY_DAYS.
+CREATE TABLE IF NOT EXISTS sent_asks (installation_id bigint NOT NULL, owner text NOT NULL, program_id text NOT NULL, asked_on date NOT NULL, PRIMARY KEY (installation_id, program_id));
 -- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
 -- Task 16: `used_at` is its first code exchange; the daily run sweeps one registered over 30 days ago that never exchanged one.
 CREATE TABLE IF NOT EXISTS oauth_clients (

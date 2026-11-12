@@ -21,7 +21,8 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
   const g = guideText(real('base-builder-grants'));
   assert.equal(g.title, 'Base Builder Grant Program');
   assert.equal(g.money, 'Up to $5,000');
-  assert.equal(g.closes, 'Rolling');
+  // L39-1 (v6.1.18): Round 2 closed, Round 3 not announced.
+  assert.equal(g.closes, 'Not open yet');
   assert.ok(g.eligibility.includes('A live product.'));
   assert.ok(g.eligibility.includes('On Base.'));
   assert.ok(g.fields.length > 0);

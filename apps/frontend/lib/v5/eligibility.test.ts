@@ -10,7 +10,7 @@ import { parseProject } from './project-input';
 import { ProgramFile, eligibilityOf } from './program-file';
 import type { ProgramRow } from './programs';
 import { replayFetch } from './fixtures/github';
-import { programFixture } from './fixtures/program';
+import { openCatalogProgram, programFixture } from './fixtures/program';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -32,7 +32,8 @@ async function factsOf(slug: string, over: Record<string, unknown> = {}): Promis
 }
 
 test('EarnKit vs Base: ready with builder codes and users, else the builder codes gap', async () => {
-  const base = fromFile('base-builder-grants');
+  // L39-1 (v6.1.18): Base Builder Grants is upcoming; its Builder Codes rule is tested as it read while open.
+  const base = toRow(openCatalogProgram('base-builder-grants'));
   // The report stands where no repo was read (private); a public read that finds none beats it (v6.1.9).
   const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true, private: true, chains: [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] }), new Set(), NOW);
   assert.equal(ready.status, 'ready', JSON.stringify(ready));
@@ -162,7 +163,7 @@ test('users: not reported is a gap only the builder can answer; false is no; tru
 });
 
 test('EarnKit vs Base with users not reported: one change away, the builder codes and the users question', async () => {
-  const v = evaluate(fromFile('base-builder-grants'), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
+  const v = evaluate(toRow(openCatalogProgram('base-builder-grants')), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.deepEqual(v.gaps.map((g) => g.kind).sort(), ['builder_codes', 'users']);
 });
@@ -665,4 +666,57 @@ test('L36-13 (v6.1.18): the demo video gap asks for a link, and a demo link pass
   const v = evaluate(p, await factsOf('earnkit'), new Set(), NOW);
   assert.deepEqual(v.gaps.map((g) => g.what), ['a demo video link (a short screen recording of it working)']);
   assert.equal(evaluate(p, await factsOf('earnkit', { demo_url: 'https://www.youtube.com/watch?v=abc' }), new Set(), NOW).status, 'ready');
+});
+
+test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rule; none is the license file gap; unknown keeps the rule', async () => {
+  // The recorded fixtures carry GitHub's license: GPL-3.0 on saber, none on nextjs-dashboard.
+  assert.equal((await factsOf('saber-distributor')).license, 'GPL-3.0');
+  const bare = await factsOf('nextjs-dashboard', { users: true });
+  assert.equal(bare.license, null);
+  // Not read: no license field, so the rule stays a question.
+  const unread = parseProject({ name: 'App', description: 'An app.', users: true, live_url: 'https://app.example' });
+  assert.ok(unread.ok);
+  assert.equal('license' in (await repoFacts(unread.project, { now: NOW })), false);
+  const hero = fromFile('herodevs-sustainability-fund');
+  const RULE = 'an OSI-approved open source license';
+  // v6.1.18 merge with L18-2 (Task 2): HeroDevs also carries its own end-of-life rule; confirmed here so only the license shows.
+  const EOL = ruleItem('a developer tool whose versions are near or past official end of life');
+  const items = (license: string | null | undefined, done: string[] = []) => evaluate(hero, { ...bare, license }, new Set([EOL, ...done]), NOW).gaps.map((g) => g.what);
+  for (const id of ['MIT', 'Apache-2.0', 'GPL-3.0', 'GPL-3.0-only', 'BSD-3-Clause', '0BSD']) assert.deepEqual(items(id), [], id);
+  assert.equal(evaluate(hero, { ...bare, license: 'MIT' }, new Set([EOL]), NOW).status, 'ready');
+  // No license file: the license file gap, minutes, EarnKit's to add; closed by its own item.
+  const none = evaluate(hero, bare, new Set([EOL]), NOW);
+  assert.deepEqual(none.gaps.map((g) => [g.kind, g.item, g.what, g.effort, g.agent_can, g.do]), [['feature', 'feature:license', 'a license file', 'minutes', true, 'add an MIT license file']]);
+  assert.deepEqual(items(null, ['feature:license']), []);
+  // A license GitHub does not recognize, one not on the list, or no read: the rule question, as before.
+  // Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it keeps the question too.
+  for (const id of ['NOASSERTION', 'BUSL-1.1', 'CC0-1.0', undefined]) assert.deepEqual(items(id), [RULE], String(id));
+  assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
+  // An archived repo: its license is not the live repo's, so the rule stays a question beside the live repo step.
+  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo', RULE]);
+  // The rules marked as license checks; the ones that ask more than a license are not.
+  const checked = (slug: string) => eligibilityOf(fromFile(slug).file).filter((i) => i.check === 'license').map((i) => i.note);
+  for (const slug of ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund'])
+    assert.equal(checked(slug).length, 1, slug);
+  for (const slug of ['neon-open-source-program', 'nlnet-open-call', 'floss-fund-zerodha']) assert.deepEqual(checked(slug), [], slug);
+  // Only a rule takes check.
+  assert.throws(() => ProgramFile.parse({ ...hero.file, eligibility: [{ kind: 'feature', value: 'x', check: 'license' }] }));
+});
+
+test('Task 11 fix round 1 (I4, M7): a repo body with no license key is unknown; a truncated tree without funding.json claims nothing', async () => {
+  const REPO = /api\.github\.com\/repos\/[^/]+\/[^/]+$/;
+  const noKey = replayFetch('nextjs-dashboard', (u, b) => (REPO.test(u) ? b.replace('"license":null,', '') : b));
+  const r = parseProject({ name: 'App', description: 'An app.', repo_url: `https://github.com/${noKey.repo}`, users: true });
+  assert.ok(r.ok);
+  const facts = await repoFacts(r.project, { gh: noKey.fetch, now: NOW });
+  assert.equal(facts.public, true);
+  assert.equal('license' in facts, false);
+  assert.deepEqual(evaluate(fromFile('herodevs-sustainability-fund'), facts, new Set(), NOW).gaps.map((g) => g.what), ['a developer tool whose versions are near or past official end of life', 'an OSI-approved open source license']);
+  // A truncated tree that does not list funding.json: unknown, so no URL is claimed; one that lists it: the URL.
+  await sql()`DELETE FROM repo_cache`;
+  const cut = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,') : b));
+  assert.equal((await repoFacts(r.project, { gh: cut.fetch, now: NOW })).funding_json_url, undefined);
+  await sql()`DELETE FROM repo_cache`;
+  const listed = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,').replace('"tree":[', '"tree":[{"path":"funding.json","mode":"100644","type":"blob","sha":"f","size":900},') : b));
+  assert.equal((await repoFacts(r.project, { gh: listed.fetch, now: NOW })).funding_json_url, `https://raw.githubusercontent.com/${noKey.repo}/HEAD/funding.json`);
 });

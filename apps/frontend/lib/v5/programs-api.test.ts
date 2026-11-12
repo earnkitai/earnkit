@@ -5,7 +5,7 @@ import type { Mailer } from './mail';
 import { getProgram } from './programs';
 import { programsListGet, watchCatalogRevalidation } from './programs-read';
 import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
-import { approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { applicationsGet, approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
@@ -426,5 +426,128 @@ test('L22-13 (v6.1.16): an API write expires every catalog surface through reval
     assert.equal(n, 1);
   } finally {
     watchCatalogRevalidation(null);
+  }
+});
+
+// ---- L18-5 (v6.1.18 Task 5): the owner's list of every send ----
+
+const appsReq = (query = '', auth = `Bearer ${TOKEN}`) =>
+  applicationsGet(new Request(`https://earnkit.com/api/programs/applications${query}`, { headers: { authorization: auth } }));
+
+type AppsOut = {
+  ok: boolean;
+  error?: string;
+  totals: { all: number; agent: number; drafted: number; reported: number; auto: number; by_program: { program_id: string; title: string; sent: number }[] };
+  rows: Record<string, unknown>[];
+};
+
+/**
+ * Sends for L18-5, removed by `cleanSends`: an agent's (an unlinked installation), a builder's drafted on EarnKit (a `b:`
+ * owner, a start before it), and a builder's reported from outside (an `i:` owner on an installation linked to a
+ * builder, no start). A claim is not a send.
+ */
+const seedSends = async () => {
+  const db = sql();
+  const [b] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918273, 'l185-login') RETURNING id`;
+  const [b2] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918274, 'l185-linked') RETURNING id`;
+  const [ia] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name) VALUES ('l185-a', 'Claude Code') RETURNING id`;
+  const [ib] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('l185-b', 'Cursor', ${b.id}) RETURNING id`;
+  const [ic] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('l185-c', 'Codex', ${b2.id}) RETURNING id`;
+  const t1 = new Date('2030-01-02T10:00:00Z');
+  const t2 = new Date('2030-01-03T10:00:00Z');
+  const t3 = new Date('2030-01-05T10:00:00Z');
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, auto_applied, title, application_id, fields_used)
+    VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-alpha', 'applied', ${t1}, ${t1}, 'agent', true, 'Alpha Grants', 'app_l185a', ${['name', 'url']})`;
+  await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${'b:' + b.id}, ${ib.id}, 'l185-beta', 'started', ${t1})`;
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, auto_applied, title, application_id, amount_usd)
+    VALUES (${'b:' + b.id}, ${ib.id}, 'l185-beta', 'won', ${new Date('2030-01-04T10:00:00Z')}, ${t2}, 'builder', false, 'Beta Prize', 'app_l185b', 500)`;
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, title, application_id)
+    VALUES (${'i:' + ic.id}, ${ic.id}, 'l185-alpha', 'applied', ${t3}, ${t3}, 'builder', 'Alpha Grants', 'app_l185d')`;
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, title, application_id)
+    VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-gamma', 'started', ${t2}, 'Gamma', 'app_l185c')`;
+  // An unmarked send (submitted_by null) is the agent's (L29-23).
+  const t0 = new Date('2030-01-01T10:00:00Z');
+  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, title, application_id)
+    VALUES (${'i:' + ia.id}, ${ia.id}, 'l185-delta', 'applied', ${t0}, ${t0}, 'Delta Fund', 'app_l185e')`;
+  return { ia: ia.id, ib: ib.id, ic: ic.id };
+};
+const cleanSends = async () => {
+  const db = sql();
+  await db`DELETE FROM application_history WHERE program_id LIKE 'l185-%'`;
+  await db`DELETE FROM applications WHERE application_id LIKE 'app_l185%'`;
+  await db`DELETE FROM installations WHERE token_hash LIKE 'l185-%'`;
+  await db`DELETE FROM builders WHERE github_id IN (918273, 918274)`;
+};
+
+test('L18-5: 404 while the API is off, 401 on a wrong token, 200 with totals and rows for an agent send, a drafted and a reported builder send, the builder named by login and no email', async () => {
+  delete process.env.EARNKIT_PROGRAMS_TOKEN;
+  assert.equal((await appsReq()).status, 404);
+  process.env.EARNKIT_PROGRAMS_TOKEN = TOKEN;
+  assert.equal((await appsReq('', 'Bearer wrong')).status, 401);
+  const { ia, ib, ic } = await seedSends();
+  try {
+    const res = await appsReq('?since=2030-01-01T00:00:00Z');
+    assert.equal(res.status, 200);
+    const raw = await res.text();
+    const out = JSON.parse(raw) as AppsOut;
+    assert.equal(out.ok, true);
+    assert.deepEqual(out.totals, {
+      all: 4, agent: 2, drafted: 1, reported: 1, auto: 1,
+      by_program: [
+        { program_id: 'l185-alpha', title: 'Alpha Grants', sent: 2 },
+        { program_id: 'l185-beta', title: 'Beta Prize', sent: 1 },
+        { program_id: 'l185-delta', title: 'Delta Fund', sent: 1 },
+      ],
+    });
+    assert.equal(out.totals.agent + out.totals.drafted + out.totals.reported, out.totals.all);
+    assert.deepEqual(out.rows, [
+      {
+        // An `i:` owner on a linked installation: the linked builder's login (fix round 1, ruling 3).
+        application_id: 'app_l185d', program_id: 'l185-alpha', title: 'Alpha Grants', status: 'applied', submitted_by: 'builder', auto_applied: false,
+        sent_at: '2030-01-05T10:00:00.000Z', at: '2030-01-05T10:00:00.000Z', builder: 'l185-linked', agent: 'Codex', fields_used: 0, amount_usd: null, through_earnkit: false,
+      },
+      {
+        application_id: 'app_l185b', program_id: 'l185-beta', title: 'Beta Prize', status: 'won', submitted_by: 'builder', auto_applied: false,
+        sent_at: '2030-01-03T10:00:00.000Z', at: '2030-01-04T10:00:00.000Z', builder: 'l185-login', agent: 'Cursor', fields_used: 0, amount_usd: 500, through_earnkit: true,
+      },
+      {
+        // An `i:` owner on an unlinked installation: no builder.
+        application_id: 'app_l185a', program_id: 'l185-alpha', title: 'Alpha Grants', status: 'applied', submitted_by: 'agent', auto_applied: true,
+        sent_at: '2030-01-02T10:00:00.000Z', at: '2030-01-02T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 2, amount_usd: null, through_earnkit: true,
+      },
+      {
+        // Unmarked: the agent's, so through EarnKit; submitted_by stays as stored.
+        application_id: 'app_l185e', program_id: 'l185-delta', title: 'Delta Fund', status: 'applied', submitted_by: null, auto_applied: false,
+        sent_at: '2030-01-01T10:00:00.000Z', at: '2030-01-01T10:00:00.000Z', builder: null, agent: 'Claude Code', fields_used: 0, amount_usd: null, through_earnkit: true,
+      },
+    ]);
+    // Never an email, a sign-in code or an installation id (the rows' keys are exactly the ones above).
+    assert.doesNotMatch(raw, /@|installation|"owner"|"i:|"b:/);
+    assert.ok(ia > 0 && ib > 0 && ic > 0);
+  } finally {
+    await cleanSends();
+  }
+});
+
+test('L18-5b: since filters the rows only (totals stay all time), limit caps at 500, a bad since is 400 "since: an ISO date"', async () => {
+  await seedSends();
+  try {
+    const all = (await (await appsReq()).json()) as AppsOut;
+    const later = (await (await appsReq('?since=2030-01-03T00:00:00Z')).json()) as AppsOut;
+    assert.deepEqual(later.rows.map((r) => r.application_id), ['app_l185d', 'app_l185b']);
+    assert.deepEqual(later.totals, all.totals, 'totals are all time whatever since says');
+    assert.ok(all.totals.all >= 4);
+    const one = (await (await appsReq('?since=2030-01-01T00:00:00Z&limit=1')).json()) as AppsOut;
+    assert.deepEqual(one.rows.map((r) => r.application_id), ['app_l185d']);
+    assert.equal(one.totals.all, all.totals.all, 'the totals count every send, not the page');
+    assert.equal((await appsReq('?limit=9999')).status, 200);
+    assert.deepEqual(await (await appsReq('?limit=0')).json(), { ok: false, error: 'limit: 1 to 500' });
+    const bad = await appsReq('?since=yesterday');
+    assert.equal(bad.status, 400);
+    assert.deepEqual(await bad.json(), { ok: false, error: 'since: an ISO date' });
+    const { APPLICATIONS_MAX } = await import('./programs-api');
+    assert.equal(APPLICATIONS_MAX, 500);
+  } finally {
+    await cleanSends();
   }
 });

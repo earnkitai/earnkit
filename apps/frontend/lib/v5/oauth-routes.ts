@@ -5,7 +5,7 @@
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
 import { codeSpent, installOnce, revokeInstallation } from './installations';
-import { CIMD_FAILED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
+import { CIMD_FAILED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, clientNameOf, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
 import { BLOCK_LIMITED, BLOCK_WARN_SHARE, LIMITS, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
@@ -138,7 +138,10 @@ export async function registerPost(request: Request) {
     key = clientLimitKey(uris);
     const ip = clientIp(request.headers);
     // Task 12 fix round 1 (M3): a reserved name is refused before any limit, so it never spends the block's day.
-    if (reservedClientName(metadata.client_name)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
+    // L40-C2 (v6.1.18): the stored form (`clientNameOf`: cut to 40, look-alike brackets made plain) is the name the token
+    // step checks, so it is checked here too: a name refused there is refused at registration.
+    if (reservedClientName(metadata.client_name) || reservedClientName(clientNameOf(metadata.client_name)))
+      throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     await enforce('oauthRegister', ip, 'Too many client registrations from this address.');
     limit = 'oauthRegisterBlock';
     await enforceBlock('oauthRegisterBlock', ip);

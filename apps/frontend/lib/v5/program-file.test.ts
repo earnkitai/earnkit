@@ -103,7 +103,7 @@ test('the catalog fields default, and the four edited programs carry theirs', ()
   assert.deepEqual(ProgramFile.parse(read('z-fellows.json')).needs, ['founder_video']);
   assert.deepEqual(ProgramFile.parse(read('arc-builders-fund.json')).needs, ['deck']);
   for (const f of ['base-builder-grants', 'avalanche-team1-mini-grants', 'z-fellows', 'arc-builders-fund'])
-    assert.deepEqual(programProblems(read(`${f}.json`) as never, new Date('2026-11-10T00:00:00Z')), [], f);
+    assert.deepEqual(programProblems(read(`${f}.json`) as never, new Date('2026-11-12T00:00:00Z')), [], f);
 });
 
 test('catalog fields that do not fit are refused', () => {

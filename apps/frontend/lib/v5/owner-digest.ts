@@ -4,7 +4,9 @@
  * made. Nothing happened, nothing sent; mail not set up (RESEND_API_KEY unset), 'mail off'. The idempotency key is the
  * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again. v6.1.17 Task 3:
  * first, a gap of over GAP_HOURS since the last daily run that finished (L30-14); and the programs the walk could not
- * read, each `{id}: {fix}` (L30-18, L35-18).
+ * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the previous UTC day's sends, by agents, drafted here, reported.
+ * v6.1.18 (L39-5): a submission page that answers but says it is closed, in the failing block as
+ * `{title}: the form says it is closed ({url})`.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -13,18 +15,29 @@ import { ProgramFile } from './program-file';
 import type { Unreadable } from './health';
 import { findProgramsDir, revertPlan } from './programs-api';
 import { revertExpiry, revertUrl } from './programs-pending';
+import { sendCounts, sendRows } from './stats';
 
 export type DigestChange = { id: string; title: string; fields: string[]; revertUrl: string | null; revertNote?: string };
 export type DigestHealth = {
   closed: { id: string; title: string }[];
   /** v6.1.16 Task 16 (L30-1): upcoming programs the daily run opened at their start date. */
   opened?: { id: string; title: string }[];
-  failing: { id: string; title: string; url: string }[];
+  /** `closed` (L39-5, v6.1.18): the submission page answered but says it is closed. */
+  failing: { id: string; title: string; url: string; closed?: boolean }[];
   changed: { id: string; title: string; url: string }[];
   /** v6.1.17 Task 3 (L30-18, L35-18): programs the walk could not read, with the owner's fix. */
   unreadable?: Unreadable[];
   /** v6.1.17 Task 3 (L30-14): the last daily run before this one, when it finished over GAP_HOURS before now. */
   gap?: { hours: number; last: Date };
+};
+
+/**
+ * v6.1.18 Task 5 (L18-5, L36-3): the previous UTC day's sends (`sent`: by agents, drafted here and sent by builders,
+ * reported from outside), every send before the digest's day, and each program with sends that day.
+ */
+export type DigestApplications = {
+  sent: number; agent: number; drafted: number; reported: number; total: number;
+  byProgram: { id: string; title: string; sent: number }[];
 };
 
 /** v6.1.17 Task 3 (L30-14): a gap over this many hours since the last daily run is named in the digest. */
@@ -49,11 +62,19 @@ const FIELD_WORDS: Record<string, string> = {
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 /** The email body, or null when the lists are all empty. Pure. */
-export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth): string | null {
+export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth, apps?: DigestApplications): string | null {
   const blocks: string[] = [];
   if (health.gap) {
     const at = health.gap.last.toISOString().slice(0, 16).replace('T', ' ');
     blocks.push(`No daily run finished for ${health.gap.hours} hours before this one; the last was ${at} UTC.`);
+  }
+  // L18-5 (v6.1.18 Task 5): the previous UTC day's sends, most sent program first; a day with none adds nothing.
+  if (apps && apps.sent > 0) {
+    const programs = [...apps.byProgram].sort((a, b) => b.sent - a.sent || a.id.localeCompare(b.id));
+    blocks.push([
+      `Applications: ${apps.sent} sent (${apps.agent} by agents, ${apps.drafted} drafted here and sent by builders, ${apps.reported} reported from outside); ${apps.total} all time.`,
+      ...programs.map((p) => `- ${oneLine(p.title)} (${p.id}): ${p.sent}`),
+    ].join('\n'));
   }
   if (health.unreadable?.length) {
     blocks.push(['Programs the run could not read', ...health.unreadable.map((u) => `- ${u.id}: ${oneLine(u.fix)}`)].join('\n'));
@@ -65,7 +86,8 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
     blocks.push(['Opened because the start date came', ...health.opened.map((p) => `- ${oneLine(p.title)} (${p.id})`)].join('\n'));
   }
   if (health.failing.length > 0) {
-    blocks.push(['Links that did not load', ...health.failing.map((p) => `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
+    blocks.push(['Links that did not load', ...health.failing.map((p) =>
+      p.closed ? `- ${oneLine(p.title)}: the form says it is closed (${p.url})` : `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
   }
   if (health.changed.length > 0) {
     blocks.push(['Pages that changed', ...health.changed.map((p) => `- ${oneLine(p.title)}: ${p.url}`)].join('\n'));
@@ -102,6 +124,25 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>): Prom
   }
 }
 
+/**
+ * L18-5 (v6.1.18 Task 5, fix round 1): the sends of the UTC day before `dayStart` (send time `sent_at`, else `at`), and
+ * every send before `dayStart`, so the block never changes within the digest's day (a same-day rerun builds the same body).
+ */
+async function digestApplications(dayStart: Date): Promise<DigestApplications> {
+  const db = sql();
+  const from = new Date(dayStart.getTime() - 86_400_000);
+  const [t] = await db<{ all: string; agent: string; drafted: string; reported: string; total: string }[]>`
+    WITH s AS (${sendRows(db)}), d AS (SELECT * FROM s WHERE sent_time >= ${from} AND sent_time < ${dayStart})
+    SELECT ${sendCounts(db)}, (SELECT count(*) FROM s WHERE sent_time < ${dayStart}) AS total FROM d`;
+  const rows = await db<{ id: string; title: string | null; sent: string }[]>`
+    WITH s AS (${sendRows(db)})
+    SELECT program_id AS id, max(title) AS title, count(*) AS sent FROM s WHERE sent_time >= ${from} AND sent_time < ${dayStart} GROUP BY program_id`;
+  return {
+    sent: Number(t.all), agent: Number(t.agent), drafted: Number(t.drafted), reported: Number(t.reported), total: Number(t.total),
+    byProgram: rows.map((r) => ({ id: r.id, title: r.title ?? r.id, sent: Number(r.sent) })),
+  };
+}
+
 /** The digest's idempotency key: the UTC day and the first 16 hex of the body's sha256. Pure. */
 export const digestKey = (day: string, body: string) => `owner-digest:${day}:${createHash('sha256').update(body).digest('hex').slice(0, 16)}`;
 
@@ -123,11 +164,11 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
     WHERE c.at > ${since} AND c.at <= ${now} AND c.fields = ARRAY['status']::text[]
       AND p.status = 'closed' AND p.ends_at IS NOT NULL AND p.ends_at <= c.at ORDER BY p.id`;
-  const healthRows = await db<(TitleRow & { source_ok: boolean; submit_ok: boolean; changed_day: boolean })[]>`
-    SELECT p.id, p.file, h.source_ok, h.submit_ok, (h.changed_at >= ${dayStart} AND h.changed_at < ${dayEnd}) AS changed_day
+  const healthRows = await db<(TitleRow & { source_ok: boolean; submit_ok: boolean; submit_closed: boolean; changed_day: boolean })[]>`
+    SELECT p.id, p.file, h.source_ok, h.submit_ok, h.submit_closed, (h.changed_at >= ${dayStart} AND h.changed_at < ${dayEnd}) AS changed_day
     FROM program_health h JOIN programs p ON p.id = h.program_id
     WHERE p.status IN ('active', 'upcoming') AND h.checked_at >= ${dayStart} AND h.checked_at < ${dayEnd}
-      AND (NOT h.source_ok OR NOT h.submit_ok OR h.changed_at >= ${dayStart})
+      AND (NOT h.source_ok OR NOT h.submit_ok OR h.submit_closed OR h.changed_at >= ${dayStart})
     ORDER BY p.id`;
   const openedRows = await db<TitleRow[]>`
     SELECT DISTINCT p.id, p.file FROM program_changes c JOIN programs p ON p.id = c.program_id
@@ -157,6 +198,7 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
     if (!f) continue;
     if (!r.source_ok) health.failing.push({ id: r.id, title: f.title, url: f.source_url });
     if (!r.submit_ok) health.failing.push({ id: r.id, title: f.title, url: f.submission_url });
+    else if (r.submit_closed) health.failing.push({ id: r.id, title: f.title, url: f.submission_url, closed: true });
     if (r.changed_day) health.changed.push({ id: r.id, title: f.title, url: f.source_url });
   }
   const links = new Map<string, Link>();
@@ -171,7 +213,8 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
   }
   if (failures.size > 0) console.error(`[owner-digest] revert links failed: ${[...failures].join(', ')}`);
 
-  const text = dailyOwnerText(day, changes, health);
+  const apps = await digestApplications(dayStart);
+  const text = dailyOwnerText(day, changes, health, apps);
   if (text === null) return 'none';
   const key = digestKey(day, text);
   const hash = key.slice(key.lastIndexOf(':') + 1);

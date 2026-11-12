@@ -505,6 +505,33 @@ export async function safeProbePage(
   return page;
 }
 
+/** v6.1.18 fix round 1 (L39-5): the most redirects `landingPage` follows. */
+export const LANDING_MAX_REDIRECTS = 3;
+
+/**
+ * The page a link finally lands on (v6.1.18 fix round 1, L39-5), for the closed-form check only: follows up to
+ * LANDING_MAX_REDIRECTS redirects on any host, each hop the same guarded GET as every other fetch here (https on 443,
+ * a domain name, every resolved address public and the connection pinned to it, `timeoutMs` per hop). Returns the
+ * first 64 KB of the final page's HTML ('' when it is not HTML), or null when it could not be read: a refused hop (http,
+ * a private address), a 4th redirect, an error status or a transport error. Never throws. The link's status never
+ * comes from here (probeLink).
+ */
+export async function landingPage(
+  url: string,
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
+): Promise<string | null> {
+  const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
+  let at = url;
+  for (let hop = 0; ; hop++) {
+    try {
+      return await safeFetchText(at, opts);
+    } catch (err) {
+      if (!(err instanceof RedirectError) || !err.location || !URL.canParse(err.location, at) || hop >= LANDING_MAX_REDIRECTS) return null;
+      at = new URL(err.location, at).href;
+    }
+  }
+}
+
 /**
  * A program link's answer for the daily stale check (v6.1.16 Task 16, L30-2): alive, or dead and why. `redirect` names
  * the other host a 3xx pointed to (never followed); `page` is the first 64 KB of an HTML page that loaded ('' otherwise).

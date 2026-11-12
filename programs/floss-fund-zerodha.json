@@ -4,7 +4,7 @@
   "title": "FLOSS/fund",
   "description": "Zerodha's fund for Free and Open Source projects, $1,000,000 a year. Individuals, projects, communities and organisations apply by publishing a funding.json manifest and submitting its URL to the public directory. Focus is on existing, widely used and impactful projects; very new projects or projects with minimal usage are not considered for now.",
   "source_url": "https://floss.fund/faq/",
-  "submission_url": "https://dir.floss.fund/submit",
+  "submission_url": "https://dir.fundingjson.org/submit",
   "official_url": "https://floss.fund/",
   "reward": "$10,000 to $100,000 per project in one year, requested as $10,000 minimum and multiples of $25,000 thereafter",
   "summary": "$10,000 to $100,000 · rolling",
@@ -12,7 +12,7 @@
   "min_award_usd": 10000,
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-11-09",
+  "verified_at": "2026-11-12",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
@@ -23,9 +23,7 @@
   "eligibility": [
     { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" }
   ],
-  "setup": [
-    "publish a funding manifest on your site or repo"
-  ],
+  "setup": [],
   "each_time": [],
   "rules": [
     "Applications stay open all year; the committee evaluates applications at the end of every quarter and sends decisions by email. A fresh $1,000,000 was planned for 2026.",
@@ -51,7 +49,7 @@
     "A widely used library with no steady funding",
     "Maintainer time for a critical developer tool"
   ],
-  "form": { "platform": "other", "url": "https://dir.floss.fund/submit", "fields": {"funding_json_url": "url"} },
+  "form": { "platform": "other", "url": "https://dir.fundingjson.org/submit", "fields": {"funding_json_url": "url"} },
   "submit": "either",
   "sign_in": "none",
   "reviewers_contact": "info@floss.fund"

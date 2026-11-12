@@ -115,6 +115,16 @@ items take keywords.
 { "kind": "rule", "note": "a Farcaster Mini App", "keywords": ["farcaster", "mini app", "warpcast"] }
 ```
 
+A `rule` whose whole requirement is an open source license on the repo takes `"check": "license"`: the repo read
+settles it. A license GitHub detects as OSI-approved (MIT, Apache-2.0, the BSD, GPL, LGPL, AGPL, MPL, EPL licenses,
+ISC, Unlicense, CC0-1.0, 0BSD) confirms it and nothing is asked; a repo with no license file gets the step `a license
+file`, which EarnKit adds (MIT) on "do"; an unrecognized or other license, or a repo not read, keeps the rule question.
+Leave it off a rule that asks more than the license (recent releases, open standards). Only `rule` items take `check`.
+
+```json
+{ "kind": "rule", "note": "an OSI-approved open source license", "check": "license" }
+```
+
 ### `form`
 
 The application form, so a draft can be pre-filled: `platform` (`google`, `airtable`, `tally`,

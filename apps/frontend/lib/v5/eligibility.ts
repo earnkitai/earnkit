@@ -24,6 +24,8 @@ export type Gap = {
   agent_can: boolean;
   /** v6.1.14 (L1f-1, L1f-3): the step that closes the gap, said after "First:" on its line and in the closing. */
   setup?: string;
+  /** L38-27 (v6.1.18 Task 11): the change EarnKit makes on "do", when it is not `what` ("add an MIT license file"). */
+  do?: string;
   details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null; tier?: string; min_tier?: string };
 };
 export type Verdict = {
@@ -108,6 +110,22 @@ export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a pu
 /** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question.
  *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
 export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+/** L38-27 (v6.1.18 Task 11): a license rule and a repo read that found no license file: EarnKit adds one on "do". */
+export const LICENSE_FILE: Gap = {
+  kind: 'feature', item: 'feature:license', what: 'a license file', do: 'add an MIT license file', effort: 'minutes', agent_can: true,
+  details: { docs: 'https://choosealicense.com/licenses/mit/' },
+};
+/**
+ * L38-27: the SPDX ids GitHub reports for common OSI-approved licenses (GitHub reports `GPL-3.0`, `LGPL-2.1`,
+ * `AGPL-3.0` without `-only`; the `-only` and `-or-later` spellings are kept for safety).
+ */
+// Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it reads as unknown and the rule question stays.
+const OSI = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0', 'MPL-2.0', 'ISC', 'Unlicense', 'EPL-2.0', '0BSD']);
+const osiId = (id: string) => OSI.has(id.replace(/-(only|or-later)$/, ''));
+/** L38-27: what the read says of a license rule: an OSI license, no license file, or nothing to go on (not read, or a
+ *  license GitHub does not recognize or that is not on the list). Pure. */
+export const licenseRead = (facts: Pick<RepoFacts, 'license'>): 'osi' | 'none' | 'unknown' =>
+  facts.license === null ? 'none' : typeof facts.license === 'string' && osiId(facts.license) ? 'osi' : 'unknown';
 /** Users not reported: a question only the builder answers, not weeks of work. L38-4 (v6.1.18): `real users`, the one
  *  wording of the users gap. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'real users', effort: 'hours', agent_can: false };
@@ -208,10 +226,26 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         break;
       }
       case 'in_person': inPerson = true; break;
+      case 'rule': {
+        if (done.has(itemKey(i))) break;
+        // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
+        // the license file gap (once, and closed by its own done); anything else keeps the question. An archived repo's
+        // license is not the live repo's: its step is the live repo, then the read.
+        // v6.1.18 merge: with no code yet (the L18-2 code step), the read has nothing to settle and the license is never
+        // a rule to confirm: the code step comes first, then the read.
+        if (i.check === 'license' && gaps.some((g) => g.kind === 'repo' && g.item === 'repo')) break;
+        const read = i.check === 'license' && !(facts.notes ?? []).includes('archived') ? licenseRead(facts) : 'unknown';
+        if (read === 'osi') break;
+        if (read === 'none') {
+          if (!done.has(LICENSE_FILE.item) && !gaps.includes(LICENSE_FILE)) gaps.push(LICENSE_FILE);
+          break;
+        }
+        gaps.push(gapOf(i));
+        break;
+      }
       // L36-13 (v6.1.18): a demo link passed with the project settles the demo video.
       case 'demo_video': if (!facts.demo_url && !done.has(itemKey(i))) gaps.push(gapOf(i)); break;
-      case 'feature':
-      case 'rule': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'feature': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
     }
   }
 
