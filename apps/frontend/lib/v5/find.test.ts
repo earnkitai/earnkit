@@ -3686,7 +3686,7 @@ test('Review Focus 17 (L26-4): a one-program find is under 20 KB for each of the
 });
 
 test('L35-9 (v6.1.17 Task 5, Task 1 re-review): a default reply over the 30 KB cap keeps the ready programs\' fields and empties the other lists\' first', async () => {
-  const { findReplyCap, MORE_THAN_FITS } = await import('./find');
+  const { capFind, findReplyCap, FIND_CAP_ALL, MORE_THAN_FITS } = await import('./find');
   const fields = (k: number, tag: string) => Array.from({ length: k }, (_, i) => ({ key: `${tag}${i}`, label: `F ${i}`, value: 'x'.repeat(4_000), from: 'agent', sources: ['s'] }));
   const row = (n: number, id: string, k: number) => ({ n, program_id: id, money: '$5,000', fields: fields(k, id) });
   // The ready program has the highest number, so a cap by number alone would empty it first.
@@ -3696,16 +3696,18 @@ test('L35-9 (v6.1.17 Task 5, Task 1 re-review): a default reply over the 30 KB c
     in_person: [row(3, 'p3', 6)],
     gaps: [{ ...row(2, 'g2', 6), gap: { kind: 'rule', item: 'rule', what: 'a rule', effort: 'low', agent_can: false, docs: 'd'.repeat(500) }, also: [{ kind: 'users' }], rules: ['r'], setup: ['s'], needs: ['n'] }],
   };
-  const cap = 30_720;
+  const cap = FIND_CAP_ALL;
   assert.ok(Buffer.byteLength(JSON.stringify(reply)) > cap);
-  const out = findReplyCap(reply as never, cap, true) as unknown as typeof reply;
+  // FR-5 (v6.1.18): through capFind, the cap find's own return applies to a default list.
+  const out = capFind(reply as never, false) as unknown as typeof reply;
   assert.ok(Buffer.byteLength(JSON.stringify(out)) <= cap);
   assert.deepEqual(out.ready[0].fields, reply.ready[0].fields);
   assert.equal(out.in_person[0].fields.length, 0);
   assert.equal(out.gaps[0].fields.length, 0);
   assert.equal(out.gaps[0].money, '$5,000');
   assert.ok(out.agent_note.endsWith(MORE_THAN_FITS));
-  // Without keepReady (filter.all), the highest number goes first: the ready program's fields.
+  assert.deepEqual(out, findReplyCap(reply as never, cap, true));
+  // Without keepReady, the highest number goes first: the ready program's fields.
   const byNumber = findReplyCap(reply as never, cap) as unknown as typeof reply;
   assert.equal(byNumber.ready[0].fields.length, 0);
 });

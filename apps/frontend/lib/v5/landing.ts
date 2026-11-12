@@ -190,7 +190,9 @@ export async function readLanding(now: Date = new Date()): Promise<Landing> {
  * `findProgramsDir()`) that parses as a `ProgramFile` and is listed (not closed, not past its ends_at), in the list's
  * order (the close, rolling last, then the id), the chip from the open ones' pools (`openMoneyUsd`). It is what
  * `getLanding` shows when the database read fails (at build there is no database), so the page stays prerendered.
- * Null with no catalog directory; a file that does not read or parse is left out.
+ * Null with no catalog directory; a file that does not read or parse is left out. The id tie-break is JS code-unit
+ * order while the database orders ids by its collation, so two programs closing at the same time can sit in another
+ * order than the database landing's (cosmetic: the tiles re-sort Base first).
  */
 export function readLandingFromFiles(now: Date = new Date(), dir: string | null = findProgramsDir()): Landing | null {
   if (!dir) return null;

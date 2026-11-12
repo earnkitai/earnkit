@@ -871,7 +871,15 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // L16-8 (v6.1.16): a shortened link was dropped: the agent hears to send the real one, on every reply kind.
   const noted = shortLinkIn(i.project) && !withUnread.agent_note.includes(SHORT_LINK_NOTE) ? { ...withUnread, agent_note: [withUnread.agent_note, SHORT_LINK_NOTE].filter(Boolean).join('\n') } : withUnread;
   // L26-4 (v6.1.16 Task 12): every reply under its cap.
-  return 'program' in noted ? findReplyCap(noted, FIND_CAP_ONE) : (i.filter?.all === true ? findReplyCap(slimLists(noted), FIND_CAP_ALL) : findReplyCap(noted, FIND_CAP_ALL, true));
+  return capFind(noted, i.filter?.all === true);
+}
+
+/** FR-5 (v6.1.17 deferred, v6.1.18): the cap find puts on every reply it returns. One program: FIND_CAP_ONE. The
+ *  full list (`all`): slim fields under FIND_CAP_ALL. The default list: FIND_CAP_ALL with the ready programs' fields
+ *  kept longest (`keepReady`, L35-9). Exported so the pin covers find's own call, not findReplyCap alone. Pure. */
+export function capFind<T extends FindReply | ProgramReply>(reply: T, all: boolean): T {
+  if ('program' in reply) return findReplyCap(reply, FIND_CAP_ONE);
+  return (all ? findReplyCap(slimLists(reply as FindReply), FIND_CAP_ALL) : findReplyCap(reply as FindReply, FIND_CAP_ALL, true)) as T;
 }
 
 /** L26-4 (v6.1.16 Task 12): a find reply's caps, serialized: the list (full or default) and one program. */

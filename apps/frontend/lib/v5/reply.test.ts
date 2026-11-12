@@ -1644,6 +1644,13 @@ test('Task 10 fix round 1 (I1, M3, M6): a proof sign-in only when the closing ke
   assert.equal(replyText(base({ sign_in: link, gaps: [sign] }), true).split('\n').at(-1), `Nothing is ready yet. Sign in at ${link} so I can check the repo, then I look again.`);
   // M6: no repo link: the check is the proof's bar.
   assert.equal(replyParts(base({ sign_in: link, gaps: [sign] }), true, new Date(), null, { repo: false }).text.split('\n').at(-1), `Nothing is ready yet. Sign in at ${link} so I can check your users, then I look again.`);
+  // FR-3 (v6.1.17 deferred): the live and building bars read as a check that it is, not an order to check.
+  for (const [bar, what, check] of [['live', 'proof that your product is live', 'that your product is live'], ['building', 'proof that your project has code', 'that your project has code']] as const) {
+    const g = gap({ title: 'Sign Grant', gap: { ...TIER, item: `tier:${bar}`, what } });
+    const end = replyParts(base({ sign_in: link, gaps: [g] }), true, new Date(), null, { repo: false }).text.split('\n').at(-1)!;
+    assert.equal(end, `Nothing is ready yet. Sign in at ${link} so I can check ${check}, then I look again.`);
+    assert.doesNotMatch(end, /\u2014|check your (product|project)/, end);
+  }
   // M3: a ready block, a one-step row and a More row the closing names: the applications line still fits.
   const r = base({
     linked: true,

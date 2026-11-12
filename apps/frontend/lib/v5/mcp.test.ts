@@ -358,7 +358,7 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const info = await mcpServerInfo(await ctx());
   assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
-  assert.equal(pkg.version, '6.1.17');
+  assert.equal(pkg.version, '6.1.18');
 });
 
 /**
