@@ -51,11 +51,13 @@ async function listWhere(now: Date, withUpcoming: boolean): Promise<ProgramRow[]
   const rows = await db<RawRow[]>`
     SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs
     WHERE (
-        (status = 'active' AND (ends_at IS NULL OR ends_at > ${now}))
+        -- L35-19 (v6.1.17): an active program with a starts_at still ahead is not open yet (isOpenAt); it is listed.
+        (status = 'active' AND (ends_at IS NULL OR ends_at > ${now})
+            AND (file->>'starts_at' IS NULL OR (file->>'starts_at')::timestamptz <= ${now}))
         -- Fix round 1 (M1): an upcoming program past its starts_at, with a form, is open before the run flips it (isOpenAt).
         OR (status = 'upcoming' AND (file->>'starts_at')::timestamptz <= ${now} AND (ends_at IS NULL OR ends_at > ${now})
             AND jsonb_array_length(COALESCE(file->'submission_requirements', '[]'::jsonb)) > 0)
-        ${withUpcoming ? db`OR (status = 'upcoming' AND (ends_at IS NULL OR ends_at > ${now}))` : db``}
+        ${withUpcoming ? db`OR (status IN ('upcoming', 'active') AND (ends_at IS NULL OR ends_at > ${now}))` : db``}
       )
       AND NOT (stale_since IS NOT NULL AND stale_since < ${now}::timestamptz - make_interval(days => ${STALE_DAYS}))
       AND NOT (source = 'api' AND (verified_at IS NULL OR verified_at < (${now}::timestamptz - make_interval(days => ${STALE_DAYS}))::date))
@@ -261,17 +263,22 @@ type Dated = Pick<Program, 'status' | 'ends_at' | 'starts_at'> & Partial<Pick<Pr
  * The one open test (L23-2, L23-10, v6.1.16): whether the program takes entries at `now`, derived from the clock at read
  * time on every surface (find, tiles, guides, the lists, /me), whatever status the daily run last wrote. It agrees with
  * `dateStatus` both ways (fix round 1, M1): an active program is open until its ends_at; an upcoming one is open from its
- * starts_at (dateStatus says active) when it has a form, as the run's `movedByDate` would open it; closed never. Pure.
+ * starts_at (dateStatus says active) when it has a form, as the run's `movedByDate` would open it; closed never.
+ * L35-19 (v6.1.17): an active program reads its starts_at too, so one written active with a start still ahead opens
+ * at that start, never days early (programs:check refuses the file). Pure.
  */
 export const isOpenAt = (p: Dated, now: Date): boolean => {
   const to = dateStatus(p, now);
-  if (p.status === 'active') return to === null;
+  if (p.status === 'active') return to === null && (p.starts_at === null || Date.parse(p.starts_at) <= now.getTime());
   return p.status === 'upcoming' && to === 'active' && (p.submission_requirements === undefined || p.submission_requirements.length > 0);
 };
 
-/** The status a surface shows at `now` (fix round 1, M1): closed (`closedAt`), active (`isOpenAt`), else as stored. Pure. */
+/**
+ * The status a surface shows at `now` (fix round 1, M1): closed (`closedAt`), active (`isOpenAt`), else upcoming (an
+ * active program before its starts_at, L35-19, v6.1.17) or as stored. Pure.
+ */
 export const statusAt = (p: Dated, now: Date): 'active' | 'upcoming' | 'closed' =>
-  closedAt(p, now) ? 'closed' : isOpenAt(p, now) ? 'active' : p.status;
+  closedAt(p, now) ? 'closed' : isOpenAt(p, now) ? 'active' : p.status === 'active' ? 'upcoming' : p.status;
 
 /** Whether the program reads closed at `now`: closed, or past its ends_at before any run flipped it (L23-2). Pure. */
 export const closedAt = (p: Pick<Program, 'status' | 'ends_at' | 'starts_at'>, now: Date): boolean =>

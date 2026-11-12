@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { closedAt, dateStatus, foldId, getProgram, isOpenAt, isOpenAt as isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
+import { closedAt, dateStatus, foldId, statusAt, getProgram, isOpenAt, isOpenAt as isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 
 after(() => sql().end());
@@ -75,6 +75,11 @@ test('listOpenPrograms: closed, past deadline, stale over 14 days and old api ro
   assert.ok(listed.includes('t-upcoming'));
   assert.ok(listed.includes('t-open'));
   assert.ok(!listed.includes('t-closed'));
+  // L35-19 (v6.1.17, K.22): a row stored active before its start (written before the check) is listed, not open.
+  await upsertProgram(programFixture({ id: 't-active-early', starts_at: new Date(NOW.getTime() + 5 * 86_400_000).toISOString() }), 'file', NOW);
+  assert.ok(!ids(await listOpenPrograms(NOW)).includes('t-active-early'));
+  assert.ok(ids(await listListedPrograms(NOW)).includes('t-active-early'));
+  assert.ok(ids(await listOpenPrograms(new Date(NOW.getTime() + 6 * 86_400_000))).includes('t-active-early'));
 });
 
 test('readers skip a row whose file does not parse', async () => {
@@ -100,6 +105,12 @@ test('L23-2 (v6.1.16): isOpenAt is the one open test: active and not past ends_a
   assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-04T12:01:00Z' }, NOW), false);
   assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: null }, NOW), false);
   assert.equal(isOpenAt({ ...p, ends_at: null }, NOW), true);
+  // L35-19 (v6.1.17, K.10): an active program reads its starts_at too: not open, and upcoming, until the start.
+  const early = { ...p, status: 'active' as const, starts_at: new Date(NOW.getTime() + 5 * 86_400_000).toISOString() };
+  assert.equal(isOpenAt(early, NOW), false);
+  assert.equal(statusAt(early, NOW), 'upcoming');
+  assert.equal(isOpenAt({ ...early, ends_at: null }, new Date(Date.parse(early.starts_at))), true);
+  assert.equal(statusAt({ ...early, ends_at: null }, new Date(Date.parse(early.starts_at))), 'active');
   // An active program one minute past its close, before any run: closed, as the run would write it.
   const past = { ...p, ends_at: new Date(NOW.getTime() - 60_000).toISOString() };
   assert.equal(isOpenAt(past, NOW), false);

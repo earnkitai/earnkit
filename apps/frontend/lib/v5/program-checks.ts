@@ -63,6 +63,22 @@ const KM = /\d(?:\.\d+)?\s?[KkMm]\b/;
 /** L1i-10 (v6.1.16.1): a figure written with "million" or "billion" ("$1 million"): full figures there too. */
 const MONEY_WORDS = /\d[\d.,]*\s+(million|billion)\b/i;
 
+/** A written offset ("Z", "-04:00", "+0530") as minutes east of UTC and as "+hh:mm", or null when there is none. Pure. */
+function writtenOffset(at: string): { min: number; text: string } | null {
+  const m = /(Z|[+-]\d{2}:?\d{2})$/i.exec(at);
+  if (!m) return null;
+  if (m[1].toUpperCase() === 'Z') return { min: 0, text: '+00:00' };
+  const [h, mm] = [m[1].slice(1, 3), m[1].slice(-2)];
+  return { min: (m[1][0] === '-' ? -1 : 1) * (Number(h) * 60 + Number(mm)), text: `${m[1][0]}${h}:${mm}` };
+}
+
+/** The zone's offset from UTC at `ms`, as minutes and as "+hh:mm" (L30-15, v6.1.17). Pure. */
+function zoneOffset(tz: string, ms: number): { min: number; text: string } {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' }).formatToParts(new Date(ms))
+    .find((x) => x.type === 'timeZoneName')?.value ?? 'GMT';
+  return writtenOffset(name.replace(/^GMT/, '') || 'Z')!;
+}
+
 /** Each problem as "<path or (program)>: <message>"; empty when the program may be written. */
 export function programProblems(p: Program, now: Date = new Date()): string[] {
   const parsed = ProgramFile.safeParse(p);
@@ -120,6 +136,16 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   if (q.status === 'closed' && q.summary.split(' · ').slice(1).some((x) => ROLLING_WINDOW.test(x)))
     problems.push('summary: a closed program is not rolling');
   if (Date.parse(`${q.verified_at}T00:00:00Z`) > now.getTime()) problems.push(`verified_at: ${q.verified_at} is in the future`);
+  // L35-19 (v6.1.17): a program that has not started is upcoming; active with a start still ahead would read open early.
+  if (q.status === 'active' && q.starts_at !== null && Date.parse(q.starts_at) > now.getTime())
+    problems.push(`status: active with starts_at ${q.starts_at} in the future; write upcoming`);
+  // L30-15 (v6.1.17): the close is written in the program's own zone, so its offset is the zone's at that instant
+  // (a summer offset after the change closes an hour early).
+  if (q.tz && q.ends_at) {
+    const written = writtenOffset(q.ends_at);
+    const zone = zoneOffset(q.tz, Date.parse(q.ends_at));
+    if (written && written.min !== zone.min) problems.push(`ends_at: offset ${written.text} is not ${q.tz}'s at that time (${zone.text})`);
+  }
   // L24-25 (v6.1.16 Task 11): EarnKit's own files follow the copy rule in their labels, to-dos and rules; a third
   // party's wording is theirs and passes.
   if (q.organizer.trim().toLowerCase() === 'earnkit') {
