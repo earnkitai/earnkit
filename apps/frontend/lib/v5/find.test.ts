@@ -3837,7 +3837,8 @@ test('L35-6 (v6.1.16.1 Task 2): find\'s program_id takes a list reference as the
     assert.match(r.reply!.show_to_builder as string, /^L35 FNum 3\b/, ref);
   }
   const none = await mcpCall(ctx(id), 'find', { program_id: '#99' });
-  assert.equal(none.reply!.show_to_builder, 'I do not know a program called "#99". Say its full name.');
+  // M4 (v6.1.19): a number the list does not hold says so.
+  assert.equal(none.reply!.show_to_builder, 'Number 99 is not in the list now. Say a number from the last list.');
 });
 
 test('Fix round 1 (I3, v6.1.16.1): a one-program lookup for another project leaves the last project\'s numbers out of the next list', async () => {
