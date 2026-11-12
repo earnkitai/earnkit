@@ -383,8 +383,9 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
   const topProblem = problem && !isPlaced ? problem : null;
   const inAnswer: Placed = open && at === open ? { problem: problemIn(open), saved: saved !== null && note === null && problem === null, note: noteIn(open) } : NONE;
   const waiting = data.pending_approvals.map((p) => p.path).filter(isAnswerPath);
-  // L43-4 (v6.1.19): the fields show what was typed before a refusal.
-  const draft = data.draft;
+  // L43-4 (v6.1.19): the fields show what was typed before a refusal, only while that refusal's line shows (fix
+  // round 1, M6: a plain reload shows the saved values, and a newer agent value is never hidden).
+  const draft = problem ? data.draft : null;
   const blocks = draft
     ? data.blocks.map((b) => ({ ...b, fields: b.fields.map((f) => (f.path in draft ? { ...f, typed: draft[f.path] } : f)) }))
     : data.blocks;

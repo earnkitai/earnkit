@@ -247,6 +247,8 @@ export const ME_HELD_ROW = (day: string): string => `On hold since ${day}; say g
 /** L43-9 (v6.1.19): the button on a started row the builder sent by hand, and the note after it. */
 export const ME_SENT_IT = 'I sent it';
 export const ME_SENT = (title: string): string => `Sent ${title}.`;
+/** Fix round 1 (M3): I sent it on a claim the builder held. */
+export const ME_HELD_SENT = (title: string): string => `${title} is on hold; say go to your agent first.`;
 /** L43-16 (v6.1.19): the answers card folds every empty answer into one row; its body opens each. */
 export const ME_NOT_SET_YET = (n: number): string => `Not set yet: ${n} ${n === 1 ? 'answer' : 'answers'}.`;
 export const ME_UNLINK_NOT_YOURS = 'That agent is not on your account.';

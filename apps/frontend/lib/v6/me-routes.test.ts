@@ -834,8 +834,10 @@ test('L43-9: I sent it records applied by the builder on the started row', async
   assert.deepEqual({ ...row }, { status: 'applied', submitted_by: 'builder' });
   const [h] = await sql()`SELECT source FROM application_history WHERE owner = ${owner} AND program_id = 'avalanche-team1-mini-grants' AND status = 'applied'`;
   assert.equal(h.source, 'builder');
-  // A second press finds no started row: refused, nothing more written.
-  refused(b.id, await sentPost(post('/me/sent', { csrf, program_id: 'avalanche-team1-mini-grants', project_id: '' }, { cookie }), deps), FIELD);
+  // Fix round 1 (M2): a second press says it again and writes nothing more.
+  assert.equal(lineOf(await sentPost(post('/me/sent', { csrf, program_id: 'avalanche-team1-mini-grants', project_id: '' }, { cookie }), deps), b.id).text, 'Sent Avalanche Team1 Mini Grants.');
+  // A program with no row of this builder's is refused.
+  refused(b.id, await sentPost(post('/me/sent', { csrf, program_id: 'no-such-program', project_id: '' }, { cookie }), deps), FIELD);
 });
 
 test('L43-9b: I sent it on another builder\'s row is refused and records nothing', async () => {
@@ -884,4 +886,79 @@ test('L43-19: the skip list words', async () => {
   refused(b.id, await policyPost(post('/me/policy', { csrf, max_per_night: '3', never: many }, { cookie }), deps), 'Programs to skip: at most 50 programs.');
   refused(b.id, await policyPost(post('/me/policy', { csrf, max_per_night: '3', never: `One\nTwo\n${'x'.repeat(150)}` }, { cookie }), deps), 'Programs to skip: line 3 is over 100 characters.');
   assert.deepEqual((await getRecord(b.id)).policy.never, []);
+});
+
+// v6.1.19 Task 2, fix round 1.
+const startedRow = async (builderId: number, at = new Date(NOW.getTime() - 30 * 3_600_000)) => {
+  const inst = (await sql()`INSERT INTO installations (token_hash) VALUES (${'me-fr-' + Math.random()}) RETURNING id`)[0].id as number;
+  await linkInstallation(inst, builderId, NOW);
+  await claim(`b:${builderId}`, 'avalanche-team1-mini-grants', null, inst, at);
+  return inst;
+};
+const sentForm = (csrf: string) => ({ csrf, program_id: 'avalanche-team1-mini-grants', project_id: '' });
+
+test('fix round 1 M1: I sent it writes as the claiming agent while linked, else as the builder\'s own send with a builder line', async () => {
+  const one = await signedIn();
+  const inst = await startedRow(one.b.id);
+  assert.deepEqual(lineOf(await sentPost(post('/me/sent', sentForm(one.csrf), { cookie: one.cookie }), deps), one.b.id).text, 'Sent Avalanche Team1 Mini Grants.');
+  assert.equal((await sql()`SELECT installation_id FROM applications WHERE owner = ${'b:' + one.b.id} AND program_id = 'avalanche-team1-mini-grants'`)[0].installation_id, inst);
+  // The claiming agent unlinked meanwhile (its claim row kept, as a released or re-claimed row is): still recorded.
+  const two = await signedIn();
+  const gone = await startedRow(two.b.id);
+  await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${NOW}, former_builder_id = ${two.b.id} WHERE id = ${gone}`;
+  const r = await sentPost(post('/me/sent', sentForm(two.csrf), { cookie: two.cookie }), deps);
+  assert.deepEqual(lineOf(r, two.b.id), { status: 303, path: '/me', key: 'note', text: 'Sent Avalanche Team1 Mini Grants.', shown: true });
+  const [row] = await sql()`SELECT status, submitted_by FROM applications WHERE owner = ${'b:' + two.b.id} AND program_id = 'avalanche-team1-mini-grants'`;
+  assert.deepEqual({ ...row }, { status: 'applied', submitted_by: 'builder' });
+  assert.equal((await sql()`SELECT source FROM application_history WHERE owner = ${'b:' + two.b.id} AND status = 'applied'`)[0].source, 'builder');
+});
+
+test('fix round 1 M2: a double or resubmitted I sent it answers Sent {title}. again and writes once', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await startedRow(b.id);
+  for (let i = 0; i < 2; i++) {
+    const r = await sentPost(post('/me/sent', sentForm(csrf), { cookie }), deps);
+    assert.deepEqual(lineOf(r, b.id), { status: 303, path: '/me', key: 'note', text: 'Sent Avalanche Team1 Mini Grants.', shown: true }, String(i));
+  }
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${'b:' + b.id} AND status = 'applied'`)[0].n, 1);
+});
+
+test('fix round 1 M3: I sent it on a held claim is refused with the hold line and writes nothing', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await startedRow(b.id);
+  await sql()`UPDATE applications SET held_at = ${NOW} WHERE owner = ${'b:' + b.id}`;
+  refused(b.id, await sentPost(post('/me/sent', sentForm(csrf), { cookie }), deps), 'Avalanche Team1 Mini Grants is on hold; say go to your agent first.');
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${'b:' + b.id}`)[0].status, 'started');
+});
+
+test('fix round 1 M5: Approve saves the card\'s other changed fields with the approval, or keeps them all in the draft', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit', answers: { risks: { text: 'Few.' } } }] }, 'agent', NOW).record, NOW);
+  const path = 'projects.kit.answers.risks';
+  const seen = seenOf(await getRecord(b.id), path);
+  const ok = await approvePost(post('/me/approve', { csrf, section: 'projects', open: path, seen, approve: path, [path]: 'Few.', 'projects.kit.name': 'Kit Two' }, { cookie }), deps);
+  assert.deepEqual(lineOf(ok, b.id).text, 'Saved and approved.');
+  const rec = await getRecord(b.id);
+  assert.equal(rec.projects[0].name, 'Kit Two');
+  assert.ok(isApproved(rec, path));
+  // A bad other field refuses the whole Approve beside the card and keeps everything typed.
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', answers: { risks: { text: 'Agent again.' } } }] }, 'agent', NOW).record, NOW);
+  const seen2 = seenOf(await getRecord(b.id), path);
+  const bad = await approvePost(post('/me/approve', { csrf, section: 'projects', open: path, seen: seen2, approve: path, [path]: 'Mine.', 'projects.kit.live_url': 'nope' }, { cookie }), deps);
+  refused(b.id, bad, 'Not saved: Live link: a link starting with https://.');
+  assert.equal(locOf(bad).searchParams.get('at'), 'projects');
+  const after = await getRecord(b.id);
+  assert.equal(after.projects[0].answers.risks?.text, 'Agent again.');
+  assert.equal(isApproved(after, path), false);
+  const d = await draftOf(cookie, NOW);
+  assert.equal(d?.[path], 'Mine.');
+  assert.equal(d?.['projects.kit.live_url'], 'nope');
+});
+
+test('fix round 1 M7: a record that cannot be read keeps the typed card in the draft', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await sql()`UPDATE builders SET record = ${sql().json({ person: 5 })} WHERE id = ${b.id}`;
+  const r = await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Typed' }, { cookie }), deps);
+  refused(b.id, r, 'Your record could not be read, so nothing was saved. Try again later.');
+  assert.equal((await draftOf(cookie, NOW))?.['person.name'], 'Typed');
 });

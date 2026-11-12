@@ -28,7 +28,8 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
   const problem = problemShown('problem', one(q.problem), one(q.sig), builder.id, now, authSecret());
   const note = problem ? null : problemShown('note', one(q.note), one(q.sig), builder.id, now, authSecret());
   // L43-4 (v6.1.19): what the builder typed into a refused form, for 15 minutes; React escapes it as every value.
-  const data = await meData(builder, now, token, one(q.link), await draftOf(cookie, now));
+  // Fix round 1 (M6): read only while a signed refusal line shows.
+  const data = await meData(builder, now, token, one(q.link), problem ? await draftOf(cookie, now) : null);
   return (
     <>
       {/* L27-9, L27-10 (v6.1.16): `saved` and `at` name a section (unsigned: they only place `Saved.` and a signed line). */}

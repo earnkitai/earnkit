@@ -14,8 +14,9 @@ import { record as recordStatus } from '../v5/ledger';
 import { sql } from '../v5/db';
 import {
   ME_ALREADY_UNLINKED, ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DENIED, ME_LINK_DONE, ME_NOTHING, ME_PICK_CATEGORY, ME_PRESS_SUBMIT_FIRST, ME_SAVED, ME_SAVED_APPROVED, ME_SENT,
-  ME_UNLINKED_AGENT, ME_UNLINK_NOT_YOURS, ME_VALUE_WORDS, UNKNOWN_CODE,
+  ME_HELD_SENT, ME_UNLINKED_AGENT, ME_UNLINK_NOT_YOURS, ME_VALUE_WORDS, UNKNOWN_CODE,
 } from '../v5/site-copy';
+import { SENT } from '../v5/stats';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, agentList, authSecret, isAnswerPath, pendingApprovals, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
@@ -238,11 +239,17 @@ function patchOf(path: string, value: unknown, current: BuilderRecord): unknown 
   return { [block]: { [rest[0]]: value } };
 }
 
-/** "<path>: <issue>" from the merge, in the field's words, one sentence. Pure. */
-const problemWords = (label: string, line: string) => {
-  const issue = line.slice(line.indexOf(': ') + 2).trim();
-  return `${label}: ${issue.charAt(0).toLowerCase()}${issue.slice(1)}${/[.!?]$/.test(issue) ? '' : '.'}`;
+/**
+ * The issue part of a merge problem line, one sentence starting lower case: "too long." from "answers.problem: Too
+ * long" (fix round 1, M8: never a slice that assumes the prefix's shape). A line with no "<path>: " is all issue. Pure.
+ */
+const issueOf = (line: string): string => {
+  const at = line.indexOf(': ');
+  const issue = (at < 0 ? line : line.slice(at + 2)).trim();
+  return `${issue.charAt(0).toLowerCase()}${issue.slice(1)}${/[.!?]$/.test(issue) ? '' : '.'}`;
 };
+/** "<label>: <issue>" from the merge, in the field's words, one sentence. Pure. */
+const problemWords = (label: string, line: string) => `${label}: ${issueOf(line)}`;
 
 type Wrapped = z.ZodType & { unwrap?: () => z.ZodType };
 /** The schema under optional, nullable and default wrappers (an array stays an array). Pure. */
@@ -307,18 +314,25 @@ const sameValue = (raw: string, shown: string) => raw.replace(/\r\n?/g, '\n').tr
  * refusal keeps what was typed (L43-4, the session's draft); a line about the open answer alone shows inside it, with
  * no label (L43-5); nothing changed and nothing refused is `Nothing to save.` (L43-6).
  */
-async function sectionPost(g: Guarded, section: string): Promise<Response> {
-  const block = recordBlocks(await getRecord(g.builder.id)).find((b) => b.key === section);
-  // Standing approval saves through /me/policy.
-  if (!block || block.key === 'policy') return problemAt(g, ME_ERRORS.field);
-  const open = openOf(g.form);
-  const changes: { f: MeField; value: unknown }[] = [];
-  const refused: { path: string; line: string }[] = [];
-  /** "Not saved: LinkedIn: a link starting with https://." from "LinkedIn: a link starting with https://."; the open
-   *  answer's own line carries no label (it shows inside the answer, under its name). */
-  const notSaved = (f: MeField, line: string) => ({ path: f.path, line: `Not saved: ${f.path === open ? line.slice(f.label.length + 2) : line}` });
-  for (const f of block.fields) {
-    const raw = g.form.get(f.path);
+type Change = { f: MeField; value: unknown };
+type Refusal = { path: string; line: string };
+/**
+ * A refusal line for a card's field: "Not saved: LinkedIn: a link starting with https://."; the open answer's own line
+ * carries no label (it shows inside the answer, under its name). Pure.
+ */
+const notSavedFor = (open: string | null) => (f: MeField, line: string): Refusal => ({ path: f.path, line: `Not saved: ${f.path === open ? line.slice(f.label.length + 2) : line}` });
+
+/**
+ * The card's fields the form changed, each checked as a single edit is (a field whose value equals the page's is
+ * left alone); `skip` is left out (the answer an Approve handles itself). Pure.
+ */
+function cardChanges(fields: MeField[], form: URLSearchParams, open: string | null, skip: string | null = null): { changes: Change[]; refused: Refusal[] } {
+  const notSaved = notSavedFor(open);
+  const changes: Change[] = [];
+  const refused: Refusal[] = [];
+  for (const f of fields) {
+    if (f.path === skip) continue;
+    const raw = form.get(f.path);
     if (raw === null || sameValue(raw, f.value)) continue;
     const v = valueOf(f, raw);
     if (!v.ok) {
@@ -329,28 +343,57 @@ async function sectionPost(g: Guarded, section: string): Promise<Response> {
     if (words) refused.push(notSaved(f, `${f.label}: ${words}.`));
     else changes.push({ f, value: v.value });
   }
-  const at = (c: { f: MeField }) => (/^team\.\d+\./.test(c.f.path) ? Number(c.f.path.split('.')[1]) : -1);
+  // A team member removed (an empty name) goes last, from the highest row down, so the other rows keep their numbers.
+  const at = (c: Change) => (/^team\.\d+\./.test(c.f.path) ? Number(c.f.path.split('.')[1]) : -1);
   changes.sort((a, b) => at(b) - at(a));
+  return { changes, refused };
+}
+
+/**
+ * Merges the changes as the builder, one by one, onto `record` (under the caller's row lock): an answer the builder
+ * writes is approved by it (L43-15). Returns the record, how many leaves changed and saved, and the merge's refusals.
+ * Pure.
+ */
+function applyChanges(record: BuilderRecord, changes: Change[], now: Date, open: string | null): { record: BuilderRecord; changed: number; kept: number; lines: Refusal[] } {
+  const notSaved = notSavedFor(open);
+  let changed = 0;
+  let kept = 0;
+  const lines: Refusal[] = [];
+  for (const c of changes) {
+    const m = mergeRecord(record, patchOf(c.f.path, c.value, record), 'builder', now);
+    if (m.problems.length > 0) lines.push(...m.problems.map((l) => notSaved(c.f, problemWords(c.f.label, l))));
+    else {
+      record = m.changed.length > 0 && isAnswerPath(c.f.path) ? approvePath(m.record, c.f.path, now) : m.record;
+      changed += m.changed.length;
+      kept++;
+    }
+  }
+  return { record, changed, kept, lines };
+}
+
+/** Every field of the card the form carried, as typed: the draft a refusal keeps (L43-4). Pure. */
+const cardDraft = (fields: MeField[], form: URLSearchParams): Draft =>
+  Object.fromEntries(fields.filter((f) => form.has(f.path)).map((f) => [f.path, form.get(f.path) ?? '']));
+
+async function sectionPost(g: Guarded, section: string): Promise<Response> {
+  const block = recordBlocks(await getRecord(g.builder.id)).find((b) => b.key === section);
+  // Standing approval saves through /me/policy.
+  if (!block || block.key === 'policy') return problemAt(g, ME_ERRORS.field);
+  const open = openOf(g.form);
+  const { changes, refused } = cardChanges(block.fields, g.form, open);
+  // L43-4 (v6.1.19): every field the form carried is kept, so the page shows the typed values again.
+  const keep = async (r: Response) => {
+    await saveDraft(g.cookie, cardDraft(block.fields, g.form), g.now);
+    return r;
+  };
   let saved = 0;
   if (changes.length > 0) {
     const out = await withRecord(g.builder.id, g.now, (current) => {
-      let record = current;
-      let changed = 0;
-      let kept = 0;
-      const lines: { path: string; line: string }[] = [];
-      for (const c of changes) {
-        const m = mergeRecord(record, patchOf(c.f.path, c.value, record), 'builder', g.now);
-        if (m.problems.length > 0) lines.push(...m.problems.map((l) => notSaved(c.f, problemWords(c.f.label, l))));
-        else {
-          // L43-15 (v6.1.19): the builder wrote this answer, so the save approves it.
-          record = m.changed.length > 0 && isAnswerPath(c.f.path) ? approvePath(m.record, c.f.path, g.now) : m.record;
-          changed += m.changed.length;
-          kept++;
-        }
-      }
-      return { record: changed > 0 ? record : null, result: { lines, kept } };
+      const a = applyChanges(current, changes, g.now, open);
+      return { record: a.changed > 0 ? a.record : null, result: { lines: a.lines, kept: a.kept } };
     });
-    if (out.broken) return problemAt(g, ME_ERRORS.broken, section, open);
+    // Fix round 1 (M7): a record that cannot be read saves nothing and keeps what was typed.
+    if (out.broken) return keep(problemAt(g, ME_ERRORS.broken, section, open));
     refused.push(...out.result.lines);
     saved = out.result.kept;
   }
@@ -362,10 +405,8 @@ async function sectionPost(g: Guarded, section: string): Promise<Response> {
     if (changes.length === 0) return noteAt(g, ME_NOTHING, placeOf(section, open, false));
     return savedSection(section, open, inAnswer);
   }
-  // L43-4 (v6.1.19): every field the form carried is kept, so the page shows the typed values again.
-  await saveDraft(g.cookie, Object.fromEntries(block.fields.filter((f) => g.form.has(f.path)).map((f) => [f.path, g.form.get(f.path) ?? ''])), g.now);
   const lines = [...new Set(refused.map((r) => r.line))];
-  return problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section, open, inAnswer);
+  return keep(problemAt(g, (saved > 0 ? [ME_SAVED, ...lines] : lines).join('\n'), section, open, inAnswer));
 }
 
 /**
@@ -418,29 +459,39 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
   const typed = action === 'approve' && answer ? g.form.get(path) : null;
   const section = path.startsWith('projects.') ? 'projects' : 'answers';
   const open = answer ? path : null;
+  const block = typed !== null ? recordBlocks(await getRecord(g.builder.id), g.now).find((b) => b.fields.some((x) => x.path === path)) : undefined;
+  // Fix round 1 (M5): the Approve submits the whole card, so every field it carried is kept on a refusal.
   const keep = async (r: Response) => {
-    if (typed !== null) await saveDraft(g.cookie, { [path]: typed }, g.now);
+    if (typed !== null) await saveDraft(g.cookie, { ...(block ? cardDraft(block.fields, g.form) : {}), [path]: typed }, g.now);
     return r;
   };
   // The box's text as the stored value, checked as a Save checks it.
   let edit: { value: unknown } | null = null;
-  if (typed !== null) {
-    const f = recordBlocks(await getRecord(g.builder.id), g.now).flatMap((b) => b.fields).find((x) => x.path === path);
-    if (f && !sameValue(typed, f.value)) {
-      const v = valueOf(f, typed);
-      const words = v.ok ? wordsOf(path, v.value) : v.problem;
-      if (!v.ok || words) return keep(problemAt(g, `Not saved: ${v.ok ? `${words}.` : v.problem}`, section, open, true));
-      if (v.value === null) return keep(problemAt(g, ME_ERRORS.field, section, open, true));
-      edit = { value: v.value };
-    }
+  const f = block?.fields.find((x) => x.path === path);
+  if (typed !== null && f && !sameValue(typed, f.value)) {
+    const v = valueOf(f, typed);
+    const words = v.ok ? wordsOf(path, v.value) : v.problem;
+    if (!v.ok || words) return keep(problemAt(g, `Not saved: ${v.ok ? `${words}.` : v.problem}`, section, open, true));
+    if (v.value === null) return keep(problemAt(g, ME_ERRORS.field, section, open, true));
+    edit = { value: v.value };
   }
-  const out = await withRecord(g.builder.id, g.now, (current) => {
+  // Fix round 1 (M5): the card's other changed fields save with the approval, or the whole Approve is refused with
+  // their lines beside the card (nothing saved, everything typed kept); never dropped.
+  const others = block && typed !== null ? cardChanges(block.fields, g.form, open, path) : { changes: [], refused: [] };
+  if (others.refused.length > 0) return keep(problemAt(g, [...new Set(others.refused.map((r) => r.line))].join('\n'), section, open));
+  const out = await withRecord<'changed' | 'ok' | 'saved' | { lines: string[] }>(g.builder.id, g.now, (current) => {
     // An agent write since the page was rendered: the builder has not read this text.
     if (action === 'approve' && seenOf(current, path) !== seen) return { record: null, result: 'changed' as const };
-    if (edit) {
-      const m = mergeRecord(current, patchOf(path, edit.value, current), 'builder', g.now);
-      if (m.problems.length > 0) return { record: null, result: m.problems.map((l) => problemWords('', l).slice(2)).join(' ') };
-      return { record: approvePath(m.record, path, g.now), result: 'saved' as const };
+    if (edit || others.changes.length > 0) {
+      const a = applyChanges(current, others.changes, g.now, open);
+      if (a.lines.length > 0) return { record: null, result: { lines: a.lines.map((l) => l.line) } };
+      let rec = a.record;
+      if (edit) {
+        const m = mergeRecord(rec, patchOf(path, edit.value, rec), 'builder', g.now);
+        if (m.problems.length > 0) return { record: null, result: { lines: [`Not saved: ${m.problems.map(issueOf).join(' ')}`] } };
+        rec = m.record;
+      }
+      return { record: approvePath(rec, path, g.now), result: 'saved' as const };
     }
     const next = action === 'approve' ? approvePath(current, path, g.now) : unapprovePath(current, path);
     return { record: next === current ? null : next, result: 'ok' as const };
@@ -448,7 +499,7 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
   if (out.broken) return keep(problemAt(g, ME_ERRORS.broken, answer ? section : undefined, open, answer));
   // L43-5 (v6.1.19): the refusal keeps the answer open, its line inside it.
   if (out.result === 'changed') return keep(problemAt(g, ME_ERRORS.changed, answer ? section : undefined, open, answer));
-  if (out.result !== 'ok' && out.result !== 'saved') return keep(problemAt(g, `Not saved: ${out.result}`, section, open, true));
+  if (typeof out.result === 'object') return keep(problemAt(g, [...new Set(out.result.lines)].join('\n'), section, open, others.changes.length === 0));
   if (typed !== null) await clearDraft(g.cookie);
   if (out.result === 'saved') return noteAt(g, ME_SAVED_APPROVED, `${openPart(path)}&at=${encodeURIComponent(path)}#a-${path}`);
   // L35-24 (v6.1.17 Task 4): an approved answer opens the next one waiting, so they are read one at a time.
@@ -548,17 +599,32 @@ export async function sentPost(request: Request, deps: Deps = {}): Promise<Respo
   const programId = g.form.get('program_id') ?? '';
   const projectId = g.form.get('project_id') ?? '';
   const owner = `b:${g.builder.id}`;
+  type Row = { status: string; installation_id: number; claimed_by: number | null; held_at: Date | null; project_id: string | null; title: string };
   const [row] = programId.length > 0 && programId.length <= 200 && projectId.length <= 500
-    ? await sql()<{ installation_id: number; project_id: string | null; title: string | null }[]>`
-      SELECT a.installation_id, a.project_id, COALESCE(p.file->>'title', a.title, a.program_id) AS title FROM applications a LEFT JOIN programs p ON p.id = a.program_id
-      WHERE a.owner = ${owner} AND a.program_id = ${programId} AND COALESCE(a.project_id, '') = ${projectId} AND a.status = 'started'`
+    ? await sql()<Row[]>`
+      SELECT a.status, a.installation_id, a.claimed_by, a.held_at, a.project_id, COALESCE(p.file->>'title', a.title, a.program_id) AS title
+      FROM applications a LEFT JOIN programs p ON p.id = a.program_id
+      WHERE a.owner = ${owner} AND a.program_id = ${programId} AND COALESCE(a.project_id, '') = ${projectId}`
     : [];
   if (!row) return problemAt(g, ME_ERRORS.field, 'ledger');
+  const sent = noteAt(g, ME_SENT(row.title), '&at=ledger#ledger');
+  // Fix round 1 (M2): a double press or a resubmitted form finds the row already sent and says so again.
+  if (SENT.includes(row.status)) return sent;
+  if (row.status !== 'started') return problemAt(g, ME_ERRORS.field, 'ledger');
+  // Fix round 1 (M3): a claim the builder held waits for their go.
+  if (row.held_at !== null) return problemAt(g, ME_HELD_SENT(row.title), 'ledger');
+  // Fix round 1 (M1): written as the agent that claims it while that agent is still this builder's; with none still
+  // linked, as the builder's own send (the ledger's link check is the agent's, not the builder's).
+  const ids = [...new Set([row.claimed_by, row.installation_id].filter((x): x is number => x !== null))];
+  const [linked] = ids.length > 0
+    ? await sql()<{ id: number }[]>`SELECT id FROM installations WHERE id = ANY(${ids}) AND builder_id = ${g.builder.id} ORDER BY array_position(${ids}::int[], id) LIMIT 1`
+    : [];
   const out = await recordStatus(owner, programId, 'applied', {
-    installationId: row.installation_id, submitted_by: 'builder', project_id: row.project_id ?? '', now: g.now,
+    installationId: linked?.id ?? row.installation_id, submitted_by: 'builder', project_id: row.project_id ?? '', now: g.now,
+    ...(linked ? {} : { builderOwn: true as const }),
   });
   if (!out.ok) return problemAt(g, out.note, 'ledger');
-  return noteAt(g, ME_SENT(row.title ?? programId), '&at=ledger#ledger');
+  return sent;
 }
 
 /**

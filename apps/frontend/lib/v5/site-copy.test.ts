@@ -282,6 +282,7 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   assert.equal(copy.ME_SENT_IT, 'I sent it');
   assert.equal(copy.ME_SENT('Avalanche Team1 Mini Grants'), 'Sent Avalanche Team1 Mini Grants.');
   assert.equal(copy.ME_ALREADY_UNLINKED, 'Already unlinked.');
+  assert.equal(copy.ME_HELD_SENT('Base Builder Grants'), 'Base Builder Grants is on hold; say go to your agent first.');
   assert.equal(copy.ME_UNLINKED_AGENT('Codex', 'Codex'), 'Unlinked "Codex".');
   assert.equal(copy.ME_UNLINKED_AGENT(null, 'An agent linked Nov 11'), 'Unlinked an agent linked Nov 11.');
   assert.equal(copy.ME_DELETE_HINT, 'Type your GitHub login to delete.');
@@ -327,7 +328,7 @@ const LABELS = new Set([
 const SAMPLES: Record<string, unknown[]> = {
   EARN_ALL: [45], GUIDE_ASK: ['Base Builder Grants'], ME_SIGNED_IN: ['ada'], ME_APPROVED: ['Nov 6'], ME_LINKED: ['Nov 6'],
   LINK_ASK_PARTS: ['Codex'], ME_AN_AGENT: ['Nov 6'], ME_REVIEWS: ['Base Builder Grants'], ME_UNLINKED: ['Claude Code'], ME_PROJECT_SEEN: ['github.com/ada/kit', 2], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
-  LINK_FIRST_SEEN: ['Nov 6'], ME_UNLINKED_AGENT: ['Codex', 'Codex'], ME_HELD_ROW: ['Nov 11'], ME_SENT: ['Base Builder Grants'], ME_NOT_SET_YET: [14],
+  LINK_FIRST_SEEN: ['Nov 6'], ME_UNLINKED_AGENT: ['Codex', 'Codex'], ME_HELD_ROW: ['Nov 11'], ME_SENT: ['Base Builder Grants'], ME_HELD_SENT: ['Base Builder Grants'], ME_NOT_SET_YET: [14],
   'ME_VALUE_WORDS.typed': [2100, 2000], 'ME_VALUE_WORDS.programs': [50], 'ME_VALUE_WORDS.longLine': [3, 100],
   heroChipText: [105_000], dayWords: [new Date('2026-11-04T12:00:00Z'), new Date('2026-11-04T12:00:00Z')], heroUsdText: [3_159_600], programKind: [{}],
   'ME_VALUE_WORDS.under': [300], 'ME_VALUE_WORDS.atMost': [5], 'ME_VALUE_WORDS.range': [1, 10, true],

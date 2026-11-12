@@ -372,6 +372,9 @@ export async function record(
     /** won only (L29-3, v6.1.16 Task 15): with no application here (none, a claim or a skip), the builder's own send is
      *  written first (submitted_by builder), then the win; answers `outside`. */
     outsideWin?: true;
+    /** applied only (v6.1.19 fix round 1, M1): the builder said on /me they sent it and no agent of theirs that
+     *  claimed it is still linked; the agent's link check is skipped (the builder is the one acting). */
+    builderOwn?: true;
   } = {},
 ): Promise<RecordResult> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -420,7 +423,7 @@ export async function record(
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
-    if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
+    if (!o.fromScreen && !(o.builderOwn && status === 'applied') && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
     const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null }[]>`
       SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;

@@ -490,3 +490,14 @@ test('L43-17: the four link states read one sentence each on /me', async () => {
   assert.equal(await said(used), 'Linked.');
   assert.equal(await said(denied), 'Not linked. If it was you, ask your agent for a new link.');
 });
+
+test('fix round 1 M6: the draft fills the boxes only while a signed problem line shows; a plain reload shows the saved values', async () => {
+  const b = await upsertBuilder({ github_id: 943_106, login: 'l43m6', name: null, avatar_url: null }, NOW);
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { person: { name: 'Saved Name' } }, 'builder', NOW).record, NOW);
+  const d = await meData(b, NOW, 'sess', null, { 'person.name': 'Typed Name', 'delete.confirm': 'typed-login' });
+  const refused = page(d, { problem: 'Not saved: Name: 81 characters typed; at most 80.', at: 'person' });
+  assert.ok(/name="person.name"[^>]*value="Typed Name"/.test(refused) && /value="typed-login"/.test(refused));
+  const reload = page(d);
+  assert.ok(/name="person.name"[^>]*value="Saved Name"/.test(reload), 'saved value on a plain reload');
+  assert.ok(!reload.includes('Typed Name') && !reload.includes('typed-login'));
+});
