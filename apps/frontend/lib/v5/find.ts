@@ -22,7 +22,7 @@ import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category
 import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
-import { readLoosely, refuse, type LooseRules } from './tool-input';
+import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
@@ -55,8 +55,18 @@ const FIND_LOOSE: LooseRules = {
 };
 
 /** The arguments as find reads them: FIND_LOOSE, then any field FindInput still refuses dropped and named. Pure. */
-export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unread: string[] } {
+export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unread: string[]; error?: string } {
   const raw = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+  // L1i-1 (v6.1.16.1, L29-12, L29-14): an unknown top-level key, or a project with no name, is an input error: no builder
+  // text, isError true, the note naming the field. A project fact passed beside project stays a problems line (below).
+  const unknown = Object.keys(raw).filter((k) => !Object.hasOwn(FindArgs.shape, k) && !Object.hasOwn(ProjectArg.shape, k));
+  if (unknown.length > 0)
+    return { i: {}, unread: [], error: `${unknown.map((k) => cleanText(k, 40)).join(', ')}: not a find argument (find takes project, program_id, project_id, ask and filter)` };
+  const p = raw.project;
+  if (p && typeof p === 'object' && !Array.isArray(p)) {
+    const named = parseProject(p);
+    if (!named.ok && named.problem.startsWith('name: ')) return { i: {}, unread: [], error: `project.name: ${named.problem.slice('name: '.length)} (the project name is required)` };
+  }
   const read = readLoosely(input, FIND_LOOSE);
   const { args } = read;
   // L29-13 (v6.1.16 Task 15): an unknown category is named with the four it can be.
@@ -729,7 +739,8 @@ async function followRename(ctx: FindContext, project: Project | null): Promise<
 }
 
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
-  const { i, unread } = findInputOf(input);
+  const { i, unread, error } = findInputOf(input);
+  if (error) return inputError(error) as unknown as FindReply;
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const given = parsed?.ok ? parsed.project : null;
   await followRename(ctx, given);
