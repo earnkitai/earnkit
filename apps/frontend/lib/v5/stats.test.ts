@@ -11,9 +11,9 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at last)', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last)', async () => {
   const s = await readStats(NOW);
-  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at']);
+  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'read_at']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
 });
 
@@ -70,13 +70,15 @@ test('installs, finds and applications count what happened, with their windows',
   assert.equal(now.applications_7d - before.applications_7d, 2);
   assert.equal(now.won - before.won, 2);
   assert.equal(now.won_usd - before.won_usd, 750.5);
-  for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at') assert.equal(typeof v, k === 'won_other' ? 'object' : 'number', k);
+  for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at' && k !== 'read_at') assert.equal(typeof v, k === 'won_other' ? 'object' : 'number', k);
 });
 
-test('statsGet answers the twelve keys, and a failed read is a 503 that is never cached', async () => {
+test('statsGet answers the fourteen keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
   const ok = await statsGet(() => readStats(NOW));
   assert.equal(ok.status, 200);
-  assert.equal(Object.keys((await ok.json()) as object).length, 12);
+  // L36-4 (v6.1.18 Task 5): the header says the route's real cache.
+  assert.equal(ok.headers.get('cache-control'), 'public, max-age=600');
+  assert.equal(Object.keys((await ok.json()) as object).length, 14);
   const bad = await statsGet(async () => {
     throw new Error('db down');
   });
@@ -117,4 +119,28 @@ test('L30-14: last_run_at is null before any run, then the last daily run that f
   } finally {
     await sql()`DELETE FROM cron_state`;
   }
+});
+
+// v6.1.18 Task 5 (L36-3, L36-4).
+test('L36-3, L36-4: applications_via_earnkit counts agent sends and builder sends an EarnKit start preceded; read_at is the read time', async () => {
+  const db = sql();
+  const before = await readStats(NOW);
+  const [r] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`stat-${Math.random()}`}) RETURNING id`;
+  const owner = `i:${r.id}`;
+  const send = (program: string, by: string | null, sent: Date) =>
+    db`INSERT INTO applications (owner, installation_id, program_id, status, submitted_by, at, sent_at) VALUES (${owner}, ${r.id}, ${program}, 'applied', ${by}, ${sent}, ${sent})`;
+  const start = (program: string, at: Date) =>
+    db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${owner}, ${r.id}, ${program}, 'started', ${at})`;
+  await send('via-agent', 'agent', ago(2));
+  await start('via-drafted', ago(3));
+  await send('via-drafted', 'builder', ago(2));
+  await send('via-reported', 'builder', ago(2));
+  await start('via-late', ago(1));
+  await send('via-late', 'builder', ago(2));
+  await send('via-unmarked', null, ago(2));
+  const t0 = Date.now();
+  const now = await readStats(NOW);
+  assert.equal(now.applications - before.applications, 5);
+  assert.equal(now.applications_via_earnkit - before.applications_via_earnkit, 2, 'the agent send and the drafted one; a start after the send counts nothing');
+  assert.ok(Date.parse(now.read_at) >= t0 && Date.parse(now.read_at) <= Date.now(), now.read_at);
 });

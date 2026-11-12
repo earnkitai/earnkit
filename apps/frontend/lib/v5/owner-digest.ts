@@ -4,7 +4,7 @@
  * made. Nothing happened, nothing sent; mail not set up (RESEND_API_KEY unset), 'mail off'. The idempotency key is the
  * UTC day and the body's hash (v6.1.16 Task 16): the same body is sent once a day, a changed one again. v6.1.17 Task 3:
  * first, a gap of over GAP_HOURS since the last daily run that finished (L30-14); and the programs the walk could not
- * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the sends in the window, by agents and builders.
+ * read, each `{id}: {fix}` (L30-18, L35-18). v6.1.18 Task 5 (L18-5): the previous UTC day's sends, by agents, drafted here, reported.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -13,7 +13,7 @@ import { ProgramFile } from './program-file';
 import type { Unreadable } from './health';
 import { findProgramsDir, revertPlan } from './programs-api';
 import { revertExpiry, revertUrl } from './programs-pending';
-import { SENT } from './stats';
+import { sendCounts, sendRows } from './stats';
 
 export type DigestChange = { id: string; title: string; fields: string[]; revertUrl: string | null; revertNote?: string };
 export type DigestHealth = {
@@ -29,10 +29,13 @@ export type DigestHealth = {
 };
 
 /**
- * v6.1.18 Task 5 (L18-5): the sends in the digest's window (`sent` of them, by agents and by builders), every send all
- * time, and each program with sends in the window.
+ * v6.1.18 Task 5 (L18-5, L36-3): the previous UTC day's sends (`sent`: by agents, drafted here and sent by builders,
+ * reported from outside), every send before the digest's day, and each program with sends that day.
  */
-export type DigestApplications = { sent: number; agent: number; builder: number; total: number; byProgram: { id: string; title: string; sent: number }[] };
+export type DigestApplications = {
+  sent: number; agent: number; drafted: number; reported: number; total: number;
+  byProgram: { id: string; title: string; sent: number }[];
+};
 
 /** v6.1.17 Task 3 (L30-14): a gap over this many hours since the last daily run is named in the digest. */
 export const GAP_HOURS = 26;
@@ -62,11 +65,11 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
     const at = health.gap.last.toISOString().slice(0, 16).replace('T', ' ');
     blocks.push(`No daily run finished for ${health.gap.hours} hours before this one; the last was ${at} UTC.`);
   }
-  // L18-5 (v6.1.18 Task 5): the day's sends, most sent program first; a day with none adds nothing.
+  // L18-5 (v6.1.18 Task 5): the previous UTC day's sends, most sent program first; a day with none adds nothing.
   if (apps && apps.sent > 0) {
     const programs = [...apps.byProgram].sort((a, b) => b.sent - a.sent || a.id.localeCompare(b.id));
     blocks.push([
-      `Applications: ${apps.sent} sent (${apps.agent} by agents, ${apps.builder} by builders); ${apps.total} all time.`,
+      `Applications: ${apps.sent} sent (${apps.agent} by agents, ${apps.drafted} drafted here and sent by builders, ${apps.reported} reported from outside); ${apps.total} all time.`,
       ...programs.map((p) => `- ${oneLine(p.title)} (${p.id}): ${p.sent}`),
     ].join('\n'));
   }
@@ -117,20 +120,21 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>): Prom
   }
 }
 
-/** L18-5 (v6.1.18 Task 5): the sends whose send time (`sent_at`, else `at`) is in (since, now], and every send all time. */
-async function digestApplications(since: Date, now: Date): Promise<DigestApplications> {
+/**
+ * L18-5 (v6.1.18 Task 5, fix round 1): the sends of the UTC day before `dayStart` (send time `sent_at`, else `at`), and
+ * every send before `dayStart`, so the block never changes within the digest's day (a same-day rerun builds the same body).
+ */
+async function digestApplications(dayStart: Date): Promise<DigestApplications> {
   const db = sql();
-  const [t] = await db<{ sent: string; agent: string; builder: string; total: string }[]>`
-    SELECT count(*) FILTER (WHERE w) AS sent, count(*) FILTER (WHERE w AND submitted_by = 'agent') AS agent,
-           count(*) FILTER (WHERE w AND submitted_by = 'builder') AS builder, count(*) AS total
-    FROM (SELECT submitted_by, (COALESCE(sent_at, at) > ${since} AND COALESCE(sent_at, at) <= ${now}) AS w
-          FROM applications WHERE status = ANY(${SENT})) s`;
+  const from = new Date(dayStart.getTime() - 86_400_000);
+  const [t] = await db<{ all: string; agent: string; drafted: string; reported: string; total: string }[]>`
+    WITH s AS (${sendRows(db)}), d AS (SELECT * FROM s WHERE sent_time >= ${from} AND sent_time < ${dayStart})
+    SELECT ${sendCounts(db)}, (SELECT count(*) FROM s WHERE sent_time < ${dayStart}) AS total FROM d`;
   const rows = await db<{ id: string; title: string | null; sent: string }[]>`
-    SELECT program_id AS id, max(title) AS title, count(*) AS sent FROM applications
-    WHERE status = ANY(${SENT}) AND COALESCE(sent_at, at) > ${since} AND COALESCE(sent_at, at) <= ${now}
-    GROUP BY program_id`;
+    WITH s AS (${sendRows(db)})
+    SELECT program_id AS id, max(title) AS title, count(*) AS sent FROM s WHERE sent_time >= ${from} AND sent_time < ${dayStart} GROUP BY program_id`;
   return {
-    sent: Number(t.sent), agent: Number(t.agent), builder: Number(t.builder), total: Number(t.total),
+    sent: Number(t.all), agent: Number(t.agent), drafted: Number(t.drafted), reported: Number(t.reported), total: Number(t.total),
     byProgram: rows.map((r) => ({ id: r.id, title: r.title ?? r.id, sent: Number(r.sent) })),
   };
 }
@@ -204,7 +208,7 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer, run: { unreada
   }
   if (failures.size > 0) console.error(`[owner-digest] revert links failed: ${[...failures].join(', ')}`);
 
-  const apps = await digestApplications(since, now);
+  const apps = await digestApplications(dayStart);
   const text = dailyOwnerText(day, changes, health, apps);
   if (text === null) return 'none';
   const key = digestKey(day, text);

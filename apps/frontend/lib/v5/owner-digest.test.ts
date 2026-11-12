@@ -198,35 +198,50 @@ test('L30-18, L35-18: the programs the walk could not read are named with their 
   await sql()`DELETE FROM owner_digests`;
 });
 
-test("L18-5c: the digest's applications block for a day with 3 sends and none for a day with 0", async () => {
+test("L18-5c: the digest's applications block counts the previous UTC day's sends, stays the same within the day, and adds nothing for a day with 0", async () => {
   // The pure block: most sends first; the title on one line.
   const block = dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, {
-    sent: 3, agent: 2, builder: 1, total: 7,
+    sent: 3, agent: 1, drafted: 1, reported: 1, total: 7,
     byProgram: [{ id: 'od-b', title: 'Beta  Prize', sent: 1 }, { id: 'od-a', title: 'Alpha Grants', sent: 2 }],
   });
-  assert.equal(block, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (2 by agents, 1 by builders); 7 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
-  assert.equal(dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, { sent: 0, agent: 0, builder: 0, total: 7, byProgram: [] }), null);
+  assert.equal(block, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (1 by agents, 1 drafted here and sent by builders, 1 reported from outside); 7 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
+  assert.equal(dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, { sent: 0, agent: 0, drafted: 0, reported: 0, total: 7, byProgram: [] }), null);
 
   const db = sql();
   await db`DELETE FROM owner_digests`;
   await db`DELETE FROM cron_state`;
-  const day = new Date('2026-12-20T06:15:00Z');
-  const at = (h: number) => new Date(`2026-12-20T0${h}:00:00Z`);
-  // An earlier send (before the window) counts all time only; a claim is not a send.
-  await db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, title, application_id)
-    VALUES ('i:9001', 9001, 'od-a', 'applied', ${at(1)}, ${at(1)}, 'agent', 'Alpha Grants', 'app_od1'),
-           ('i:9002', 9002, 'od-a', 'won', ${at(5)}, ${at(2)}, 'agent', 'Alpha Grants', 'app_od2'),
-           ('b:9003', 9003, 'od-b', 'applied', ${at(3)}, ${at(3)}, 'builder', 'Beta Prize', 'app_od3'),
-           ('i:9004', 9004, 'od-b', 'started', ${at(4)}, NULL, NULL, 'Beta Prize', 'app_od4'),
-           ('i:9005', 9005, 'od-c', 'applied', ${new Date('2026-11-01T00:00:00Z')}, ${new Date('2026-11-01T00:00:00Z')}, 'agent', 'Old', 'app_od5')`;
+  const [b] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918300, 'od-builder') RETURNING id`;
+  const [ia] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name) VALUES ('od-a', 'Claude Code') RETURNING id`;
+  const [ib] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('od-b', 'Cursor', ${b.id}) RETURNING id`;
+  const y = (h: number) => new Date(`2026-12-19T${String(h).padStart(2, '0')}:00:00Z`);
+  const ins = (owner: string, inst: number, program: string, status: string, at: Date, sentAt: Date | null, by: string | null, title: string, id: string) =>
+    db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, title, application_id)
+      VALUES (${owner}, ${inst}, ${program}, ${status}, ${at}, ${sentAt}, ${by}, ${title}, ${id})`;
   try {
+    // Yesterday (2026-12-19 UTC): an agent send, a drafted builder send (a start before it), a reported one; a claim is not a send.
+    await ins(`i:${ia.id}`, ia.id, 'od-a', 'applied', y(1), y(1), 'agent', 'Alpha Grants', 'app_od1');
+    await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${`b:${b.id}`}, ${ib.id}, 'od-a', 'started', ${y(1)})`;
+    await ins(`b:${b.id}`, ib.id, 'od-a', 'won', y(20), y(2), 'builder', 'Alpha Grants', 'app_od2');
+    await ins(`i:${ib.id}`, ib.id, 'od-b', 'applied', y(23), y(23), 'builder', 'Beta Prize', 'app_od3');
+    await ins(`i:${ia.id}`, ia.id, 'od-b', 'started', y(4), null, null, 'Beta Prize', 'app_od4');
+    // An older send counts all time only.
+    await ins(`i:${ia.id}`, ia.id, 'od-c', 'applied', new Date('2026-11-01T00:00:00Z'), new Date('2026-11-01T00:00:00Z'), 'agent', 'Old', 'app_od5');
+    const day = new Date('2026-12-20T06:15:00Z');
+    const want = 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (1 by agents, 1 drafted here and sent by builders, 1 reported from outside); 4 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n';
     assert.equal(await sendOwnerDigest(day, mailer), 'sent');
-    assert.equal(sent[0].text, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (2 by agents, 1 by builders); 4 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
-    // Two days on, no sends since that digest: nothing to say.
-    assert.equal(await sendOwnerDigest(new Date('2026-12-22T06:15:00Z'), mailer), 'none');
+    assert.equal(sent[0].text, want);
+    // A send today changes neither yesterday's block nor the all-time number: the same-day rerun builds the same hash.
+    await ins(`i:${ia.id}`, ia.id, 'od-c2', 'applied', new Date('2026-12-20T07:00:00Z'), new Date('2026-12-20T07:00:00Z'), 'agent', 'Today', 'app_od6');
+    assert.equal(await sendOwnerDigest(new Date('2026-12-20T09:00:00Z'), mailer), 'none');
+    assert.equal(sent.length, 1);
+    // Two days on, no sends the day before: nothing to say.
+    assert.equal(await sendOwnerDigest(new Date('2026-12-23T06:15:00Z'), mailer), 'none');
     assert.equal(sent.length, 1);
   } finally {
+    await db`DELETE FROM application_history WHERE program_id LIKE 'od-%'`;
     await db`DELETE FROM applications WHERE application_id LIKE 'app_od%'`;
+    await db`DELETE FROM installations WHERE token_hash IN ('od-a', 'od-b')`;
+    await db`DELETE FROM builders WHERE github_id = 918300`;
     await db`DELETE FROM owner_digests`;
   }
 });

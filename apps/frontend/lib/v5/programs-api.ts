@@ -37,7 +37,7 @@ import {
 } from './programs-pending';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
-import { SENT } from './stats';
+import { SENT, sendCounts, sendRows, throughEarnkit } from './stats';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
 /** The largest body the API reads. */
@@ -469,54 +469,53 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 
 /**
  * GET /api/programs/applications?since=<ISO>&limit=<1..500>, owner only (authFailure): every send (applied or any
- * result), newest first by its send time (`sent_at`, else `at`), with totals over the same window. A row names the
- * builder by GitHub login (a `b:` owner) and the agent by its client name; never an email, a sign-in code, the owner
- * key or an installation id.
+ * result), newest first by its send time (`sent_at`, else `at`). `since` filters the rows only (a bad one is 400
+ * `since: an ISO date`); `limit` defaults to 100, a number over 500 is read as 500, and 0, a negative or a non-number is
+ * 400 `limit: 1 to 500`. `totals` and `by_program` are always all time: `agent`, `drafted` (a builder sent an EarnKit
+ * draft), `reported` (EarnKit had no part), `auto` (standing approval); see `sendCounts` in stats.ts. A row names the
+ * builder by GitHub login (a `b:` owner, or the linked builder of an `i:` owner's installation) and the agent by its
+ * client name, and says `through_earnkit` (L36-3); never an email, a sign-in code, the owner key or an installation id.
  */
 export async function applicationsGet(request: Request): Promise<Response> {
   const denied = authFailure(request);
   if (denied) return denied;
   const params = new URL(request.url).searchParams;
-  const sinceText = params.get('since');
+  const sinceText = params.get('since')?.trim() ?? null;
   let since: Date | null = null;
   if (sinceText !== null) {
-    const t = Date.parse(sinceText.trim());
-    if (!ISO_DAY.test(sinceText.trim()) || !Number.isFinite(t)) return json({ ok: false, error: 'since: an ISO date' }, 400);
+    const t = Date.parse(sinceText);
+    if (!ISO_DAY.test(sinceText) || !Number.isFinite(t)) return json({ ok: false, error: 'since: an ISO date' }, 400);
     since = new Date(t);
   }
-  const limitText = params.get('limit');
+  const limitText = params.get('limit')?.trim() ?? null;
   let limit = APPLICATIONS_DEFAULT;
   if (limitText !== null) {
-    if (!/^\d{1,9}$/.test(limitText.trim()) || Number(limitText) < 1) return json({ ok: false, error: `limit: 1 to ${APPLICATIONS_MAX}` }, 400);
+    if (!/^\d{1,9}$/.test(limitText) || Number(limitText) < 1) return json({ ok: false, error: `limit: 1 to ${APPLICATIONS_MAX}` }, 400);
     limit = Math.min(Number(limitText), APPLICATIONS_MAX);
   }
   try {
     const db = sql();
-    const from = since ?? new Date(0);
-    const [t] = await db<{ all: string; agent: string; builder: string; auto: string }[]>`
-      SELECT count(*) AS all, count(*) FILTER (WHERE submitted_by = 'agent') AS agent,
-             count(*) FILTER (WHERE submitted_by = 'builder') AS builder, count(*) FILTER (WHERE auto_applied) AS auto
-      FROM applications WHERE status = ANY(${SENT}) AND COALESCE(sent_at, at) >= ${from}`;
+    const [t] = await db<{ all: string; agent: string; drafted: string; reported: string; auto: string }[]>`
+      WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s`;
     const byProgram = await db<{ program_id: string; title: string | null; sent: string }[]>`
-      SELECT program_id, max(title) AS title, count(*) AS sent
-      FROM applications WHERE status = ANY(${SENT}) AND COALESCE(sent_at, at) >= ${from}
-      GROUP BY program_id ORDER BY count(*) DESC, program_id`;
+      WITH s AS (${sendRows(db)})
+      SELECT program_id, max(title) AS title, count(*) AS sent FROM s GROUP BY program_id ORDER BY count(*) DESC, program_id`;
     const rows = await db<{
-      application_id: string | null; program_id: string; title: string | null; status: string; submitted_by: string | null;
-      auto_applied: boolean; sent_at: Date | null; at: Date; builder: string | null; agent: string | null; fields_used: string[] | null; amount_usd: string | null;
+      application_id: string | null; program_id: string; title: string | null; status: string; submitted_by: string | null; auto_applied: boolean;
+      sent_at: Date | null; at: Date; builder: string | null; agent: string | null; fields_used: string[] | null; amount_usd: string | null; through: boolean;
     }[]>`
       SELECT a.application_id, a.program_id, a.title, a.status, a.submitted_by, a.auto_applied, a.sent_at, a.at,
-             b.login AS builder, i.client_name AS agent, a.fields_used, a.amount_usd
+             b.login AS builder, i.client_name AS agent, a.fields_used, a.amount_usd, ${throughEarnkit(db)} AS through
       FROM applications a
       LEFT JOIN installations i ON i.id = a.installation_id
-      LEFT JOIN builders b ON a.owner LIKE 'b:%' AND b.id::text = substring(a.owner from 3)
-      WHERE a.status = ANY(${SENT}) AND COALESCE(a.sent_at, a.at) >= ${from}
+      LEFT JOIN builders b ON b.id::text = CASE WHEN a.owner LIKE 'b:%' THEN substring(a.owner from 3) ELSE i.builder_id::text END
+      WHERE a.status = ANY(${SENT}) ${since ? db`AND COALESCE(a.sent_at, a.at) >= ${since}` : db``}
       ORDER BY COALESCE(a.sent_at, a.at) DESC, a.application_id DESC LIMIT ${limit}`;
     const by = (v: string | null) => (v === 'agent' || v === 'builder' ? v : null);
     return json({
       ok: true,
       totals: {
-        all: Number(t.all), agent: Number(t.agent), builder: Number(t.builder), auto: Number(t.auto),
+        all: Number(t.all), agent: Number(t.agent), drafted: Number(t.drafted), reported: Number(t.reported), auto: Number(t.auto),
         by_program: byProgram.map((p) => ({ program_id: p.program_id, title: p.title ?? p.program_id, sent: Number(p.sent) })),
       },
       rows: rows.map((r) => ({
@@ -532,6 +531,7 @@ export async function applicationsGet(request: Request): Promise<Response> {
         agent: r.agent,
         fields_used: r.fields_used?.length ?? 0,
         amount_usd: r.amount_usd === null ? null : Number(r.amount_usd),
+        through_earnkit: r.through,
       })),
     });
   } catch (err) {

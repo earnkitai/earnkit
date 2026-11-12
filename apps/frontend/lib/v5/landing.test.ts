@@ -13,7 +13,7 @@ const rowOf = (over: Parameters<typeof programFixture>[0]): ProgramRow => {
   const file = programFixture(over);
   return { id: file.id, file, source: 'file', created_at: NOW, updated_at: NOW, verified_at: null, stale_since: null };
 };
-const STATS: Stats = { programs_open: 3, open_money_usd: 105_000, installs: 0, installs_active_7d: 0, finds_7d: 0, applications: 0, applications_7d: 0, won: 0, won_usd: 0, won_other: [], won_without_amount: 0, last_run_at: null };
+const STATS: Stats = { programs_open: 3, open_money_usd: 105_000, installs: 0, installs_active_7d: 0, finds_7d: 0, applications: 0, applications_7d: 0, applications_via_earnkit: 0, won: 0, won_usd: 0, won_other: [], won_without_amount: 0, last_run_at: null, read_at: '2026-11-04T00:00:00.000Z' };
 
 test('the tiles: Base first, then any chain, then the rest; open before upcoming', () => {
   const rows = [
