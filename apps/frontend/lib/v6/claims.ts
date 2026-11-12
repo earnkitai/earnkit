@@ -165,20 +165,37 @@ export async function claim(owner: string, programId: string, projectId: string 
   return { ok: false, already: { since: out.held.since.toISOString(), by: await clientOf(out.held.by), sent: out.sent } };
 }
 
-/** A released claim (L23-7, v6.1.16): the program, its title and when it was started. */
-export type Released = { program_id: string; title: string; started_at: string };
+/** A released claim (L23-7, v6.1.16): the program, its title and when it was started. `ask` (L36-2, v6.1.18 Task 4): the
+ *  builder sends this program themselves, so the claim was kept and the builder is asked whether it went out. */
+export type Released = { program_id: string; title: string; started_at: string; ask?: true };
 
 /**
  * Deletes the owner's claims older than 24 hours (never one the builder held, L24-4) that never became 'applied'; returns them with their titles and when
- * they were started (L23-7, v6.1.16), by program id.
+ * they were started (L23-7, v6.1.16), by program id. L36-2 (v6.1.18 Task 4): a program the builder submits themselves
+ * (`submit` 'builder') may have gone out without a record, so its claim is never deleted: it is returned with `ask`
+ * on every call, and the caller decides when to ask (sentAsksDue).
  */
 export async function releaseStale(owner: string, now: Date): Promise<Released[]> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
-  const rows = await sql()<{ program_id: string; title: string | null; claimed_at: Date | null }[]>`
-    DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale} RETURNING program_id, title, claimed_at`;
-  const byId = new Map((await programsById(rows.map((r) => r.program_id))).map((p) => [p.id, p]));
-  return rows
-    .map((r) => ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.title ?? r.program_id, started_at: (r.claimed_at ?? now).toISOString() }))
+  type Row = { program_id: string; title: string | null; claimed_at: Date | null };
+  // Fix round 1 (v6.1.18 Task 4): the read, the delete and the kept rows in one transaction, the stale rows locked.
+  const { byId, rows, kept } = await sql().begin(async (tx) => {
+    const old = await tx<{ program_id: string }[]>`
+      SELECT program_id FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale} FOR UPDATE`;
+    const byId = new Map((await programsById([...new Set(old.map((r) => r.program_id))])).map((p) => [p.id, p]));
+    const keep = [...byId.values()].filter((p) => p.file.submit === 'builder').map((p) => p.id);
+    const rows = await tx<Row[]>`
+      DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
+        AND program_id <> ALL(${keep}::text[]) RETURNING program_id, title, claimed_at`;
+    const kept = keep.length === 0 ? [] : await tx<Row[]>`
+      SELECT program_id, title, claimed_at FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
+        AND program_id = ANY(${keep}::text[]) ORDER BY claimed_at`;
+    return { byId, rows: [...rows], kept: [...kept] };
+  });
+  const seen = new Set<string>();
+  const asked = kept.filter((r) => !seen.has(r.program_id) && seen.add(r.program_id));
+  const of = (r: Row) => ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.title ?? r.program_id, started_at: (r.claimed_at ?? now).toISOString() });
+  return [...rows.map(of), ...asked.map((r) => ({ ...of(r), ask: true as const }))]
     .sort((a, b) => (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
 }
 

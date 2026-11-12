@@ -36,7 +36,7 @@
     "Questions: apply@ycombinator.com."
   ],
   "submission_requirements": [
-    { "key": "yc_application", "label": "YC application", "kind": "other", "todo": "your application answers", "type": "text", "required": true, "description": "Behind a YC account sign-in; YC's public pages do not list the questions.", "from": "builder" },
+    { "key": "yc_application", "label": "YC application", "kind": "other", "todo": "your answers", "type": "text", "required": true, "description": "Behind a YC account sign-in; YC's public pages do not list the questions.", "from": "builder" },
     { "key": "batch_preference", "label": "Batch preference", "kind": "other", "todo": "the batch you want", "need": "batch preference", "type": "text", "required": true, "description": "Choose Winter 2027, or \"A batch after Winter 2027\" for Early Decision and name the batch.", "from": "builder" }
   ],
   "results_due": {

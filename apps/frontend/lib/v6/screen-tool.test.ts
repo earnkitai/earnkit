@@ -54,7 +54,7 @@ test('screen needs a reviewer: unlinked and linked non-reviewer each answer one 
   const c = await linked();
   const n = await mcpCall(c, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
   // L25-10 (v6.1.16): how to ask for access.
-  assert.equal(n.reply!.show_to_builder, 'Screening is for program reviewers, and you do not review that program. Ask for reviewer access through the X link on earnkit.com/docs.');
+  assert.equal(n.reply!.show_to_builder, 'Screening is for program reviewers, and you do not review that program. Message EarnKit on X from earnkit.com/docs for reviewer access.');
   assert.equal('job_id' in n.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, 0);
   // A refused non-reviewer never counts against the daily limit.
@@ -157,7 +157,7 @@ test('R7 screen unlinked with sign-in configured: the installation link, one lin
     const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
     assert.equal(u.isError, true, u.text);
     const show = u.reply!.show_to_builder as string;
-    assert.match(show, /^Sign in once at https:\/\/earnkit\.test\/link\/[A-Za-z0-9_-]{16,}, then ask for reviewer access through the X link on earnkit\.com\/docs\.$/);
+    assert.match(show, /^Sign in once at https:\/\/earnkit\.test\/link\/[A-Za-z0-9_-]{16,}, then message EarnKit on X from earnkit\.com\/docs for reviewer access\.$/);
     assert.ok(!/owner/i.test(show), show);
     assert.equal((await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${inst!.id}`)[0].n, 1);
   } finally {
@@ -184,7 +184,7 @@ test('C18: a signed-in builder who reviews no program, with no program named, is
   for (const args of [{}, { applicants: APPLICANTS }]) {
     const r = await mcpCall(c, 'screen', args);
     assert.equal(r.isError, true, r.text);
-    assert.equal(r.reply!.show_to_builder, 'You review no program yet. Ask for reviewer access through the X link on earnkit.com/docs.');
+    assert.equal(r.reply!.show_to_builder, 'You review no program yet. Message EarnKit on X from earnkit.com/docs for reviewer access.');
   }
 });
 

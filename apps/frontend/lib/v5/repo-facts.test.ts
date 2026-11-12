@@ -359,7 +359,7 @@ test('B20 (v6.1.8): reads paused and a private repo are named once, each its own
   assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b' }), { now: NOW })).notes, ['other_host']);
   assert.deepEqual((await repoFacts(project({ repo_url: 'https://codeberg.org/a/b' }), { now: NOW })).notes, ['other_host']);
   assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b', private: true }), { now: NOW })).notes, ['private']);
-  assert.equal(REPO_NOTE.other_host, 'I read GitHub repos only; matched on what you told me.');
+  assert.equal(REPO_NOTE.other_host, 'I read GitHub repos only, so this is from what you told me.');
   const down = (async () => { throw new Error('network down'); }) as unknown as typeof fetch;
   assert.deepEqual((await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: down, now: NOW })).notes, ['unread']);
 });
@@ -466,7 +466,7 @@ test('L26-9 (v6.1.16): a missing repo is read once in 30 minutes: three finds ma
     const f = await repoFacts(p, { gh: gone, now: new Date(NOW.getTime() + i * 60_000), installationId: id });
     assert.equal(f.as_reported, true);
     assert.deepEqual(f.notes, ['unread']);
-    assert.equal(REPO_NOTE.unread, 'I could not read the repo; matched on what you told me.');
+    assert.equal(REPO_NOTE.unread, 'I could not read the repo, so this is from what you told me.');
   }
   assert.equal(calls.length, 1);
   assert.equal(await reads(id), 0);
@@ -506,7 +506,7 @@ test('L26-8 (v6.1.16): one 20 s budget for the whole read: GitHub that never ans
     assert.ok(Math.abs(x.ms - 20_000) <= 1_000, `${x.ms}`);
     assert.deepEqual(x.f.notes, ['slow']);
     assert.equal(x.f.as_reported, true);
-    assert.equal(REPO_NOTE.slow, 'GitHub was slow; matched on what you told me. I read it again next time.');
+    assert.equal(REPO_NOTE.slow, 'GitHub was slow, so this is from what you told me. I read it again next time.');
     assert.equal(await reads(a), 0);
     assert.ok(y.ms < 21_000, `${y.ms}`);
     assert.ok(y.f.public || y.f.notes?.includes('slow'), JSON.stringify(y.f.notes));
@@ -535,7 +535,7 @@ test('controller ruling (L26-9 review): misses count on their own 20 a day: 20 d
   assert.equal(calls.length, before);
   const over = await repoFacts(project({ repo_url: 'https://github.com/nobody/missing-21' }), deps);
   assert.deepEqual(over.notes, ['paused']);
-  assert.equal(REPO_NOTE.paused, 'Repo reads are paused until tomorrow; matched on what you told me.');
+  assert.equal(REPO_NOTE.paused, 'Repo reads are paused until tomorrow, so this is from what you told me.');
   // The day's real reads are untouched by the 20 misses: a real repo still reads.
   const real = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), deps);
   assert.equal(real.public, true);

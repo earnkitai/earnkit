@@ -103,7 +103,7 @@ test('the catalog fields default, and the four edited programs carry theirs', ()
   assert.deepEqual(ProgramFile.parse(read('z-fellows.json')).needs, ['founder_video']);
   assert.deepEqual(ProgramFile.parse(read('arc-builders-fund.json')).needs, ['deck']);
   for (const f of ['base-builder-grants', 'avalanche-team1-mini-grants', 'z-fellows', 'arc-builders-fund'])
-    assert.deepEqual(programProblems(read(`${f}.json`) as never, new Date('2026-11-10T00:00:00Z')), [], f);
+    assert.deepEqual(programProblems(read(`${f}.json`) as never, new Date('2026-11-12T00:00:00Z')), [], f);
 });
 
 test('catalog fields that do not fit are refused', () => {
@@ -228,19 +228,19 @@ test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a thr
   assert.equal(reply(stf), 'funds work from EUR 50,000');
 });
 
-test('v6.1.15 money lines (#12, L1g-8c): each ruled summary money, on the tile and mid-sentence', () => {
+test('v6.1.15 money lines (#12, L1g-8c; L38-5 v6.1.18: never "amount not stated"): each ruled summary money, on the tile and mid-sentence', () => {
   const tiles: Record<string, string> = {
     'arbitrum-mentorship-cohort-2': 'Up to $100,000',
     'sovereign-tech-fund': 'Funds work from EUR 50,000',
-    'arbitrum-security-program': 'Audit subsidy, amount not stated',
+    'arbitrum-security-program': 'Audit subsidy',
     'arbitrum-stablecoin-growth-program': 'Incentives, plus 200,000 ARB for the first 10 teams',
-    'arc-builders-fund': 'Investment from Circle Ventures, amount not stated',
-    'base-ecosystem-fund': 'Pre-seed and seed investment, amount not stated',
-    'neon-open-source-program': 'Monthly cash sponsorship for six months, amount not stated',
-    'solana-foundation-grants': 'Milestone grants, amount not stated',
+    'arc-builders-fund': 'Investment from Circle Ventures',
+    'base-ecosystem-fund': 'Pre-seed and seed investment',
+    'neon-open-source-program': 'Monthly cash sponsorship for six months',
+    'solana-foundation-grants': 'Milestone grants',
     'solana-mobile-builder-grants': 'Milestone grants, requests of $10,000 to $50,000',
-    'solana-incubator-cohort-6': 'NYC incubator with relocation stipend, amount not stated',
-    'uniswap-foundation-open-grants': 'Amount not stated, set by milestone budget',
+    'solana-incubator-cohort-6': 'NYC incubator with relocation stipend',
+    'uniswap-foundation-open-grants': 'Set by milestone budget',
     'uniswap-foundation-security-fund': 'Up to 100% of the audit cost',
     'spc-founder-fellowship-spring-2027': "$1,000,000 investment on the last round's terms",
     'ethglobal-mumbai': 'Up to $15,000 per partner prize',

@@ -43,7 +43,7 @@ export function ctx(id: string, octet: number): Ctx {
   CTX = { id, tag, octet, nonce, ip: (n) => `10.33.${octet}.${n}`, repo: (n) => `lane33/${id.toLowerCase()}-${n}`, pid: (n) => `${tag}-${n}` };
   return CTX;
 }
-/** Runs the repro, prints exactly one line, cleans up its own rows, exits. */
+/** Runs the repro, prints exactly one line, cleans up its own rows, exits 0 on PASS and 1 on FAIL (FR-4, v6.1.18). */
 export async function run(id: string, octet: number, body: (c: Ctx) => Promise<{ pass: boolean; actual: string }>) {
   const c = ctx(id, octet);
   let line: string;
@@ -58,7 +58,7 @@ export async function run(id: string, octet: number, body: (c: Ctx) => Promise<{
   console.log(line);
   await db.end({ timeout: 1 }).catch(() => {});
   await appSql().end({ timeout: 1 }).catch(() => {});
-  process.exit(0);
+  process.exit(line.startsWith('PASS ') ? 0 : 1);
 }
 
 // ---- agents over real OAuth ----
@@ -171,6 +171,8 @@ export async function cleanup(c: Ctx) {
   await db`DELETE FROM project_reports WHERE owner = ANY(${owners})`;
   await db`DELETE FROM link_codes WHERE installation_id = ANY(${inst})`;
   await db`DELETE FROM installations WHERE id = ANY(${inst})`;
+  // L37-2 (v6.1.18): the agents' registrations too.
+  await db`DELETE FROM oauth_clients WHERE client_name LIKE ${like} OR client_name = ${c.tag}`;
   await db`DELETE FROM sessions WHERE builder_id = ANY(${bids})`;
   await db`DELETE FROM program_changes WHERE program_id LIKE ${like}`;
   await db`DELETE FROM program_health WHERE program_id LIKE ${like}`;

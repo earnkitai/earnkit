@@ -98,7 +98,8 @@ export const DOCS_SESSION = {
 /** What an agent sends, and where saved answers wait (L25-8, v6.1.16): /docs, the Terms and llms.txt. */
 export const APPROVAL_LINE = 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.';
 /** How a program's reviewer gets access (L25-10, v6.1.16); the screen tool's non-reviewer replies say it too. */
-export const REVIEWER_ACCESS = 'Sign in once with GitHub and ask for reviewer access through the X link below.';
+// L38-23 (v6.1.18): who to message and where, never "the X link".
+export const REVIEWER_ACCESS = 'Sign in once with GitHub and message EarnKit on X (link below) for reviewer access.';
 export const DOCS_RECORD = {
   title: 'Your record',
   // L25-8 (v6.1.16): the approval sentence; the rest shortened so the docs stay under their word cap.
@@ -107,7 +108,7 @@ export const DOCS_RECORD = {
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
   // #15 (v6.1.15): each tier glossed in plain words.
-  text: "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
+  text: "Hand your applicant list to your agent and EarnKit sorts it by public evidence into five groups: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
 /** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each; v6.1.16: the second and third
  *  shortened, so /docs stays under its word cap with the other-agent line and the VS Code tab (L25-4). */
@@ -253,7 +254,7 @@ export const UNKNOWN_CODE = 'This link is not one of ours.';
 export const ME_LINK_YES = 'Link this agent';
 export const ME_LINK_NO = 'This is not me.';
 export const ME_DELETE_TITLE = 'Delete your record';
-export const ME_DELETE_LINE = 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.';
+export const ME_DELETE_LINE = 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep what they already screened.';
 /** On the home page after a delete (L21-9; L27-11, v6.1.16: "record", the page's own word). */
 export const ME_DELETED_LINE = 'Your record is deleted.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';

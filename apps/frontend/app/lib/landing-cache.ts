@@ -1,6 +1,5 @@
-import { connection } from 'next/server';
 import { cache } from 'react';
-import { landingAt, readLanding, type Landing } from '../../lib/v5/landing';
+import { landingAt, readLanding, readLandingFromFiles, type Landing } from '../../lib/v5/landing';
 import { definiteGuideIds, gatedGuidePage, guidePageOf, guideRowById, type GuidePage } from '../../lib/v5/guide-page';
 import { cachedRead } from './cached';
 
@@ -11,15 +10,24 @@ const landing = cachedRead(() => readLanding(), ['landing-v6.4']);
 const guideIds = cachedRead(() => definiteGuideIds(), ['guide-ids-v6']);
 const guideRow = cachedRead((id: string) => guideRowById(id), ['guide-row-v6.1.16']);
 
-/** The landing and /programs data, or null when the read failed (the page then shows no live parts). */
-export async function getLanding(): Promise<Landing | null> {
+/**
+ * The landing and /programs data, or null when the read failed and the catalog files did not read either (the page then
+ * shows no live parts). L1k-1 (v6.1.18): a failed read falls back to the catalog files (`readLandingFromFiles`), never
+ * to `connection()`: at build there is no database, and a dynamic bailout there made both routes dynamic for the whole
+ * deploy. The page stays prerendered, and ISR (revalidate 600) reads the database again on its next render.
+ */
+export async function getLanding(read: () => Promise<Landing> = landing, files: () => Landing | null = () => readLandingFromFiles()): Promise<Landing | null> {
   try {
-    return landingAt(await landing(), new Date());
+    return landingAt(await read(), new Date());
   } catch (err) {
     console.error('[landing] read failed', (err as { name?: string } | null)?.name ?? 'unknown');
-    // Makes this render dynamic, so the fallback is never prerendered as the static page.
-    await connection();
-    return null;
+    try {
+      const l = files();
+      return l ? landingAt(l, new Date()) : null;
+    } catch (e) {
+      console.error('[landing] file read failed', (e as { name?: string } | null)?.name ?? 'unknown');
+      return null;
+    }
   }
 }
 

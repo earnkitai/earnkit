@@ -365,3 +365,24 @@ test('L35-5 controller ruling (v6.1.16.1 Task 2): a total of 300 uncached fetche
   // A document already good still serves.
   assert.deepEqual((await cimdClient(`${URL0}?b=0&n=0`, { ...f, block: '10.120.0.0/16' })).r, [CALLBACK]);
 });
+
+test('L40-C1 (v6.1.18): the document fetch caps key by the host with trailing dots removed and lower-cased, so `host.` never gets a second cap', async () => {
+  assert.equal(CIMD_FETCH_KEY('L40-Dot.TEST.', '10.40.0.0/16'), CIMD_FETCH_KEY('l40-dot.test', '10.40.0.0/16'));
+  assert.equal(CIMD_HOST_KEY('L40-Dot.TEST..'), CIMD_HOST_KEY('l40-dot.test'));
+  assert.equal(CIMD_FETCH_KEY('l40-dot.test.:8443', 'b'), CIMD_FETCH_KEY('l40-dot.test:8443', 'b'));
+  const f = cimdFixture((u) => ({ body: doc({}, u.href) }));
+  const block = '10.40.0.0/16';
+  for (let n = 0; n < 30; n++) {
+    const url = n % 2 ? `https://l40-dot.test./client.json?n=${n}` : `https://l40-dot.test/client.json?n=${n}`;
+    await cimdClient(url, { ...f, block });
+  }
+  assert.equal(f.requests.length, 30);
+  // The 31st, through either spelling, is over the one cap.
+  await assert.rejects(cimdClient('https://l40-dot.test./client.json?n=30', { ...f, block }));
+  await assert.rejects(cimdClient('https://l40-dot.test/client.json?n=31', { ...f, block }));
+  assert.equal(f.requests.length, 30);
+  assert.equal((await sql()`SELECT count FROM rate_windows WHERE key = ${CIMD_FETCH_KEY('l40-dot.test', block)}`)[0].count, 32);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM rate_windows WHERE key LIKE 'cimdFetch%l40-dot.test.%'`)[0].n, 0);
+  // The install ceiling per document host reads the host the same way.
+  assert.equal(registrationLimitKey('https://l40-dot.test./client.json'), registrationLimitKey('https://l40-dot.test/client.json'));
+});

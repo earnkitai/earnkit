@@ -4,7 +4,7 @@
  * and what the record still lacks for the ready programs. Only find calls this. Unlinked (v6.1.3), find uses
  * only `provisionalTier`, `tierGate` and `blockersOf` against the empty record; nothing here is stored.
  */
-import { NEEDS_CODE, evaluate, keywordHit, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
+import { NEEDS_CODE, NEEDS_PUBLIC_CODE, evaluate, keywordHit, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
 import { dayWords } from '../v5/deadline';
 import type { RecordContext } from '../v5/prefill';
@@ -14,9 +14,9 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { PROJECT_ITEM, hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { ADD_PROJECT, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
-import { currentBuilderLine } from './tier-words';
-import { TIERS, place, type Tier } from './tiers';
+import { ADD_PROJECT, ADD_PROJECT_USED, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
+import { currentBuilderLine, UNVERIFIED_READ } from './tier-words';
+import { DEFAULT_THRESHOLDS, TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
 
@@ -83,7 +83,8 @@ const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]
 /** v6.1.16 Task 9 (controller ruling): days a stored tier stands after a failed re-read of the same repo. */
 export const READ_GRACE_DAYS = 14;
 /** The unverified tier's line a bar gap reads its step from after a failed read past the grace (fix round 1). */
-const UNREAD_TIER_LINE = 'Your project is unverified, with nothing recent EarnKit could check. Next: a public repo EarnKit can read.';
+// L38-21 (v6.1.18): the unverified read in its first-person words.
+const UNREAD_TIER_LINE = `${UNVERIFIED_READ} Next: a public repo EarnKit can read.`;
 
 export async function recordSide(
   o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },
@@ -200,10 +201,14 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
  *  the sign-in once (v6.1.14); linked (no own
  *  tier read yet), that the proof is still being read (I2), or, when no project in the record matches the find
  *  (`noProject`), to add it so its proof can be read (I2 nuance, v6.1.9). Pure. */
-export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict =>
-  row.file.min_tier
-    ? tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? ADD_PROJECT : PROOF_READING) : confirmLine(row.file.min_tier)}`, o.onchain)
-    : v;
+export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict => {
+  const min = row.file.min_tier;
+  if (!min) return v;
+  // L36-7 (v6.1.18): with no record project, a usage bar says the bar first; adding the project takes minutes.
+  const add = min === 'used' ? ADD_PROJECT_USED(DEFAULT_THRESHOLDS.used_funded_senders) : ADD_PROJECT;
+  const out = tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? add : PROOF_READING) : confirmLine(min)}`, o.onchain);
+  return o.linked && o.noProject && out !== v ? { ...out, gaps: out.gaps.map((g) => (g.kind === 'tier' ? { ...g, effort: 'minutes' as const } : g)) } : out;
+};
 
 /**
  * L12-7 (v6.1.14): with no tier at all (nothing read, no repo or live link) a `building` bar asks for code, so a program
@@ -216,7 +221,9 @@ function codeStep(v: Verdict, row: ProgramRow, facts: RepoFacts, tier: Tier | nu
   if (!v.gaps.every((g) => g.kind === 'rule' || g.item === NEEDS_CODE.item)) return null;
   const own = row.file.chains.some((c) => facts.chains.some((f) => f.chain === c));
   if (!own && !keywordHit(row, facts, v.gaps)) return null;
-  return { ...v, status: 'gap', gaps: [NEEDS_CODE, ...v.gaps.filter((g) => g.item !== NEEDS_CODE.item)], reason: null };
+  // Task 2 review minor (v6.1.18): the verdict's own repo gap stands, so an open source program reads "code in a public repo".
+  const code = v.gaps.find((g) => g.item === NEEDS_CODE.item) ?? (row.file.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
+  return { ...v, status: 'gap', gaps: [code, ...v.gaps.filter((g) => g.item !== NEEDS_CODE.item)], reason: null };
 }
 
 /** The one gate the list and the one-program reply share (I3): the builder's own tier when read, else the provisional

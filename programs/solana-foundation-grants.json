@@ -5,8 +5,8 @@
   "description": "Milestone-based grants for public goods on Solana, plus milestone-based convertible grants for public goods with a commercial component. Applications are reviewed on a rolling basis. Categories on the form: AI, Consumer, DeFi, Developer Education and Ecosystem, Developer Tooling.",
   "source_url": "https://solana.org/grants-funding",
   "submission_url": "https://share.hsforms.com/1GE1hYdApQGaDiCgaiWMXHA5lohw",
-  "reward": "Milestone-based grants; the amount is requested by the applicant and not capped on the page",
-  "summary": "Milestone grants, amount not stated · rolling",
+  "reward": "Milestone-based grants; the amount is requested by the applicant and not capped on the page (amount not stated)",
+  "summary": "Milestone grants · rolling",
   "ideas": [
     "Open-source developer tooling only possible on Solana",
     "A free community offering for Solana builders",

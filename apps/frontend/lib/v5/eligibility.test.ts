@@ -4,13 +4,13 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
+import { NEEDS_CODE, NEEDS_PUBLIC_CODE, PUBLIC_REPO, codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
 import { readmeExcerpt, repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile, eligibilityOf } from './program-file';
 import type { ProgramRow } from './programs';
 import { replayFetch } from './fixtures/github';
-import { programFixture } from './fixtures/program';
+import { openCatalogProgram, programFixture } from './fixtures/program';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -32,7 +32,8 @@ async function factsOf(slug: string, over: Record<string, unknown> = {}): Promis
 }
 
 test('EarnKit vs Base: ready with builder codes and users, else the builder codes gap', async () => {
-  const base = fromFile('base-builder-grants');
+  // L39-1 (v6.1.18): Base Builder Grants is upcoming; its Builder Codes rule is tested as it read while open.
+  const base = toRow(openCatalogProgram('base-builder-grants'));
   // The report stands where no repo was read (private); a public read that finds none beats it (v6.1.9).
   const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true, private: true, chains: [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] }), new Set(), NOW);
   assert.equal(ready.status, 'ready', JSON.stringify(ready));
@@ -152,7 +153,7 @@ test('users: not reported is a gap only the builder can answer; false is no; tru
   assert.equal(unknown.users, null);
   const u = evaluate(q, unknown, new Set(), NOW);
   assert.equal(u.status, 'gap');
-  assert.deepEqual(u.gaps, [{ kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false }]);
+  assert.deepEqual(u.gaps, [{ kind: 'users', item: 'users', what: 'real users', effort: 'hours', agent_can: false }]);
   assert.equal(evaluate(q, unknown, new Set(['users']), NOW).status, 'ready');
   assert.equal(evaluate(q, await factsOf('earnkit', { users: true }), new Set(), NOW).status, 'ready');
   const no = evaluate(q, await factsOf('earnkit', { users: false }), new Set(), NOW);
@@ -162,7 +163,7 @@ test('users: not reported is a gap only the builder can answer; false is no; tru
 });
 
 test('EarnKit vs Base with users not reported: one change away, the builder codes and the users question', async () => {
-  const v = evaluate(fromFile('base-builder-grants'), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
+  const v = evaluate(toRow(openCatalogProgram('base-builder-grants')), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.deepEqual(v.gaps.map((g) => g.kind).sort(), ['builder_codes', 'users']);
 });
@@ -252,7 +253,7 @@ test('a rule beside a real gap: the real gap first, then the rule, in one gap ve
   const p = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'y' }, { kind: 'demo_video' }, { kind: 'rule', note: 'x' }] }));
   const v = evaluate(p, f, new Set(), NOW);
   assert.equal(v.status, 'gap');
-  assert.deepEqual(v.gaps.map((g) => [g.kind, g.what]), [['demo_video', 'a demo video'], ['rule', 'y'], ['rule', 'x']]);
+  assert.deepEqual(v.gaps.map((g) => [g.kind, g.what]), [['demo_video', 'a demo video link (a short screen recording of it working)'], ['rule', 'y'], ['rule', 'x']]);
   assert.deepEqual(v.rules, ['y', 'x']);
 });
 
@@ -279,7 +280,7 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   const chainless = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   const ask = evaluate(p, chainless, new Set(), NOW);
   assert.equal(ask.status, 'gap');
-  assert.deepEqual(ask.gaps.map((g) => [g.item, g.what]), [['users', 'tell me if real people use it']]);
+  assert.deepEqual(ask.gaps.map((g) => [g.item, g.what]), [['users', 'real users']]);
   // Confirmed through track gap_done with item 'users', or users: true on the project.
   assert.equal(evaluate(p, chainless, new Set(['users']), NOW).status, 'ready');
   assert.equal(evaluate(p, { ...chainless, users: true }, new Set(), NOW).status, 'ready');
@@ -296,9 +297,11 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   assert.ok(parsed.ok);
   const idea = await repoFacts(parsed.project, { now: NOW });
   const empty = await factsOf('empty-repo');
-  for (const facts of [idea, empty]) {
+  // L18-2 (v6.1.18): FUTO is open source, so with no repo link the code goes in a public repo; an empty repo read is
+  // already public, so its step stays code in a repo.
+  for (const [facts, what] of [[idea, 'code in a public repo'], [empty, 'code in a repo']] as const) {
     const v = evaluate(futo, facts, new Set(), NOW);
-    assert.deepEqual([v.status, v.reason, v.gaps.map((g) => [g.kind, g.item, g.what])], ['gap', null, [['repo', 'repo', 'code in a repo'], ['rule', ruleItem('open source software from a small or early-stage project'), 'open source software from a small or early-stage project']]]);
+    assert.deepEqual([v.status, v.reason, v.gaps.map((g) => [g.kind, g.item, g.what])], ['gap', null, [['repo', 'repo', what], ['rule', ruleItem('open source software from a small or early-stage project'), 'open source software from a small or early-stage project']]]);
   }
   // The builder's word is not the read: "repo" marked done is re-checked, and the step stays.
   assert.equal(codeChecked('repo'), true);
@@ -306,10 +309,12 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does.
-  assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a repo');
-  // Hackathons are exempt.
+  assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a public repo');
+  // L18-2 (v6.1.18): hackathons no longer exempt: with no repo link the code is the step there too; an empty repo
+  // (the entry itself is the code) stays a step only for a grant for existing code.
   const qnx = fromFile('qnx-global-hackathon-2026');
-  assert.ok(!evaluate(qnx, idea, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  assert.equal(evaluate(qnx, idea, new Set(), NOW).gaps[0].what, 'code in a public repo');
+  assert.ok(!evaluate(qnx, empty, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
 });
 
 test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {
@@ -329,17 +334,17 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   }
   // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
-  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   // L16-8 (v6.1.16): a live link alone keeps the question, and the grant for existing code asks for the code too.
   const live = { ...idea, live_url: 'https://rentsplit.app' };
-  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a repo', 'tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a public repo', 'real users']);
   const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
   assert.ok(pp.ok);
   const priv = await repoFacts(pp.project, { now: NOW });
   assert.deepEqual([priv.as_reported, priv.notes], [true, ['private']]);
   // L1f-1 (v6.1.14): FLOSS/fund is open source, so the private repo is a step from it too, never ready.
-  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['a public repo', 'tell me if real people use it']);
-  assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['a public repo', 'real users']);
+  assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   assert.equal(evaluate(usersOnly, { ...priv, users: true }, new Set(), NOW).status, 'ready');
   assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'gap');
   // L16-8 (v6.1.16): an empty repo with a live site still has no code in a repo.
@@ -347,7 +352,7 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
   // failed read) does not exist for the question.
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
-  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   // L1g-6 (v6.1.15): the builder said it has users, so what is missing is something to read.
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs code in a repo or a live link');
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'] }, new Set(), NOW).reason, 'needs a product people use');
@@ -358,7 +363,7 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   assert.equal(contracted.repo_url, null);
   assert.equal(contracted.contracts.length, 1);
   assert.equal(exists(contracted), true);
-  assert.deepEqual(evaluate(usersOnly, contracted, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(usersOnly, contracted, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
   assert.equal(exists({ ...contracted, chains: contracted.chains.map((c) => ({ ...c, mainnet: false })) }), false);
   // A program that asks for no users is unchanged.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');
@@ -372,6 +377,8 @@ test('N-5 (v6.1.9): code-checked items are re-read, each said as the thing the r
   assert.deepEqual(lookedAgain(gaps, new Set(['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'demo_video'])),
     ['the contract on Base', 'a contract on Base', 'Base Builder Codes in the app', 'a live link']);
   assert.deepEqual(lookedAgain(gaps, new Set()), []);
+  // Task 9 (v6.1.18, Task 2 review minor): the repo gap reads its own words.
+  assert.deepEqual(lookedAgain([NEEDS_PUBLIC_CODE, NEEDS_CODE], new Set(['repo'])), ['code in a public repo', 'code in a repo']);
 });
 
 test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names one, as a whole word or phrase, in its name, description, README or topics', async () => {
@@ -543,7 +550,7 @@ test('L1f-3 (v6.1.14): an archived repo is never asked the users question: its o
   const facts = await factsOf('archived-dashboard');
   assert.ok(facts.notes?.includes('archived'));
   const v = evaluate(fromFile('floss-fund-zerodha'), facts, new Set(), NOW);
-  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'the repo is archived', 'tell me the live repo']]]);
+  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'a live repo', 'tell me the live repo']]]);
   assert.ok(!v.gaps.some((g) => g.kind === 'users'));
   // A live repo gets the users question as before.
   const live = evaluate(fromFile('floss-fund-zerodha'), { ...facts, notes: [] }, new Set(), NOW);
@@ -604,4 +611,112 @@ test('lane 20 audit (v6.1.16): narrowed keywords miss look-alike projects and st
   for (const t of ['a crypto app that splits rent', 'a DeFi lending pool', 'an NFT marketplace']) assert.equal(hit('colosseum-eternal', t), true, t);
   // OTF keeps "privacy": it is the program's target.
   assert.ok(eligibilityKeywords('otf-internet-freedom-fund').includes('privacy'));
+});
+
+/** L18-2 (v6.1.18): a project with no repo link, as the agent reports it. */
+async function noRepo(over: Record<string, unknown> = {}): Promise<RepoFacts> {
+  const r = parseProject({ name: 'Ledgerly', description: 'Invoices that chase themselves.', ...over });
+  assert.ok(r.ok);
+  return repoFacts(r.project, { now: NOW });
+}
+
+test('L18-2: a hackathon that needs a public repo and a project with no repo: the step is code in a public repo', async () => {
+  assert.deepEqual(NEEDS_PUBLIC_CODE, { kind: 'repo', item: 'repo', what: 'code in a public repo', effort: 'days', agent_can: false });
+  const v = evaluate(fromFile('paypal-ai-hackathon'), await noRepo({ live_url: 'https://ledgerly-demo.vercel.app/', users: true }), new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps[0], NEEDS_PUBLIC_CODE);
+  assert.ok(!v.gaps.some((g) => g.kind === 'rule' && /public/.test(g.what)), JSON.stringify(v.gaps));
+  // QNX the same; the rule the flag covers is gone from the rules too.
+  const qnx = evaluate(fromFile('qnx-global-hackathon-2026'), await noRepo(), new Set(), NOW);
+  assert.deepEqual(qnx.gaps[0], NEEDS_PUBLIC_CODE);
+  assert.ok(!qnx.gaps.some((g) => g.kind === 'rule' && /public/.test(g.what)), JSON.stringify(qnx.gaps));
+  // A grant for existing code with an open source rule: the public one too (FUTO), never two repo steps.
+  const futo = evaluate(fromFile('futo-microgrants'), await noRepo(), new Set(), NOW);
+  assert.deepEqual(futo.gaps.filter((g) => g.kind === 'repo'), [NEEDS_PUBLIC_CODE]);
+});
+
+test('L18-2b: a private repo stays one step from public (PUBLIC_REPO), not two', async () => {
+  for (const slug of ['paypal-ai-hackathon', 'kiroween-2026', 'floss-fund-zerodha']) {
+    const v = evaluate(fromFile(slug), await noRepo({ private: true, users: true, live_url: 'https://ledgerly-demo.vercel.app/' }), new Set(), NOW);
+    assert.deepEqual(v.gaps.filter((g) => g.kind === 'repo'), [PUBLIC_REPO], slug);
+  }
+});
+
+test('L18-2c: a new-work-only hackathon with no repo gets the same step', async () => {
+  const k = fromFile('kiroween-2026');
+  assert.equal(k.file.existing_work, 'new_work_only');
+  const v = evaluate(k, await noRepo(), new Set(), NOW);
+  // The code is the entry itself: it counts toward no limit, so the demo video and the Kiro folder keep it a gap (O3).
+  assert.equal(v.status, 'gap', JSON.stringify(v));
+  assert.deepEqual(v.gaps.map((g) => g.what), ['code in a public repo', 'tell me when you started this', 'a demo video link (a short screen recording of it working)', 'a Kiro folder in the repo, not ignored by git', 'built with Kiro']);
+  // A needs_repo hackathon with no open source rule: code in a repo.
+  const plain = toRow(programFixture({ id: 'p-hack', tag: undefined, category: 'hackathon', needs_repo: true, existing_work: 'new_work_only', reward: '$5,000 in prizes', pool_usd: 5000 }));
+  assert.deepEqual(evaluate(plain, await noRepo(), new Set(), NOW).gaps[0], NEEDS_CODE);
+});
+
+test('L18-2d: a program with needs_repo false and no repo gets no repo step', async () => {
+  const p = toRow(programFixture({ id: 'p-norepo', tag: undefined }));
+  assert.equal(p.file.needs_repo, false);
+  const v = evaluate(p, await noRepo(), new Set(), NOW);
+  assert.ok(!v.gaps.some((g) => g.kind === 'repo'), JSON.stringify(v.gaps));
+});
+
+test('L36-13 (v6.1.18): the demo video gap asks for a link, and a demo link passed with the project settles it', async () => {
+  const p = toRow(programFixture({ id: 'p-demo', eligibility: [{ kind: 'demo_video' }] }));
+  const v = evaluate(p, await factsOf('earnkit'), new Set(), NOW);
+  assert.deepEqual(v.gaps.map((g) => g.what), ['a demo video link (a short screen recording of it working)']);
+  assert.equal(evaluate(p, await factsOf('earnkit', { demo_url: 'https://www.youtube.com/watch?v=abc' }), new Set(), NOW).status, 'ready');
+});
+
+test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rule; none is the license file gap; unknown keeps the rule', async () => {
+  // The recorded fixtures carry GitHub's license: GPL-3.0 on saber, none on nextjs-dashboard.
+  assert.equal((await factsOf('saber-distributor')).license, 'GPL-3.0');
+  const bare = await factsOf('nextjs-dashboard', { users: true });
+  assert.equal(bare.license, null);
+  // Not read: no license field, so the rule stays a question.
+  const unread = parseProject({ name: 'App', description: 'An app.', users: true, live_url: 'https://app.example' });
+  assert.ok(unread.ok);
+  assert.equal('license' in (await repoFacts(unread.project, { now: NOW })), false);
+  const hero = fromFile('herodevs-sustainability-fund');
+  const RULE = 'an OSI-approved open source license';
+  // v6.1.18 merge with L18-2 (Task 2): HeroDevs also carries its own end-of-life rule; confirmed here so only the license shows.
+  const EOL = ruleItem('a developer tool whose versions are near or past official end of life');
+  const items = (license: string | null | undefined, done: string[] = []) => evaluate(hero, { ...bare, license }, new Set([EOL, ...done]), NOW).gaps.map((g) => g.what);
+  for (const id of ['MIT', 'Apache-2.0', 'GPL-3.0', 'GPL-3.0-only', 'BSD-3-Clause', '0BSD']) assert.deepEqual(items(id), [], id);
+  assert.equal(evaluate(hero, { ...bare, license: 'MIT' }, new Set([EOL]), NOW).status, 'ready');
+  // No license file: the license file gap, minutes, EarnKit's to add; closed by its own item.
+  const none = evaluate(hero, bare, new Set([EOL]), NOW);
+  assert.deepEqual(none.gaps.map((g) => [g.kind, g.item, g.what, g.effort, g.agent_can, g.do]), [['feature', 'feature:license', 'a license file', 'minutes', true, 'add an MIT license file']]);
+  assert.deepEqual(items(null, ['feature:license']), []);
+  // A license GitHub does not recognize, one not on the list, or no read: the rule question, as before.
+  // Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it keeps the question too.
+  for (const id of ['NOASSERTION', 'BUSL-1.1', 'CC0-1.0', undefined]) assert.deepEqual(items(id), [RULE], String(id));
+  assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
+  // An archived repo: its license is not the live repo's, so the rule stays a question beside the live repo step.
+  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo', RULE]);
+  // The rules marked as license checks; the ones that ask more than a license are not.
+  const checked = (slug: string) => eligibilityOf(fromFile(slug).file).filter((i) => i.check === 'license').map((i) => i.note);
+  for (const slug of ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund'])
+    assert.equal(checked(slug).length, 1, slug);
+  for (const slug of ['neon-open-source-program', 'nlnet-open-call', 'floss-fund-zerodha']) assert.deepEqual(checked(slug), [], slug);
+  // Only a rule takes check.
+  assert.throws(() => ProgramFile.parse({ ...hero.file, eligibility: [{ kind: 'feature', value: 'x', check: 'license' }] }));
+});
+
+test('Task 11 fix round 1 (I4, M7): a repo body with no license key is unknown; a truncated tree without funding.json claims nothing', async () => {
+  const REPO = /api\.github\.com\/repos\/[^/]+\/[^/]+$/;
+  const noKey = replayFetch('nextjs-dashboard', (u, b) => (REPO.test(u) ? b.replace('"license":null,', '') : b));
+  const r = parseProject({ name: 'App', description: 'An app.', repo_url: `https://github.com/${noKey.repo}`, users: true });
+  assert.ok(r.ok);
+  const facts = await repoFacts(r.project, { gh: noKey.fetch, now: NOW });
+  assert.equal(facts.public, true);
+  assert.equal('license' in facts, false);
+  assert.deepEqual(evaluate(fromFile('herodevs-sustainability-fund'), facts, new Set(), NOW).gaps.map((g) => g.what), ['a developer tool whose versions are near or past official end of life', 'an OSI-approved open source license']);
+  // A truncated tree that does not list funding.json: unknown, so no URL is claimed; one that lists it: the URL.
+  await sql()`DELETE FROM repo_cache`;
+  const cut = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,') : b));
+  assert.equal((await repoFacts(r.project, { gh: cut.fetch, now: NOW })).funding_json_url, undefined);
+  await sql()`DELETE FROM repo_cache`;
+  const listed = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,').replace('"tree":[', '"tree":[{"path":"funding.json","mode":"100644","type":"blob","sha":"f","size":900},') : b));
+  assert.equal((await repoFacts(r.project, { gh: listed.fetch, now: NOW })).funding_json_url, `https://raw.githubusercontent.com/${noKey.repo}/HEAD/funding.json`);
 });

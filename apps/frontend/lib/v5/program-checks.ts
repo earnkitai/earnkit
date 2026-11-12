@@ -93,10 +93,18 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   const OPEN = /open[ -]source|\bOSI\b|free\/libre|\bopen licen[cs]e/i;
   if (q.open_source && ![...q.rules, ...(q.eligibility ?? []).map((i) => i.note ?? '')].some((t) => OPEN.test(t)))
     problems.push('open_source: true needs a rule naming open source code or its license');
-  // #12 (v6.1.15): the summary's money is a number or says "Amount not stated", never bare words.
+  // L18-2 (v6.1.18): the public repo (or its license) is the flag's step, never also a rule item to confirm.
+  const PUBLIC_RULE = /\b(public|open[- ]source)\b.*\b(repo|repository|github|license)\b/i;
+  // Task 2 review minor (v6.1.18): a keyworded rule item too; its keywords never make the public repo a rule.
+  // v6.1.18 merge with L38-27 (Task 11): a license rule the repo read settles (`check: license`) is not the flag's step.
+  if (q.open_source && (q.eligibility ?? []).some((i) => i.kind === 'rule' && i.check !== 'license' && PUBLIC_RULE.test(i.note ?? '')))
+    problems.push("eligibility: the public repo is the open_source flag's step; drop the rule item");
+  // #12 (v6.1.15): the summary's money is a number, never bare words unless the file says the amount is not stated.
+  // L38-5 (v6.1.18): the list rows never show "amount not stated", so the summary leaves it out and the reward says it.
   const piece = q.summary.split(' · ')[0];
-  if (!/\d/.test(piece) && !/amount not stated/i.test(piece))
-    problems.push(`summary: the money "${piece}" needs a number or "Amount not stated"`);
+  if (!/\d/.test(piece) && !/amount not stated/i.test(q.reward))
+    problems.push(`summary: the money "${piece}" needs a number, or the reward must say "amount not stated"`);
+  if (/amount not stated/i.test(piece)) problems.push(`summary: the money "${piece}" never says "amount not stated"; the reward says it`);
   // Lane 22 (v6.1.15): full figures on every surface, never K or M.
   if (KM.test(piece)) problems.push(`summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`);
   else if (MONEY_WORDS.test(piece)) problems.push(`summary: money must be in full figures ("$1,000,000", never "$1 million")`);

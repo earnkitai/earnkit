@@ -943,7 +943,7 @@ test('Review Focus 20, L28-11 (v6.1.16 Task 14): one repo, one application: the 
   const repo = 'https://github.com/org/scr';
   assert.deepEqual(await record(`b:${a.id}`, 'jobs-l28', 'applied', { installationId: await instOf(a.id), now: NOW, project_id: repo }), { ok: true });
   assert.deepEqual(await record(`b:${b.id}`, 'jobs-l28', 'applied', { installationId: await instOf(b.id), now: NOW, project_id: repo }),
-    { ok: false, note: 'Already sent for this repo by another builder on Nov 6.', repo_taken: true });
+    { ok: false, note: 'Already sent for this repo by another builder on Nov 6.', repo_taken: true, taken: { day: 'Nov 6', login: null } });
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'jobs-l28'`)[0].n, 1);
   // A co-founder's row from before one application per repo (sent later), as lane 28 found them.
   await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, project_id, repo_key, application_id, title)

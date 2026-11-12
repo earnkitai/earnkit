@@ -13,9 +13,9 @@ import { answerBrief } from './answer-brief';
 import { LinkRefused, readStoredRecord, takeUnlinkedNotice, unlinkedReason, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
-import { DELETED_NOTICE, listWords, signInLine, signInSentence } from './reply-words';
+import { DELETED_NOTICE, listWords } from './reply-words';
 
-export { listWords, signInLine };
+export { listWords };
 import { APPROVABLE, type Answer, type BuilderRecord, KIND_WORDS, allowedKey, isApproved, mergeRecord, recordItems } from './record';
 import { cleanText, quoteName } from '../v5/controls';
 import { ME_VALUE_WORDS } from '../v5/site-copy';
@@ -135,6 +135,9 @@ export const waitingAnswers = (record: BuilderRecord): number => answersOf(recor
 
 /** L26-7: `{n} answers wait for your approval.`; null at none. Pure. */
 export const waitingLine = (n: number): string | null => (n === 0 ? null : n === 1 ? '1 answer waits for your approval.' : `${n} answers wait for your approval.`);
+/** L38-15 (v6.1.18): what the next application needs (at most two named) and the one action. Pure. */
+export const nextNeedsLine = (missing: string[]): string =>
+  `The next application needs ${listWords(missing, 2)}. Tell me ${missing.length === 1 ? 'it and I save it' : 'them and I save them'}.`;
 
 const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
 
@@ -173,6 +176,8 @@ export function recordReplyCap<T extends { agent_note: string }>(reply: T, cap =
 const SIGN_IN_NOTE = 'Show the link once. Ask for a personal fact only when the next form needs it; nothing is saved until the builder has signed in. Call record with get afterwards.';
 /** L29-20 (v6.1.16 Task 15): an unlinked record get. */
 export const REMEMBER_YOU = 'Sign in once and I remember you.';
+/** L29-20: an unlinked record get with its link (the record is what signing in keeps). Pure. */
+const rememberYouAt = (link: string): string => `Sign in once at ${link} and I remember you.`;
 /** L29-20: an unlinked policy set. */
 export const NO_STANDING_HERE = 'There is no standing approval on this agent.';
 /** L29-4 (v6.1.16 Task 15): a linked policy set, with no missing list. L35-14 (v6.1.17): by the approval's state: on, how
@@ -222,7 +227,7 @@ async function unlinked(installationId: number, now: Date, setting: boolean, pol
   if (policy) return refuse({ show_to_builder: lead(NO_STANDING_HERE), agent_note: `Nothing was saved. ${STOP_HELD_NOTE}`, linked: false });
   const link = await signInLink(installationId, now);
   // L29-20: a get says what signing in does, with the link when there is one; a set saved nothing (a refusal).
-  if (!setting) return { show_to_builder: lead(link ? signInSentence(link, false, true) : REMEMBER_YOU), agent_note: SIGN_IN_NOTE, linked: false, ...(link ? { sign_in: link } : {}) };
+  if (!setting) return { show_to_builder: lead(link ? rememberYouAt(link) : REMEMBER_YOU), agent_note: SIGN_IN_NOTE, linked: false, ...(link ? { sign_in: link } : {}) };
   if (!link) return refuse({ show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false });
   return refuse({ show_to_builder: lead(`Not saved. Sign in once at ${link}, then tell me again.`), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link });
 }
@@ -285,6 +290,8 @@ export function refusedWords(problem: string): string {
     : known ? `the answer on ${known}`
     // L24-5 (v6.1.16 Task 11): own keys only, so an inherited name never reads as JavaScript.
     : `${project}${allowedKey(LEAF_WORDS, leaf) ? LEAF_WORDS[leaf] : leaf.replace(/_/g, ' ')}`;
+  // L36-14 (v6.1.18): a projects entry whose id is missing or not valid says what each project needs.
+  if (path === 'projects.id') return 'each project needs an id (a short lowercase name)';
   // L24-5: a key EarnKit does not keep is named as sent, quoted and cleaned.
   if (why === 'not a field') return `${project}${quoteName(leaf)} is not something I keep`;
   // L24-21 (v6.1.16 Task 11): a refusal for length names the limit, in /me's words.
@@ -478,10 +485,11 @@ async function recordReply(ctx: { installationId: number; builderId: number | nu
   }
 
   // One sentence (v6.1.8): how much the record holds (C50), then (L29-11) what the next application needs, at most two.
+  // L38-15 (v6.1.18): with something missing, no count: what the next application needs and the one action.
   const have = items.total - items.missing.length;
   const holds = [`Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`, waitingLine(waiting)].filter(Boolean).join(' ');
   return {
-    show_to_builder: !brief && missing.length > 0 ? `${holds} The next application needs ${listWords(missing, 2)}.` : holds,
+    show_to_builder: !brief && missing.length > 0 ? [waitingLine(waiting), nextNeedsLine(missing)].filter(Boolean).join(' ') : holds,
     agent_note: briefNote || next,
     linked: true,
     ...(brief ? {} : i.get === undefined || i.get === false ? { summary: recordSummary(record) } : read),

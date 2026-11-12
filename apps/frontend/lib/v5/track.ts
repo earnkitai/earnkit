@@ -6,21 +6,22 @@ import { z } from 'zod';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
-import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
+import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
+import { wantsManifest } from './funding-manifest';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
-import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNightFind } from './installations';
+import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
-import { closedAt, statusAt, getProgram, listOpenPrograms, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
+import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listHole, listRef, looksLikeListRef, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SIGN_IN_FIRST, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
+import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, unreadNote } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
 import { AMOUNT_DOT, AMOUNT_UNREAD, readAmount } from './amount';
-import { amountsText, moneyText } from './programs-read';
+import { amountsText, moneyAt, moneyOf as tileMoney, moneyText } from './programs-read';
 import { cleanText, quoteName } from './controls';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
@@ -59,7 +60,9 @@ export const TrackInput = z
   .strict();
 
 /** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
-type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true };
+type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true; next?: NextReady };
+/** L36-12 (v6.1.18): the next ready program after a send, so the next started needs no find. */
+type NextReady = { program_id: string; title: string; money: string; draft: boolean; fields: { key: string; from: string; value: string | null; required: boolean }[] };
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
 
@@ -229,6 +232,11 @@ export const NO_FIELDS_NOTE = 'Pass fields_used next time; nothing was checked a
 export const IN_PERSON_SEND = (title: string) => `${title} is applied for in person; nothing to send.`;
 /** L29-8 (v6.1.16 Task 15): a started or an agent's applied on a program whose rule is not confirmed for this project. */
 export const CONFIRM_RULE = (rule: string) => `Confirm the rule first: ${rule}. Say yes if that is you.`;
+/** L36-5 (v6.1.18): several rules still to confirm are one ask. */
+export const CONFIRM_RULES = (rules: string[]) =>
+  rules.length === 1 ? CONFIRM_RULE(rules[0]) : `Confirm the rules first: ${rules.join('; ')}. Say yes if all of that is you.`;
+/** L36-5 (v6.1.18): a gap_done on a row's first rule item confirmed every rule that row listed. */
+export const RULES_CONFIRMED = 'Tracked: those rules fit you.';
 /** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. */
 export const OUTSIDE_WIN = (title: string, money: string) => `Recorded: ${title} won, ${money}. Noted as sent by you outside EarnKit.`;
 /** L29-27 (v6.1.16 Task 15): the agent note wherever the builder hears "Say bring it back". */
@@ -381,8 +389,10 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
+  // L36-10 (v6.1.18): a number whose program left the last list says so.
+  const hole = !row && !sentRow && numberish ? listHole(raw, await lastListIds(ctx.installationId)) : null;
   const acted = !row && !sentRow
-    ? await refuse(unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
+    ? await refuse(hole !== null ? LIST_GONE(hole) : unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
@@ -405,6 +415,8 @@ export function namedFirst(show: string, title: string): string {
   // L29-32 (v6.1.16 Task 15): started has no builder text, and stays so.
   if (show === '' || show.includes(title)) return show;
   const named = show
+    // L38-18 (v6.1.18): "Tracked: that rule fits you." names the program before its colon.
+    .replace(/^Tracked: /, `Tracked for ${title}: `)
     .replace(/^(Started|Tracked)\./, `$1: ${title}.`)
     .replace(/^Already (skipped|tracked)\./, `Already $1: ${title}.`)
     .replace(/^You skipped that one\./, `You skipped ${title}.`)
@@ -513,9 +525,9 @@ async function act(
     // FR-1 (fix round 1): signed out, sign-in comes first, never "not yours".
     if (ctx.builderId === null) return refuse(SIGN_IN_FIRST, 'Nothing was recorded. Show the builder the sign-in link from find; once signed in, call find again, then track.');
     const against = (await evidenceOf(ctx, appKey)).against;
-    return refuse(against ? NOT_YOUR_REPO : CANT_CONFIRM_REPO,
+    return refuse(against ? NOT_YOUR_REPO : CANT_CONFIRM_REPO(appKey),
       against ? 'Nothing was recorded. Do not submit this one with this repo: apply only with a repo the builder owns or commits to.'
-        : "Nothing was recorded. EarnKit could not confirm the builder's GitHub login on this repo: ask for it, or let the builder send it and call track applied with submitted_by builder.");
+        : 'Nothing was recorded. EarnKit could not read this repo to check it is the builder\'s: let the builder send it, then call track applied with submitted_by builder.');
   };
   /** L28-1, L28-3: the project's name key, for a builder-submitted send kept under the name only. */
   const nameKey = async (): Promise<string> => {
@@ -552,8 +564,15 @@ async function act(
    *  and an agent's send; nothing is written. */
   const ruleFirst = async (): Promise<Result | null> => {
     const rules = await openRules(owner, i.program_id, project.key);
-    return rules.length === 0 ? null : refuse(CONFIRM_RULE(rules.map((r) => r.note).join('; ')),
-      `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules.map((r) => r.item).join(', ')}, then track ${i.status} again.`);
+    if (rules.length === 0) return null;
+    // L36-5 (v6.1.18): one gap_done with the first item confirms them all; fix round 1 (I1): the ones this ask listed,
+    // remembered for the last find's project (another project's ask names only the item it passes).
+    if (sameAsLast) {
+      const g = (await lastGaps(ctx.installationId))[i.program_id];
+      await rememberGap(ctx.installationId, i.program_id, { what: g?.what ?? rules[0].note, kind: g?.kind ?? 'rule', item: g?.item ?? rules[0].item, rules: rules.map((r) => r.item) });
+    }
+    return refuse(CONFIRM_RULES(rules.map((r) => r.note)),
+      `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules[0].item}${rules.length > 1 && sameAsLast ? ' (it confirms every rule named)' : rules.length > 1 ? ' and each other item' : ''}, then track ${i.status} again.`);
   };
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
@@ -601,7 +620,8 @@ async function act(
           ? sentAlready
           : {
               // L24-1 (v6.1.16 Task 11): another agent's own name through quoteName.
-              show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ? quoteName(c.already.by) : 'another agent'}.`,
+              // L38-19 (v6.1.18): who has it, then when it started.
+              show_to_builder: `${c.already.by ? `Your agent ${quoteName(c.already.by)}` : 'Another of your agents'} started ${program.file.title} ${atClock(c.already.since, ctx.now)} and has it.`,
               agent_note: 'Do not submit this one; call find again later.',
             }),
         ledger: await summary(owner, programs, ctx.now),
@@ -681,8 +701,12 @@ async function act(
     ? (statusAt(row.file, ctx.now) === 'upcoming' ? NOT_OPENED : (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))))
     : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
   // FR-3 (final fix): a send with no project_id keeps the project key, as a claim does, so a screen can match it.
+  // L36-8 (v6.1.18): keys the form does not have are dropped (fields_used is the record of what was sent), and named.
+  const formKeys = row && !row.file.in_person && row.file.submission_requirements.length > 0 ? new Set(row.file.submission_requirements.map((r) => r.key)) : null;
+  const unknownFields = i.status === 'applied' && formKeys && i.fields_used ? [...new Set(i.fields_used.filter((k) => !formKeys.has(k)))] : [];
+  const fieldsKept = unknownFields.length > 0 ? i.fields_used!.filter((k) => formKeys!.has(k)) : i.fields_used;
   const applied = i.status === 'applied'
-    ? { submitted_by: sender, fields_used: i.fields_used, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}), repoId: await repoIdOf(appKey), offRepo }
+    ? { submitted_by: sender, fields_used: fieldsKept, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}), repoId: await repoIdOf(appKey), offRepo }
     : {};
   // L28-1 (controller ruling): a refusal names the other builder only on this builder's strong tie to the repo.
   const showLogin = (i.status === 'applied' || i.status === 'won') && repoKeyOf(appKey) !== null && strong(await tieOf(ctx, appKey));
@@ -703,7 +727,9 @@ async function act(
     ...(i.status === 'won' ? { outsideWin: true as const, offRepo } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // L28-1 (v6.1.16 Task 14): a send the builder made of a repo another account sent is kept under the name only.
+  let sentTwice: { day: string; login: string | null } | null = null;
   if (!res.ok && res.repo_taken && sender === 'builder' && i.status === 'applied' && !nameOnly) {
+    sentTwice = res.taken ?? null;
     const taken = repoKeyOf(appKey);
     appKey = await nameKey();
     nameOnly = NAME_ONLY_SENT_NOTE;
@@ -724,16 +750,28 @@ async function act(
       : res.repo_taken ? refuse(res.note, 'Nothing was recorded. Another EarnKit account already sent this repo to the program; tell the builder.')
       : refuse(res.note);
   if (i.status === 'applied') await rememberName();
+  // Fix round 1 (I1, v6.1.18 Task 8): the rule items the program's row (or rule ask) listed, read before they are forgotten.
+  const shownRules = i.status === 'gap_done' && sameAsLast ? (await lastGaps(ctx.installationId))[i.program_id]?.rules ?? [] : [];
   if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
     // N2 (v6.1.8): the program comes back ready only when no other rule of it is left to confirm.
     // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
+    // L36-5 (v6.1.18): a row's one ask covers every rule it listed, so its first rule item confirms them all.
+    // Fix round 1 (I1): only the rules that row listed (remembered with the last find's gaps); a rule it did not show,
+    // added since, is still asked. With nothing remembered, only the item passed.
+    let also = 0;
+    if (i.item!.startsWith('rule:') && !('repeated' in res) && shownRules.includes(i.item!))
+      for (const r of (await openRules(owner, i.program_id, project.key)).filter((x) => shownRules.includes(x.item))) {
+        const more = await record(owner, i.program_id, 'gap_done', { installationId: ctx.installationId, item: r.item, projectKey: project.key, now: ctx.now });
+        if (more.ok) also++;
+      }
     const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key) : 0;
     const [show, note] = 'repeated' in res
       ? ['Already tracked.', 'Call find again for the updated applications.']
       : i.item!.startsWith('rule:')
-        ? ['Tracked. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
+        // L38-18 (v6.1.18): the builder's words, not EarnKit's bookkeeping.
+        ? [also > 0 ? RULES_CONFIRMED : 'Tracked: that rule fits you.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
         : codeChecked(i.item!) && !repoLess(project.key)
           ? ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']
           : codeChecked(i.item!)
@@ -765,12 +803,14 @@ async function act(
       : 'replaced' in res && res.replaced !== undefined
         ? `Tracked: ${wonText} from ${title}. Replaced the earlier amount.`
         : `Tracked: ${wonText} from ${title}.`,
-    rejected: 'Tracked. On to the next one.',
+    // L38-16 (v6.1.18): the next ready program follows, as after a send (NEXT_LINE); none, the line ends here.
+    rejected: 'Tracked.',
     no_result: 'Tracked.',
     // L24-4 (v6.1.16 Task 11): a skip is for good, and says so.
     // L29-27 (v6.1.16 Task 15): the builder's words, never the status name.
     skipped: `Skipped ${title} for good. Say bring it back and I list it again.`,
-    unskip: `Unskipped ${title}. It can come back in the list.`,
+    // L38-17 (v6.1.18): it is back, said as a fact.
+    unskip: `${title} is back in your list.`,
   };
   // v6.1.9: a send after the program closed is still recorded, and says so. L23-2 (v6.1.16): closed from the clock.
   const closedDay = i.status === 'applied' && row && closedAt(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
@@ -796,13 +836,14 @@ async function act(
       show_to_builder: outside === HAD_CLOSED && closedDay
         ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
         : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: [...(nameOnly ? [nameOnly] : []), ...(cofounder ? [cofounder] : []), ...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.'].join(' '),
+      agent_note: [...(nameOnly ? [nameOnly] : []), ...(cofounder ? [cofounder] : []), ...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.', ...(unknownFields.length > 0 ? [droppedFieldsNote(unknownFields)] : [])].join(' '),
       ledger: await summary(owner, programs, ctx.now),
     });
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
   const done: Result = {
     ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id, rowKey) : {}),
-    show_to_builder: closed ?? lines[i.status],
+    // L36-9 (v6.1.18): a send of a repo another builder sent says the program may see two.
+    show_to_builder: closed ?? (i.status === 'applied' && res.ok && sentTwice ? SENT_TWICE(title, sentTwice.day, sentTwice.login) : lines[i.status]),
     agent_note: cofounder
       ? cofounder
       : otherClaim
@@ -820,6 +861,84 @@ async function act(
         : 'Call find again for the updated applications.',
     ledger: await summary(owner, programs, ctx.now),
   };
+  // L36-8 (v6.1.18): the dropped keys are named last.
+  const base: Result = unknownFields.length > 0 ? { ...done, agent_note: `${done.agent_note} ${droppedFieldsNote(unknownFields)}` } : done;
+  // L36-12 (v6.1.18): a plain send names the next ready program and its one ask; its id and fields go to the agent.
+  // L38-16 (v6.1.18): a rejection names the next ready program the same way.
+  // Final fix (I1): never after a send kept under the project's name only (the repo is not shown to be theirs).
+  const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice && !nameOnly)
+    || (i.status === 'rejected' && res.ok && !('repeated' in res));
+  const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id) : null;
+  // Fix round 1 (M1): the Next line is an apply offer.
+  if (next) await markOffer(ctx.installationId, 'apply', ctx.now);
+  const withNext: Result = next
+    ? {
+      ...base,
+      show_to_builder: `${base.show_to_builder} ${NEXT_LINE(next)}`,
+      agent_note: [NEXT_NOTE(next), base.agent_note.replace(/^Call find again for the updated applications\.\s*/, '')].filter(Boolean).join(' '),
+      next,
+    }
+    : base;
   // L28-1, L28-3 (v6.1.16 Task 14): a send kept under the project's name only says so to the agent first.
-  return nameOnly ? { ...done, agent_note: `${nameOnly} ${done.agent_note}` } : done;
+  return nameOnly ? { ...withNext, agent_note: `${nameOnly} ${withNext.agent_note}` } : withNext;
+}
+
+/** L36-8 (v6.1.18): the agent note naming fields_used keys the form does not have (at most 5 named). Pure. */
+export function droppedFieldsNote(keys: string[]): string {
+  const named = keys.slice(0, 5).map((k) => cleanText(k, 60)).join(', ');
+  const more = keys.length > 5 ? ` and ${keys.length - 5} more` : '';
+  return keys.length === 1 ? `fields_used: ${named} is not this form's field; dropped.` : `fields_used: ${named}${more} are not this form's fields; dropped.`;
+}
+
+/** L38-19 (v6.1.18): "at 09:14 UTC", "at Nov 10, 09:14 UTC", or "earlier today" when the time is unreadable. Pure. */
+const atClock = (iso: string, now: Date): string => {
+  const c = clock(iso, now);
+  return c === 'earlier today' ? c : `at ${c}`;
+};
+
+/** L36-12 (v6.1.18): the builder's line for the next ready program. Pure. */
+export const NEXT_LINE = (n: Pick<NextReady, 'title' | 'money' | 'draft'>): string =>
+  `Next: ${n.title}, ${n.money}. Say yes and I ${n.draft ? 'draft it for you to send' : 'apply'}.`;
+/** L36-12 (v6.1.18): the agent's way to the next send without a find. Pure. */
+export const NEXT_NOTE = (n: NextReady): string =>
+  `Next ready: program_id ${n.program_id}. On the builder's yes, call track started with that program_id and fill the form from next.fields (keys: ${n.fields.map((f) => `${f.key} (${f.from})`).join(', ')}); no find needed.`;
+
+/**
+ * L36-12 (v6.1.18): the first program of this installation's last find list for this project, after the one just sent,
+ * that is open, remote, ready for the project now (find's gate), not sent, skipped or held, not claimed by another
+ * agent, and needs nothing from the builder. Linked only. Null when none.
+ */
+async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKey: string, sentId: string): Promise<NextReady | null> {
+  if (ctx.builderId === null || !projectKey || (await lastProjectKey(ctx.installationId)) !== projectKey) return null;
+  // Final fix (I1): no apply offer on a repo that is not shown to be the builder's (a rejection never checks the tie).
+  if (await repoNotMine(ctx, projectKey)) return null;
+  const ids = [...new Set((await lastListIds(ctx.installationId)).filter((x) => x && x !== sentId))];
+  if (ids.length === 0) return null;
+  const { facts, rec } = await sendFacts(ctx, i, projectKey);
+  const claims = await claimed(owner);
+  const stale = ctx.now.getTime() - CLAIM_HOURS * 3_600_000;
+  for (const id of ids) {
+    const row = await getProgram(id);
+    if (!row || row.file.in_person || !isOpenAt(row.file, ctx.now)) continue;
+    // Final fix (M2): a program that takes a funding file only once the file is in the repo; before that its step
+    // comes from find (the Next line carries none, and its note says no find is needed).
+    if (wantsManifest(row.file) && !facts.funding_json_url) continue;
+    const here = await rowHere(owner, id, projectKey);
+    if (here && here.status !== 'started') continue;
+    const c = claims.get(id);
+    if (c && (c.held || (c.by !== ctx.installationId && Date.parse(c.since) > stale))) continue;
+    if (!readyAtSend(row, facts, await doneItems(owner, id, projectKey), storedSide(rec), ctx.now)) continue;
+    // Fix round 1 (I2): never a program find would hold back: a sign-in, a document the record lacks, or outside the
+    // standing approval (its categories or its limit), as `blockersOf` says.
+    const block = blockersOf([row], rec.record)[0];
+    if (block && (block.sign_in || block.needs.length > 0 || block.outside_approval)) continue;
+    const filled = prefill(row, facts, rec);
+    if (filled.need_you.length > 0) continue;
+    return {
+      program_id: id, title: row.file.title, money: moneyAt(tileMoney(row.file), 'mid'),
+      draft: row.file.submit === 'builder' || rec.record.policy.agent_may_submit === false,
+      fields: filled.fields.map((f) => ({ key: f.key, from: f.from, value: f.value, required: f.required })),
+    };
+  }
+  return null;
 }

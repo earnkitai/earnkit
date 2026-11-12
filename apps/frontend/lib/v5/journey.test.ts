@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { replayFetch } from './fixtures/github';
+import { openCatalogProgram } from './fixtures/program';
 import { mcpCall } from './fixtures/mcp-call';
 import { registerClient } from './oauth';
 import { connectInstallation, saveInstallation } from './installations';
@@ -19,12 +20,18 @@ const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unk
 process.env.EARNKIT_AUTH_SECRET ??= 'journey-test-secret-0123456789abcdef';
 after(() => sql().end());
 before(() => sql()`DELETE FROM repo_cache`);
+// L39-1 (v6.1.18): Base Builder Grants is upcoming (Round 2 closed); these tests read it as it was while open, the
+// one program with a Builder Codes rule.
+before(() => upsertProgram(openCatalogProgram('base-builder-grants'), 'file', new Date('2026-11-01T00:00:00Z')));
 
 const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;
 const CLOSINGS = [
-  // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked.
-  /Sign in once and I check the repo is yours; then say yes\.$/,
+  // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked. L38
+  // big 1 (v6.1.18 Task 10): in the same sentence as the apply offer it gates.
+  /^Sign in( at \S+)? so I know the repo is yours, then [^\n]*\bI apply\b[^\n]*\.$/,
+  // L38 big 1: the proof the action waits on, signed in first in the Say.
+  /^Nothing is ready yet\. Sign in( at \S+)? so I can check the repo, then [^\n]+\.$/,
   // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
   // L24-9 (v6.1.16 Task 11): "ready" when other blocks are listed.
   // L29-17, L29-27 (v6.1.16 Task 15): no second action; a yes that needs answers names them.
@@ -38,7 +45,7 @@ const CLOSINGS = [
   /[^\n]+ is over your limit\. Say yes and I apply\.$/,
   /Say yes and I draft all \d+ for you to send\.$/,
   /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I get it ready\.| Say "do \d+" and I [^\n]+\.)?$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I draft [^\n]+\.| Say "do \d+" and I [^\n]+\.)?$/,
   // Final fix (v6.1.12, I1): the users yes on a program with a setup step or a rule left.
   /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
@@ -213,22 +220,25 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /—/, show);
     assert.doesNotMatch(show, /\b(coin|points|score|rank|streak|token)s?\b/i, show);
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
-    const isReply = /Ready to apply|One step away|In person \(|Nothing fits yet/.test(show);
+    const isReply = /Ready to apply|One step away|More to do first|Not ready yet \(|In person[,:( ]|Nothing fits yet/.test(show);
     // O2 (v6.1.10, Review Focus 5, fix round 1): a reply that lists in-person programs never ends on the bare "Nothing is
     // ready yet."; with no remote step shown it ends on starting the in-person applications.
-    if (/^In person \(/m.test(show)) {
+    // L38 big 2 (v6.1.18 Task 10): the default view's In person block is one line ("In person, long odds: 4. ...").
+    if (/^In person[,:( ]/m.test(show)) {
       assert.notEqual(show.split('\n').at(-1), 'Nothing is ready yet.', show);
-      if (!/^(Ready to apply|One step away) \(/m.test(show)) assert.match(show, /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/, show);
+      if (!/^(Ready to apply|One step away|More to do first) \(/m.test(show)) assert.match(show, /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/, show);
     }
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
     // Fix round 1 (v6.1.14, F2): a proof gap with no link to give adds the linkless sign-in to the closing line.
     // L29-33 (v6.1.16 Task 15): the closing is its own line; the sign-in and the linked notice are their own lines.
-    const CLOSING_START = /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes|Sign in once and I check the repo is yours)/;
+    const CLOSING_START = /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes|Sign in( at \S+)? so I know the repo is yours)/;
     const last = show.split('\n').find((l) => CLOSING_START.test(l)) ?? '';
-    if (/^\d+\. .*: proof that /m.test(show)) assert.match(show, /^Sign in once\b/m, show);
+    // L38 big 1 (v6.1.18 Task 10): no sign-in sentence promises to remember, and at most one is said.
+    assert.doesNotMatch(show, /remember you/, show);
+    assert.ok(show.split(/(?<=[.?!])\s+/).filter((x) => /\bsign in\b/i.test(x) && !/^\d+\. /.test(x)).length <= 1, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes|Sign in once and I check the repo is yours)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes|Sign in( at \S+)? so I know the repo is yours)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).
     for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }

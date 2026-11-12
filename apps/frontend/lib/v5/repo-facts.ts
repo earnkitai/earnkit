@@ -12,6 +12,7 @@ import { GitHubError, GitHubSlow, RepoPrivateError, gh, isPublicMember, readBudg
 import { LIMITS, hit, uncountHit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 import { cleanText } from './controls';
+import { MANIFEST_PATH, manifestUrl } from './funding-manifest';
 
 export type Basis = 'code' | 'reported';
 /**
@@ -58,6 +59,11 @@ export type RepoFacts = {
   contributors?: string[];
   /** L28-3: 'Organization' when the repo's owner is an organization. */
   owner_type?: string;
+  /** L38-27 (v6.1.18 Task 11): the license GitHub detects, its SPDX id ("MIT", "NOASSERTION" for a license file it
+   *  does not recognize); null when the read found no license file; none when not read (unknown). */
+  license?: string | null;
+  /** L38-1 (v6.1.18 Task 11): the raw GitHub URL of the funding manifest the read found at the repo root; none else. */
+  funding_json_url?: string;
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
@@ -81,6 +87,10 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   /** L35-3 (v6.1.16.1 Task 2): a fork's parent, GitHub's repo id and full name, from the read's `parent`. */
   parent_repo_id?: number;
   parent_full_name?: string;
+  /** L38-27 (v6.1.18 Task 11): the detected license's SPDX id, null for none; a row cached before has none (unknown). */
+  license?: string | null;
+  /** L38-1 (v6.1.18 Task 11): a funding.json at the repo root. */
+  funding_json?: boolean;
 };
 type Fetch = typeof fetch;
 
@@ -247,7 +257,21 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     // L35-3 (v6.1.16.1 Task 2): a fork keeps its parent, so the one-per-repo rule reads the parent's repo too.
     ...(r.repo.fork === true && typeof r.repo.parent?.id === 'number' ? { parent_repo_id: r.repo.parent.id } : {}),
     ...(r.repo.fork === true && typeof r.repo.parent?.full_name === 'string' ? { parent_full_name: r.repo.parent.full_name } : {}),
+    // Fix round 1 (I4): a repo body with no license key says nothing about the license (unknown, left out).
+    ...('license' in r.repo ? { license: r.repo.license === null ? null : licenseOf(r.repo.license) } : {}),
+    // Fix round 1 (M7): found at the root, the file is there; not found in a truncated tree, it is unknown (left out),
+    // so the step is still offered and nothing is claimed done. The read lists the tree through the API and never
+    // fetches the raw URL, which can lag a push by a few minutes: the agent sends it only after it pushed.
+    ...(paths.includes(MANIFEST_PATH) ? { funding_json: true } : r.truncated ? {} : { funding_json: false }),
   };
+}
+
+/** L38-27 (v6.1.18 Task 11): the SPDX id of a license object GitHub detects, cleaned; `NOASSERTION` for one it does
+ *  not name. Fix round 1 (I4): only for a license object; the read sets null itself for a null license. Pure. */
+export function licenseOf(l: unknown): string {
+  if (!l || typeof l !== 'object') return 'NOASSERTION';
+  const id = (l as { spdx_id?: unknown }).spdx_id;
+  return typeof id === 'string' && /^[A-Za-z0-9.+-]{1,64}$/.test(id) ? id : 'NOASSERTION';
 }
 
 /** Thrown when an installation has used its uncached repo reads for the day. */
@@ -481,6 +505,8 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: Unread): 
     ...(code && repoIdIn(code) !== null ? { repo_id: repoIdIn(code)! } : {}),
     ...(code && Array.isArray(code.contributors) ? { contributors: code.contributors.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()) } : {}),
     ...(code?.owner_type ? { owner_type: code.owner_type } : {}),
+    ...(code && code.license !== undefined ? { license: code.license === null ? null : typeof code.license === 'string' ? licenseOf({ spdx_id: code.license }) : 'NOASSERTION' } : {}),
+    ...(code?.funding_json === true && manifestUrl(code.html_url) ? { funding_json_url: manifestUrl(code.html_url)! } : {}),
   };
 }
 

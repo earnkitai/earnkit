@@ -4,6 +4,7 @@ import { sql } from './db';
 import type { Mailer } from './mail';
 import { dailyOwnerText, digestKey, sendOwnerDigest } from './owner-digest';
 import { runHealth, type LinkCheck } from './health';
+import { cimdFixture } from './fixtures/cimd';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
 
@@ -196,4 +197,104 @@ test('L30-18, L35-18: the programs the walk could not read are named with their 
   // The same day, the same list: sent once.
   assert.equal(await sendOwnerDigest(NOW, mailer, { unreadable }), 'none');
   await sql()`DELETE FROM owner_digests`;
+});
+
+test("L18-5c: the digest's applications block counts the previous UTC day's sends, stays the same within the day, and adds nothing for a day with 0", async () => {
+  // The pure block: most sends first; the title on one line.
+  const block = dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, {
+    sent: 3, agent: 1, drafted: 1, reported: 1, total: 7,
+    byProgram: [{ id: 'od-b', title: 'Beta  Prize', sent: 1 }, { id: 'od-a', title: 'Alpha Grants', sent: 2 }],
+  });
+  assert.equal(block, 'EarnKit programs: 2026-12-20\n\nApplications: 3 sent (1 by agents, 1 drafted here and sent by builders, 1 reported from outside); 7 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n');
+  assert.equal(dailyOwnerText('2026-12-20', [], { closed: [], failing: [], changed: [] }, { sent: 0, agent: 0, drafted: 0, reported: 0, total: 7, byProgram: [] }), null);
+
+  const db = sql();
+  await db`DELETE FROM owner_digests`;
+  await db`DELETE FROM cron_state`;
+  const [b] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918300, 'od-builder') RETURNING id`;
+  const [ia] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name) VALUES ('od-a', 'Claude Code') RETURNING id`;
+  const [ib] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, client_name, builder_id) VALUES ('od-b', 'Cursor', ${b.id}) RETURNING id`;
+  const y = (h: number) => new Date(`2026-12-19T${String(h).padStart(2, '0')}:00:00Z`);
+  const ins = (owner: string, inst: number, program: string, status: string, at: Date, sentAt: Date | null, by: string | null, title: string, id: string) =>
+    db`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, submitted_by, title, application_id)
+      VALUES (${owner}, ${inst}, ${program}, ${status}, ${at}, ${sentAt}, ${by}, ${title}, ${id})`;
+  try {
+    // Yesterday (2026-12-19 UTC): an agent send, an unmarked one (the agent's), a drafted builder send (a start before it), a reported one; a claim is not a send.
+    await ins(`i:${ia.id}`, ia.id, 'od-a', 'applied', y(1), y(1), 'agent', 'Alpha Grants', 'app_od1');
+    await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${`b:${b.id}`}, ${ib.id}, 'od-a', 'started', ${y(1)})`;
+    await ins(`b:${b.id}`, ib.id, 'od-a', 'won', y(20), y(2), 'builder', 'Alpha Grants', 'app_od2');
+    await ins(`i:${ib.id}`, ib.id, 'od-b', 'applied', y(23), y(23), 'builder', 'Beta Prize', 'app_od3');
+    // Unmarked (submitted_by null): the agent's (L29-23).
+    await ins(`i:${ia.id}`, ia.id, 'od-d', 'applied', y(5), y(5), null, 'Delta Fund', 'app_od7');
+    await ins(`i:${ia.id}`, ia.id, 'od-b', 'started', y(4), null, null, 'Beta Prize', 'app_od4');
+    // An older send counts all time only.
+    await ins(`i:${ia.id}`, ia.id, 'od-c', 'applied', new Date('2026-11-01T00:00:00Z'), new Date('2026-11-01T00:00:00Z'), 'agent', 'Old', 'app_od5');
+    const day = new Date('2026-12-20T06:15:00Z');
+    const want = 'EarnKit programs: 2026-12-20\n\nApplications: 4 sent (2 by agents, 1 drafted here and sent by builders, 1 reported from outside); 5 all time.\n- Alpha Grants (od-a): 2\n- Beta Prize (od-b): 1\n- Delta Fund (od-d): 1\n';
+    assert.equal(await sendOwnerDigest(day, mailer), 'sent');
+    assert.equal(sent[0].text, want);
+    // A send today changes neither yesterday's block nor the all-time number: the same-day rerun builds the same hash.
+    await ins(`i:${ia.id}`, ia.id, 'od-c2', 'applied', new Date('2026-12-20T07:00:00Z'), new Date('2026-12-20T07:00:00Z'), 'agent', 'Today', 'app_od6');
+    assert.equal(await sendOwnerDigest(new Date('2026-12-20T09:00:00Z'), mailer), 'none');
+    assert.equal(sent.length, 1);
+    // Two days on, no sends the day before: nothing to say.
+    assert.equal(await sendOwnerDigest(new Date('2026-12-23T06:15:00Z'), mailer), 'none');
+    assert.equal(sent.length, 1);
+  } finally {
+    await db`DELETE FROM application_history WHERE program_id LIKE 'od-%'`;
+    await db`DELETE FROM applications WHERE application_id LIKE 'app_od%'`;
+    await db`DELETE FROM installations WHERE token_hash IN ('od-a', 'od-b')`;
+    await db`DELETE FROM builders WHERE github_id = 918300`;
+    await db`DELETE FROM owner_digests`;
+  }
+});
+
+// v6.1.18 Task 6a (L39-5): a submission page that says it is closed is in the failing block even when it answers 200.
+const CLOSED_FORM = '<html><body><div>Base Builder Grant</div><div>Round 2 of Builder Grant Program is now closed. Please look out on X when we open up our Round 3 of applications.</div></body></html>';
+
+test('L39-5: dailyOwnerText names a closed form as `{title}: the form says it is closed ({url})` in the failing block', () => {
+  const text = dailyOwnerText('2026-11-12', [], {
+    closed: [], changed: [],
+    failing: [{ id: 'a', title: 'Alpha Grants', url: 'https://alpha.example/form', closed: true }, { id: 'b', title: 'Beta', url: 'https://beta.example/apply' }],
+  })!;
+  assert.match(text, /Links that did not load\n- Alpha Grants: the form says it is closed \(https:\/\/alpha\.example\/form\)\n- Beta: https:\/\/beta\.example\/apply/);
+});
+
+test('L39-5: the daily run reads the closed phrase on a submission page that answers 200; the digest lists it, never stale; an open form is not listed', async () => {
+  await sql()`DELETE FROM programs WHERE id LIKE 'od-%'`;
+  await upsertProgram(programFixture({ id: 'od-shut', title: 'Shut Form Grants', source_url: 'https://shut.example/about', submission_url: 'https://shut.example/form' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'od-openf', title: 'Open Form Grants', source_url: 'https://openf.example/about', submission_url: 'https://openf.example/form' }), 'file', NOW);
+  const link: LinkCheck = async (u) => ({ ok: true, page: u === 'https://shut.example/form' ? CLOSED_FORM : '<p>Apply here. Applications are open.</p>' });
+  const run = await runHealth(NOW, { link });
+  assert.deepEqual(run.stale, []);
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  const text = sent[0]!.text;
+  assert.match(text, /- Shut Form Grants: the form says it is closed \(https:\/\/shut\.example\/form\)/);
+  assert.doesNotMatch(text, /Open Form Grants/);
+});
+
+test('v6.1.18 final fix (M1): an upcoming program whose form says it is closed is not listed; an active one is', async () => {
+  await sql()`DELETE FROM programs WHERE id LIKE 'od-%'`;
+  await upsertProgram(programFixture({ id: 'od-soon', title: 'Next Round Grants', status: 'upcoming', opens_note: 'Round 3 opens in January.', starts_at: '2027-01-15T00:00:00Z', source_url: 'https://soon.example/about', submission_url: 'https://soon.example/form' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'od-shut2', title: 'Shut Now Grants', source_url: 'https://shut2.example/about', submission_url: 'https://shut2.example/form' }), 'file', NOW);
+  const link: LinkCheck = async (u) => ({ ok: true, page: u.endsWith('/form') ? CLOSED_FORM : '<p>About the grants.</p>' });
+  await runHealth(NOW, { link });
+  const [soon] = await sql()`SELECT submit_closed FROM program_health WHERE program_id = 'od-soon'`;
+  assert.equal(soon?.submit_closed, true, 'the upcoming form was read as closed');
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  const text = sent[0]!.text;
+  assert.match(text, /- Shut Now Grants: the form says it is closed \(https:\/\/shut2\.example\/form\)/);
+  assert.doesNotMatch(text, /Next Round Grants/);
+});
+
+test('L39-5 fix round 1: a forms.gle-style link that redirects to a closed form on another host is in the failing block', async () => {
+  await sql()`DELETE FROM programs`;
+  await upsertProgram(programFixture({ id: 'od-gle', title: 'Gle Form Grants', source_url: 'https://gle.example/about', submission_url: 'https://forms.gle/xyz' }), 'file', NOW);
+  const site = cimdFixture((u) => (u.hostname === 'forms.gle'
+    ? { status: 302, location: 'https://docs.google.com/forms/d/e/y/viewform', body: '' }
+    : { status: 200, contentType: 'text/html', body: u.hostname === 'docs.google.com' ? CLOSED_FORM : '<p>About the grants.</p>' }));
+  const run = await runHealth(NOW, { resolve: site.resolve, transport: site.transport });
+  assert.deepEqual([run.stale, run.failed], [[], []]);
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.match(sent[0]!.text, /Links that did not load\n- Gle Form Grants: the form says it is closed \(https:\/\/forms\.gle\/xyz\)/);
 });

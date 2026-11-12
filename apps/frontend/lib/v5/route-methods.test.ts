@@ -56,5 +56,7 @@ test('L31-1 (v6.1.16 Task 17): PATCH on /me/edit is 405 with Allow: GET, POST; p
   assert.equal(allowOf('/'), 'GET, HEAD');
   assert.equal(allowOf('/programs/thiel-fellowship'), 'GET, HEAD');
   assert.equal(allowOf('/link/abcd-efgh'), 'GET');
+  // L18-5 (v6.1.18 Task 5): the owner's list of sends is read only.
+  assert.equal(allowOf('/api/programs/applications'), 'GET, HEAD');
   assert.ok(serves('GET', 'head') && !serves('GET, HEAD', 'TRACE') && !serves('POST', 'HEAD'));
 });

@@ -157,11 +157,11 @@ test('screen: unlinked, a builder who reviews nothing, a program not theirs, no 
   const u = await agent();
   refused(await u.call('screen', { applicants: [{ ref: 'a1' }] }), 'Screening is for program reviewers.');
   const l = await linked();
-  refused(await l.call('screen', { applicants: [{ ref: 'a1' }] }), 'You review no program yet. Ask for reviewer access through the X link on earnkit.com/docs.');
+  refused(await l.call('screen', { applicants: [{ ref: 'a1' }] }), 'You review no program yet. Message EarnKit on X from earnkit.com/docs for reviewer access.');
   await p('rf-screen');
   await p('rf-other');
   await addReviewer('rf-screen', l.login, null);
-  refused(await l.call('screen', { program_id: 'rf-other', applicants: [{ ref: 'a1' }] }), 'Screening is for program reviewers, and you do not review that program. Ask for reviewer access through the X link on earnkit.com/docs.');
+  refused(await l.call('screen', { program_id: 'rf-other', applicants: [{ ref: 'a1' }] }), 'Screening is for program reviewers, and you do not review that program. Message EarnKit on X from earnkit.com/docs for reviewer access.');
   refused(await l.call('screen', { job_id: 'no-such-job' }), "I don't have that screen.");
   const job = await createJob({ programId: 'rf-screen', builderId: l.builderId, installationId: l.id, applicants: [{ ref: 'a1', name: 'A' }] as never, now: NOW });
   await sql()`UPDATE screen_jobs SET expires_at = ${new Date(Date.now() - 86_400_000)} WHERE id = ${job.id}`;

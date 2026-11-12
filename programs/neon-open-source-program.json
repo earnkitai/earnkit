@@ -6,8 +6,8 @@
   "source_url": "https://neon.com/programs/open-source",
   "submission_url": "https://neon.com/programs/open-source",
   "official_url": "https://neon.com/",
-  "reward": "A cash sponsorship: a fixed monthly amount for a six-month term through GitHub Sponsors, set per project during review (Neon commits a minimum of $200,000 a year), plus optional Neon credits",
-  "summary": "Monthly cash sponsorship for six months, amount not stated · rolling",
+  "reward": "A cash sponsorship: a fixed monthly amount for a six-month term through GitHub Sponsors, set per project during review (Neon commits a minimum of $200,000 a year), plus optional Neon credits (amount not stated)",
+  "summary": "Monthly cash sponsorship for six months · rolling",
   "starts_at": null,
   "ends_at": null,
   "status": "active",
@@ -20,7 +20,6 @@
   "category": "grant",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "rule", "note": "a public repository under an OSI-approved license with recent releases, commits or issue triage" },
     { "kind": "rule", "note": "an active GitHub Sponsors profile for the maintainer or project" }
   ],
   "setup": [

@@ -68,7 +68,7 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    no longer stale: one re-read per code step, then the row is trusted as before until the next push (F7, v6.1.12). A public read
    beats a reported `builder_codes: true`: none in the code is none, said once as "The repo does not send Builder
    Codes yet." (repo note `no_builder_codes`). An empty repo with no Builder Codes is one sentence, "The repo is empty and
-   does not send Builder Codes yet, so I matched on what you told me." (`repoNoteText`, F9, v6.1.12). With no read to confirm them (none, or an empty repo), the name,
+   does not send Builder Codes yet, so this is from what you told me." (v6.1.18 L38-7; "so I matched on" before) (`repoNoteText`, F9, v6.1.12). With no read to confirm them (none, or an empty repo), the name,
    description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
    EarnKit's value (S12); they count as the agent's drafts, never as "need you" (F2, v6.1.10). `need_you` is one list:
    every required `builder` field without a record value, and the ready line's "Needs your ..." and "k need you" read
@@ -130,7 +130,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    The users question closes "Do real people use it? Say yes and I apply." only when that yes makes the program ready;
    with a setup step or a rule left beside it, "Do real people use it? Say yes and I look again." (final fix, v6.1.12); only when no remote step is shown (or none names an
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
-   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check the repo is yours; then say yes." with a repo (v6.1.16.1), "Sign in once at <link> and I remember you." with none; with no link to give, after a deleted account or a failed link, "Sign in once and I check that." or "Sign in once and I remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
+   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof of real users" and the sign-in is asked once, inside the Say that needs it (v6.1.18 Task 10, see that section; never a promise to remember the builder); the one-program reply puts the sign-in first in its action when the program carries the proof (`Sign in at {link} so I can check the repo, then ...`; v6.1.18 Task 10, appended after the action before); nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
    `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
@@ -145,8 +145,8 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
    results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
    how it went when results are due." is always kept.
-8. `find` caps the lists (every remote ready program since v6.1.17, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
-   programs get their own block with their setup (never in "apply to all N"), and the reply ends with
+8. `find` caps the lists (every remote ready program since v6.1.17, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. The default view shows at most `READY_SHOWN` (3) ready rows and splits the gap rows into `One step away` and `More to do first` (v6.1.18 Task 10); `And {n} more in the full list.` counts the rest (v6.1.18 Task 1). In-person
+   programs get their own block (one line in the default view since v6.1.18 Task 10, its setup in the agent's lines and the one-program reply; never in "apply to all N"), and the reply ends with
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
    `find` also saves every gap (at most 60) to `installations.last_gaps` as `{ program_id: what is missing }`;
@@ -182,7 +182,13 @@ The pipeline, in order:
    digest's could-not-read list (v6.1.17 Task 3) until its file has them; a closed program may have none). A redirect to another host counts as alive
    (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
-   listed in the owner's digest and never marks the program stale. A program unverified or stale for `STALE_DAYS`
+   listed in the owner's digest and never marks the program stale. v6.1.18 (L39-5): a submission page that answers but
+   whose text says it is closed (`is now closed`, `applications are closed`, `no longer accepting`, `closed for
+   submissions`, any case; `formSaysClosed` in `health.ts`) is stored as `submit_closed` and, for an active program
+   only (an upcoming program's form is closed until it opens; v6.1.18 final fix, M1), listed in the digest's
+   failing block as `{title}: the form says it is closed ({url})`; it never marks the program stale and never changes
+   `submit_ok`. A redirect to another host is followed only for this read (`landingPage` in safe-fetch: https, public
+   addresses, at most `LANDING_MAX_REDIRECTS` (3) hops), so forms.gle reaches the Google form; the link check itself still never follows. A program unverified or stale for `STALE_DAYS`
    (12, v6.1.17 Task 3) leaves the open list, so a page that stays down leaves within 14 days of its first failure. The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
    an upcoming one past `starts_at` active with opens_note dropped, one warning each), so a deploy never undoes a move. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
@@ -235,10 +241,12 @@ never a name and a second founder's email comes from the team. Team members gain
 Task 14 fix round 1: a send gate matches the project key exactly (`pickRow`'s `off_repo` match is for display reads only:
 `sentOf`, `resultOf`, `excluded`), and the ownership check runs on every write keyed by a repo (`started`, an agent's
 `applied`, `held`), except a send over this agent's own live claim on the project (checked at its start, FR-4). With no
-evidence either way (another host, a private or unreadable repo) track and find say `I could not confirm this repo is
-yours; tell me your GitHub login on it or send it yourself.` (`CANT_CONFIRM_REPO`); `NOT_YOUR_REPO` only on evidence
+evidence either way (another host, a private or unreadable repo) track and find say `I could not read {repo}, so I
+cannot check it is yours. Send it yourself and tell me when it is in.` (`CANT_CONFIRM_REPO(key)`, v6.1.18 L36-6: the
+builder is signed in, so EarnKit never asks for the login); `NOT_YOUR_REPO` only on evidence
 against (`repoEvidence`), and then find's one action is `Say which repo is yours.`; a signed-out builder with a repo gets
-no apply offer (`Sign in once and I check the repo is yours; then say yes.`) and track answers `Sign in first so I can
+no apply offer before the sign-in (v6.1.18 Task 10: the offer is said again after it, in one sentence, `Sign in at {link}
+so I know the repo is yours, then say yes and I apply to {title}.`, `signInFirst`) and track answers `Sign in first so I can
 check the repo is yours.` (FR-1; `APPLY_OFFER` in find.ts names the lines that give way). One application per repo is
 keyed by GitHub's repo id when known (`sentForRepo`, `repoLock`, the screen's earliest lookup, stats' `wonOnce`), the link
 as the fallback; a rename re-key (`rekeyByRepoId`, from find's `followRename` and track's `followRepoId`, only from the
@@ -252,13 +260,14 @@ key's own row, never a keyless one, and track's own-claim exception (FR-4) count
 project's `repo_id` is EarnKit-only (a patch setting it is dropped with `set by EarnKit only`; /me never edits it), and
 `rekeyByRepoId` moves a key only when that key's own cached read carries the same id. Track's `followRepoId` and find's
 `followRename` run only once the builder's tie to the repo is shown, so a refused call moves nothing. A signed-out find
-with a repo shows one sign-in line: the reply's own sign-in sentence gives way to `Sign in once at {link} and I check the
-repo is yours; then say yes.` (without the link when the reply has none, or the unlinked notice already carries it).
+with a repo shows one sign-in line: the reply's apply offer, said again after the sign-in (v6.1.18 Task 10,
+`signInFirst(link, applyOfferOf(text))`: `Sign in at {link} so I know the repo is yours, then say yes and I apply to
+{title}.`; without the link when the reply has none, and the unlinked notice keeps only its first sentence).
 
 Task 14 fix round 3: once track's gate shows the tie, `record` (applied, held; `tied`) and `claim` (`tied`) take over the
 builder's own keyless row for the program (its key and repo key set, only when no other owner holds that repo), so a
-keyless send then a repo send reads `Already sent on {date}.` and no orphan claim or hold is left. A signed-out find that
-ends on the sign-in line always fetches the link (never after the record was deleted) and carries it as `sign_in`; right
+keyless send then a repo send reads `Already sent on {date}.` and no orphan claim or hold is left. A signed-out find whose
+Say signs in (v6.1.18 Task 10; "ends on the sign-in line" before) always fetches the link (never after the record was deleted) and carries it as `sign_in`; right
 after an unlink the notice keeps only `This agent was unlinked from your account.` and the closing carries the link.
 
 **Ownership, identity and list numbers (v6.1.16.1 Task 2, lane 35).** Each application row carries `identity`
@@ -412,7 +421,10 @@ before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a
 (`RETRY_AFTER_S`, job timeout 30 minutes); a missing `CRON_SECRET` fails the job unless the repo variable
 `EARNKIT_CRON_PAUSED` is `true` (v6.1.17 Task 3, L30-14); the next run retries. The owner's digest
 (`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
-change to live programs since the last digest, with revert links; nothing happened, nothing sent) answers `sent`,
+change to live programs since the last digest, with revert links; nothing happened, nothing sent; v6.1.18 Task 5,
+L18-5: when the previous UTC day had sends, an `Applications: {n} sent ({a} by agents, {d} drafted here and sent by
+builders, {r} reported from outside); {total} all time.` block with one `- {title} ({id}): {k}` line per program, most
+first; a day with none adds nothing) answers `sent`,
 `none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
 day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
@@ -430,8 +442,9 @@ JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minu
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications, agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
-| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency and `last_run_at` (v6.1.17), and names no one |
+| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17) and `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
+| `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`; never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
@@ -488,8 +501,10 @@ http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
 and `reservedClientName` (a name holding `earnkit` after look-alike letters fold, and v6.1.16 L16-10 digits and `l`
-read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
-are capped at 30 an hour per document host and caller address block (`cimdFetch`, `CIMD_FETCH_KEY(host, block)`;
+read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused; v6.1.18 lane 40: `fold`
+reads each letter through the full confusables table plus ĸ ƙ ʞ, and dynamic registration checks the cleaned name
+too, `clientNameOf`); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
+are capped at 30 an hour per document host and caller address block (`cimdFetch`, `CIMD_FETCH_KEY(host, block)`, the host lower-cased with trailing dots removed since v6.1.18 lane 40;
 v6.1.16.1 Task 2, L35-5; the routes pass `blockOf(clientIp)`) and 300 an hour per host across every block
 (`cimdFetchHost`, controller ruling); both must pass before a fetch (over either, no fetch and the failure page). A good
 document is also stored in `cimd_documents` (document, fetched_at; rows past 6 hours go on each write), so a process with
@@ -534,6 +549,7 @@ keys from tool-call bodies before anything sees them.
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered, with the last body's hash (`body_hash`) |
+| `outcome_asks`, `sent_asks` | When each installation was last asked about a program: the results question (daily) and, v6.1.18 Task 4, the "did you send it" question for a builder-sent program (`asked_on`, weekly; key installation and program) |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (180 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
@@ -579,7 +595,12 @@ copied from a template. Tests skip nothing; a run whose output has no failure li
   cleanup. The target comes from `REPRO_BASE_URL` (default `http://localhost:4600`) and `REPRO_DATABASE_URL` (default
   `earnkit_journeys`), plus `REPRO_AUTH_SECRET` and `REPRO_CRON_SECRET` to match the server. `target.ts` refuses a host
   other than `localhost`, `127.0.0.1` or `::1` unless `REPRO_ALLOW_REMOTE=1`, refuses earnkit.com always, and needs a
-  local Postgres (pinned in `repro-target.test.ts`). The pack is not part of `pnpm test`. Its README has the recipe for a
+  local Postgres (pinned in `repro-target.test.ts`; v6.1.18 lane 40: trailing dots stripped, a look-alike earnkit.com
+  folded and refused, `*.up.railway.app`, an empty database host, `hostaddr=` and any non-loopback IP address refused
+  even with `REPRO_ALLOW_REMOTE=1`). The pack is not part of `pnpm test`. v6.1.18 FR-4: `run.sh` exits with the
+  script's own code and loads `fail-line.mjs`, so an uncaught error prints one `FAIL <id>: <message>` line, never a
+  stack; `l23-2.mts` polls the guide until its cached id list refreshes (up to 700 s; the wait variant is gone) and
+  `cleanup.mts` also deletes the pack's `oauth_clients` rows (lane 37). Its README has the recipe for a
   dev server from a worktree on a throwaway database copied from the test template.
 - Persona replays (v6.1.17 Task 5): `find.test.ts` replays lane 1h's personas on recorded repos of the same kind
   (`LANE_1H`). Personas 8, 9, 12, 15, 30 and 31 have their default reply pinned exactly: the gap once in line 1, the
@@ -596,6 +617,11 @@ also pins the package version equal to the newest `v6.1.*` plan file in
 whose plan is written but whose package is not bumped fails the suite. Only major.minor.patch is compared (v6.1.17
 final round, `releaseVersionOf`): a four-part patch plan (`v6.1.17.1-patch-plan.md`) is a patch of 6.1.17 and asks
 for 6.1.17, since a fourth part is not semver.
+
+Releases under this gate: 6.1.17 (`v6.1.17-journeys-11-plan.md`), 6.1.18 (`v6.1.18-journeys-12-plan.md`: the more line
+and what closes this week, code in a public repo as the step, the builder-sent closing, the sent ask and how-you-heard
+field, the owner's applications view, lane 1k's file landing and full-list numbers, lanes 36 and 38, the license read
+and FLOSS manifest, and the deferred v6.1.17 FR-3 and FR-5 pins).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -789,7 +815,17 @@ wants a rule naming it) is never ready for a private repo (the report's `private
 `private` note): its gap is `a public repo` (`PUBLIC_REPO`, item `repo:public`, setup `make the repo public`). L1f-3: an
 archived repo, for a program that wants the code or its users (`needs_repo`, a users item or a used bar), gets `the repo
 is archived` (`ARCHIVED_REPO`, item `repo:archived`, setup `tell me the live repo`) and never the users question. A gap's
-`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step.
+`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step. v6.1.18
+L18-2: every `needs_repo` program (any category) is one step from a project with no repo link (not reported private):
+`code in a repo`, or `code in a public repo` (`NEEDS_PUBLIC_CODE`, same item `repo`) when the file is `open_source`;
+the empty-repo step stays for grants for existing code only. For a program for new work (a hackathon, an event) the
+code step is the entry itself, so like the started question it counts toward neither gap limit. Wherever it is left,
+it is the one-program closing's step ("Tell me when the code is in a public repo and I look again."), whatever else
+remains. `programs:check` refuses a `rule` item on an `open_source` file whose note names the
+public repo or the open source license (`eligibility: the public repo is the open_source flag's step; drop the rule
+item`): the flag carries it, never a rule to confirm. Since the v6.1.18 merge a license rule item with `"check":
+"license"` is the exception: the repo read settles it (Task 11, L38-27; see the merge section), and it waits while the
+code step stands. The `ARCHIVED_REPO` gap now reads `a live repo` (v6.1.18 L38-9).
 v6.1.16 (L1g-5): every single step closes in one shape, `Tell me when {step} and I look again.` (`singleStepClosing`,
 the step from `stepClause`: "the code is in a repo", "the repo is public", "the contract is on {Chain}[ mainnet]", "the
 live link is up", "the demo video is ready", "you {setup}"; a telling setup reads "Tell me the live repo and I look
@@ -797,7 +833,8 @@ again."), the same in the list closing ("Nothing is ready yet. " before it) and 
 question is "Tell me when you started and I check it."; fix round 1 gives the last three kinds their clause too (a
 below-bar tier gap "people outside the team use it live", a feature "{feature} is in", a users gap of weeks "it has been
 live for {n} weeks", or "real people use it" when no number is given); several real changes keep "Tell me when that is done and I
-apply."; the archived repo note is left out when a shown line reads `the repo is archived`. A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
+apply.", or "Tell me when that is done and I draft it for you to send." on a program the builder sends (`draftOnly`, L18-3
+v6.1.18); the archived repo note is left out when a shown line asks for `a live repo` (v6.1.18 L38-9; `the repo is archived` before). A step the closing names is left off every line (fix round 1, I1: `closingSetup`, `gapLine`'s `closed`;
 the one-program line keeps it), and the code closing is picked by the gap's kind (`FirstStep.code`, M3). A repo the
 read itself finds private (`RepoPrivateError` from `github.ts`, fresh or on the cached row's re-check) is private, never
 gone (M1); neither is closed by gap_done: the agent passes `private: false` or the live `repo_url` (`REPO_STEP_NOTE`).
@@ -1050,6 +1087,11 @@ not keep, and every open or closed decision is read from the clock at request ti
   `guide-ids-v6`, `guide-row-v6.1.16`), but `getLanding` runs `landingAt` and `getGuidePage` runs `guidePageOf` with the
   render's clock, so a tile reads `Closed` and a guide renders its closed page (`Closed on {date}.`, no Apply link,
   never a 404) the moment `ends_at` passes. `listGuideIds` lists every program that reads closed.
+- **Landing without a database (v6.1.18, L1k-1).** When the landing read fails, `getLanding` returns
+  `readLandingFromFiles(now)` (landing.ts: the catalog files under `findProgramsDir()`, parsed with `ProgramFile`,
+  listed as `listListedPrograms` lists them, the chip from `openMoneyUsd` of the open ones) and never calls
+  `connection()`: the build has no database, and that bailout made `/` and `/programs` dynamic for the whole deploy.
+  The pages stay prerendered and ISR (600 s) reads the database again; a failed file read too is null (no live parts).
 - **One date formatter, one closes wording.** `dayWords` (deadline.ts, re-exported by site-copy): `Nov 6`, or
   `Nov 6, 2025` in another year; since, deadline moved, closed on, results due, eligibility dates, /me dates and
   `clock`. `closesWords`: `closes in under an hour`, `closes today`, `closes tomorrow`, `closes in {n} days` (calendar
@@ -1068,6 +1110,16 @@ not keep, and every open or closed decision is read from the clock at request ti
   program another agent holds says `Another agent of yours started this one on {date}.` in place of the yes. A send
   (`applied`) over another agent's live claim is recorded and clears the claim (`other_claim`, agent note
   `OTHER_CLAIM_NOTE`); B3 refuses only claims and skips.
+- **Did you send it (v6.1.18 Task 4, L18-4, L36-1, L36-2).** For a program the builder submits themselves
+  (`submit: 'builder'`), `askSent` (ledger.ts) lists every unheld `started` row at least `SENT_ASK_AFTER_HOURS` (1) old;
+  `sentAsksDue` (table `sent_asks`, one row per installation and program) asks each once per installation every
+  `SENT_ASK_EVERY_DAYS` (7): `Did you send {title}? Say sent and I note it.` (`ask_sent`, `sentLines`, ONE_SAY_ORDER
+  after the started lines). While the ask is open the program is left out of the list (never offered as a draft
+  again). `releaseStale` never deletes such a claim: it comes back with `ask: true`, said only when its ask is due, as
+  `{title}: started {date}; did you send it? Say sent and I note it.`. The agent note: `"sent" is track applied with
+  submitted_by builder; "not yet" needs no call.` Prefill: a how-you-heard field (`heardFrom`) says `EarnKit
+  (earnkit.com)`, or picks the referral (else other) option with the other-box `note`; partner, alumni and
+  more-than-the-source fields are left as they are.
 - **Results.** `askOutcome` lists every applied row past its results date with no result on every find;
   `outcomeAsksDue` (table `outcome_asks`, one row per installation and program) shows the builder line `Results for
   {title} were due {date}. Did you hear back?` once a day per installation. `asked_outcome_at` is kept for the record
@@ -1076,7 +1128,7 @@ not keep, and every open or closed decision is read from the clock at request ti
   closing soon. A closed program the builder sent reads `Closed. You applied {date}; results {date | not announced}.`.
 - **Nothing new.** `installations.last_list_hash` / `last_list_at` (sha256 of the shown ids); the same list with no
   since line starts `Nothing new since {date}.`.
-- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the record sign-in line, the
+- **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the sent questions (v6.1.18), the record sign-in line, the
   closing; only the first that carries a `Say` keeps it (`oneSay`, `withoutSay`). A gap line's own `Say "do n"` is
   Task 11's to fold. Record get unlinked with no link: `Sign in once and I remember you.` (`REMEMBER_YOU`).
 - **Sweeps.** `sweepReports` deletes only cached evidence past `REPORT_DAYS` (repo_cache, evidence_cache), never
@@ -1195,8 +1247,8 @@ means what the last `Say` offered.
   then the one Say last (`ONE_SAY_ORDER`'s first Say moves to the end); v6.1.17 (L1j-6): with no Say the closing still
   comes last, after the sign-in and the notice, except a bare "Nothing is ready yet." (`NOTHING_READY`), after which the
   sign-in is the action and follows it. What does not fit goes to the agent note under "Not shown to the builder:", one per line.
-  `filter.all` ("say more") is `fullView`: "{n}. {title}, {money}." per program, the repo notes, sign-in and notice,
-  then the Say. An unknown `filter.category` and a top-level project key are named in the problems line. The project
+  `filter.all` ("say more") is `fullView`: "{n}. {title}, {money}." per program, the repo notes and notice, then the
+  Say (any sign-in inside it, v6.1.18 Task 10). An unknown `filter.category` and a top-level project key are named in the problems line. The project
   schema advertises a type on every field, `required: ["name"]` and "A project needs a description when it has no
   repo_url".
 - **Find after the 10-line cap (v6.1.16.1, lane 1i).** The step block shows as many rows as the budget allows, at least
@@ -1207,20 +1259,25 @@ means what the last `Say` offered.
   block, the applications line, Task 9's not-sent and started lines, the overnight report (5.5), a linkless sign-in
   (5.65), the other step rows (5.7), the results question (5.8), the Before line (5.85) and the since line (6); when
   lines are short the since line gives way first, then the results question, then the extra step rows (a line left out
-  is the agent's, under "Not shown to the builder"). Shown rows are numbered 1, 2, 3 in display order: `replyParts`
+  is the agent's, under "Not shown to the builder"). v6.1.18 Task 10: the sign-in is never a line of its own (it sits
+  inside the Say, which ranks last), so only an unlink notice carrying the link ranks 0 and a linkless notice 5.6; the
+  step blocks grow at 5.7 (One step away) and 5.85 (More to do first), the sent questions sit beside the results
+  question (5.8) and the Before line ranks 5.55 (the Task 10 section has the current table). Shown rows are numbered 1, 2, 3 in display order: `replyParts`
   lays the view out once (`asShown`), renumbers the shown ids first and the rest after, and writes the reply (and its
   Say's "yes n" / "do n") from those numbers; it returns `shown` and `say`. The numbers the builder sees are the JSON's
   `n` and track's (fix round 1, I4): a default find numbers its shown rows 1..k (the rest after) and stores that as
-  `installations.last_list`; the full list keeps the numbers of the last reply of the same project (`stableNumbers`)
-  and numbers new ones on; `rememberProject` clears `last_list` when another project is found (a one-program lookup
-  too). The default view's selection is one function in find (`selectionOf`), used for the list and for the full
+  `installations.last_list`; v6.1.18 (L1k-2): the full list numbers its own rows 1..N in the order it shows them
+  (ready, one step, in person; `replyParts` with `all` returns them as `shown`) and stores those, so "skip 4" is its
+  fourth row; `rememberProject` clears `last_list` when another project is found (a one-program lookup too). The default view's selection is one function in find (`selectionOf`), used for the list and for the full
   list's closing Say. The full
-  view lists every program the list holds as `{n}. {title}, {money}, closes {when}, in person.` (closes from
+  view lists every program the list holds as `{n}. {title}, {money}, closes {when}, in person.` (v6.1.18 L1k-3: no
+  `, in person` under the `In person (k):` heading; closes from
   `closesWords` beyond the gap lines' own window, passed as `closes`), closes on the default view's Say (`defaultSay`,
   from the programs the default view lists), and never asks a rule it does not show: a rule Say becomes `Say a number
   and I show what that program asks.` (`FULL_RULE_SAY`, agent note `FULL_NUMBER_NOTE`). The no-project open list keeps
   closes and in person per line (`openLine`); with `filter.all` it lists every open program, for no project and a
-  name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on): when the closing's Say is the unlinked users question, the link
+  name-only project. One sign-in sentence per reply (the full view judged on the default Say it ends on; since v6.1.18 Task 10 always
+  inside the Say that needs it): when the closing's Say is the unlinked users question, the link
   goes into it (`usersUnlinkedAt`: "Say yes, sign in once at {link}, and I check.") and (v6.1.17, L1j-1) no other line
   mentions signing in (`SIGN_IN_PROOF` is gone). `findInputOf` returns an input
   error (isError, no builder text, the field named) for an unknown top-level key and a project with no name; an
@@ -1228,24 +1285,30 @@ means what the last `Say` offered.
   program's zone on every surface (reply, tile, guide). `programs:check` also refuses a figure beside "million" or
   "billion" (`MONEY_WORDS`).
 - **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35; fix round 1).** The no-project find (open list,
-  applications line or bad category) ends on its ask, with the sign-in sentence, the unlink notice or the linked report
-  before it (fix round 1 I3). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
-  before it (M1, N1); a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
+  applications line or bad category) ends on its ask, with the unlink notice or the linked report before it (fix round
+  1 I3; v6.1.18 L38-31: the open list carries no sign-in line, the link stays in `sign_in`). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
+  before it (M1, N1); v6.1.18 (L1k-4): an open online lookup with no project ends on `NO_PROJECT_ONE` (`Tell me
+  about your project and I check the fit.`) after the rules; a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
   default view leaves out (in-person and held rows too) is counted once, on
-  `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown)` gives
+  `And {n} more in the full list.` (v6.1.18 L1k-5: on the line right after the numbered blocks, ahead of the repo
+  note and every other line; `fit` returns where the block lines end as `rows`) (`defaultRows(ready, steps, shown)` gives
   `{ readyShown, readyHidden, stepShown, stepHidden }`; `fit` runs again one line shorter when anything is hidden; the
-  step block has no more line of its own). Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the
+  step block has no more line of its own). v6.1.18 Task 1 (L18-1): the count adds the rows the rank cap left out before
+  the budget ran (find passes `ReplyOptions.hidden = { count, closing }`; 0 with filter.all), and the line names at most
+  two of those closing within 7 days (`ledger.closing_soon`, in closing order, none the view shows: dropped by
+  `program_id`, then cut to two) with the list
+  lines' closes words: `And {n} more in the full list; closing this week: {title} ({closes_in}) and {title}
+  ({closes_in}).` (`moreInFull(n, closing, now)`). `ReplyParts.more` is that n; find returns it as `more_count` and the
+  agent note says `The full list holds {n} more; ...`. Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the
   hidden count is said once, so with ready rows hidden the yes reads `Say yes and I apply to all {n} ready.` (`hidden`
   in `closingLine` keeps the word "ready"). Fix round 1 (I2): the default JSON's ready list holds every remote ready
   program with its fields (`shownReadyOf` caps only in-person ones, `MAX_IN_PERSON`), so the Ready heading, `all {n}`
   and the full list's Ready count agree and a yes never covers a program the agent lacks; the default list's size cap
   (`findReplyCap(..., keepReady)`) trims the other lists' fields and details before any ready program's. The full view (`fullView(blocks, ...)`) writes the default's block headings with their
   true counts: `Ready to apply ({n}):`, `Being handled by your other agent ({n}):`, `On hold until you say go ({n}):`,
-  `One step away ({n}):`, `In person ({n}):`. The Before line ranks 5.55 and a linkless notice 5.6, ahead of the step
-  rows past the first (5.7). The sign-in after a repo read names what it checks by the proof gap's bar
-  (`signInSentence(link, read, bar)`, `proofBarOf`): "Sign in once at {link} and I check your users and remember you."
-  The one-program reply puts the sign-in before its action, and an in-person ready program ends `You apply in person;
-  the guide has the steps.` (`IN_PERSON_ONE`). An unknown name with no candidates reads `I do not know a program called
+  `Not ready yet ({n}):` (v6.1.18 Task 10; `One step away` before), `In person ({n}):`. The Before line ranks 5.55 and a
+  linkless notice 5.6, ahead of the step rows past the first (5.7). v6.1.18 Task 10 replaced the separate sign-in
+  sentence and `IN_PERSON_ONE` as the in-person ending (see that section). An unknown name with no candidates reads `I do not know a program called
   "{name}". Say its full name.` (`unknownProgramLine(suggest, name)`, find and track). A same-day repeat reads `Nothing
   new since your last look.`; a later day keeps the date. A program the not-sent line names gets no started line. With
   every ready program under "Your yes stands", a do gap is still offered (`..., or "do {n}" and I {verb} first.`). An
@@ -1278,7 +1341,7 @@ means what the last `Say` offered.
   idea, with proof of need`, `your insight on the competition` (Task 15 N5).
 - **Says and notes (L29-5, L29-6, L29-17, L29-19, L29-27 to L29-29, L29-31, L29-34).** A yes that needs answers names
   them: "Say yes and tell me {needs}, and I apply to ...". No "Or say the numbers to skip." (the note's "A number skips
-  that program: call track skipped with its id."). The rule Say ends "and I get it ready."; unlinked, the users question
+  that program: call track skipped with its id."). The rule Say ends "and I draft {title}." (v6.1.18 L38-2; "and I get it ready." before); unlinked, the users question
   is "Do real people use it? Say yes, sign in once, and I check." and the one note is "On yes, call find again with
   users: true." The standing line is "Applying now to {titles} under your standing approval."; its note
   (`standingNote(ids)`) names only those ids, with `STOP_NOTE`. The agent note carries only the lines that apply, one
@@ -1293,6 +1356,202 @@ means what the last `Say` offered.
 - **Needs (L1h-8).** `programProblems` refuses a required field whose need (or the todo standing in for it) holds
   " and " ("submission_requirements.{key}.need: one need, no \"and\"; ..."); 55 catalog fields carry a `need` with
   "with" (Solana Incubator's `active users with 6-month growth`).
+
+## v6.1.18 Task 8: more sends per session (lane 36)
+
+- **Every rule in one ask (L36-5).** A gap row already lists every open rule (`Their rules: a; b.`); its ask now covers
+  them all: the one-program action `Say yes if all of that is you and I draft it.` (`RULES_ACTION`) and the list closing
+  `Say "yes n" if all of that is you and I draft {title}.` (from Task 9, L38-2; `ruleSay(n, many, title)`, closingLine's `ruleMany`). `track`
+  `gap_done` with a rule item confirms the other rules that program's row listed (`Tracked: those rules fit you.`,
+  `RULES_CONFIRMED`), so `started` never asks for a rule the row showed. Fix round 1 (I1): the rows' rule items are kept
+  in `last_gaps` (`RememberedGap.rules`: the list find for every gap, the one-program look and track's rule ask through
+  `rememberGap`); a rule added after the ask, or any rule with nothing remembered, is still asked. `started` or an agent's
+  `applied` with several open rules says `Confirm the rules first: a; b. Say yes if all of that is you.`
+  (`CONFIRM_RULES`), its note naming the first item only. `RULE_NOTE` says one gap_done confirms the row.
+- **The usage bar first (L36-7).** Linked with no record project and a `used` bar, the tier gap reads `Needs about 25
+  outside users in 90 days; I count 0 so far. Add this project to your record and I read its proof.`
+  (`ADD_PROJECT_USED`, the count from `DEFAULT_THRESHOLDS.used_funded_senders`); with no record project the tier gap's
+  effort is `minutes` (adding the project), any bar. `isProofReadingWhat` reads the new words.
+- **fields_used (L36-8).** On `applied`, keys the program's form (`submission_requirements`) does not have are dropped
+  before the row is written and named last in the note: `fields_used: {keys} are not this form's fields; dropped.`
+  (`droppedFieldsNote`, five named then `and n more`). In-person programs and forms with no fields keep what was sent.
+- **Sent twice (L36-9).** A builder's own send kept under the name because another builder sent the repo reads `Sent
+  {title}. {login} already sent this repo on {day}, so the program may see two.` (`SENT_TWICE`; the login only when the
+  refusal would name it, else `Another builder`). `record`'s `repo_taken` result carries `taken: { day, login }`.
+- **List holes (L36-10).** A list number whose slot in `last_list` is empty reads `Number {n} is not in the list now
+  (already sent). Say a number from the last list.` (`listHole`, `LIST_GONE` in programs.ts); past the list it is the
+  unknown line as before.
+- **Before line (L36-11).** A ready program with `claimed_since` is left out of `Before applying:`.
+- **Next ready (L36-12).** A plain `applied` (linked, not closed, not under standing approval, no co-founder or held or
+  other-claim note, not sent twice) names the next program of the last find's list for this project that is open,
+  remote, ready by find's gate (`readyAtSend`), not sent, skipped, held or claimed by another agent, needs nothing
+  from the builder and has no find blocker (a sign-in, a document the record lacks, outside the standing approval:
+  `blockersOf`; fix round 1, I2), and, for a program that takes a funding file, only once a read found the file in the
+  repo (`funding_json_url`; final fix, M2). Never on a repo not shown to be the builder's (`repoNotMine`), so never
+  after a send kept under the project's name only (`nameOnly`) or a rejection on such a repo (final fix, I1):
+  `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
+  builder submits; `NEXT_LINE`). The result carries `next` ({ program_id, title, money, draft, fields }) and the note
+  starts `Next ready: program_id {id}. On the builder's yes, call track started with that program_id and fill the form
+  from next.fields (keys: ...); no find needed.` (`NEXT_NOTE`, `nextReady` in track.ts). The Next line stores the `apply` offer (`markOffer`). List numbers parse
+  once (`listNumber` in programs.ts, shared by `listRef` and `listHole`).
+- **Demo video (L36-13).** The gap reads `a demo video link (a short screen recording of it working)`
+  (`DEMO_VIDEO_WHAT`); its closing is `Send me the demo video link and I fill it in.` (`DEMO_CLOSING`); the agent note
+  adds `DEMO_NOTE` (pass it as `project.demo_url`, find again); a `demo_url` with the project settles the gap.
+- **Record id (L36-14).** A projects entry with no valid id: `Not saved: each project needs an id (a short lowercase name).`
+
+## v6.1.18 Task 9: every builder string read as a tired builder (lane 38)
+
+- **Closings.** The rule Say names its draft: `Say "yes n" if that rule fits you and I draft {title}.` (`ruleSay(n,
+  many, title)`, closingLine's `ruleTitle`). With nothing ready, a step program with a stated amount whose one yes is the
+  users answer and EarnKit's change (`doUsersOf`, `canDoWithUsers`: every other real gap `agent_can`, no rule, no setup)
+  closes ahead of the rule of a program with no stated amount, and ahead of its own change step: `Nothing is ready yet.
+  Do real people use it? Say yes and I add Base Builder Codes, then apply to {title}.` (a change with its own verb says
+  it, `do` before `what`: `Say yes and I add an MIT license file, then apply to HeroDevs ...`; final fix, I2)
+  (`doUsersClosing`, offer
+  `apply`; the users agent line adds `DO_USERS_NOTE` only when the Say is that closing, `isDoUsersSay`). Linked only:
+  signed out it closes on `USERS_UNLINKED` (the sign-in that checks users, with its link), and find's `APPLY_OFFER` and
+  `TAIL_OFFER` read `..., then apply` so an unconfirmed repo strips it (Task 9 fix round 1). Every ready program on hold closes on `Say go and I apply.`
+  (`HOLD_CLOSING`). The one ready program whose setup has steps of the builder's own (`ownSteps`: not a thing to have,
+  not in person) closes on them, and its row leaves them out: `{Step} first, then say yes and I apply.` (named `to
+  {title}` when other blocks are listed; the one-program reply too). `SAY_SENTENCE` and find's `APPLY_OFFER` read that
+  shape, so it is the reply's one Say and the signed-out sign-in still replaces it.
+- **Gap and note words.** The users gap reads `real users` (`USERS_UNKNOWN`); the unlinked used bar `proof of real
+  users` (`confirmLine`); the archived repo gap `a live repo`. The read notes end `so this is from what you told me.`
+  (slow, paused, other host, unread, private, empty); the fork reads `This repo is a fork, and programs fund the
+  original.` The private note is left out when a shown gap asks for the public repo (`repo:public`), the empty note when
+  one asks for code in a repo (`repo`), as the archived one is. `lookedAgain` reads a repo gap's own words.
+- **Rows and lists.** A held application reads `(on hold, say go to send)`. The answers waiting again read `One answer
+  you changed waits for your approval at earnkit.com/me.` The open full list (`openList` with `all`) numbers its rows
+  1..N and its agent note maps them (`openNumbersNote`); the open list never shows a sign-in line (the link stays in
+  `sign_in`). An in-person Needs list of things reads each field's to-do (`ReadyProgram.todos`, set only on an in-person
+  program whose setup is a thing and only when a to-do differs from its need word): `Needs a YC account, your answers
+  and the batch you want.` Alliance's setup is `your email` (`Needs your email.`).
+- **Money.** No list row or one-program line says `amount not stated`: the seven summaries that said it leave it out,
+  and `programs:check` accepts a figureless summary only when the reward says `amount not stated`, and refuses the words
+  in the summary.
+- **track and record.** `rejected` names the next ready program as `applied` does (`Tracked. Next: {title}, {money}. Say
+  yes and I apply.`), else `Tracked.`; unskip reads `{title} is back in your list.`; a confirmed rule `Tracked: that rule
+  fits you.` (`namedFirst`: `Tracked for {title}: ...`); a live claim `Your agent "{name}" started {title} at {time} UTC
+  and has it.` (`Another of your agents ...` with no name). `record get` with something missing drops the count:
+  `The next application needs {items}. Tell me them and I save them.` (`nextNeedsLine`).
+- **Tier words.** The unverified read is `I found nothing recent to check yet.` (`UNVERIFIED_READ`); the self-funded
+  users flag `Most of your users are wallets your team funded, so programs will not count them.` (`SELF_FUNDED_READ`);
+  other flag rules keep `Your project is flagged on the {words} rule.`; stored lines are reworded on read.
+- **Site copy.** `CONNECTOR_LINE` reads `A connector lets your AI use EarnKit. It connects at once, with no account.`
+  and the Grok Bot prompt says `connect it`; reviewer access is `message EarnKit on X (link below) for reviewer access.`
+  (the screen tool: `from earnkit.com/docs`); `/me` delete: `Programs keep what they already screened.`; the docs screen
+  sorts `by public evidence into five groups`.
+- **Catalog.** Colosseum's rule `a crypto product, new in the sprint`; Meta VR's `a hands-first experience for Meta VR
+  devices`; Ethereum security's `a defined audit scope: lines of code and contract count` (rule item ids follow the
+  note, so a builder who confirmed the old wording is asked once more). HeroDevs' users note no longer repeats its end
+  of life rule. `programs:check` refuses an open source file's public repo rule item with keywords too.
+
+## v6.1.18 Task 10: lane 38 structure (the sign-in joins the action; In person in one line; one step means one step)
+
+- **Sign-in (big 1).** A default reply carries a sign-in sentence only when its one action needs it, and then inside
+  the Say line, first; no sentence promises to remember the builder (`signInSentence` and `signInLine` are gone; the
+  record tool keeps its own `Sign in once at {link} and I remember you.`). The JSON `sign_in` link stays for the agent
+  on every unlinked reply. The forms:
+  - signed out with a repo, any apply offer (find's gate, `beforeSend`): the reply's last apply offer (`applyOfferOf`)
+    said again after the sign-in, `Sign in at {link} so I know the repo is yours, then say yes and I apply to {title}.`
+    (`signInFirst` in ledger.ts; a builder setup step stays between: `..., then publish X, then say yes and I apply.`;
+    no link: `Sign in so I know the repo is yours, ...`). `APPLY_OFFER` already reads the merged form (`, then say yes
+    ... I apply`), so a reply gated twice keeps one sign-in, and no apply is ever offered before it.
+  - the only step program whose change is the unlinked proof, with a rule beside it (`stepRule`, `signInOnly`): the
+    rule Say after the sign-in, `Nothing is ready yet. Sign in at {link} so I can check the repo, then say "yes n" if
+    that rule fits you and I draft {title}.` (`signInCheck`, `signInThen` in reply-words).
+  - nothing else to say (the closing would be the bare `Nothing is ready yet.`) and a proof gap shown: `Nothing is ready
+    yet. Sign in at {link} so I can check the repo, then I look again.` (`signInLookAgain`).
+  - the unlinked users question keeps its own sign-in, `Do real people use it? Say yes, sign in once at {link}, and I
+    check.` (Task 9's forms, unchanged).
+  - any other reply (a yes with no repo, a rule Say, a step of another program, the in-person closing): no sign-in.
+  The one-program reply puts the sign-in first in its action when the program carries the proof: `Sign in at {link} so
+  I can check the repo, then I look again.` (the proof alone), `..., then say yes if that is you and I draft it.`
+  (proof and rules), `..., then tell me when that is done and I apply.` (proof beside other gaps); `actionOffer` reads
+  the action after the sign-in. The unlink notice keeps only its first sentence whenever the Say signs in.
+- **In person (big 2).** The default view's In person block is one line, the numbers kept (`oneLine` blocks in `fit`):
+  `In person, long odds: 4. Y Combinator Winter 2027 Batch, $500,000. 5. Alliance ALL19, $400,000, closes in 6 days.`
+  (`inPersonShort`, `moneyFigure` keeps the figure a money phrase starts with, `inPersonHead`: `In person:` when a row
+  has no long odds; held by another agent, `, being handled by your other agent`). The setup, needs and rules are the
+  agent's (`hidden`) lines and the one-program reply's. An in-person program with an online form (a submission link
+  with fields, `hasForm`; every open catalog program has one) ends its own reply on `Say yes and I draft it for you to
+  send.` (`IN_PERSON_DRAFT`, offer `draft`; a live claim by another agent replaces it with the held line); `You apply in
+  person; the guide has the steps.` (`IN_PERSON_ONE`) only with no form. With no project, an in-person lookup with a
+  form asks for the project (`NO_PROJECT_ONE`). The in-person closing (`IN_PERSON_CLOSING`) is unchanged.
+- **Headings (big 3).** `stepItems(g)`: a row's real gaps, its setup steps and each rule still to confirm. `One step away
+  ({n}):` holds rows with one step (`oneStep`: one item, or a rule-only row, which is one yes); the rest go under `More
+  to do first ({n}):` as `{n}. {title}, {money}: {first item}, then {k} more steps.` (`moreStepsLine`; `1 more step`).
+  The row a rule Say names keeps its whole line, so the rules the Say asks about are on screen. The full list heads
+  every row not ready `Not ready yet ({n}):` (`NOT_READY_HEAD`). Every in-person program with gaps lists in the In
+  person block, never under a step heading (`attendGap`; find's `numbered` and the full list's selection; the default
+  list still shows only rule-only in-person ones; the Monad Blitz bug). Ranks: One step away keeps the step block's
+  (rank 2, min 2, grow 5.7); More to do first takes rank 2 only when it holds the row the closing speaks to, and its
+  other rows grow at 5.85, after the results question (5.8). The more line counts rows both headings hide.
+- **One Say.** `SAY_SENTENCE` already reads `, then say` and the full view's rule check reads `say "yes n"` in either
+  case (`fullSay`), so the merged forms stay the reply's one Say; a new Say kind joining `ONE_SAY_ORDER` composes with
+  them as before (the sign-in is never its own line).
+
+## v6.1.18 Task 11: the license read and the funding manifest (lane 38)
+
+- **License (L38-27).** The repo read keeps GitHub's detected license (`license.spdx_id`) as `RepoFacts.license`
+  (`licenseOf` in repo-facts.ts: the SPDX id, `NOASSERTION` for a license file GitHub does not recognize, null for
+  none; absent when not read, and on rows cached before, which read as unknown until their next read). A program
+  rule with `"check": "license"` (HeroDevs, GitHub Secure Open Source Fund, PayPal, QNX, Sovereign Tech Fund) is
+  settled by it in `evaluate`: an OSI SPDX id (`licenseRead`, a small allow list) confirms it and asks nothing; none is
+  `LICENSE_FILE` (`feature:license`, minutes, agent_can, `do: 'add an MIT license file'`, closing `Say "do" and I add
+  an MIT license file first.`; track gap_done accepts the item on these programs); an unknown or other license, a repo
+  not read, or an archived repo keeps the rule question. The do offer reads a gap's `do` before its `what`.
+- **Funding manifest (L38-1).** FLOSS/fund's form takes `funding_json_url` and its file has no setup step any more.
+  `funding-manifest.ts` builds the `agent_step` (`kind: funding_manifest`): `funding.json` (schema v1.1.0: entity,
+  projects, funding channels and plans) from the record (name, email, company) and the read (license as `spdx:<id>`,
+  topics as tags), every URL the GitHub repo with a `wellKnown` at `.well-known/funding-manifest-urls`, the plan the
+  program's minimum a year by bank; nulls listed in `fill`, and always `entity.name` and `entity.email` (final fix, I3):
+  the file is public, so `MANIFEST_NOTE` has the agent tell the builder it names them and that email, and let them
+  change either, before writing it. Where find's gate takes the apply offer away (signed out, a repo not confirmed or
+  not theirs, the join or which-project question, a repo another builder sent), the reply carries no `agent_step` in
+  any list or alone and no `MANIFEST_NOTE` (`withoutSteps` in `beforeSend`; final fix, M3). It rides on the ready program (list JSON) and the
+  one-program reply, only on a read GitHub repo without the file; the ready row says `I add the funding file to your
+  repo, then apply.` and prefill gives the field to the agent (vouched). The read marks `funding.json` at the tree root
+  and gives `funding_json_url`, the raw URL (`raw.githubusercontent.com/<owner>/<repo>/HEAD/funding.json`), which
+  prefill then fills as EarnKit's. A one-program find on a manifest program the builder started re-checks the push
+  (the claim's time joins `codeDoneAt` as `staleAfter`). With no read (a report, a send's check) the link stays the
+  builder's, so a send under standing approval is outside it until a read finds the file.
+- **Fix round 1.** CC0-1.0 is off the OSI list. A repo body with no `license` key leaves the license unknown. The
+  plan amount is the record's `policy.max_ask_usd` kept within the award floor and ceiling, else the floor
+  (`planAmount`), and there is no step for a program with no floor. The manifest version is v1.1.0, matching its
+  schema. A program another agent holds carries no step, in the list or alone. A truncated tree that does not list
+  funding.json leaves the file unknown (`RepoRead.truncated`); the read never fetches the raw URL, which can lag a push.
+
+## v6.1.18 merge of the two branches (journeys-12 and owner)
+
+- **License rule and the code step.** Task 2 (L18-2) makes code in a public repo the step for an open source program
+  and refuses a rule item that restates it; Task 11 (L38-27) marks the license rules `"check": "license"` so the read
+  settles them. Both stand: `programs:check` refuses a public-repo or license rule item only when it carries no license
+  check, so HeroDevs (its users item, its own end-of-life rule and the checked license rule), GitHub Secure Open Source
+  Fund, PayPal and QNX keep the checked license rule, and Neon keeps none. In `evaluate`, a license-check rule waits
+  while the code step (`NEEDS_CODE` / `NEEDS_PUBLIC_CODE`) stands: with no code there is nothing to read, and the
+  license is never a rule to confirm beside the code step.
+- **Sent ask in the one Say.** `sent_ask` sits in ONE_SAY_ORDER after the started lines and before the sign-in and the
+  closing; the no-project open list keeps L38-31 (no sign-in line) and asks its open sent questions before the ask.
+- **FLOSS manifest in the ready row.** The ready row carries `I add the funding file to your repo, then apply.` when the
+  read gives the agent step; without a read the row keeps `You give: the funding manifest link.` and the L38-30 setup
+  closing no longer applies to FLOSS, whose setup step is gone.
+
+### v6.1.18 Task 10 fix round 1
+
+- A proof sign-in closing (`proofRow`, `proofAlone`) is written only when the closing keeps the reply's Say: a not-sent,
+  started or sent line that says it first leaves the closing a fact with no sign-in. Find's signed-out gate drops every
+  sentence that starts `Sign in` wherever it sits in a line (`withoutSignIn`), so a reply holds one sign-in sentence.
+- A rule-only in-person row keeps `Their rule: X.` on the one In person line, since the in-person closing's yes confirms it.
+- Only the step block holding the row the closing speaks to takes a row at rank 2; the other grows later (One step away
+  5.7, More to do first 5.85), so the applications, Before and report lines fit beside a ready block.
+- A More row whose first step the single-step closing names reads `{n}. {title}, {money}: the step below, then {k} more
+  steps.` (`moreStepsLine(g, closed)`), so the step is said once.
+- `APPLY_OFFER` reads `, then say yes ... I (also) apply` and `[Ss]ay yes and I ..., then apply`; `signInFirst` keeps a
+  users-plus-change offer whole.
+- `signInCheck(link, repo, bar)`: "the repo" only when the project has a repo link (`ReplyOptions.repo`, find passes it);
+  otherwise the proof's bar: `your users`, `that your product is live`, `that your project has code`.
+- `signInLookAgain` and ledger's own `lower` are gone (ledger imports `lowerFirst`); `proofBarOf` stays, for the bar.
 
 ## What v5 deliberately does not do
 
@@ -1315,8 +1574,8 @@ means what the last `Say` offered.
   guide.rules); over its cap it cuts long field sources, the program file's copy of the form (keeping `todo`/`need`),
   sources, descriptions, then the guide's form, and names the guide page.
 - GitHub reads (`github.ts`): one 20 s budget for the whole read (`readBudget`, `READ_BUDGET_MS`); the first commit runs
-  beside the tree and its raw files; past it, `GitHubSlow`, and find says "GitHub was slow; matched on what you told me.
-  I read it again next time." (note `slow`). In `repo-facts.ts` a 404 or private answer is kept in `repo_cache` as
+  beside the tree and its raw files; past it, `GitHubSlow`, and find says "GitHub was slow, so this is from what you told me.
+  I read it again next time." (note `slow`; v6.1.18 L38-7). In `repo-facts.ts` a 404 or private answer is kept in `repo_cache` as
   `{ miss }` for 30 minutes (`MISS_KEEP_MS`), a slow one for 10 (`SLOW_KEEP_MS`), answered with no call and no count;
   a fresh miss or slow read gives the day's real read back and counts on `repoMiss` (20 a day per installation,
   controller ruling), over which the reply is the paused line.

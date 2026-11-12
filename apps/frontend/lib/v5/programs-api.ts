@@ -4,8 +4,7 @@
  * write. A create, a change to submission_url, chains, form or pool_source_url (unless every link
  * checks out, programs-pending.ts), or a change to submit, sign_in or min_tier waits for the owner. Audited.
  */
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { revalidatePath } from 'next/cache';
 import type postgres from 'postgres';
@@ -35,8 +34,10 @@ import {
   uncheckedLink,
   type LinkTarget,
 } from './programs-pending';
+import { findProgramsDir } from './programs-dir';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
+import { SENT, sendCounts, sendRows, throughEarnkit } from './stats';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
 /** The largest body the API reads. */
@@ -116,11 +117,7 @@ export function apiRuleProblems(p: Program, now: Date): string[] {
   return problems;
 }
 
-/** Where programs/*.json are at run time (`next start` runs in apps/frontend), or null. */
-export function findProgramsDir(cwd = process.cwd()): string | null {
-  for (const dir of [join(cwd, '..', '..', 'programs'), join(cwd, 'programs')]) if (existsSync(dir)) return dir;
-  return null;
-}
+export { findProgramsDir } from './programs-dir';
 
 /** The ids of the curated program files. */
 function curatedIds(dir: string | null): Set<string> {
@@ -455,6 +452,86 @@ export async function writesGet(request: Request, now = new Date()): Promise<Res
     return json({ ok: true, writes, pending });
   } catch (err) {
     console.error(`[programs-api] writes failed: ${errTag(err)}`);
+    return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
+  }
+}
+
+// ---- applications (v6.1.18 Task 5, L18-5) ----
+
+/** The owner's list of sends: at most this many rows a call (default APPLICATIONS_DEFAULT). */
+export const APPLICATIONS_MAX = 500;
+export const APPLICATIONS_DEFAULT = 100;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * GET /api/programs/applications?since=<ISO>&limit=<1..500>, owner only (authFailure): every send (applied or any
+ * result), newest first by its send time (`sent_at`, else `at`). `since` filters the rows only (a bad one is 400
+ * `since: an ISO date`); `limit` defaults to 100, a number over 500 is read as 500, and 0, a negative or a non-number is
+ * 400 `limit: 1 to 500`. `totals` and `by_program` are always all time: `agent`, `drafted` (a builder sent an EarnKit
+ * draft), `reported` (EarnKit had no part), `auto` (standing approval); see `sendCounts` in stats.ts. A row names the
+ * builder by GitHub login (a `b:` owner, or the linked builder of an `i:` owner's installation) and the agent by its
+ * client name, and says `through_earnkit` (L36-3); never an email, a sign-in code, the owner key or an installation id.
+ */
+export async function applicationsGet(request: Request): Promise<Response> {
+  const denied = authFailure(request);
+  if (denied) return denied;
+  const params = new URL(request.url).searchParams;
+  const sinceText = params.get('since')?.trim() ?? null;
+  let since: Date | null = null;
+  if (sinceText !== null) {
+    const t = Date.parse(sinceText);
+    if (!ISO_DAY.test(sinceText) || !Number.isFinite(t)) return json({ ok: false, error: 'since: an ISO date' }, 400);
+    since = new Date(t);
+  }
+  const limitText = params.get('limit')?.trim() ?? null;
+  let limit = APPLICATIONS_DEFAULT;
+  if (limitText !== null) {
+    if (!/^\d{1,9}$/.test(limitText) || Number(limitText) < 1) return json({ ok: false, error: `limit: 1 to ${APPLICATIONS_MAX}` }, 400);
+    limit = Math.min(Number(limitText), APPLICATIONS_MAX);
+  }
+  try {
+    const db = sql();
+    const [t] = await db<{ all: string; agent: string; drafted: string; reported: string; auto: string }[]>`
+      WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s`;
+    const byProgram = await db<{ program_id: string; title: string | null; sent: string }[]>`
+      WITH s AS (${sendRows(db)})
+      SELECT program_id, max(title) AS title, count(*) AS sent FROM s GROUP BY program_id ORDER BY count(*) DESC, program_id`;
+    const rows = await db<{
+      application_id: string | null; program_id: string; title: string | null; status: string; submitted_by: string | null; auto_applied: boolean;
+      sent_at: Date | null; at: Date; builder: string | null; agent: string | null; fields_used: string[] | null; amount_usd: string | null; through: boolean;
+    }[]>`
+      SELECT a.application_id, a.program_id, a.title, a.status, a.submitted_by, a.auto_applied, a.sent_at, a.at,
+             b.login AS builder, i.client_name AS agent, a.fields_used, a.amount_usd, ${throughEarnkit(db)} AS through
+      FROM applications a
+      LEFT JOIN installations i ON i.id = a.installation_id
+      LEFT JOIN builders b ON b.id::text = CASE WHEN a.owner LIKE 'b:%' THEN substring(a.owner from 3) ELSE i.builder_id::text END
+      WHERE a.status = ANY(${SENT}) ${since ? db`AND COALESCE(a.sent_at, a.at) >= ${since}` : db``}
+      ORDER BY COALESCE(a.sent_at, a.at) DESC, a.application_id DESC LIMIT ${limit}`;
+    const by = (v: string | null) => (v === 'agent' || v === 'builder' ? v : null);
+    return json({
+      ok: true,
+      totals: {
+        all: Number(t.all), agent: Number(t.agent), drafted: Number(t.drafted), reported: Number(t.reported), auto: Number(t.auto),
+        by_program: byProgram.map((p) => ({ program_id: p.program_id, title: p.title ?? p.program_id, sent: Number(p.sent) })),
+      },
+      rows: rows.map((r) => ({
+        application_id: r.application_id,
+        program_id: r.program_id,
+        title: r.title ?? r.program_id,
+        status: r.status,
+        submitted_by: by(r.submitted_by),
+        auto_applied: r.auto_applied,
+        sent_at: r.sent_at?.toISOString() ?? null,
+        at: r.at.toISOString(),
+        builder: r.builder,
+        agent: r.agent,
+        fields_used: r.fields_used?.length ?? 0,
+        amount_usd: r.amount_usd === null ? null : Number(r.amount_usd),
+        through_earnkit: r.through,
+      })),
+    });
+  } catch (err) {
+    console.error(`[programs-api] applications failed: ${errTag(err)}`);
     return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
   }
 }

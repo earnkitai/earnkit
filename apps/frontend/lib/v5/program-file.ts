@@ -206,12 +206,16 @@ const EligibilityItemSchema = z
      *  the program shows only in the full list. A licence rule carries none; a person rule may name who it is for
      *  ("student", "college": L1e-2, v6.1.13), and then it shows only on a hit. Eight at most. */
     keywords: z.array(z.string().min(1).max(30).refine((k) => k === k.toLowerCase() && k === k.trim(), 'a keyword is lower-case, no outer spaces')).min(1).max(8).optional(),
+    /** L38-27 (v6.1.18 Task 11), a rule only: `license` when the rule is an open source license the repo read settles:
+     *  a license GitHub detects as OSI-approved confirms it, none is the license file gap, any other keeps the question. */
+    check: z.enum(['license']).optional(),
   })
   // A rule is its note, read as a sentence ("Their rule: {note}."): a note, no value, no full stop of its own.
   .refine((i) => i.kind !== 'rule' || (i.note !== undefined && i.value === undefined && !i.note.endsWith('.')), {
     message: 'a rule needs a note (no trailing full stop) and takes no value',
   })
-  .refine((i) => i.kind === 'rule' || i.keywords === undefined, { message: 'only a rule takes keywords' });
+  .refine((i) => i.kind === 'rule' || i.keywords === undefined, { message: 'only a rule takes keywords' })
+  .refine((i) => i.kind === 'rule' || i.check === undefined, { message: 'only a rule takes check' });
 export type EligibilityItem = z.infer<typeof EligibilityItemSchema>;
 
 export const PROGRAM_CATEGORIES = ['grant', 'hackathon', 'investment', 'bounty'] as const;

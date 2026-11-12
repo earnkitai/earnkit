@@ -12,9 +12,10 @@
  * stated maximum, else its pool, else 10,000,000, is refused (`overCap`, converted for the check only); investments
  * are never "asked".
  */
+import { lowerFirst } from '../v6/reply-words';
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
-import { codeChecked, itemKey } from './eligibility';
+import { LICENSE_FILE, codeChecked, itemKey } from './eligibility';
 import { getProgram, isOpenAt, programsById, type ProgramRow } from './programs';
 import { dayWords } from './deadline';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
@@ -151,14 +152,35 @@ export const ALREADY_SENT_UNLINKED = 'Already sent from your account; nothing re
 export const NOT_YOUR_REPO = 'This repo is not yours; I apply only with repos you commit to.';
 /** FR-1 (fix round 1): a signed-out builder's claim or send with a repo: sign-in comes first, never "not yours". */
 export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
-/** FR-1: find's one Say for a signed-out builder with a repo: no apply offer until linked. */
-export const SIGN_IN_FIRST_SAY = 'Sign in once and I check the repo is yours; then say yes.';
-/** FR-1, N5 (fix round 2): the same line with the sign-in link when the reply has one (one sign-in line, never two). */
-export const SIGN_IN_FIRST_LINK = (link: string): string => `Sign in once at ${link} and I check the repo is yours; then say yes.`;
-/** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours". */
-export const CANT_CONFIRM_REPO = 'I could not confirm this repo is yours; tell me your GitHub login on it or send it yourself.';
+/**
+ * FR-1, N5 (fix round 2); L38 big 1 (v6.1.18 Task 10): find's one Say for a signed-out builder with a repo: the apply
+ * offer the reply made (`offer`), with the sign-in first in the same sentence, so no apply can be offered before it:
+ * "Sign in at {link} so I know the repo is yours, then say yes and I apply to {title}." A setup step of the builder's own
+ * stays between them ("..., then publish X, then say yes and I apply."); an offer it cannot read closes on the plain yes.
+ * With no link to give, the same words without one. Pure.
+ */
+export function signInFirst(link: string | null, offer: string | null = null): string {
+  const head = link ? `Sign in at ${link} so I know the repo is yours` : 'Sign in so I know the repo is yours';
+  let o = (offer ?? '').trim();
+  // An offer that already signs in first (a reply gated twice) keeps only its action.
+  const merged = /^Sign in\b[^,]*, then (.+)$/.exec(o);
+  if (merged) o = merged[1];
+  const step = /^(.+?) first, then (say yes\b.*\bI (also )?apply\b.*)$/i.exec(o);
+  if (step) return `${head}, then ${lowerFirst(step[1])}, then ${step[2]}`;
+  // Fix round 1 (M5): "Say yes and I add X, then apply to {title}." keeps its change too.
+  if (/^say yes\b.*\bI (also )?apply\b|^say yes\b.*, then apply\b/i.test(o)) return `${head}, then ${lowerFirst(o)}`;
+  return `${head}, then say yes and I apply.`;
+}
+/** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".
+ *  L36-6 (v6.1.18): the builder is signed in, so EarnKit has their login: name the repo it could not read and the one
+ *  way on. */
+export const CANT_CONFIRM_REPO = (key: string): string =>
+  `I could not read ${key.replace(/^https:\/\//, '')}, so I cannot check it is yours. Send it yourself and tell me when it is in.`;
 /** L28-3: the agent note when a builder-submitted send with a repo that is not theirs is kept under the name only. */
 export const NAME_ONLY_NOTE = 'The repo is not yours; recorded under the project name only.';
+/** L36-9 (v6.1.18): a builder's own send of a repo another builder already sent: recorded, and the builder hears it. */
+export const SENT_TWICE = (title: string, day: string, login: string | null): string =>
+  `Sent ${title}. ${login ? quoteName(login) : 'Another builder'} already sent this repo on ${day}, so the program may see two.`;
 /** L28-1: the agent note when a builder-submitted send of a repo another account sent is kept under the name only. */
 export const NAME_ONLY_SENT_NOTE = 'Another account already sent this repo; recorded under the project name only.';
 /** L35-1 (v6.1.16.1 Task 2): a tied builder's yes to the join question when another builder already sent the repo:
@@ -366,7 +388,8 @@ export async function record(
     const items = eligibilityOf(program.file);
     // T3-R1 (v6.1.13): the code-in-a-repo step ('repo') is taken, re-checked by the read; fix round 1 (T7-F2, v6.1.14):
     // for any program, as the bar's code step (L12-7) shows on programs that do not require a repo too.
-    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo'])];
+    // L38-27 (v6.1.18 Task 11): a license rule's license file gap is its own item.
+    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo', ...(items.some((x) => x.check === 'license') ? [LICENSE_FILE.item] : [])])];
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
     if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }
@@ -437,7 +460,12 @@ export async function record(
         else if (other && status === 'held') return { ok: false, note: NOTHING_TO_HOLD_REPO } as const;
         // Controller ruling: never the other builder's result; their login only on the caller's strong tie, and (L35-20)
         // only when the match is by this repo's key.
-        else if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin && other.by === 'key' ? other.login : null), repo_taken: true } as const;
+        else if (other) {
+          const day = dayWords(other.at, now);
+          const login = o.showLogin && other.by === 'key' ? other.login : null;
+          // L36-9 (v6.1.18): the day and the login the refusal names, for a builder's own send kept under the name.
+          return { ok: false, note: ALREADY_SENT_REPO(day, login), repo_taken: true, taken: { day, login } } as const;
+        }
       }
       // L35-4: a send over a co-founder's live claim is recorded and clears it (below, on the recording path).
       if (status === 'applied' && repoKey) cofounderClaim = (await claimedForRepo(tx, programId, repoKey, owner, o.repoId ?? null, now)) !== null;
@@ -645,7 +673,7 @@ export async function record(
  */
 export type RecordResult =
   | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true; outside?: true; cofounder_sent?: true; cofounder_claim?: true; off_host_sent?: true }
-  | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true };
+  | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string; repo_taken?: true; taken?: { day: string; login: string | null } };
 
 /**
  * Sends under standing approval since `since` (by the send time; a row from before v6.1.9 without one reads its
@@ -757,14 +785,15 @@ export const APPLICATIONS_SHOWN = 5;
 
 /**
  * L29-1 (v6.1.16 Task 15): "Your applications: PayPal AI Hackathon (sent Nov 3, waiting), Thiel Fellowship (sent Oct 30,
- * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(held)"; a win sent outside EarnKit
+ * won $10,000)", at most five, then " and {n} more."; one the builder held reads "(on hold, say go to send)"; a win sent outside EarnKit
  * has no send date: "(won EUR 2,000)" (v6.1.16 Task 15 N4, v6.1.17). Null when there are none. Pure.
  */
 export function applicationsLine(apps: ApplicationItem[], now: Date): string | null {
   if (apps.length === 0) return null;
   const words = (a: ApplicationItem): string => {
     const day = a.sent_at ? dayWords(new Date(a.sent_at), now) : null;
-    if (a.status === 'held') return 'held';
+    // L38-26 (v6.1.18): the row says how to lift the hold, never a Say sentence of its own.
+    if (a.status === 'held') return 'on hold, say go to send';
     const result = a.status === 'won' ? (a.amount ? `won ${a.amount}` : `won, ${AMOUNT_NOT_GIVEN}`) : a.status === 'no_result' ? 'no result' : a.status;
     // v6.1.16 Task 15 N4 (v6.1.17): with no send date (a send outside EarnKit), the result alone.
     return day ? `sent ${day}, ${result}` : result;
@@ -1112,6 +1141,73 @@ export async function outcomeAsksDue<T extends { program_id: string }>(installat
     RETURNING program_id`;
   const shown = new Set(rows.map((r) => r.program_id));
   return due.filter((d) => shown.has(d.program_id));
+}
+
+/** L36-1 (v6.1.18 Task 4): hours after a builder-submits program is started before EarnKit asks whether it was sent. */
+export const SENT_ASK_AFTER_HOURS = 1;
+/** L18-4 (v6.1.18 Task 4): days before the same installation asks again whether a form went out. */
+export const SENT_ASK_EVERY_DAYS = 7;
+
+/** A program the builder sends themselves, started and not yet sent (L18-4): its title, when it was started and the
+ *  project key its started row carries (null for a row with none). */
+export type SentAsk = { program_id: string; title: string; started_at: string; project_id: string | null };
+
+/**
+ * L18-4, L36-1 (v6.1.18 Task 4): every started row (not one the builder held) at least SENT_ASK_AFTER_HOURS old whose
+ * program the builder submits (`submit` 'builder'). A row is one per owner, program and project, so a started row is
+ * one with no send or result on that project. Fix round 1: with `here`, only the rows of this project (a row with no
+ * project is every project's); without, every row (a find with no project). One ask per program, the earliest start;
+ * by start time.
+ */
+export async function askSent(owner: string, programs: ProgramRow[], now: Date, here?: (projectId: string) => boolean): Promise<SentAsk[]> {
+  const rows = await sql()<{ program_id: string; project_id: string | null; started: Date }[]>`
+    SELECT program_id, project_id, COALESCE(claimed_at, at) AS started FROM applications
+    WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL
+      AND COALESCE(claimed_at, at) <= ${new Date(now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000)}
+    ORDER BY COALESCE(claimed_at, at), program_id`;
+  const first = new Map<string, { at: Date; project: string | null }>();
+  for (const r of rows) {
+    if (here && r.project_id && !here(r.project_id)) continue;
+    if (!first.has(r.program_id)) first.set(r.program_id, { at: r.started, project: r.project_id });
+  }
+  const byId = await withOwn([...first.keys()], programs);
+  return [...first]
+    .map(([id, x]) => ({ p: byId.get(id), ...x }))
+    .filter((x): x is { p: ProgramRow; at: Date; project: string | null } => x.p?.file.submit === 'builder')
+    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project }));
+}
+
+/**
+ * L18-4 (v6.1.18 Task 4): of `due`, the ones this installation has not asked in the last SENT_ASK_EVERY_DAYS days (its
+ * own `sent_asks` row for the program, by UTC day). Read only: fix round 1 marks only the ones the reply shows
+ * (`markSentAsked`).
+ */
+export async function sentAsksOpen<T extends { program_id: string }>(installationId: number, due: T[], now: Date): Promise<T[]> {
+  if (due.length === 0) return [];
+  const rows = await sql()<{ program_id: string }[]>`
+    SELECT program_id FROM sent_asks WHERE installation_id = ${installationId} AND program_id IN ${sql()(due.map((d) => d.program_id))}
+      AND asked_on > ${utcDate(now)}::date - ${SENT_ASK_EVERY_DAYS}::int`;
+  const recent = new Set(rows.map((r) => r.program_id));
+  return due.filter((d) => !recent.has(d.program_id));
+}
+
+/** L18-4 (v6.1.18 Task 4, fix round 1): marks the sent questions the builder text showed as asked today. */
+export async function markSentAsked(installationId: number, owner: string, programIds: string[], now: Date): Promise<void> {
+  if (programIds.length === 0) return;
+  const day = utcDate(now);
+  await sql()`
+    INSERT INTO sent_asks ${sql()([...new Set(programIds)].map((id) => ({ installation_id: installationId, owner, program_id: id, asked_on: day })))}
+    ON CONFLICT (installation_id, program_id) DO UPDATE SET owner = EXCLUDED.owner, asked_on = EXCLUDED.asked_on`;
+}
+
+/**
+ * L18-4 (v6.1.18 Task 4): `sentAsksOpen` and `markSentAsked` in one: the ones this installation has not asked in the
+ * last SENT_ASK_EVERY_DAYS days, marked as asked today. A second installation of the same builder asks on its own.
+ */
+export async function sentAsksDue<T extends { program_id: string }>(installationId: number, owner: string, due: T[], now: Date): Promise<T[]> {
+  const open = await sentAsksOpen(installationId, due, now);
+  await markSentAsked(installationId, owner, open.map((d) => d.program_id), now);
+  return open;
 }
 
 /** Stamps `asked_outcome_at` for the record (L23-4: it no longer gates the question). */

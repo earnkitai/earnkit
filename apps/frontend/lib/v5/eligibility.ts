@@ -24,6 +24,8 @@ export type Gap = {
   agent_can: boolean;
   /** v6.1.14 (L1f-1, L1f-3): the step that closes the gap, said after "First:" on its line and in the closing. */
   setup?: string;
+  /** L38-27 (v6.1.18 Task 11): the change EarnKit makes on "do", when it is not `what` ("add an MIT license file"). */
+  do?: string;
   details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null; tier?: string; min_tier?: string };
 };
 export type Verdict = {
@@ -50,6 +52,9 @@ const chainDetails = (chain: string) => {
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };
 };
 
+/** L36-13 (v6.1.18): the demo video gap's words. */
+export const DEMO_VIDEO_WHAT = 'a demo video link (a short screen recording of it working)';
+
 /** One item's gap. `testnetOnly` (L1g-7, v6.1.15): the project reports the item's chain on a testnet only, so the
  *  deploy step names its mainnet. */
 function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
@@ -60,7 +65,8 @@ function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
     case 'contract_on': return { ...base, what: `a contract on ${chainName(v)}`, details: chainDetails(v) };
     case 'builder_codes': return { ...base, what: 'add Base Builder Codes to the app', agent_can: true };
     case 'live_product': return { ...base, what: 'put a live link up' };
-    case 'demo_video': return { ...base, what: 'a demo video' };
+    // L36-13 (v6.1.18): an action the builder can take today; never a length the program did not state.
+    case 'demo_video': return { ...base, what: DEMO_VIDEO_WHAT };
     case 'integration': return { ...base, what: `add ${integrationLabel(v) ?? v}`, agent_can: true, details: { docs: integrationDocs(v) } };
     case 'feature': return { ...base, what: i.note || v || 'a feature the program asks for' };
     case 'rule': return { ...base, what: i.note ?? '' };
@@ -85,7 +91,8 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
       case 'contract_on': return `a contract on ${chain}`;
       case 'builder_codes': return 'Base Builder Codes in the app';
       case 'live_product': return 'a live link';
-      case 'repo': return g.item === 'repo' ? 'code in a repo' : g.what;
+      // Task 2 review minor (v6.1.18): the gap's own words, so an open source program reads "code in a public repo".
+      case 'repo': return g.what;
       default: return g.what.replace(/^add /, '');
     }
   });
@@ -96,12 +103,32 @@ const date = (s: string) => s.slice(0, 10);
 const startedQuestion = (i: EligibilityItem): Gap => ({ kind: 'new_work_after', item: itemKey(i), what: 'tell me when you started this', effort: 'minutes', agent_can: false });
 /** T3-R1 (v6.1.13): code in a repo, the step a needs_repo grant for existing code is from an idea or an empty repo. */
 export const NEEDS_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a repo', effort: 'days', agent_can: false };
+/** L18-2 (v6.1.18): the same step for an open source program: the code goes in a public repo. */
+export const NEEDS_PUBLIC_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a public repo', effort: 'days', agent_can: false };
 /** L1f-1 (v6.1.14): an open source program and a private repo: the repo made public, re-checked by the next report or read. */
 export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes', agent_can: false };
-/** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question. */
-export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'the repo is archived', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
-/** Users not reported: a question only the builder answers, not weeks of work. */
-const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
+/** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question.
+ *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
+export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+/** L38-27 (v6.1.18 Task 11): a license rule and a repo read that found no license file: EarnKit adds one on "do". */
+export const LICENSE_FILE: Gap = {
+  kind: 'feature', item: 'feature:license', what: 'a license file', do: 'add an MIT license file', effort: 'minutes', agent_can: true,
+  details: { docs: 'https://choosealicense.com/licenses/mit/' },
+};
+/**
+ * L38-27: the SPDX ids GitHub reports for common OSI-approved licenses (GitHub reports `GPL-3.0`, `LGPL-2.1`,
+ * `AGPL-3.0` without `-only`; the `-only` and `-or-later` spellings are kept for safety).
+ */
+// Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it reads as unknown and the rule question stays.
+const OSI = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0', 'MPL-2.0', 'ISC', 'Unlicense', 'EPL-2.0', '0BSD']);
+const osiId = (id: string) => OSI.has(id.replace(/-(only|or-later)$/, ''));
+/** L38-27: what the read says of a license rule: an OSI license, no license file, or nothing to go on (not read, or a
+ *  license GitHub does not recognize or that is not on the list). Pure. */
+export const licenseRead = (facts: Pick<RepoFacts, 'license'>): 'osi' | 'none' | 'unknown' =>
+  facts.license === null ? 'none' : typeof facts.license === 'string' && osiId(facts.license) ? 'osi' : 'unknown';
+/** Users not reported: a question only the builder answers, not weeks of work. L38-4 (v6.1.18): `real users`, the one
+ *  wording of the users gap. */
+const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'real users', effort: 'hours', agent_can: false };
 
 /**
  * B20d (v6.1.9, fix round 2): whether the project exists for the users question: a repo read that holds code (not
@@ -159,7 +186,10 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does. A repo reported private is a repo: its
   // step is making it public (L1f-1), and the read settles the code then.
-  if (p.needs_repo && forExistingCode(p) && !facts.private && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
+  // L18-2 (v6.1.18): a program that needs a repo (any category) and a project with no repo link: the code is the step,
+  // in a public repo when the program is open source (never also a rule to confirm). The empty-repo rule keeps its test.
+  if (p.needs_repo && !facts.private && !facts.repo_url) gaps.push(p.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
+  else if (p.needs_repo && forExistingCode(p) && !facts.private && (facts.notes ?? []).includes('empty')) gaps.push(NEEDS_CODE);
   // L1f-1 (v6.1.14): an open source program is never ready for a private repo (reported private, or a link not read
   // for being private): its step is making the repo public.
   if (p.open_source && (facts.private || (facts.notes ?? []).includes('private'))) gaps.push(PUBLIC_REPO);
@@ -196,9 +226,26 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         break;
       }
       case 'in_person': inPerson = true; break;
-      case 'demo_video':
-      case 'feature':
-      case 'rule': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'rule': {
+        if (done.has(itemKey(i))) break;
+        // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
+        // the license file gap (once, and closed by its own done); anything else keeps the question. An archived repo's
+        // license is not the live repo's: its step is the live repo, then the read.
+        // v6.1.18 merge: with no code yet (the L18-2 code step), the read has nothing to settle and the license is never
+        // a rule to confirm: the code step comes first, then the read.
+        if (i.check === 'license' && gaps.some((g) => g.kind === 'repo' && g.item === 'repo')) break;
+        const read = i.check === 'license' && !(facts.notes ?? []).includes('archived') ? licenseRead(facts) : 'unknown';
+        if (read === 'osi') break;
+        if (read === 'none') {
+          if (!done.has(LICENSE_FILE.item) && !gaps.includes(LICENSE_FILE)) gaps.push(LICENSE_FILE);
+          break;
+        }
+        gaps.push(gapOf(i));
+        break;
+      }
+      // L36-13 (v6.1.18): a demo link passed with the project settles the demo video.
+      case 'demo_video': if (!facts.demo_url && !done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'feature': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
     }
   }
 
@@ -208,7 +255,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const real = gaps.filter((g) => g.kind !== 'rule');
   const ordered = [...real, ...gaps.filter((g) => g.kind === 'rule')];
   // O3 (v6.1.10): the started question is asked, never a reason to refuse: it counts toward neither limit.
-  const work = real.filter((g) => !(g.kind === 'new_work_after' && g.effort === 'minutes'));
+  // L18-2 (v6.1.18): the code step of a program for new work (a hackathon, an event) is the entry itself, so it counts
+  // toward neither limit either; for a grant for existing code it stays a real change in the ordinary slots (T3-R1).
+  const work = real.filter((g) => !(g.kind === 'new_work_after' && g.effort === 'minutes') && !(g.kind === 'repo' && g.item === 'repo' && !forExistingCode(p)));
   if (work.length > MAX_GAPS || work.some((g) => g.effort === 'weeks')) {
     return out('no', ordered, `needs ${work.map((g) => g.what).join(', ')}`);
   }

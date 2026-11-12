@@ -16,7 +16,7 @@ await run('L24-2', 22, async (c) => {
   const r = await call(A, 'find', { program_id: rule, project: proj });
   const stands = /Your yes stands/.test(again.sb);
   const noteBad = /without asking again/.test(r.note + again.note);
-  // v6.1.16 Task 11 N5: the precondition follows the one-program users text (`... : tell me if real people use it.`), not a `?`.
-  const asked = /real people use it/.test(q.sb);
+  // v6.1.16 Task 11 N5: the precondition follows the one-program users text, not a `?`; v6.1.18 L38-4: `...: real users.`.
+  const asked = /: real users\./.test(q.sb);
   return { pass: asked && /say yes|apply/i.test(again.sb) && !stands && !noteBad, actual: `${asked ? '' : 'users question not asked; '}question "${q.sb.split('\n').pop()}", yes recorded "${gd.sb}"; next reply "${again.sb.replace(/\n/g, ' ')}"; rule note ${noteBad ? 'says "draft and submit it without asking again"' : 'clean'}` };
 });
