@@ -701,3 +701,48 @@ test('v6.1.16 Task 15 N4 (v6.1.17): a win sent outside EarnKit has no send date:
   assert.equal(applicationsLine([{ program_id: 'thiel', title: 'Thiel Fellowship', status: 'won', sent_at: null, result_at: '2026-11-11T10:00:00.000Z', amount: 'EUR 2,000' }], now), 'Your applications: Thiel Fellowship (won EUR 2,000).');
   assert.equal(applicationsLine([{ program_id: 'a', title: 'A Grant', status: 'won', sent_at: '2026-11-03T10:00:00.000Z', result_at: '2026-11-11T10:00:00.000Z', amount: '$5,000' }], now), 'Your applications: A Grant (sent Nov 3, won $5,000).');
 });
+
+// ---- v6.1.17 Task 5: the untied stranger and find's silent move (I3, v6.1.16.1 close) ----
+
+test('I3 (v6.1.17 Task 5): ten untied strangers at once, each a find with the victim\'s repo racing a send and a started by name, land 0 rows on the repo; the victim\'s sends go through', async () => {
+  const { find } = await import('./find');
+  const { track } = await import('./track');
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const key = 'i3v/app';
+  const facts = {
+    chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_lead: 'It keeps time.', contributors: ['i3v'], repo_id: 359901,
+  };
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
+    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at`;
+  let gid = 959_000;
+  const signedIn = async (login: string) => {
+    const b = await upsertBuilder({ github_id: ++gid, login, name: login, avatar_url: null }, NOW);
+    const [r] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'i3l-' + Math.random()}, 'Claude Code') RETURNING id`;
+    await linkInstallation(r.id as number, b.id, NOW);
+    return { installationId: r.id as number, builderId: b.id as number | null, now: NOW, owner: `b:${b.id}` };
+  };
+  const VIC = { name: 'App', description: 'An app.', repo_url: `https://github.com/${key}` };
+  const NAME = { name: 'App', description: 'An app.' };
+  const send = (c: { installationId: number; builderId: number | null; now: Date }, program_id: string, project: Record<string, unknown>, by = 'agent') =>
+    track(c, { program_id, status: 'applied', submitted_by: by, fields_used: ['project_name'], project });
+  const ids = Array.from({ length: 10 }, (_, k) => ({ sent: `i3l-s${k}`, start: `i3l-c${k}` }));
+  for (const { sent, start } of ids) for (const id of [sent, start]) await prog(id, { title: `I3L ${id}` });
+  const strangers = await Promise.all(ids.map((_, k) => signedIn(`i3l-rms-${k}`)));
+  // All 30 calls at once: every stranger's find carries the victim's repo while its own sends go by name. Each
+  // stranger's sends start k ms after its find, so across the ten they land before, during and after find's read of the name.
+  const after = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  await Promise.all(strangers.flatMap((s, k) => [
+    find({ ...s, linkUrl: async () => null }, { project: VIC }),
+    after(k).then(() => send(s, ids[k].sent, NAME, 'builder')),
+    after(k).then(() => track(s, { program_id: ids[k].start, status: 'started', project: NAME })),
+  ]));
+  const owners = strangers.map((s) => s.owner);
+  const landed = await sql()`SELECT owner, program_id FROM applications WHERE owner = ANY(${owners}) AND (repo_key IS NOT NULL OR project_id LIKE 'https://%')`;
+  assert.deepEqual([...landed], []);
+  const vic = await signedIn('i3v');
+  for (const { sent, start } of ids) for (const id of [sent, start]) {
+    assert.equal((await send({ ...vic, now: new Date(NOW.getTime() + 3_600_000) }, id, VIC)).show_to_builder, `Sent I3L ${id}.`);
+  }
+});
