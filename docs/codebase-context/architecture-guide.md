@@ -1499,6 +1499,22 @@ means what the last `Say` offered.
   read gives the agent step; without a read the row keeps `You give: the funding manifest link.` and the L38-30 setup
   closing no longer applies to FLOSS, whose setup step is gone.
 
+### v6.1.18 Task 10 fix round 1
+
+- A proof sign-in closing (`proofRow`, `proofAlone`) is written only when the closing keeps the reply's Say: a not-sent,
+  started or sent line that says it first leaves the closing a fact with no sign-in. Find's signed-out gate drops every
+  sentence that starts `Sign in` wherever it sits in a line (`withoutSignIn`), so a reply holds one sign-in sentence.
+- A rule-only in-person row keeps `Their rule: X.` on the one In person line, since the in-person closing's yes confirms it.
+- Only the step block holding the row the closing speaks to takes a row at rank 2; the other grows later (One step away
+  5.7, More to do first 5.85), so the applications, Before and report lines fit beside a ready block.
+- A More row whose first step the single-step closing names reads `{n}. {title}, {money}: the step below, then {k} more
+  steps.` (`moreStepsLine(g, closed)`), so the step is said once.
+- `APPLY_OFFER` reads `, then say yes ... I (also) apply` and `[Ss]ay yes and I ..., then apply`; `signInFirst` keeps a
+  users-plus-change offer whole.
+- `signInCheck(link, repo, bar)`: "the repo" only when the project has a repo link (`ReplyOptions.repo`, find passes it);
+  otherwise the proof's bar: `your users`, `that your product is live`, `that your project has code`.
+- `signInLookAgain` and ledger's own `lower` are gone (ledger imports `lowerFirst`); `proofBarOf` stays, for the bar.
+
 ## What v5 deliberately does not do
 
 - Submit any form, hold or ask for a wallet, pay anyone, launch or offer a token.

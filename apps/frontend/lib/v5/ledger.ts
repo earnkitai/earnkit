@@ -12,6 +12,7 @@
  * stated maximum, else its pool, else 10,000,000, is refused (`overCap`, converted for the check only); investments
  * are never "asked".
  */
+import { lowerFirst } from '../v6/reply-words';
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
 import { LICENSE_FILE, codeChecked, itemKey } from './eligibility';
@@ -160,14 +161,14 @@ export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
  */
 export function signInFirst(link: string | null, offer: string | null = null): string {
   const head = link ? `Sign in at ${link} so I know the repo is yours` : 'Sign in so I know the repo is yours';
-  const lower = (x: string) => (/^I\b/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1));
   let o = (offer ?? '').trim();
   // An offer that already signs in first (a reply gated twice) keeps only its action.
   const merged = /^Sign in\b[^,]*, then (.+)$/.exec(o);
   if (merged) o = merged[1];
   const step = /^(.+?) first, then (say yes\b.*\bI (also )?apply\b.*)$/i.exec(o);
-  if (step) return `${head}, then ${lower(step[1])}, then ${step[2]}`;
-  if (/^say yes\b.*\bI (also )?apply\b/i.test(o)) return `${head}, then ${lower(o)}`;
+  if (step) return `${head}, then ${lowerFirst(step[1])}, then ${step[2]}`;
+  // Fix round 1 (M5): "Say yes and I add X, then apply to {title}." keeps its change too.
+  if (/^say yes\b.*\bI (also )?apply\b|^say yes\b.*, then apply\b/i.test(o)) return `${head}, then ${lowerFirst(o)}`;
   return `${head}, then say yes and I apply.`;
 }
 /** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".

@@ -43,16 +43,18 @@ export type ProofBar = keyof typeof CONFIRM;
 /**
  * L38 big 1 (v6.1.18 Task 10): a sign-in is said only when the reply's one action needs it, and then inside that
  * action's line, first: the repo check a program's proof waits on ("Sign in at {link} so I can check the repo, then
- * ..."). With no link to give (linkOf failed, or after the account was deleted) the same words without one. No sign-in
+ * ..."). With no link to give (linkOf failed, or after the account was deleted) the same words without one. Fix round 1 (M6): "the repo" only when
+ * the project has a repo link; otherwise what the proof gap's bar asks ("your users"). No sign-in
  * sentence promises to remember the builder. Pure.
  */
-export const signInCheck = (link: string | null): string => (link ? `Sign in at ${link} so I can check the repo` : 'Sign in so I can check the repo');
+export const signInCheck = (link: string | null, repo = true, bar: ProofBar = 'used'): string =>
+  `Sign in${link ? ` at ${link}` : ''} so I can check ${repo ? 'the repo' : CHECKS[bar]}`;
+/** Fix round 1 (M6): what the sign-in checks for a project with no repo, by the proof gap's bar. */
+const CHECKS: Record<ProofBar, string> = { used: 'your users', live: 'that your product is live', building: 'that your project has code' };
 /** A sentence's first letter lowered (never the pronoun "I"), so an action reads after "then". Pure. */
 export const lowerFirst = (x: string): string => (/^I\b/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1));
 /** L38 big 1: the sign-in first, then the action it waits on, as one sentence ("..., then say yes and I draft it."). Pure. */
 export const signInThen = (signIn: string, action: string): string => `${signIn}, then ${lowerFirst(action)}`;
-/** L38 big 1: the one action of a proof that is the only step left: sign in, and EarnKit reads it again. Pure. */
-export const signInLookAgain = (link: string | null): string => signInThen(signInCheck(link), 'I look again.');
 
 /** The first find after a link (security M2): the account this agent now writes to, and where to undo it. Pure. */
 export const linkedNoticeLine = (login: string) => `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;

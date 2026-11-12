@@ -436,8 +436,10 @@ export function stepItems(g: GapProgram): string[] {
 export const oneStep = (g: GapProgram): boolean => ruleOnlyGap(g) || stepItems(g).length === 1;
 /** L38 big 3 (v6.1.18 Task 10): a row under "More to do first": the first thing to do, then how many more:
  *  "2. Colosseum Eternal, $25,000 award: a demo video, then 4 more steps." The one-program reply keeps the whole line. Pure. */
-export function moreStepsLine(g: GapProgram): string {
-  const [first, ...rest] = stepItems(g);
+export function moreStepsLine(g: GapProgram, closed: Gap | null = null): string {
+  const [head, ...rest] = stepItems(g);
+  // Fix round 1 (M4): the step the closing names (`closed`) is said there only; the row points at it.
+  const first = closed && head === closed.what ? 'the step below' : head;
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
   const more = rest.length === 0 ? '' : `, then ${rest.length} more ${rest.length === 1 ? 'step' : 'steps'}`;
   return `${g.n}. ${g.title}, ${money}: ${first}${more}.`;
@@ -885,6 +887,8 @@ export type ClosingHidden = { program_id: string; title: string; closes_at: stri
  */
 export type ReplyOptions = {
   all?: boolean; asShown?: boolean; defaultSay?: string; closes?: Map<string, string>;
+  /** Fix round 1 (M6): the project has a repo link, so a sign-in checks "the repo" (default); else the proof's bar. */
+  repo?: boolean;
   /** L18-1 (v6.1.18): the rows the rank cap left out of the default view, and those of them closing within 7 days. */
   hidden?: { count: number; closing: ClosingHidden[] };
 };
@@ -1079,12 +1083,21 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // Fix round 1 (I2): judged on the Say the reply ends on; the full view ends on the default view's.
   const endsOn = o.all && o.defaultSay !== undefined ? o.defaultSay : closingOf.text;
   const asksSignIn = !r.linked && /Do real people use it\? Say yes, sign in once\b/.test(endsOn);
-  const proofWaits = !r.linked && !asksSignIn && tonight === 0 && closingOf.offer !== 'apply';
+  // Fix round 1 (I1): only when the closing keeps the reply's Say (no not-sent, started or sent line says it first).
+  const notSent = notSentLine(r, now);
+  // v6.1.16 Task 9 N4 (v6.1.17): a program the not-sent line names gets no started line too.
+  const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
+  const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
+  // L18-4 (v6.1.18 Task 4): the sent question after the started lines (ONE_SAY_ORDER).
+  const sent = sentLines(r);
+  const sayFirst = [notSent, ...started, ...sent].some((x) => x !== null && carriesSay(x));
+  const proofWaits = !r.linked && !asksSignIn && tonight === 0 && closingOf.offer !== 'apply' && !sayFirst;
+  const proofCheck = signInCheck(r.sign_in ?? null, o.repo ?? true, proofBarOf(r.gaps.flatMap((g) => [g.gap, ...g.also])) ?? 'used');
   const stepRuleRow = stepRule !== null && firstRule === null ? steps.find((g) => g.n === stepRule) : undefined;
   const proofRow = proofWaits && closingOf.offer === 'rule' && stepRuleRow && signInOnly([stepRuleRow.gap, ...stepRuleRow.also]) ? stepRuleRow : undefined;
   const proofAlone = proofWaits && closingOf.text === NOTHING_READY && showsProof(steps);
-  if (proofRow) closingOf.text = `${NOTHING_READY} ${signInThen(signInCheck(r.sign_in ?? null), closingOf.text.replace(/^Nothing is ready yet\. /, ''))}`;
-  else if (proofAlone) closingOf.text = `${NOTHING_READY} ${signInThen(signInCheck(r.sign_in ?? null), 'I look again.')}`;
+  if (proofRow) closingOf.text = `${NOTHING_READY} ${signInThen(proofCheck, closingOf.text.replace(/^Nothing is ready yet\. /, ''))}`;
+  else if (proofAlone) closingOf.text = `${NOTHING_READY} ${signInThen(proofCheck, 'I look again.')}`;
   // Task 2 (v6.1.16.1, Task 1 leftover): with the unlinked notice too, the closing still carries the link and the
   // notice keeps only its first sentence, so the reply has one sign-in sentence.
   if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
@@ -1093,12 +1106,6 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
 
   // ONE_SAY_ORDER (L23-21): the first line through it that carries a Say keeps it, and (L29-33, v6.1.16 Task 15) goes
   // last; every other line keeps its fact sentence only.
-  const notSent = notSentLine(r, now);
-  // v6.1.16 Task 9 N4 (v6.1.17): a program the not-sent line names gets no started line too.
-  const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
-  const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
-  // L18-4 (v6.1.18 Task 4): the sent question after the started lines (ONE_SAY_ORDER).
-  const sent = sentLines(r);
   const sayers = [notSent, ...started, ...sent, closingOf.text].filter((x): x is string => x !== null);
   const sayLine = sayers.find(carriesSay) ?? closingOf.text;
   const early = sayLine !== closingOf.text;
@@ -1128,7 +1135,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const readyLines = (ps: ReadyProgram[], strip = false) => ps.map((p) => readyLine(unstep(strip ? { ...p, claimed_since: undefined } : p), r.linked, now, false, named, namedInClosing.has(p.program_id)));
   const inPersonLines = [...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))];
   // L38 big 2 (v6.1.18 Task 10): the default view's In person block is one line: number, name, money, close.
-  const inPersonRows = [...inPerson, ...attendRules].map((x) => inPersonShort(x));
+  // Fix round 1 (I2): a rule-only row keeps its rule, since the in-person closing's yes confirms it.
+  const inPersonRows = [...inPerson.map((x) => inPersonShort(x)), ...attendRules.map((g) => `${inPersonShort(g)}${ruleOnlyGap(g) ? ruleSentences([g.gap, ...g.also].map((x) => x.what)) : ''}`)];
   const readyOf = (head: string, ps: ReadyProgram[], strip = false): Block => {
     const lines = readyLines(ps, strip);
     return { head, ids: ps.map((p) => p.program_id), line: (i) => lines[i], cap: READY_SHOWN };
@@ -1153,7 +1161,10 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // go under More to do first, each as its first step and how many more. The row a rule Say names keeps its whole line,
   // so the rules it asks about are on screen.
   const ruleNamed = closingOf.offer === 'rule' ? steps.find((g) => g.n === (firstRule ?? stepRule)) : undefined;
-  const stepLine = (g: GapProgram): string => (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g));
+  // Fix round 1 (M4): the gap a single-step closing names, said there only.
+  const stepNamed = firstStep && !firstStep.users && firstStep.gap && closingOf.text.endsWith(singleStepClosing(firstStep.gap)) ? firstStep : null;
+  const stepLine = (g: GapProgram): string =>
+    (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g, stepNamed?.program_id === g.program_id ? stepNamed.gap ?? null : null));
   const stepBlock = (head: string, gs: GapProgram[]): Block | null => {
     if (gs.length === 0) return null;
     const lines = gs.map(stepLine);
@@ -1184,7 +1195,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     // Fix round 1 (I1): when lines are short, the since line gives way first, then the results question, then these.
     // L38 big 3 (v6.1.18 Task 10): two step blocks, One step away then More to do first. A one-step row keeps its
     // place as the step rows did; the More rows past the one the closing speaks to give way after the results question.
-    { block: oneBlock, lines: [], rank: 2, min: 2, grow: 5.7 },
+    // Fix round 1 (M3): only the block holding the row the closing speaks to keeps a row at rank 2 (as the one step
+    // block did), so the applications, Before and report lines still fit beside a ready block.
+    { block: oneBlock, lines: [], ...(shownInMore ? { rank: 5.7 } : { rank: 2, min: 2, grow: 5.7 }) },
     { block: moreBlock, lines: [], ...(shownInMore ? { rank: 2, min: 2, grow: 5.85 } : { rank: 5.85 }) },
     { block: attendBlock, lines: [], rank: 2 },
     { lines: apps ? [apps] : [], rank: 3 },

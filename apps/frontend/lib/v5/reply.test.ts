@@ -171,13 +171,14 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet.');
   assert.equal(one(SW, [{ ...SW, item: 'integration:x', what: 'add X' }]), '1. G, $1K: add Smart Wallet and add X.');
   assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video link (a short screen recording of it working).');
-  assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: ARC, also: [DEMO] })] }), false).split('\n').slice(0, 2).join('\n'), 'More to do first (1):\n1. G, $1K: a contract on Arc, then 1 more step.');
+  assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: ARC, also: [DEMO] })] }), false).split('\n').slice(0, 2).join('\n'), 'More to do first (1):\n1. G, $1K: the step below, then 1 more step.');
   // v6.1.14 (was C57): the unlinked proof is a gap after the colon; its sign-in is asked once, in the closing.
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof of real users', effort: 'weeks' as const, agent_can: false };
   assert.equal(one(TIER), '1. G, $1K: proof of real users.');
   assert.equal(one(TIER, [DEMO]), '1. G, $1K: proof of real users and a demo video link (a short screen recording of it working).');
   const two = base({ gaps: [gap({ title: 'G', money: '$1K', also: [{ kind: 'live_product', item: 'live_product', what: 'put a live link up', effort: 'hours', agent_can: false }] })] });
-  assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc, then 1 more step\.$/m);
+  // Task 10 fix round 1 (M4): the closing names the deploy, so the row points at it.
+  assert.match(replyText(two, false), /^1\. G, \$1K: the step below, then 1 more step\.\nNothing is ready yet\. Tell me when the contract is on Arc and I look again\.$/m);
   assert.equal(gapLine(two.gaps[0]), '1. G, $1K: deploy the contract on Arc and put a live link up.');
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   // L29-18 (v6.1.16 Task 15): "You give:", the words as the form names them, at most three and the count.
@@ -518,7 +519,8 @@ test('R18d, O2 (v6.1.10, Review Focus 5), L38 big 3 (v6.1.18 Task 10): an in-per
   assert.equal(
     replyText(r, true),
     [
-      "In person: 1. Residency, $500K. 2. Camp, $10K.",
+      // Task 10 fix round 1 (I2): the rule-only row keeps its rule, which the closing yes confirms.
+      "In person: 1. Residency, $500K. Their rule: a co-founder with US work authorization. 2. Camp, $10K.",
       "Nothing remote is ready yet. Say yes and I start the in-person applications.",
     ].join('\n'),
   );
@@ -544,7 +546,7 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
       "1. FLOSS/fund, $10,000 to $100,000: real users.",
       "2. OTF, $900K. Their rule: advances internet freedom.",
       // L38 big 2 (v6.1.18 Task 10): one line, the numbers kept.
-      "In person: 3. Y Combinator, $500K. 4. Antler, $250K.",
+      "In person: 3. Y Combinator, $500K. 4. Antler, $250K. Their rule: a co-founder with US work authorization.",
       "Nothing is ready yet. Say \"yes 2\" if that rule fits you and I draft OTF.",
     ].join('\n'),
   );
@@ -1125,7 +1127,8 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   // L38 big 3 (v6.1.18 Task 10): each row has more than one step: the first, then the count.
   assert.equal(both, [
     'More to do first (2):',
-    '1. FLOSS/fund, $1K: a public repo, then 1 more step.',
+    // Task 10 fix round 1 (M4): the row the closing names points at the step below.
+    '1. FLOSS/fund, $1K: the step below, then 1 more step.',
     '2. HeroDevs, $1K: a public repo, then 1 more step.',
     'Nothing is ready yet. Tell me when the repo is public and I look again.',
   ].join('\n'));
@@ -1137,7 +1140,7 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   assert.equal(gapLine(atom, true), 'FLOSS/fund, $1K: a live repo. First: tell me the live repo; publish a funding manifest on your site or repo.');
   const archived = replyText(base({ gaps: [atom] }), true);
   // L38 big 3 (v6.1.18 Task 10): a live repo and the manifest are two steps.
-  assert.equal(archived, ['More to do first (1):', '1. FLOSS/fund, $1K: a live repo, then 1 more step.', 'Nothing is ready yet. Tell me the live repo and I look again.'].join('\n'));
+  assert.equal(archived, ['More to do first (1):', '1. FLOSS/fund, $1K: the step below, then 1 more step.', 'Nothing is ready yet. Tell me the live repo and I look again.'].join('\n'));
   assert.equal(end(base({ gaps: [atom] })), 'Nothing is ready yet. Tell me the live repo and I look again.');
   assert.equal(gapAction({ ...atom, setup: [] }), 'Tell me the live repo and I look again.');
   // M3: the code closing is picked by the gap's kind.
@@ -1626,6 +1629,37 @@ test('L38-27 (v6.1.18 Task 11): the license file gap reads "a license file" and 
   const list = replyText(base({ gaps: [hero] }), true);
   assert.equal(list, ['One step away (1):', '1. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.', 'Nothing is ready yet. Say "do 1" and I add an MIT license file.'].join('\n'));
   assert.doesNotMatch(list, /\u2014|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
+});
+
+test('Task 10 fix round 1 (I1, M3, M6): a proof sign-in only when the closing keeps the Say; step blocks leave room; the check names the bar with no repo', () => {
+  const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof of real users', effort: 'weeks' as const, agent_can: false };
+  const link = 'https://earnkit.com/link/abc';
+  const sign = gap({ title: 'Sign Grant', gap: TIER });
+  // I1: an earlier line keeps the Say (a yes not yet sent): the closing stays a fact and says no sign-in.
+  const early = replyText(base({ sign_in: link, gaps: [sign], not_sent: { programs: [{ program_id: 'x', title: 'X Grant' }], since: '2026-11-03T10:00:00.000Z' } }), true, MON);
+  assert.doesNotMatch(early, /Sign in/, early);
+  assert.match(early.split('\n').at(-1)!, /^Nothing was sent for X Grant since you said yes on .*\. Say yes again and I apply now\.$/, early);
+  assert.equal(early.match(/\bSay\b/g)?.length, 1, early);
+  // Without it the proof is the action, signed in first.
+  assert.equal(replyText(base({ sign_in: link, gaps: [sign] }), true).split('\n').at(-1), `Nothing is ready yet. Sign in at ${link} so I can check the repo, then I look again.`);
+  // M6: no repo link: the check is the proof's bar.
+  assert.equal(replyParts(base({ sign_in: link, gaps: [sign] }), true, new Date(), null, { repo: false }).text.split('\n').at(-1), `Nothing is ready yet. Sign in at ${link} so I can check your users, then I look again.`);
+  // M3: a ready block, a one-step row and a More row the closing names: the applications line still fits.
+  const r = base({
+    linked: true,
+    ready: [ready({ title: 'A' }), ready({ title: 'B' }), ready({ title: 'C' })],
+    gaps: [gap({ title: 'Rule Grant', gap: ruleGap('a rule') }), gap({ title: 'Two Grant', gap: VIDEO, also: [ruleGap('x')] })],
+    applications: [{ program_id: 'z', title: 'Z Grant', status: 'waiting' as const, sent_at: '2026-11-03T10:00:00.000Z', result_at: null, amount: null }],
+  });
+  const t = replyText(r, false, MON);
+  assert.ok(t.split('\n').length <= 10, t);
+  assert.match(t, /^Your applications: Z Grant \(sent Nov 3, waiting\)\.$/m);
+});
+
+test('Task 10 fix round 1 (I2): a rule-only in-person row keeps its rule on the one In person line', () => {
+  const antler = gap({ title: 'Antler', money: '$250K', in_person: true, gap: ruleGap('a co-founder with US work authorization') });
+  const t = replyText(base({ gaps: [antler] }), true);
+  assert.equal(t, 'In person: 1. Antler, $250K. Their rule: a co-founder with US work authorization.\nNothing remote is ready yet. Say yes and I start the in-person applications.');
 });
 
 // Registered last, so it reads every reply the tests above rendered.

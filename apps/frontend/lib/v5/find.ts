@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentNote, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
@@ -541,7 +541,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && hasProof(verdict.gaps);
   const link = signStep ? await linkOf(ctx) : null;
   // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
-  const signIn = signStep ? signInCheck(link) : null;
+  // Fix round 1 (M6): "the repo" only with a repo link; else the proof's bar.
+  const signIn = signStep ? signInCheck(link, Boolean(project?.repo_url), proofBarOf(verdict.gaps) ?? 'used') : null;
   // L23-18 (v6.1.16): a closed program the builder sent says when, and when results come.
   const sent = closed ? await sentOf(ownerOf(ctx), id, key) : null;
   const due = sent ? resultsDateOf(row) : null;
@@ -786,7 +787,7 @@ export const NOT_YOUR_REPO_NOTE = 'The signed-in GitHub account is not the repo 
  * the line that gives way when the repo is not shown to be the builder's. A draft for the builder to send, a rule or a
  * users question stays. L38-30 (v6.1.18): "{Setup step} first, then say yes and I apply." too.
  */
-export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold|.*, then say yes\b.*\bI apply\b|.*\bSay yes and I .+, then apply\b)/;
+export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I apply|Applying now to |Under your standing approval|Say stop and I hold|.*, then say yes\b.*\bI (also )?apply\b|.*\b[Ss]ay yes and I .+, then apply\b)/;
 /** An apply offer closing a line that says something first ("X needs your amount; then I apply. Say yes and I apply."). */
 // Fix round 1 (I1): and the users-plus-change closing ("Say yes and I add ..., then apply to {title}.").
 const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
@@ -802,6 +803,8 @@ export const applyOfferOf = (text: string): string | null => {
   }
   return null;
 };
+/** Fix round 1 (I1): a line without its sentences that start "Sign in" (a proof sign-in, the unlink notice's). Pure. */
+export const withoutSignIn = (line: string): string => line.split(/(?<=[.?!])\s+/).filter((x) => !/^Sign in\b/.test(x)).join(' ');
 /** The builder lines with every apply offer taken out (a whole line, or a line's closing sentence). Pure. */
 const withoutApply = (text: string): string[] =>
   text.split('\n').filter((l) => l && !APPLY_OFFER.test(l)).map((l) => l.replace(TAIL_OFFER, ''));
@@ -1009,8 +1012,8 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     const link = (r as { sign_in?: string }).sign_in ?? (r.show_to_builder.includes(DELETED_NOTICE) ? null : await linkOf(ctx));
     // N5b: one sign-in sentence: the unlink notice keeps only its first sentence, and the closing carries the link.
     // L38 big 1 (v6.1.18 Task 10): the apply offer is said again after the sign-in, in one sentence.
-    const kept = withoutApply(r.show_to_builder).filter((l) => !/^Sign in\b/.test(l))
-      .map((l) => l.replace(/ Sign in once at \S+ to link it again\.$/, ''));
+    // Fix round 1 (I1): every sign-in sentence, wherever it sits in a line, gives way to the one this line carries.
+    const kept = withoutApply(r.show_to_builder).map(withoutSignIn).filter((l) => l !== '');
     return {
       ...r,
       show_to_builder: [...kept, signInFirst(link, applyOfferOf(r.show_to_builder))].join('\n'),
@@ -1314,7 +1317,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // the default view's Say; `said` writes the reply from the final numbers.
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
-  const laid = replyParts(r0, last === null, ctx.now, lastOffer, all ? { all: true } : { ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
+  // Fix round 1 (M6): whether the project has a repo link, for what a sign-in checks.
+  const repoOpt = { repo: Boolean(project.repo_url) };
+  const laid = replyParts(r0, last === null, ctx.now, lastOffer, all ? { all: true, ...repoOpt } : { ...repoOpt, ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
   // Task 7 review (v6.1.18): plain 1..N in that order.
   const stable = new Map([...laid, ...byN.filter((id) => !laid.includes(id))].map((id, k) => [id, k + 1]));
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
@@ -1322,7 +1327,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L1i-5: the full list closes on the default view's Say, from the programs the default view lists.
   const defaultSay = all ? (() => {
     const ids = defaultIdsOf();
-    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true }).say;
+    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true, ...repoOpt }).say;
   })() : undefined;
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
@@ -1335,7 +1340,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
   // L1i-6 (v6.1.16.1): the full list says every close, beyond the gap lines' own window (the JSON keeps closes_at).
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
-  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}), ...(hiddenRows ? { hidden: hiddenRows } : {}) });
+  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...repoOpt, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}), ...(hiddenRows ? { hidden: hiddenRows } : {}) });
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L18-4 fix round 1 (v6.1.18 Task 4): a sent question is asked only when the builder text shows it; one the full view
   // or the line cap left out is not marked, not named to the agent, and comes back on the next find.

@@ -1292,6 +1292,8 @@ const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000.
  *  public already, so its step stays code in a repo. */
 // L38 big 3 (v6.1.18 Task 10): the code and the rule are two steps: under More to do first, the first, then the count.
 const FUTO_CODE = (empty = false) => `1. FUTO Microgrants, $1,000 to $5,000: code in a${empty ? '' : ' public'} repo, then 1 more step.`;
+/** Task 10 fix round 1 (M4): the closing names FUTO's code step, so the row points at it and says it once. */
+const FUTO_BELOW = '1. FUTO Microgrants, $1,000 to $5,000: the step below, then 1 more step.';
 /** L38 big 3 (v6.1.18 Task 10): the More to do first heading for one row. */
 const MORE_ONE = 'More to do first (1):';
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
@@ -1299,7 +1301,7 @@ const MORE_ONE = 'More to do first (1):';
 // notes after it.
 // The And-more counts (`more`, here and in every pinned reply) cover the whole fixture catalog, so every program added
 // to it changes them.
-const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => [MORE_ONE, FUTO_CODE(empty), ...inPersonBlock(2), `And ${more} more in the full list.`, ...notes, codeFirst(empty)].join('\n');
+const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false) => [MORE_ONE, FUTO_BELOW, ...inPersonBlock(2), `And ${more} more in the full list.`, ...notes, codeFirst(empty)].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft FUTO Microgrants.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
@@ -1501,7 +1503,7 @@ const MWA = 'use Mobile Wallet Adapter and Seed Vault in an Android app. Their r
 test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15, 30 and 31 name the gap once in line 1 and the closing names only the step', async () => {
   // L18-2 (v6.1.18): with no repo link FUTO's code goes in a public repo; the empty repo (15) is public already.
   const CODE = codeFirst();
-  const futo = FUTO_CODE();
+  const futo = FUTO_BELOW;
   // v6.1.18 merge (Task 11, L38-1): FLOSS/fund has no setup step now, so its one gap is one step.
   const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}.`;
   // L18-1 (v6.1.18): each persona's more line counts the rows the rank cap left out.
@@ -1511,9 +1513,9 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
     // L38-6 (v6.1.18): the gap names the private repo, so its note is left out (persona 9); so is the empty one (15).
     [9, 'a public repo', ['One step away (1):', floss('a public repo'), ...inPersonBlock(2)], 'Nothing is ready yet. Tell me when the repo is public and I look again.', 23],
     [12, 'a live repo', ['One step away (1):', floss('a live repo'), ...inPersonBlock(2)], 'Nothing is ready yet. Tell me the live repo and I look again.', 22],
-    [15, 'code in a repo', [MORE_ONE, FUTO_CODE(true), ...inPersonBlock(2)], codeFirst(true), 17],
+    [15, 'code in a repo', [MORE_ONE, FUTO_BELOW, ...inPersonBlock(2)], codeFirst(true), 17],
     [30, 'code in a public repo', [MORE_ONE, futo, ...inPersonBlock(2)], CODE, 19],
-    [31, 'code in a repo', [MORE_ONE, '1. Solana Foundation Grants, milestone grants: code in a repo, then 1 more step.', ...inPersonBlock(2)], codeFirst(true), 10],
+    [31, 'code in a repo', [MORE_ONE, '1. Solana Foundation Grants, milestone grants: the step below, then 1 more step.', ...inPersonBlock(2)], codeFirst(true), 10],
   ];
   for (const [id, gap, head, closing, more] of want) {
     const show = await lane1h(id);
@@ -1521,8 +1523,8 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
     const rows = head.reduce((a, l, i) => (/^(\d+\. |In person)/.test(l) ? i + 1 : a), 0);
     assert.equal(show, [...head.slice(0, rows), `And ${more} more in the full list.`, ...head.slice(rows), closing].join('\n'), `persona ${id}`);
     const lines = show.split('\n');
-    // The gap words once, in line 1; no other line but the closing's step speaks of the same gap.
-    assert.equal(lines[1].split(gap).length, 2, `persona ${id}`);
+    // The gap words once: in line 1, or (Task 10 fix round 1, M4) a More row the closing names points at the step below.
+    assert.equal(lines[1].split(gap).length, lines[1].includes('the step below') ? 1 : 2, `persona ${id}`);
     assert.ok(lines.slice(2, -1).every((l) => !l.includes(gap) && !/^Tell me|First:.*repo is|code in a repo/i.test(l.replace(/^\d+\. [^:]+: /, ''))), `persona ${id}`);
     // L38 big 1 (v6.1.18 Task 10): no step here waits on a sign-in, so none is said; the link stays in the JSON.
     assert.equal(show.split(LANE_1H_LINK).length, 1, `persona ${id}`);
@@ -1868,7 +1870,8 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
     [
       // L38 big 3 (v6.1.18 Task 10): the code and the rule are two steps.
       "More to do first (1):",
-      "1. Solana Foundation Grants, milestone grants: code in a repo, then 1 more step.",
+      // Task 10 fix round 1 (M4): the closing names the code step, so the row points at it.
+      "1. Solana Foundation Grants, milestone grants: the step below, then 1 more step.",
       // L38 big 2 (v6.1.18 Task 10): the In person block is one line, the numbers kept.
       "In person, long odds: 2. Y Combinator Winter 2027 Batch, $500,000. 3. Alliance ALL19, $400,000, closes in 14 days.",
       // L18-1 (v6.1.18): the rows the rank cap left out are counted.
@@ -1905,7 +1908,7 @@ test('fix round 1 (v6.1.14, T7-F1, T7-F2): an owner-only link meets no bar; gap_
   assert.equal(done.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
   // The read settles it: with no repo yet the step still shows.
   const again = await mcpCall(c, 'find', { project: SOL });
-  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: code in a repo, then 1 more step\./);
+  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: the step below, then 1 more step\.\n[^]*Tell me when the code is in a repo and I look again\.$/);
 });
 
 test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows on a chain as it does with none; a student on a chain still sees Thiel', async () => {
@@ -1917,7 +1920,8 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
     [
       // L38 big 3 (v6.1.18 Task 10): the code, then the setup steps and the rule, counted.
       "More to do first (3):",
-      "1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo, then 2 more steps.",
+      // Task 10 fix round 1 (M4): the closing names its code step.
+      "1. Ethereum Security Subsidy Program, up to 30% of audit cost: the step below, then 2 more steps.",
       // L1i-2 (v6.1.16.1): every step row the budget allows.
       "2. Uniswap Foundation Open Grants, set by milestone budget: code in a repo, then 1 more step.",
       "3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% of the audit cost: code in a repo, then 3 more steps.",
@@ -2465,7 +2469,8 @@ test('fix round 1 (v6.1.8, 1b): unlinked, with signing in the one step left, the
     assert.doesNotMatch(pub.agent_note as string, /The builder makes each change/);
     // Nothing read (fix round 1, v6.1.14 F1): the same one sign-in, no promise to remember (L38 big 1).
     const priv = await call('f-sign', { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, users: true, live_url: 'https://ripgrep.dev', chains: [{ chain: 'base', mainnet: true }] });
-    assert.equal((priv.show_to_builder as string).split('\n').at(-1), `Sign in at ${link} so I can check the repo, then I look again.`);
+    // Task 10 fix round 1 (M6): no repo link, so the sign-in says what it checks by the proof's bar.
+    assert.equal((priv.show_to_builder as string).split('\n').at(-1), `Sign in at ${link} so I can check your users, then I look again.`);
     // No link can be made (F2): the one-program reply still ends on the sign-in, without a link.
     const noLink = (await mcpCall({ ...ctx(await installation()), linkUrl: async () => { throw new Error('no link'); } }, 'find', { program_id: 'f-sign', project: { ...PROJECT, users: true } })).reply!;
     assert.equal(noLink.show_to_builder, ['Sign Grant, up to $5,000: proof of real users.', 'Sign in so I can check the repo, then I look again.'].join('\n'));
@@ -4250,4 +4255,19 @@ test('L18-4 fix round 1 (v6.1.18 Task 4): a sent question the 10-line cap drops 
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'tt-sent3'`;
   }
+});
+
+test('Task 10 fix round 1 (I1, M5): the gate drops every sign-in sentence wherever it sits; the merged forms with also and a change stay apply offers', async () => {
+  const { withoutSignIn } = await import('./find');
+  const { signInFirst } = await import('./ledger');
+  assert.equal(withoutSignIn('Nothing is ready yet. Sign in at https://earnkit.com/link/x so I can check the repo, then I look again.'), 'Nothing is ready yet.');
+  assert.equal(withoutSignIn('This agent was unlinked from your account. Sign in once at https://earnkit.com/link/x to link it again.'), 'This agent was unlinked from your account.');
+  assert.equal(withoutSignIn('Sign in so I can check the repo, then I look again.'), '');
+  const link = 'https://earnkit.com/link/x';
+  const also = signInFirst(link, 'Say yes and I also apply to B.');
+  assert.equal(also, `Sign in at ${link} so I know the repo is yours, then say yes and I also apply to B.`);
+  assert.match(also, APPLY_OFFER);
+  const change = signInFirst(link, 'Say yes and I add Base Builder Codes, then apply to Base Builder Grant Program.');
+  assert.equal(change, `Sign in at ${link} so I know the repo is yours, then say yes and I add Base Builder Codes, then apply to Base Builder Grant Program.`);
+  assert.match(change, APPLY_OFFER);
 });
