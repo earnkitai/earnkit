@@ -12,13 +12,15 @@ test('L1f-1 (v6.1.14): open_source needs a rule naming open source code, and def
   assert.deepEqual(programProblems(programFixture({ id: 'p-bare', open_source: true }), NOW), ['open_source: true needs a rule naming open source code or its license']);
 });
 
-test('#12 (v6.1.15): a money line needs a number or "Amount not stated"; the whole catalog passes', async () => {
+test('#12 (v6.1.15), L38-5 (v6.1.18): a money line needs a number, or words with "amount not stated" in the reward; never in the summary; the whole catalog passes', async () => {
   const NOW = new Date('2026-11-11T00:00:00Z');
-  assert.deepEqual(programProblems(programFixture({ id: 'p-words', summary: 'milestone grants · rolling' }), NOW), [
-    'summary: the money "milestone grants" needs a number or "Amount not stated"',
+  assert.deepEqual(programProblems(programFixture({ id: 'p-words', summary: 'milestone grants · rolling', reward: 'Milestone grants' }), NOW), [
+    'summary: the money "milestone grants" needs a number, or the reward must say "amount not stated"',
   ]);
-  assert.deepEqual(programProblems(programFixture({ id: 'p-stated', summary: 'Milestone grants, amount not stated · rolling' }), NOW), []);
-  assert.deepEqual(programProblems(programFixture({ id: 'p-stated-cap', summary: 'Amount not stated, set by milestone budget · rolling' }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-stated', summary: 'Milestone grants · rolling', reward: 'Milestone grants (amount not stated)' }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-in-summary', summary: 'Milestone grants, amount not stated · rolling', reward: 'Milestone grants (amount not stated)' }), NOW), [
+    'summary: the money "Milestone grants, amount not stated" never says "amount not stated"; the reward says it',
+  ]);
   assert.deepEqual(programProblems(programFixture({ id: 'p-number', summary: 'Up to 100% of the audit cost · rolling' }), NOW), []);
   const { readdirSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
@@ -167,9 +169,10 @@ test('L18-2 (v6.1.18): an open source file never also carries the public repo or
   const rules = ['Submit a public code repo with a visible open source license.'];
   for (const note of ['a public code repo with a visible open source license', 'a clear open source license on the repo', 'an OSI-approved open source license', 'a public repository under an OSI-approved license'])
     assert.deepEqual(programProblems(programFixture({ id: 'p-dup', open_source: true, rules, eligibility: [{ kind: 'rule', note }] }), NOW), [REFUSAL], note);
-  // The flag off, a keyword rule, or a rule about something else: no refusal.
+  // Task 9 (v6.1.18, Task 2 review minor): a keyworded rule item too.
+  assert.deepEqual(programProblems(programFixture({ id: 'p-kw', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'a public repo built on the Acme open source SDK license', keywords: ['acme'] }] }), NOW), [REFUSAL]);
+  // The flag off, or a rule about something else: no refusal.
   assert.deepEqual(programProblems(programFixture({ id: 'p-off', rules, eligibility: [{ kind: 'rule', note: 'a public code repo with a visible open source license' }] }), NOW), []);
-  assert.deepEqual(programProblems(programFixture({ id: 'p-kw', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'a public repo built on the Acme open source SDK license', keywords: ['acme'] }] }), NOW), []);
   assert.deepEqual(programProblems(programFixture({ id: 'p-other', open_source: true, rules, eligibility: [{ kind: 'rule', note: 'an active GitHub Sponsors profile for the maintainer' }] }), NOW), []);
   const { readdirSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');

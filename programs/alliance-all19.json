@@ -20,7 +20,7 @@
   "tag": "long shot",
   "min_product_score": 5,
   "setup": [
-    "open the application with the first founder's email"
+    "your email"
   ],
   "each_time": [],
   "rules": [
@@ -32,7 +32,7 @@
     "The program is free. Teams that aren't selected don't get personalized feedback."
   ],
   "submission_requirements": [
-    { "key": "email", "label": "Email (1st Founder)", "kind": "contact", "todo": "the first founder's email", "type": "email", "required": true, "description": "Primary POC for the Alliance application. Application updates will be sent to this address. The rest of the application follows; its questions are not public.", "from": "builder" }
+    { "key": "email", "label": "Email (1st Founder)", "kind": "contact", "todo": "your email", "type": "email", "required": true, "description": "Primary POC for the Alliance application. Application updates will be sent to this address. The rest of the application follows; its questions are not public.", "from": "builder" }
   ],
   "in_person": true,
   "city": "New York City"

@@ -22,7 +22,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "rule", "note": "a hands-first experience for Meta VR devices, entered by a Meta VR Start member", "keywords": ["vr", "meta quest", "quest 3", "horizon os", "hands-first", "oculus"] }
+    { "kind": "rule", "note": "a hands-first experience for Meta VR devices", "keywords": ["vr", "meta quest", "quest 3", "horizon os", "hands-first", "oculus"] }
   ],
   "setup": [
     "join the Meta VR Start program",
