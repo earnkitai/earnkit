@@ -468,3 +468,10 @@ test('L35-16 (v6.1.17): a page past the end says how many; page without a kind a
   assert.equal(both.isError, true);
   assert.match(both.reply!.agent_note as string, /get, brief: one of get or brief per call/);
 });
+
+test('v6.1.17 fix round 1 (N2): a policy set that saved facts while approval is off has a one-line agent note', async () => {
+  const c = await linked();
+  const r = await mcpCall(c, 'record', { set: { person: { name: 'Ada' }, policy: { auto_apply: true } } });
+  assert.equal(r.reply!.agent_note, 'Saved; standing approval is set on earnkit.com/me only.');
+  assert.match(r.reply!.show_to_builder as string, /Standing approval is yours to turn on at earnkit\.com\/me\.$/);
+});

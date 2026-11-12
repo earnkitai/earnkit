@@ -522,10 +522,9 @@ export function closingLine(o: {
   linked?: boolean;
   /** Task 11 fix round 1 (M1): ready programs the builder held; with none other ready, the reply closes on the hold. */
   onHold?: number;
-  /** L35-9 (v6.1.17): every ready program the yes covers, past the listed ones too (the full list's Ready count). */
-  total?: number;
-  /** L35-8 (v6.1.17): ready programs the yes covers that the default view does not show. */
-  notShown?: number;
+  /** L35-8 (v6.1.17, fix round 1 I1): the default view hides ready rows; its And-more line says how many, and the yes
+   *  says "ready" so it reads against the heading. */
+  hidden?: boolean;
 }): Closing {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
   // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead. L1e-3 (v6.1.13): a program
@@ -541,15 +540,11 @@ export function closingLine(o: {
       ...waits.map((w) => `${w.title} needs your ${joinAnd(capped(w.needs.map(bare)))}; then ${w.draft ? 'I draft it for you to send' : 'I apply'}.`),
     ].join(' ');
     const left = o.ready - stands.length - drafts.length - waits.length;
-    const total = o.total === undefined ? undefined : o.total - (o.ready - left);
-    if (left > 0) return { text: `${said} ${closingLine({ ...o, ready: left, total, yesStands: [], draftStands: [], yesWaits: [] }).text}`, offer: 'apply' };
+    if (left > 0) return { text: `${said} ${closingLine({ ...o, ready: left, yesStands: [], draftStands: [], yesWaits: [] }).text}`, offer: 'apply' };
     // v6.1.16 Task 11 N2 (v6.1.17): every ready one is covered, so a gap EarnKit can make is still offered, last.
     return { text: o.doOffer ? `${said.replace(/\.$/, '')}, or "do ${o.doOffer.n}" and I ${o.doOffer.verb} first.` : said, offer: 'apply' };
   }
-  const { draftOnly } = o;
-  // L35-9 (v6.1.17): the yes counts every ready program it covers; L35-8: the ones not shown are said.
-  const ready = Math.max(o.ready, o.total ?? 0);
-  const unseen = o.notShown && o.notShown > 0 ? ` (${o.notShown} not shown: say more)` : '';
+  const { ready, draftOnly } = o;
   const doPart = o.doOffer ? `"do ${o.doOffer.n}" and I ${o.doOffer.verb}` : null;
   if (ready >= 1) {
     const mixed = o.drafts ?? [];
@@ -558,12 +553,12 @@ export function closingLine(o: {
     const say = o.yesNeeds && o.yesNeeds.length > 0 && mixed.length === 0 ? `Say yes and tell me ${listWords(o.yesNeeds)}, and` : 'Say yes and';
     // L16-11 (v6.1.16): one ready program is named; "all {n}" only for several, "ready" when other blocks are listed.
     const yes = draftOnly
-      ? ready === 1 ? (o.others && o.title ? `${say} I draft ${o.title} for you to send` : `${say} I draft it for you to send`) : `${say} I draft all ${ready} for you to send${unseen}`
+      ? ready === 1 ? (o.others && o.title ? `${say} I draft ${o.title} for you to send` : `${say} I draft it for you to send`) : `${say} I draft all ${ready} for you to send`
       : mixed.length > 0 && k > 0
         ? `Say yes and I apply to ${k === 1 && o.applyTitle ? o.applyTitle : k} and draft ${listWords(mixed, mixed.length)} for you to send`
         : ready === 1
           ? o.overLimit && o.title ? `${o.title} is over your limit. ${say} I apply` : o.title ? `${say} I apply to ${o.title}` : `${say} I apply`
-          : `${say} I apply to all ${ready}${o.others || unseen ? ' ready' : ''}${unseen}`;
+          : `${say} I apply to all ${ready}${o.others || o.hidden ? ' ready' : ''}`;
     // L29-27 (v6.1.16 Task 15): one action; a number skips through the agent note.
     if (doPart) return { text: `${yes}, or ${doPart} first.`, offer: 'apply' };
     return { text: `${yes}.`, offer: 'apply' };
@@ -743,10 +738,9 @@ const READY_SHOWN = 3;
 export type ReplyParts = Closing & { hidden: string[]; shown: string[]; say: string };
 /**
  * `all`: the full view. `asShown` (L1i-2): the numbers are already the shown ones, so the default view is not
- * renumbered. `defaultSay` (L1i-5): the default view's Say, which the full view closes on. `readyAll` (L35-9, v6.1.17):
- * how many ready programs the yes covers in all (the full list's Ready count), past the ones this reply lists.
+ * renumbered. `defaultSay` (L1i-5): the default view's Say, which the full view closes on.
  */
-export type ReplyOptions = { all?: boolean; asShown?: boolean; defaultSay?: string; closes?: Map<string, string>; readyAll?: number };
+export type ReplyOptions = { all?: boolean; asShown?: boolean; defaultSay?: string; closes?: Map<string, string> };
 
 /** Fix round 1 (I1): a line that carries a link. */
 const LINK = /https?:\/\/\S+/;
@@ -756,14 +750,14 @@ export const moreInFull = (n: number): string => `And ${n} more in the full list
 
 /**
  * L1j-3 (v6.1.17): what the default view shows and hides of the ready rows (every ready program, in person and held
- * ones too, and `extra` ready ones the reply does not list) and of the step rows, from the ids it numbers (`shown`).
+ * ones too) and of the step rows, from the ids it numbers (`shown`).
  * `And {readyHidden + stepHidden} more in the full list.` follows when either is non-zero. Pure.
  */
-export function defaultRows(ready: string[], steps: string[], shown: string[], extra = 0): { readyShown: number; readyHidden: number; stepShown: number; stepHidden: number } {
+export function defaultRows(ready: string[], steps: string[], shown: string[]): { readyShown: number; readyHidden: number; stepShown: number; stepHidden: number } {
   const on = new Set(shown);
   const readyShown = ready.filter((id) => on.has(id)).length;
   const stepShown = steps.filter((id) => on.has(id)).length;
-  return { readyShown, readyHidden: ready.length - readyShown + extra, stepShown, stepHidden: steps.length - stepShown };
+  return { readyShown, readyHidden: ready.length - readyShown, stepShown, stepHidden: steps.length - stepShown };
 }
 
 /** L35-8 (v6.1.17): within a day of closing. Pure. */
@@ -860,10 +854,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const overLimit = r.auto_apply && unsaid.length === 1 && r.blockers.some((b) => b.program_id === unsaid[0].program_id && b.outside_approval && b.over_limit_usd !== undefined);
   const stepRule = stepRuleOf(steps);
   const doOffer = doOfferOf(steps as (GapProgram & { n: number })[]);
-  // L35-9 (v6.1.17): every ready program the yes covers (the full list's Ready count); L35-8: those the default view
-  // does not show (it shows at most READY_SHOWN), said in the yes.
-  const readyCount = free.length > 0 ? Math.max(free.length, o.readyAll ?? 0) : 0;
-  const notShown = o.all ? 0 : readyCount - Math.min(free.length, READY_SHOWN);
+  // L35-8 (v6.1.17, fix round 1 I1): the default view shows at most READY_SHOWN ready rows; the And-more line counts the
+  // rest once, and the yes says "ready".
+  const readyHidden = !o.all && free.length > READY_SHOWN;
   const closingOf: Closing =
     tonight > 0
       // L23-1 (v6.1.16): nothing runs at night; the agent applies the next time it checks.
@@ -889,8 +882,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
             yesNeeds,
             linked: r.linked,
             onHold: onHold.length,
-            ...(readyCount > free.length ? { total: readyCount } : {}),
-            ...(notShown > 0 ? { notShown } : {}),
+            ...(readyHidden ? { hidden: true } : {}),
           });
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           return { text: [...(limitUsed ? [LIMIT_USED] : []), c.text].join(' '), offer: c.offer };
@@ -951,7 +943,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     const lines = readyLines(ps, strip);
     return { head, ids: ps.map((p) => p.program_id), line: (i) => lines[i], cap: READY_SHOWN };
   };
-  const readyBlock: Block | null = free.length > 0 ? readyOf(`Ready to apply (${readyCount}):`, free)
+  const readyBlock: Block | null = free.length > 0 ? readyOf(`Ready to apply (${free.length}):`, free)
     : heldReady.length > 0 ? readyOf(`Being handled by your other agent (${heldReady.length}):`, heldReady, true)
     : onHold.length > 0 ? readyOf(`On hold until you say go (${onHold.length}):`, onHold)
     : null;
@@ -1030,9 +1022,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L1j-3 (v6.1.17): any ready or step row left out is counted on one line before the Say; it takes a line of its own.
   const readyIds = r.ready.map((p) => p.program_id);
   const stepIds = r.gaps.map((g) => g.program_id);
-  const extra = readyCount - free.length;
   const hiddenOf = (sh: string[]) => {
-    const d = defaultRows(readyIds, stepIds, sh, extra);
+    const d = defaultRows(readyIds, stepIds, sh);
     return d.readyHidden + d.stepHidden;
   };
   const room = DEFAULT_LINES - 1 - tail.length;
@@ -1103,9 +1094,7 @@ function fit(slots: Slot[], room: number): { kept: string[]; hidden: string[]; s
 /** L1i-5 (v6.1.16.1): the full view's Say: the default view's, unless that asks about a rule the full view does not
  *  show; then the agent shows that program's rules on its number. Pure. */
 export const FULL_RULE_SAY = 'Say a number and I show what that program asks.';
-const fullSay = (say0: string): string => {
-  // L35-8 (v6.1.17): the full list shows every row, so the yes names none as not shown.
-  const say = say0.replace(/ \(\d+ not shown: say more\)/, '');
+const fullSay = (say: string): string => {
   const fact = withoutSay(say);
   return /Say "yes \d+" if that rule fits you/.test(say) ? [fact, FULL_RULE_SAY].filter(Boolean).join(' ') : say;
 };

@@ -240,7 +240,6 @@ export type FindContext = {
   linkUrl?: () => Promise<string | null>;
 };
 
-const MAX_READY = 5;
 /** In-person ready programs get their own slots: they never take a remote one's (v6.1.4). */
 const MAX_IN_PERSON = 2;
 const MAX_GAPS = 3;
@@ -272,14 +271,14 @@ export function cappedOf<T>(xs: T[], n: number, soon: (v: T) => boolean = () => 
   return kept;
 }
 
-/** The ready list shown: all of it when `all`, else the first MAX_READY remote then the first MAX_IN_PERSON in person,
- * each in input (rank) order, plus any closing soon (`soon`, O1) past the caps. Zero remote leaves only the in-person
- * slots. */
+/** The ready list shown: all of it when `all`, else every remote one (L35-9, v6.1.17 fix round 1 I2: the JSON holds every
+ * ready program the yes covers, with its fields) then the first MAX_IN_PERSON in person, each in input (rank) order,
+ * plus any in person closing soon (`soon`, O1) past the cap. Zero remote leaves only the in-person slots. */
 export function shownReadyOf<T>(readyV: T[], all: boolean, inPerson: (v: T) => boolean, soon: (v: T) => boolean = () => false): T[] {
   if (all) return readyV;
   const remoteV = readyV.filter((v) => !inPerson(v));
   const attendV = readyV.filter(inPerson);
-  return [...cappedOf(remoteV, MAX_READY, soon), ...cappedOf(attendV, MAX_IN_PERSON, soon)];
+  return [...remoteV, ...cappedOf(attendV, MAX_IN_PERSON, soon)];
 }
 
 /**
@@ -503,14 +502,17 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
       : said
         ? said.lines
-        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
+        // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too.
+        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, ...(p.in_person ? [IN_PERSON_ONE] : [])];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
     if (verdict?.status === 'ready' && !p.in_person) {
       show[show.length - 1] = heldLine;
       offer = null;
-    } else show.push(heldLine);
+    } else if (show.at(-1) === IN_PERSON_ONE) show.splice(show.length - 1, 0, heldLine);
+    // Fix round 1 (N1, v6.1.17): the in-person action stays last, the held line before it.
+    else show.push(heldLine);
   }
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
@@ -559,9 +561,6 @@ export const openLine = (p: Program, now: Date): string => {
   return `${p.title}, ${moneyOf(p)}${closes ? `, ${closes}` : ''}${p.in_person ? ', in person' : ''}.`;
 };
 
-/** L35-9 (v6.1.17): the agent line when the yes covers ready programs past the listed ones. */
-export const PAST_LIST_NOTE = (k: number): string =>
-  `The yes covers ${k} more ready ${k === 1 ? 'program' : 'programs'} past this list: on yes, call find with filter.all for their fields before you send them.`;
 /** L1i-5 (v6.1.16.1): the agent line beside the full list's number ask. */
 export const FULL_NUMBER_NOTE = "When the builder says a number from the full list, call find with that item's program_id.";
 /** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
@@ -582,7 +581,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
   const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : 'Tell me which project and I match it.';
-  const list = appsLine ? `${appsLine}\n${ask}` : programs.length > 0 ? `Open now:\n${lines.join('\n')}\n${ask}` : 'Nothing is open right now. Ask again any time and I show what is new.';
+  const head = appsLine ? [appsLine] : programs.length > 0 ? ['Open now:', ...lines] : [];
+  const action = appsLine || programs.length > 0 ? ask : 'Nothing is open right now. Ask again any time and I show what is new.';
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
   // Linked, the report a project find would give from this agent's last find (fix round 1): what moved, the answers
@@ -591,11 +591,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const closing = report ? [sinceLine(report, ctx.now), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
   const reply = {
     // One line each, no blank lines (fix round 1, M4).
-    show_to_builder: unlinkedNow
-      ? `${list}\n${notice}`
-      : report
-        ? (closing ? `${list}\n${closing}` : list)
-        : [list, link ? signInLine(link) : null, notice].filter(Boolean).join('\n'),
+    // L1j-6 (v6.1.17 fix round 1 I3): the ask is last; the sign-in, the notice or the report before it.
+    show_to_builder: [...head, ...(unlinkedNow ? [notice] : report ? [closing] : [link ? signInLine(link) : null, notice]), action].filter(Boolean).join('\n'),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
@@ -771,7 +768,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // L16-8 (v6.1.16): a shortened link was dropped: the agent hears to send the real one, on every reply kind.
   const noted = shortLinkIn(i.project) && !withUnread.agent_note.includes(SHORT_LINK_NOTE) ? { ...withUnread, agent_note: [withUnread.agent_note, SHORT_LINK_NOTE].filter(Boolean).join('\n') } : withUnread;
   // L26-4 (v6.1.16 Task 12): every reply under its cap.
-  return 'program' in noted ? findReplyCap(noted, FIND_CAP_ONE) : findReplyCap(i.filter?.all === true ? slimLists(noted) : noted, FIND_CAP_ALL);
+  return 'program' in noted ? findReplyCap(noted, FIND_CAP_ONE) : (i.filter?.all === true ? findReplyCap(slimLists(noted), FIND_CAP_ALL) : findReplyCap(noted, FIND_CAP_ALL, true));
 }
 
 /** L26-4 (v6.1.16 Task 12): a find reply's caps, serialized: the list (full or default) and one program. */
@@ -811,7 +808,7 @@ const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
  * file's to EarnKit's hints, the guide's), then its fields' sources and descriptions, the last fields first, never a
  * select's options, and names the guide page. Pure.
  */
-export function findReplyCap<T extends FindReply | ProgramReply>(reply: T, cap: number): T {
+export function findReplyCap<T extends FindReply | ProgramReply>(reply: T, cap: number, keepReady = false): T {
   if ('program' in reply) return programCap(reply, cap) as T;
   if (size(reply) <= cap) return reply;
   const out = { ...reply } as FindReply;
@@ -829,10 +826,17 @@ export function findReplyCap<T extends FindReply | ProgramReply>(reply: T, cap: 
       if (row.gap) row.gap = Object.fromEntries(Object.entries(row.gap).filter(([k]) => ['kind', 'item', 'what', 'effort', 'agent_can'].includes(k)));
     },
   ];
-  for (const step of steps) {
-    for (const p of programs) {
+  // L35-9 (v6.1.17 fix round 1 I2): in the default list (`keepReady`) every ready program the yes covers keeps its
+  // fields longest: the other lists' fields and details go first, then the ready ones'. filter.all trims as before (its
+  // fields are already slim; its yes is the default list's).
+  const groups = keepReady ? [programs.filter((p) => p.k !== 'ready'), programs.filter((p) => p.k === 'ready')] : [programs];
+  for (const group of groups) {
+    for (const step of steps) {
+      for (const p of group) {
+        if (room()) break;
+        step(lists[p.k]![p.at] as Row);
+      }
       if (room()) break;
-      step(lists[p.k]![p.at] as Row);
     }
     if (room()) break;
   }
@@ -1181,10 +1185,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // default view's Say; `said` writes the reply from the final numbers.
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
-  // L35-9 (v6.1.17): every ready program the yes covers, the ones past the default caps too, so the default view's count
-  // is the full list's Ready count.
-  const readyAll = readyV.filter((v) => !attending(v) && !holds.has(v.program_id) && !builderHeld.has(v.program_id)).length;
-  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer, { readyAll }).shown;
+  const laid = all ? [] : replyParts(r0, last === null, ctx.now, lastOffer).shown;
   const prevIds = all && (await lastProjectKey(ctx.installationId)) === key ? await lastListIds(ctx.installationId) : [];
   const stable = stableNumbers(prevIds, [...laid, ...byN.filter((id) => !laid.includes(id))]);
   const renum = <X extends { program_id: string; n: number }>(x: X): X => ({ ...x, n: stable.get(x.program_id)! });
@@ -1192,7 +1193,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L1i-5: the full list closes on the default view's Say, from the programs the default view lists.
   const defaultSay = all ? (() => {
     const ids = defaultIdsOf();
-    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true, readyAll }).say;
+    return replyParts({ ...r, ready: r.ready.filter((p) => ids.has(p.program_id)), gaps: r.gaps.filter((g) => ids.has(g.program_id)) }, last === null, ctx.now, lastOffer, { asShown: true }).say;
   })() : undefined;
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
@@ -1204,15 +1205,12 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L24-2 (v6.1.16 Task 11): read the last offer, then keep this reply's.
   // L1i-6 (v6.1.16.1): the full list says every close, beyond the gap lines' own window (the JSON keeps closes_at).
   const closes = all ? new Map(shownGaps.map((v) => [v.program_id, closesIn(byId.get(v.program_id)!.file, ctx.now) && closeDay(byId.get(v.program_id)!.file, ctx.now) ? closesIn(byId.get(v.program_id)!.file, ctx.now)! : ''])) : undefined;
-  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, readyAll, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
-  // L35-9 (v6.1.17): the yes covers ready programs this reply does not list.
-  const listedFree = r.ready.filter((p) => !p.in_person && !p.claimed_since && !p.held).length;
-  const pastList = !all && listedFree > 0 && readyAll > listedFree ? PAST_LIST_NOTE(readyAll - listedFree) : '';
+  const said = replyParts(r, last === null, ctx.now, lastOffer, { all, ...(defaultSay ? { defaultSay } : {}), ...(closes ? { closes } : {}) });
   await markOffer(ctx.installationId, said.offer, ctx.now);
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), pastList, said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
     more: more > 0 || said.hidden.length > 0,
   };

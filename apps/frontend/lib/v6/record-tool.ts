@@ -178,6 +178,8 @@ export const NO_STANDING_HERE = 'There is no standing approval on this agent.';
  *  to turn it off and hold one; off, where to turn it on. Pure. */
 export const STANDING_YOURS = (on: boolean): string =>
   on ? 'Standing approval is yours to turn off at earnkit.com/me. Until then say stop for a program and I hold it.' : 'Standing approval is yours to turn on at earnkit.com/me.';
+/** Fix round 1 (N2, v6.1.17): a policy set that saved other facts while standing approval is off. */
+export const POLICY_OFF_SAVED_NOTE = 'Saved; standing approval is set on earnkit.com/me only.';
 /** L35-16 (v6.1.17): the input errors of a record call whose read arguments do not go together. */
 export const PAGE_WITHOUT_KIND = 'page: only with get and an answer kind';
 export const GET_AND_BRIEF = 'get, brief: one of get or brief per call';
@@ -451,7 +453,8 @@ async function recordReply(ctx: { installationId: number; builderId: number | nu
       const head = facts.length > 0 || others.length > 0 || secrets > 0 ? `${savedLine(counts, others, secrets)} ` : '';
       const r: RecordReply = {
         show_to_builder: `${head}${STANDING_YOURS(record.policy.auto_apply === true)}`,
-        agent_note: `${facts.length > 0 ? '' : 'Nothing was saved. '}${record.policy.auto_apply === true ? STOP_HELD_NOTE : ''}`.trim(),
+        // Fix round 1 (N2, v6.1.17): with approval off and facts saved, one line still says what happened.
+        agent_note: record.policy.auto_apply === true ? `${facts.length > 0 ? '' : 'Nothing was saved. '}${STOP_HELD_NOTE}` : facts.length > 0 ? POLICY_OFF_SAVED_NOTE : 'Nothing was saved.',
         linked: true,
         problems: m.problems,
         ...read,

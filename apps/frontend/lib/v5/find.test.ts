@@ -1191,8 +1191,9 @@ test('a failed own read keeps the stored tier line; a broken link never fails fi
     assert.match(link, /\/link\//);
     assert.match(open.reply!.show_to_builder as string, /^Open now:\n/);
     const openLines = (open.reply!.show_to_builder as string).split('\n');
-    assert.equal(openLines.at(-1), `Sign in once at ${link} so I remember you across agents.`);
-    assert.equal(openLines.at(-2), 'Tell me which project and I match it.');
+    // L1j-6 (v6.1.17 fix round 1 I3): the ask is last, the sign-in sentence before it.
+    assert.equal(openLines.at(-2), `Sign in once at ${link} so I remember you across agents.`);
+    assert.equal(openLines.at(-1), 'Tell me which project and I match it.');
     assert.ok(openLines.length <= 10, openLines.join('\n'));
     for (const line of openLines.slice(1, -2)) assert.ok(line.endsWith('.'), line);
   });
@@ -1208,8 +1209,9 @@ test('shownReadyOf: zero remote and three in person gives the first two in perso
   assert.deepEqual(shownReadyOf(inPerson(3), false, isIn).map((v) => v.id), ['p0', 'p1']);
 });
 
-test('shownReadyOf: six remote and zero in person gives the first five remote', () => {
-  assert.deepEqual(shownReadyOf(remote(6), false, isIn).map((v) => v.id), ['r0', 'r1', 'r2', 'r3', 'r4']);
+// v6.1.17 fix round 1 (I2): every remote ready program is in the JSON, so the yes never covers one the agent lacks.
+test('shownReadyOf: six remote and zero in person gives all six remote', () => {
+  assert.deepEqual(shownReadyOf(remote(6), false, isIn).map((v) => v.id), ['r0', 'r1', 'r2', 'r3', 'r4', 'r5']);
 });
 
 test('shownReadyOf: all returns everything unchanged', () => {
@@ -2146,7 +2148,8 @@ test('B10: the first find after an unlink says so with the sign-in link, once; t
   const list = await mcpCall({ ...ctx(other.id, later), linkUrl: async () => link }, 'find', {});
   const listShow = list.reply!.show_to_builder as string;
   assert.equal(list.reply!.linked_notice, line);
-  assert.ok(listShow.endsWith(`\n${line}`), listShow);
+  // Fix round 1 (I3): the ask stays last, the notice before it.
+  assert.ok(listShow.endsWith(`\n${line}\nTell me which project and I match it.`), listShow);
   assert.equal(listShow.split(link).length, 2, listShow);
   // No sign-in configured: the notice alone.
   const third = await linkedWith(OWNER_RECORD);
@@ -2244,7 +2247,8 @@ test('C51, N5: after the account is deleted, the next find of a linked agent say
   await deleteBuilder(other.builderId, NOW);
   const list = await mcpCall({ ...ctx(other.id, later), linkUrl: async () => null }, 'find', {});
   assert.equal(list.reply!.linked_notice, line);
-  assert.ok((list.reply!.show_to_builder as string).endsWith(`\n${line}`), list.reply!.show_to_builder as string);
+  // Fix round 1 (I3): the ask stays last, the notice before it.
+  assert.ok((list.reply!.show_to_builder as string).endsWith(`\n${line}\nTell me which project and I match it.`), list.reply!.show_to_builder as string);
 });
 
 test('C47: a find with no project stamps the find, so the linked notice shows once', async () => {
@@ -2714,13 +2718,13 @@ test('L13-9 (v6.1.14): one tonight list, the same by default and in filter.all; 
     const tonight = byDefault.reply!.tonight as { programs: { program_id: string; title: string }[]; limit_used: boolean };
     assert.deepEqual(all.reply!.tonight, tonight);
     for (const x of extra) assert.ok(ids(tonight.programs).includes(x), x);
-    // More go tonight than the default list shows.
-    const shown = (allReady(byDefault.reply!) as { in_person: boolean }[]).filter((p) => !p.in_person).length;
-    assert.ok(tonight.programs.length > shown, `${tonight.programs.length} vs ${shown}`);
+    // v6.1.17 fix round 1 (I2): the default JSON holds every ready program, so every one going tonight is in it.
+    const listed = ids((allReady(byDefault.reply!) as { program_id: string; in_person: boolean }[]).filter((p) => !p.in_person));
+    for (const x of ids(tonight.programs)) assert.ok(listed.includes(x), x);
     const line = (r: typeof all) => /Applying now to [^\n]+? under your standing approval\. Say (stop and I hold any of them|yes and I also apply to [^\n]+?)\./.exec(r.reply!.show_to_builder as string)?.[0];
     assert.ok(line(byDefault));
     assert.equal(line(byDefault), line(all));
-    assert.match(byDefault.reply!.agent_note as string, /The standing-approval list names programs past the shown list: call find with program_id for each one's fields before you send it\./);
+    assert.doesNotMatch(byDefault.reply!.agent_note as string, /past the shown list/);
   } finally {
     await sql()`DELETE FROM programs WHERE id LIKE 'l139-%'`;
   }
@@ -3515,11 +3519,17 @@ test('L35-9 (v6.1.17, lane 35 C.5 and C.6, Review Focus 3): after one claim and 
     assert.equal((await mcpCall(c, 'track', { program_id: 'l179-r2', status: 'held', project: PROJECT })).isError, false);
     const d = await mcpCall(c, 'find', { project: PROJECT });
     const show = d.reply!.show_to_builder as string;
-    const said = /I apply to all (\d+) ready \((\d+) not shown: say more\)/.exec(show);
+    const said = /I apply to all (\d+) ready\b/.exec(show);
     assert.ok(said, show);
+    assert.doesNotMatch(show, /not shown/);
     const head = Number(/^Ready to apply \((\d+)\):$/m.exec(show)![1]);
     assert.equal(head, Number(said[1]), show);
     assert.ok(show.split('\n').at(-2)!.startsWith('And '), show);
+    // Fix round 1 (I2): the JSON's ready list holds every free ready program the yes covers, each with its fields.
+    const listed = (d.reply!.ready as { program_id: string; fields: unknown[]; claimed_since?: string; held?: boolean }[]).filter((p) => !p.claimed_since && !p.held);
+    assert.equal(listed.length, Number(said[1]), JSON.stringify(listed.map((p) => p.program_id)));
+    assert.ok(ids8.slice(2).every((x) => listed.some((p) => p.program_id === x && p.fields.length > 0)));
+    assert.doesNotMatch(d.reply!.agent_note as string, /past this list/);
     const full = (await mcpCall(c, 'find', { project: PROJECT, filter: { all: true } })).reply!.show_to_builder as string;
     assert.equal(Number(/^Ready to apply \((\d+)\):$/m.exec(full)![1]), Number(said[1]), full);
     assert.match(full, /^Being handled by your other agent \(1\):$/m);
@@ -3539,4 +3549,34 @@ test('L1j-5 (v6.1.17): an unknown key inside project is a problems line, never a
   // v6.1.16 Task 15 N6: beside an item that does not say it, only that item keeps the prefix.
   const two = await mcpCall(ctx(await installation()), 'find', { project: { ...PROJECT, bogus: 1 }, filter: { all: 'maybe' } });
   assert.match(two.reply!.agent_note as string, /project\.bogus was not read\./);
+});
+
+test('v6.1.17 fix round 1 (I3): with no project, the ask is last and the sign-in sentence before it (persona 28 and {})', async () => {
+  const link = 'https://earnkit.com/link/p28';
+  for (const [args, ask] of [
+    [{ project: { name: 'Lumen' } }, 'Tell me what Lumen does in a line, or its repo link, and I match it.'],
+    [{ project: { name: 'Lumen' }, filter: { all: true } }, 'Tell me what Lumen does in a line, or its repo link, and I match it.'],
+    [{}, 'Tell me which project and I match it.'],
+    [{ filter: { category: 'loan' } }, 'Tell me which project and I match it.'],
+  ] as const) {
+    const r = await mcpCall({ ...ctx(await installation()), linkUrl: async () => link }, 'find', args);
+    const show = r.reply!.show_to_builder as string;
+    assert.deepEqual(show.split('\n').slice(-2), [`Sign in once at ${link} so I remember you across agents.`, ask], JSON.stringify(args));
+  }
+});
+
+test('v6.1.17 fix round 1 (M1, N1): an in-person lookup ends on its action with no project, and a held line sits before it', async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'alliance' });
+  assert.equal((r.reply!.show_to_builder as string).split('\n').at(-1), 'You apply in person; the guide has the steps.');
+  const { claim } = await import('../v6/claims');
+  const { saveInstallation, connectInstallation } = await import('./installations');
+  const { linkInstallation } = await import('../v6/builders');
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  const token = 'n1-holder-' + Math.random();
+  await saveInstallation(token, 'Cursor');
+  const other = (await connectInstallation(token))!.id;
+  await linkInstallation(other, builderId, NOW);
+  await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', other, new Date(NOW.getTime() - 60_000));
+  const held = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { program_id: 'alliance-all19', project: PROJECT });
+  assert.deepEqual((held.reply!.show_to_builder as string).split('\n').slice(-2), ['Another agent of yours started this one on Nov 4.', 'You apply in person; the guide has the steps.']);
 });

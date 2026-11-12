@@ -475,10 +475,14 @@ test('L21-22 (v6.1.16, fix round 1 M2): on /me with a linked agent the footer an
   assert.ok(header.includes('[body:has([data-me-linked])_&amp;]:hidden') || header.includes('[body:has([data-me-linked])_&]:hidden'), header);
 });
 
-test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city pill first and the close in days', async () => {
-  const ends = new Date(Date.now() + 5 * 86_400_000 - 3_600_000).toISOString();
-  await upsertProgram(programFixture({ id: 'zz-page-city', title: 'Page City Hack', in_person: true, city: 'Eugene', ends_at: ends, summary: '$4,600 in prizes · 11:59 PM PT', pool_usd: 4600, reward: '$4,600 in prizes' }), 'file', new Date());
+test('L21-16, L21-24 (v6.1.16, fix round 1 M3): a rendered guide shows the city pill first and the close in days', async (t) => {
+  // v6.1.17 Task 1 fix round 1 (I4): rendered at a fixed instant (noon in PT), so the PT day count holds at any hour.
+  const at = new Date('2026-11-12T20:00:00Z');
+  const ends = new Date(at.getTime() + 5 * 86_400_000 - 3_600_000).toISOString();
+  await upsertProgram(programFixture({ id: 'zz-page-city', title: 'Page City Hack', in_person: true, city: 'Eugene', ends_at: ends, summary: '$4,600 in prizes · 11:59 PM PT', pool_usd: 4600, reward: '$4,600 in prizes' }), 'file', at);
+  t.mock.timers.enable({ apis: ['Date'], now: at });
   const m = html(await ProgramGuidePage(params('zz-page-city')));
+  t.mock.timers.reset();
   const pills = m.match(/<ul aria-label="How to apply"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
   const first = pills.match(/<li[^>]*>([^<]*)<\/li>/)?.[1];
   assert.equal(first, 'In person: Eugene.', pills);

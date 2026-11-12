@@ -1373,7 +1373,7 @@ test('M3: one week reads "1 week"; the rare step kinds close on their own clause
 test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row the budget allows, numbered as shown, the more line naming the rest', () => {
   // L1j-3 (v6.1.17): the ready and step rows shown and hidden, from the ids the view numbers.
   assert.deepEqual(defaultRows(['a', 'b'], ['c', 'd', 'e'], ['a', 'c']), { readyShown: 1, readyHidden: 1, stepShown: 1, stepHidden: 2 });
-  assert.deepEqual(defaultRows(['a'], [], ['a'], 2), { readyShown: 1, readyHidden: 2, stepShown: 0, stepHidden: 0 });
+  assert.deepEqual(defaultRows(['a', 'b', 'c'], [], ['a']), { readyShown: 1, readyHidden: 2, stepShown: 0, stepHidden: 0 });
   assert.equal(moreInFull(2), 'And 2 more in the full list.');
   const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
   const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
@@ -1444,22 +1444,23 @@ test('L35-8 (v6.1.17, lane 35 C.2 and C.3): a ready row closing within a day is 
     '1. L35 Closes In 2 Min, $1K, closes today.',
     '2. L35 Closing Soon, $1K, closes today.',
     '3. Dec One, $1K, closes Dec 12.',
+    // Fix round 1 (I1): the hidden count is said once, on the And-more line; the yes says "ready".
     'And 3 more in the full list.',
-    'Say yes and I apply to all 6 ready (3 not shown: say more).',
+    'Say yes and I apply to all 6 ready.',
   ].join('\n'));
-  // The full list shows every row, so its Say names none as not shown.
   const full = replyText(r, true, NOW, null, { all: true, defaultSay: p.say });
   assert.equal(full.split('\n')[0], 'Ready to apply (6):');
   assert.equal(full.split('\n').at(-1), 'Say yes and I apply to all 6 ready.');
 });
 
-test('L35-9 (v6.1.17): the yes and the Ready heading count every ready program the full list counts', () => {
-  const NOW = new Date('2026-11-12T08:00:00Z');
-  const r = base({ ready: ['A', 'B', 'C', 'D', 'E'].map((t) => ready({ title: t })) });
-  const p = replyParts(r, true, NOW, null, { readyAll: 6 });
-  assert.equal(p.text.split('\n')[0], 'Ready to apply (6):');
-  assert.equal(p.text.split('\n').at(-2), 'And 3 more in the full list.');
-  assert.equal(p.say, 'Say yes and I apply to all 6 ready (3 not shown: say more).');
+test('L35-8 (v6.1.17 fix round 1 I1): a capped ready block draft-only says the count once too', () => {
+  const r = base({
+    ready: ['A', 'B', 'C', 'D', 'E'].map((t) => ready({ title: t })),
+    blockers: ['a', 'b', 'c', 'd', 'e'].map((id) => ({ program_id: id, sign_in: null, needs_click: true, needs: [] })),
+  });
+  const p = replyParts(r, true, new Date('2026-11-12T08:00:00Z'));
+  assert.deepEqual(p.text.split('\n').slice(-2), ['And 2 more in the full list.', 'Say yes and I draft all 5 for you to send.']);
+  assert.doesNotMatch(p.text, /not shown/);
 });
 
 test('v6.1.16 Task 11 N2 (v6.1.17): with every ready program under "Your yes stands", a do gap still closes the reply', () => {

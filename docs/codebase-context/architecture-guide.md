@@ -145,7 +145,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
    results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
    how it went when results are due." is always kept.
-8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
+8. `find` caps the lists (every remote ready program since v6.1.17, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
    programs get their own block with their setup (never in "apply to all N"), and the reply ends with
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
@@ -1176,15 +1176,19 @@ means what the last `Say` offered.
   unknown category stays a problems line in the agent note, project or not. `closesWords` counts calendar days in the
   program's zone on every surface (reply, tile, guide). `programs:check` also refuses a figure beside "million" or
   "billion" (`MONEY_WORDS`).
-- **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35).** One count line: every ready or step row the
-  default view leaves out (in-person and held rows too, and ready programs past the default caps) is counted once, on
-  `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown, extra)` gives
+- **Reply wording and shape (v6.1.17 Task 1, lane 1j and lane 35; fix round 1).** The no-project find (open list,
+  applications line or bad category) ends on its ask, with the sign-in sentence, the unlink notice or the linked report
+  before it (fix round 1 I3). An open in-person lookup ends on `IN_PERSON_ONE` with no project too, and a held line sits
+  before it (M1, N1); a policy set that saved facts while approval is off says `POLICY_OFF_SAVED_NOTE` (N2). One count line: every ready or step row the
+  default view leaves out (in-person and held rows too) is counted once, on
+  `And {n} more in the full list.` right before the Say (`defaultRows(ready, steps, shown)` gives
   `{ readyShown, readyHidden, stepShown, stepHidden }`; `fit` runs again one line shorter when anything is hidden; the
-  step block has no more line of its own). Ready rows closing within a day go first (`soonFirst`). The yes counts every
-  ready program it covers: find passes `readyAll` (every remote ready program not held or claimed, past the caps), the
-  Ready heading and `all {n} ready` use it, and when rows are hidden the yes reads `Say yes and I apply to all {n} ready
-  ({k} not shown: say more).` (the full list's Say drops the parenthesis; `PAST_LIST_NOTE` tells the agent when the yes
-  covers programs past the JSON). The full view (`fullView(blocks, ...)`) writes the default's block headings with their
+  step block has no more line of its own). Ready rows closing within a day go first (`soonFirst`). Fix round 1 (I1): the
+  hidden count is said once, so with ready rows hidden the yes reads `Say yes and I apply to all {n} ready.` (`hidden`
+  in `closingLine` keeps the word "ready"). Fix round 1 (I2): the default JSON's ready list holds every remote ready
+  program with its fields (`shownReadyOf` caps only in-person ones, `MAX_IN_PERSON`), so the Ready heading, `all {n}`
+  and the full list's Ready count agree and a yes never covers a program the agent lacks; the default list's size cap
+  (`findReplyCap(..., keepReady)`) trims the other lists' fields and details before any ready program's. The full view (`fullView(blocks, ...)`) writes the default's block headings with their
   true counts: `Ready to apply ({n}):`, `Being handled by your other agent ({n}):`, `On hold until you say go ({n}):`,
   `One step away ({n}):`, `In person ({n}):`. The Before line ranks 5.55 and a linkless notice 5.6, ahead of the step
   rows past the first (5.7). The sign-in after a repo read names what it checks by the proof gap's bar
