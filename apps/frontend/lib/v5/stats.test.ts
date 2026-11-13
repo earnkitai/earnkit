@@ -13,9 +13,9 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at)', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at; v6.1.20: installs_real, people, people_real appended)', async () => {
   const s = await readStats(NOW);
-  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at']);
+  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at', 'installs_real', 'people', 'people_real']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
 });
 
@@ -75,12 +75,12 @@ test('installs, finds and applications count what happened, with their windows',
   for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at' && k !== 'read_at') assert.equal(typeof v, k === 'won_other' ? 'object' : k === 'last_check_ok' ? 'boolean' : 'number', k);
 });
 
-test('statsGet answers the fifteen keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
+test('statsGet answers the eighteen keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
   const ok = await statsGet(() => readStats(NOW));
   assert.equal(ok.status, 200);
   // L36-4 (v6.1.18 Task 5): the header says the route's real cache.
   assert.equal(ok.headers.get('cache-control'), 'public, max-age=600');
-  assert.equal(Object.keys((await ok.json()) as object).length, 15);
+  assert.equal(Object.keys((await ok.json()) as object).length, 18);
   const bad = await statsGet(async () => {
     throw new Error('db down');
   });
@@ -228,4 +228,20 @@ test('L44-5: applications_7d counts by send time: two sends 8 days ago with resu
   const after_ = await readStats(NOW);
   assert.equal(after_.applications_7d - before.applications_7d, 0);
   assert.equal(after_.applications - before.applications, 2);
+});
+
+test('installs_real, people and people_real leave out people flagged as tests (v6.1.20)', async () => {
+  const before = await readStats(NOW);
+  const mk = async (reason: string | null) => {
+    const [p] = await sql()<{ id: number }[]>`INSERT INTO people (test_reason) VALUES (${reason}) RETURNING id`;
+    await sql()`INSERT INTO installations (token_hash, person_id) VALUES (${'stat-p-' + Math.random()}, ${p.id})`;
+  };
+  await mk(null);
+  await mk('repro');
+  await sql()`INSERT INTO installations (token_hash) VALUES (${'stat-p-none'})`;
+  const after = await readStats(NOW);
+  assert.equal(after.installs - before.installs, 3);
+  assert.equal(after.installs_real - before.installs_real, 2);
+  assert.equal(after.people - before.people, 2);
+  assert.equal(after.people_real - before.people_real, 1);
 });

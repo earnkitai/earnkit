@@ -506,7 +506,7 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications (v6.1.19: `I sent it` posts to `/me/sent`), agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
-| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), and names no one |
+| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), `installs_real`, `people` and `people_real` (v6.1.20: not flagged as tests), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
@@ -606,6 +606,8 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at, `first_failed_at` (v6.1.17: stale at 20 hours of failing); `submit_closed` (v6.1.18), `closed_round`, `closed_on` and `closed_since` (v6.1.19: the closed read, its page and its age) |
+| `people` | v6.1.20: one row per person behind installations (`installations.person_id`); `builder_id` once a builder is known, legacy X fields and `legacy_profile_id` (backfill), an unproven `github_login`, `test_reason` (NULL real; owner, dogfood, persona, repro, test) and its source; never deleted |
+| `owner_people` (view) | v6.1.20: the owner's tracker (role `earnkit_ro`) reads it by column name: one row per person with an installation or a builder; `builder_id` is `people.id`, `slug` (builder login, X handle, else `i-<first installation>`), `installation_ids`, X and GitHub identity, `joined_at`, `last_seen_at`, `main_repo` (owner/repo of the last GitHub project key), `programs_applied/accepted/won` from `applications` for `b:<builder>` and `i:<installation>`; columns v5 cannot fill are NULL or 0; appended `person_key`, `earnkit_builder_id`, `identity_source` (`github_signin`, `x_signin_legacy`, `github_claimed` or NULL), `identity_proven`, `is_test`, `test_reason`. No tokens, emails or IPs. Dropped and recreated by `db:migrate`, then granted to `earnkit_ro` when that role exists |
 | `cron_state` | v6.1.17 Task 3: one row, `last_run_at` of the last daily run that answered 200 and (v6.1.19) finished its link check (`/api/stats`, the digest's gap line); `last_check_failed_at` of the last run whose check failed (`last_check_ok`, the digest's opening line) |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
@@ -635,6 +637,8 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: `/link` and the callback answer 503) |
+| `EARNKIT_INSTALL_SIGNIN` | v6.1.20: `off` (default, the anonymous approval) or `github` (authorize goes through a GitHub sign-in first, when the OAuth app is set up; the installation links to that builder) |
+| `EARNKIT_TEST_INSTALLATIONS`, `EARNKIT_OWNER_LOGINS`, `EARNKIT_DOGFOOD_LOGINS` | v6.1.20, optional comma lists (installation ids; GitHub logins or X handles, case-insensitive) that flag a person as a test (`people.test_reason` `test`, `owner`, `dogfood`); unset flags nothing but the client-name patterns |
 | `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
 
 `lib/v5/no-v4.test.ts` fails if any code reads a variable outside this list.
@@ -1845,3 +1849,13 @@ See the freshness pipeline (the closed read, landing pages) and the daily job (n
   rest."), never cutting one. The one-program cap drops the guide's copy of the form before any field detail and never
   drops a select's options. The full list's linked note reads `FULL_LIST_STYLE_NOTE`. OAuth counts the block last:
   token is address, client, then block; a reserved client name is refused before any limit.
+
+## People and install attribution (v6.1.20)
+
+Design: `design-docs-and-implementation-plans/v6.1.20-install-attribution.md`. Every installation has a person
+(`people`, `lib/v6/people.ts`): made in `saveInstallation`'s transaction, joined to the builder's person by
+`linkInstallation`. `testReasonFor` flags owner, dogfood, persona, repro and test people (env lists and client-name
+patterns); `/api/stats` `installs_real` leaves them out. `EARNKIT_INSTALL_SIGNIN=github` makes authorize a GitHub
+sign-in (`installSignIn`, install-kind state, `__Host-ek_install` nonce cookie, callback `installCallback`; the code
+carries `b`, the builder, and `tokenPost` links after `installOnce`). `pnpm tsx apps/frontend/scripts/people-backfill.mts
+[--apply] [--since YYYY-MM-DD]` backfills people for older installations (dry run by default).

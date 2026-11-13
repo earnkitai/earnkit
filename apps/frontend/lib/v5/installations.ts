@@ -4,7 +4,8 @@
  * last_find_at and its gaps.
  */
 import { createHash } from 'node:crypto';
-import { type Db, sql } from './db';
+import { type Db, inTx, sql } from './db';
+import { ensurePerson } from '../v6/people';
 import { cleanText } from './controls';
 import type { OfferKind } from './reply';
 import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
@@ -45,12 +46,16 @@ export function displayName(name: string | null | undefined): string | null {
 export async function saveInstallation(token: string, clientName: string | null = null, audience: string | null = null, db: Db = sql()): Promise<number> {
   // T6-F2 (v6.1.14): no installation is saved under EarnKit's own name, whoever calls this.
   if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
-  const [r] = await db<{ id: number }[]>`
-    INSERT INTO installations (token_hash, client_name, audience) VALUES (${hash(token)}, ${cleanClientName(clientName)}, ${audience})
-    ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name),
-      audience = COALESCE(EXCLUDED.audience, installations.audience)
-    RETURNING id`;
-  return r.id;
+  // v6.1.20: every installation has a person (people table), made here in the same transaction.
+  return inTx(db, async (tx) => {
+    const [r] = await tx<{ id: number }[]>`
+      INSERT INTO installations (token_hash, client_name, audience) VALUES (${hash(token)}, ${cleanClientName(clientName)}, ${audience})
+      ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name),
+        audience = COALESCE(EXCLUDED.audience, installations.audience)
+      RETURNING id`;
+    await ensurePerson(tx, r.id, cleanClientName(clientName));
+    return r.id;
+  });
 }
 
 /**

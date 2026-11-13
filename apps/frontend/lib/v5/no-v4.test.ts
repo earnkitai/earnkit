@@ -20,6 +20,8 @@ const ENV_ALLOWED = new Set([
   'EARNKIT_SCREEN_OUT',
   // GitHub sign-in for builders (lib/v6/github-auth.ts).
   'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET',
+  // v6.1.20: people (lib/v6/people.ts) and the install sign-in (lib/v5/oauth-routes.ts); all optional.
+  'EARNKIT_TEST_INSTALLATIONS', 'EARNKIT_OWNER_LOGINS', 'EARNKIT_DOGFOOD_LOGINS', 'EARNKIT_INSTALL_SIGNIN',
   // v6.1.16 (S): the build id keying the page cache (app/lib/cached.ts), inlined at build by next.config.ts from
   // Railway's git SHA; a deploy never sets EK_BUILD_ID itself.
   'EK_BUILD_ID', 'RAILWAY_GIT_COMMIT_SHA',

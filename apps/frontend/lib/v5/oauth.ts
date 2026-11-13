@@ -75,7 +75,8 @@ export function isAllowedRedirectUri(uri: string) {
 /** `r`: the redirect URIs; `n`: the registration nonce; `cn`: the registered name, cleaned. */
 export type ClientPayload = { r: string[]; n?: string; cn?: string };
 /** `a`: the resource (audience) the code was issued for; absent in codes from before v6.1.16. */
-type CodePayload = { c: string; r: string; ch: string; e: number; n: string; a?: string };
+/** `b`: the builder who signed in with GitHub at the install (v6.1.20, EARNKIT_INSTALL_SIGNIN=github); absent for an anonymous approval. */
+type CodePayload = { c: string; r: string; ch: string; e: number; n: string; a?: string; b?: number };
 
 /** The MCP resource URL for an origin (RFC 8707): what a token is issued for. Pure. */
 export const resourceOf = (origin: string) => `${origin}/mcp`;
@@ -534,8 +535,8 @@ export async function checkAuthorize(params: URLSearchParams, deps: ClientDeps =
   };
 }
 
-/** The redirect with a code (and RFC 9207's iss). `_who` is always null: the approval is anonymous. */
-export async function issueCode(req: PendingAuthorize, _who: null, issuer?: string, deps: ClientDeps = {}): Promise<URL> {
+/** The redirect with a code (and RFC 9207's iss). `who` is null for the anonymous approval, else the builder who signed in at the install (v6.1.20). */
+export async function issueCode(req: PendingAuthorize, who: { builderId: number } | null, issuer?: string, deps: ClientDeps = {}): Promise<URL> {
   const client = await clientOf(req.client_id, deps);
   if (!client || !client.r.includes(req.redirect_uri)) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
   const back = new URL(req.redirect_uri);
@@ -550,6 +551,7 @@ export async function issueCode(req: PendingAuthorize, _who: null, issuer?: stri
       e: Date.now() + CODE_TTL_MS,
       n: randomBytes(12).toString('base64url'),
       a: req.resource ?? resourceOf(issuer ?? defaultOrigin()),
+      ...(who && { b: who.builderId }),
     } satisfies CodePayload),
   );
   return back;
@@ -565,7 +567,7 @@ export async function exchangeCode(
   form: URLSearchParams,
   deps: ClientDeps = {},
   origin = defaultOrigin(),
-): Promise<{ token: string; limitKey: string; hostedHost: string | null; clientName: string | null; nonce: string; audience: string }> {
+): Promise<{ token: string; limitKey: string; hostedHost: string | null; clientName: string | null; nonce: string; audience: string; builderId: number | null }> {
   if (form.get('grant_type') !== 'authorization_code') throw new OAuthError('unsupported_grant_type', 'Only authorization_code is supported');
   const code = form.get('code') ?? '';
   const payload = verify<CodePayload>('code', code);
@@ -592,6 +594,7 @@ export async function exchangeCode(
     clientName: clientNameOf(client?.cn),
     nonce: payload.n,
     audience: payload.a ?? resourceOf(origin),
+    builderId: Number.isSafeInteger(payload.b) ? (payload.b as number) : null,
   };
 }
 

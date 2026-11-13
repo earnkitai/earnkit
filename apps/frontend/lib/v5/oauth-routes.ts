@@ -5,6 +5,8 @@
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
 import { codeSpent, installOnce, revokeInstallation } from './installations';
+import { linkInstallation } from '../v6/builders';
+import { installSignIn, installSignInOn } from '../v6/link-routes';
 import { CIMD_FAILED, CIMD_RESERVED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, clientNameOf, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
@@ -57,7 +59,7 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
     const params = await readParams(request, MAX_OAUTH_BODY);
     if (params === null) return tooLarge();
     // L35-5 (v6.1.16.1 Task 2): a client document fetch counts on its host and the caller's address block.
-    const { token, limitKey, hostedHost, clientName, nonce, audience } = await exchangeCode(params, callerClient(request, deps.client), publicOrigin(request));
+    const { token, limitKey, hostedHost, clientName, nonce, audience, builderId } = await exchangeCode(params, callerClient(request, deps.client), publicOrigin(request));
     // T6-F2 (v6.1.14): a client id signed before the check may carry a reserved name; it never installs (saveInstallation
     // refuses too). Checked before the limits, so a refusal spends none.
     if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
@@ -82,7 +84,10 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
       throw err;
     }
     // The nonce is spent and the installation saved in one transaction; a parallel exchange that spent it first wins.
-    if ((await installOnce(token, nonce, clientName, audience)) === null) return await codeReused(token);
+    const installed = await installOnce(token, nonce, clientName, audience);
+    if (installed === null) return await codeReused(token);
+    // v6.1.20: a code issued after a GitHub sign-in names the builder; the installation links as a /me link does.
+    if (builderId !== null) await linkInstallation(installed, builderId, new Date());
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof BodyTimeoutError) return bodyTimedOut();
@@ -98,13 +103,17 @@ const callerClient = (request: Request, client: ClientDeps | undefined): ClientD
 type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps };
 const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
 
-/** Anonymous approval: a valid request is sent straight back to its client with a code. */
+/**
+ * Anonymous approval: a valid request is sent straight back to its client with a code. With EARNKIT_INSTALL_SIGNIN=github
+ * (v6.1.20) it goes through a GitHub sign-in first (`installSignIn`; the callback issues the code).
+ */
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
     await (deps.limit ?? authorizeLimit)(request);
     const client = callerClient(request, deps.client);
     const checked = await checkAuthorize(new URL(request.url).searchParams, client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
+    if (installSignInOn()) return installSignIn(request, checked.req);
     return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });
