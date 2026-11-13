@@ -693,7 +693,10 @@ read from before v6.1.18 is re-read for its license, the license rule waits behi
 a license rule the read settled (L41-1), and a builder-sent program is asked about for 7 days after it closes (L41-10)), 6.1.19 (`v6.1.19-journeys-13-plan.md`:
 journey campaign round 13, lanes 1l and 41 to 45; the owner's count by send time, /me keeps what was typed and says
 the true state, the reply's Next one rule away and one sent question, cleanup (the $25,000 plan steps, the
-`sent_asks` sweep), the daily run round 3, tool inputs and the ledger's money; see that section).
+`sent_asks` sweep), the daily run round 3, tool inputs and the ledger's money; see that section), 6.1.19.1
+(`v6.1.19.1-patch-plan.md`: a coin win keeps up to 8 places and the whole-dollar line is for US dollars only (L47-1), a
+builder send made the draft way counts as drafted (L47-3), a count or score field is never the traction line (L47-5), a
+win lands on its own project's row (L47-2), and the first find re-reads a pre-v6.1.18 row when reads are allowed (L1m-1)).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -1808,6 +1811,21 @@ See the freshness pipeline (the closed read, landing pages) and the daily job (n
 - A screen `won` over the builder's own win: the same amount (or none) is `CONFIRMED`; another amount is a history row beside it (`BESIDE_NOTE`, `corrected` false), written once; a screen won with no amount never blanks a kept amount (fix round 1 I2). The reviewer hears only the generic `builder's record stands` line.
 - `outside: true` on track (described in TRACK_DESCRIPTION): a program that has not opened takes a win only with it, for a win from outside EarnKit such as an earlier round; else `{title} has not opened; nothing to record.` (`NOT_OPENED_WIN`, L45-20). Started on a skipped program, before any rule ask: `{title} is skipped. Say unskip and I bring it back.`
 - Reserved client names (L45-16, fix round 1): names are folded (look-alikes, leet digits) and `earnkit` anywhere in the folded letters is refused, except inside an allow-listed word (`ALLOWED_WORDS` in oauth.ts: `learnkit`, `yearnkit`, also split as `learn kit` and `yearn kit`), which is dropped before the check: LearnKit, Yearn Kit and Learn Kit Pro register; AIEarnKit, EarnKitBot, Earn Kitchen and `LearnKit EarnKit` are refused. A client document with EarnKit's name fails with `CIMD_RESERVED`.
+
+## v6.1.19.1: patch (lane 47, lane 1m)
+
+Plan `v6.1.19.1-patch-plan.md`.
+- Money places (L47-1): `placesOf` (8 for ETH, BTC, SOL; 2 else) and `roundIn` in `amount.ts`; the ledger, a further
+  payment (`addMoney` by currency) and the screen store a win at its places (`{"ETH":0.001}`); `moneyText` shows a coin's
+  places with no trailing zeros (`ETH 0.001`). `UNDER_A_DOLLAR` is for US dollars only; another currency under the
+  floor reads `UNDER_A_DOLLAR_OTHER` (`underADollarLine`). The floor still weighs a coin at FLOOR_RATES.
+- Drafted (L47-3): `throughEarnkit` also holds for a dated builder send recorded by an installation when a find report
+  exists for the owner and project, or that installation tracked the program (gap_done, skipped, unskip) before the send.
+- Count fields (L47-5): `isCountField` in `prefill.ts`; never a record value; stars on a read GitHub repo are the
+  agent's (`the star count on {repo}`), any other count the builder's.
+- A win's row (L47-2): `record` picks a win's row as a send's (`pickRow(rows, key, false)`), never another project's.
+- L1m-1: an incomplete usable cache row is already re-read before the answer when reads are allowed (pinned in
+  find.test.ts); the row answers only when reads are paused or GitHub is slow.
 
 ## What v5 deliberately does not do
 
