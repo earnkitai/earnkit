@@ -247,3 +247,15 @@ test('L22-13 (v6.1.16): revalidateCatalog runs on every catalog write, outside N
     watchCatalogRevalidation(null);
   }
 });
+
+test('L47-1 (v6.1.19.1): a coin amount shows its places, up to 8, never rounded to cents; fiat keeps 2', () => {
+  assert.equal(moneyText(0.001, 'ETH'), 'ETH 0.001');
+  assert.equal(moneyText(0.0004, 'BTC'), 'BTC 0.0004');
+  assert.equal(moneyText(0.12345678, 'SOL'), 'SOL 0.12345678');
+  assert.equal(moneyText(0.5, 'ETH'), 'ETH 0.5');
+  assert.equal(moneyText(2.5, 'SOL'), 'SOL 2.5');
+  assert.equal(moneyText(1500, 'ETH'), 'ETH 1,500');
+  assert.equal(moneyText(2.5, 'EUR'), 'EUR 2.50');
+  assert.equal(moneyText(2500.5), '$2,500.50');
+  assert.equal(amountsText({ ETH: 0.001, USD: 10 }), '$10 and ETH 0.001');
+});

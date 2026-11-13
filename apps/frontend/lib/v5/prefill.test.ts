@@ -666,3 +666,24 @@ test('L18-4g: Filecoin\'s additional (need "referral source with email") is unto
   assert.equal(heardFrom({ key: 'how', label: 'Where did you hear about us?', type: 'text' })?.value, 'EarnKit (earnkit.com)');
   assert.equal(heardFrom({ key: 'how', label: 'How did you hear?', type: 'choice', options: ['X', 'Friend'] }), null);
 });
+
+test('L47-5 (v6.1.19.1): a count or score field is never filled from the traction line; stars go to the agent from the repo, the rest to the builder', () => {
+  const row = fromFile('herodevs-sustainability-fund');
+  const line = 'Used weekly by a small group of outside users.';
+  const withLine = recordWith({ traction: { line_pre_launch: line } }, ['traction.line_pre_launch']);
+  for (const usage of [null, '1,240 distinct senders in 90 days']) {
+    const by = Object.fromEntries(prefill(row, LINK_FACTS, rec(withLine, usage)).fields.map((f) => [f.key, f]));
+    assert.equal(by.stars.label, '# of Stars');
+    assert.deepEqual([by.stars.from, by.stars.value, by.stars.sources], ['agent', null, ['the star count on https://github.com/a/b']]);
+    assert.equal(by.criticality_score.label, 'Criticality Score (if available)');
+    assert.deepEqual([by.criticality_score.from, by.criticality_score.value], ['builder', null]);
+    assert.equal(by.eol_users.label, 'Estimated number of End of Life users / downloads');
+    assert.deepEqual([by.eol_users.from, by.eol_users.value], ['builder', null]);
+  }
+  // With no repo read (as reported), stars are the builder's too.
+  const told = Object.fromEntries(prefill(row, { ...LINK_FACTS, as_reported: true, repo_url_basis: 'reported' }, rec(withLine)).fields.map((f) => [f.key, f]));
+  assert.deepEqual([told.stars.from, told.stars.value], ['builder', null]);
+  // A prose traction field still takes the line.
+  const prose = rowWith([req({ key: 'traction', label: 'Traction', type: 'text', kind: 'traction', todo: 'your traction' })]);
+  assert.equal(prefill(prose, LINK_FACTS, rec(withLine)).fields[0].value, line);
+});

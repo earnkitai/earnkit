@@ -862,6 +862,9 @@ test('L45-3, L45-4 (v6.1.19, fix round 1 I3): on the screen, a win under one dol
   const { post } = await sentTo(['l45-s-a', 'l45-s-b', 'l45-s-c'], 5_000);
   const tiny = await post('l45-s-a', [{ outcome: 'won', amount_usd: 0.004 }]);
   assert.equal(tiny.reply.show_to_builder, 'Recorded 0 outcomes. Tell me the amount in whole dollars, 1 or more.');
+  // v6.1.19.1 (L47-1): another currency under a dollar has its own line, never the whole-dollar one.
+  const tinyEth = await post('l45-s-a', [{ outcome: 'won', amount: '0.00005 ETH' }]);
+  assert.equal(tinyEth.reply.show_to_builder, 'Recorded 0 outcomes. That amount is too small to record. Tell me the amount and its currency.');
   const abc = await post('l45-s-b', [{ outcome: 'won', amount: '1 ABC' }]);
   assert.equal(abc.reply.show_to_builder, 'Recorded 0 outcomes. I do not know the currency "ABC". Say the amount with its currency.');
   const btc = await post('l45-s-c', [{ outcome: 'won', amount: '5000 BTC' }]);
