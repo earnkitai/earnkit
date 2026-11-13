@@ -90,6 +90,11 @@ ALTER TABLE program_health ADD COLUMN IF NOT EXISTS body_text text;
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS first_failed_at timestamptz;
 -- v6.1.18 (L39-5): the submission page answered but its text says it is closed; the owner's digest lists it.
 ALTER TABLE program_health ADD COLUMN IF NOT EXISTS submit_closed boolean NOT NULL DEFAULT false;
+-- v6.1.19 (L44-7, L44-8, L44-19): only a round or a region is closed while the page says something is open
+-- (`closed_round`); which page said it, 'form' or 'source' (`closed_on`); since when it has said the same (`closed_since`),
+-- for the digest's age and the round line's one day.
+ALTER TABLE program_health ADD COLUMN IF NOT EXISTS closed_round boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS closed_on text, ADD COLUMN IF NOT EXISTS closed_since timestamptz;
 -- v6.1.17 Task 3 (L30-14): one row, the last daily run that finished (answered 200); /api/stats shows it and the
 -- owner's digest names a gap over 26 hours.
 CREATE TABLE IF NOT EXISTS cron_state (
@@ -99,6 +104,11 @@ CREATE TABLE IF NOT EXISTS cron_state (
 -- Fix round 1 (M2): the gap belongs to the UTC day. When a run crosses into a new day, `prev_run_at` keeps the last
 -- run before it and `day_first_at` this day's first run, so a second run that day measures the same gap.
 ALTER TABLE cron_state ADD COLUMN IF NOT EXISTS prev_run_at timestamptz, ADD COLUMN IF NOT EXISTS day_first_at timestamptz;
+-- v6.1.19 (L44-3, L44-10): a run whose link check failed mails nothing and stores only `last_check_failed_at`
+-- (/api/stats `last_check_ok`, the next digest's opening line); `last_run_at` stays the last run that finished its check,
+-- so it is null while every run so far failed its check.
+ALTER TABLE cron_state ADD COLUMN IF NOT EXISTS last_check_failed_at timestamptz;
+ALTER TABLE cron_state ALTER COLUMN last_run_at DROP NOT NULL;
 
 -- One row per installed agent (its bearer token's hash).
 CREATE TABLE IF NOT EXISTS installations (
@@ -230,6 +240,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at   timestamptz NOT NULL,
   last_seen_at timestamptz NOT NULL DEFAULT now()
 );
+-- v6.1.19 L43-4: what the builder typed into a /me form that was refused, kept 15 minutes so the page shows it again.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS draft jsonb, ADD COLUMN IF NOT EXISTS draft_at timestamptz;
 
 -- The ledger's owner: 'b:<builder>' once linked, else 'i:<installation>'. installation_id stays the
 -- writing installation. Duplicates per owner are merged (the newest kept) before the unique indexes.
@@ -288,6 +300,9 @@ UPDATE applications a SET sent_at = COALESCE(
   (SELECT max(h.at) FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.status = 'applied'),
   CASE WHEN a.status = 'applied' THEN a.at END)
 WHERE a.sent_at IS NULL AND a.auto_applied;
+-- v6.1.19 Task 1 (L42-6): the installation that recorded the send; a result, a skip or a correction moves
+-- installation_id (the last toucher), never this. Filled once at the end of this file (it reads application_history.project_id).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_by_installation_id bigint;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (
@@ -485,3 +500,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program_identity ON applica
 -- v6.1.16.1 Task 2 (L35-5): a client ID metadata document read good, so a fresh process or another instance serves it
 -- without a fetch (the in-process cache stays the fast path).
 CREATE TABLE IF NOT EXISTS cimd_documents (url text PRIMARY KEY, document jsonb NOT NULL, fetched_at timestamptz NOT NULL);
+-- v6.1.19 Task 1 (L42-6, L42-1): the one-time fills, idempotent (only NULLs). The send's installation is the newest
+-- applied history row's for the same owner, program and project. A sent row with no send time takes the newest applied
+-- history row's time, unless that row is a send made outside EarnKit (an outside win keeps no send date). Fix round 1:
+-- only rows with a matching applied history row are touched, so a rerun never writes an unmatched row at all.
+UPDATE applications a SET sent_by_installation_id = (
+  SELECT h.installation_id FROM application_history h
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+  ORDER BY h.at DESC, h.id DESC LIMIT 1)
+WHERE a.sent_by_installation_id IS NULL AND EXISTS (
+  SELECT 1 FROM application_history h
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied')
+  -- Final fix round (M1): a send the builder recorded with no agent linked keeps none (ledger.ts BUILDER_OWN_NOTE).
+  AND (SELECT h.note FROM application_history h
+    WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+    ORDER BY h.at DESC, h.id DESC LIMIT 1) IS DISTINCT FROM 'sent by the builder, no agent linked';
+UPDATE applications a SET sent_at = (
+  SELECT h.at FROM application_history h
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+  ORDER BY h.at DESC, h.id DESC LIMIT 1)
+WHERE a.sent_at IS NULL AND a.status IN ('applied', 'won', 'rejected', 'no_result')
+  AND EXISTS (
+    SELECT 1 FROM application_history h
+    WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied')
+  AND COALESCE((
+    SELECT h.note FROM application_history h
+    WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+    ORDER BY h.at DESC, h.id DESC LIMIT 1), '') <> 'sent by the builder outside EarnKit';

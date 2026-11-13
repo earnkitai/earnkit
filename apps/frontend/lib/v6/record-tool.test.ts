@@ -409,7 +409,8 @@ test('Review Focus 17 (L26-2, L26-7): a 154-answer record: get under 20 KB, brie
   assert.equal(s.isError, false, s.text);
   // 14 kinds on the record and on each of 10 projects; the facts: name, email, and each project's name and link.
   // The problem has an answer now (waiting): only the email is still missing (L26-7).
-  assert.equal(s.reply!.show_to_builder, 'Saved 154 answers and 22 facts. Approve the answers at earnkit.com/me and they go into drafts. Still missing: your email.');
+  // L45-1 (v6.1.19): the email just saved is no longer missing.
+  assert.equal(s.reply!.show_to_builder, 'Saved 154 answers and 22 facts. Approve the answers at earnkit.com/me and they go into drafts.');
   const g = await mcpCall(c, 'record', { get: true });
   assert.ok(Buffer.byteLength(g.text) < 20_480, `${Buffer.byteLength(g.text)}`);
   const sum = g.reply!.summary as { facts: { projects: object[] }; answers: { kind: string; length: number; start: string }[] };
@@ -417,8 +418,8 @@ test('Review Focus 17 (L26-2, L26-7): a 154-answer record: get under 20 KB, brie
   assert.deepEqual(sum.answers[0], { kind: 'one_liner', length: 2000, start: text('one_liner', 0).slice(0, 120).trim(), approved: false });
   assert.equal(sum.facts.projects.length, 10);
   // L26-7: saved answers waiting for approval are not missing; the wait is named.
-  assert.equal(g.reply!.show_to_builder, '154 answers wait for your approval. The next application needs your email. Tell me it and I save it.');
-  assert.deepEqual(g.reply!.missing, ['your email']);
+  assert.equal(g.reply!.show_to_builder, '154 answers wait for your approval. Saved. The next application needs nothing more.');
+  assert.deepEqual(g.reply!.missing, []);
   const br = await mcpCall(c, 'record', { brief: 'problem' });
   assert.ok(Buffer.byteLength(br.text) < 8_192, `${Buffer.byteLength(br.text)}`);
   assert.ok(br.reply!.brief);
@@ -488,4 +489,59 @@ test('L35-15 (v6.1.17): characters are code points, so 1,996 emoji (3,992 UTF-16
   assert.equal(wide.reply!.show_to_builder, 'Saved 1 answer. Approve the answer at earnkit.com/me and it goes into drafts.');
   const got = await mcpCall(c, 'record', { get: true });
   assert.equal((got.reply!.summary as { answers: { kind: string; length: number }[] }).answers.find((a) => a.kind === 'traction')?.length, 1_996);
+});
+
+test('L45-1 (v6.1.19): a fact the next form needs, once saved, leaves the missing list at once; get says nothing more is needed', async () => {
+  const c = await linked();
+  await markNextNeeds(c.installationId, ['your email']);
+  const s = await mcpCall(c, 'record', { set: { person: { email: 'l45@example.com' } } });
+  assert.equal(s.reply!.show_to_builder, 'Saved 1 fact.');
+  assert.deepEqual(s.reply!.missing, []);
+  const g = await mcpCall(c, 'record', { get: true });
+  assert.equal(g.reply!.show_to_builder, 'Saved. The next application needs nothing more.');
+  assert.deepEqual(g.reply!.missing, []);
+  // A need kept with its form field is met by the fact that fills that field, whatever its words.
+  const d = await linked();
+  await upsertProgram(programFixture({ id: 'l45-need', submission_requirements: [
+    { key: 'work_email', label: 'Work email', type: 'email', required: true, from: 'builder', kind: 'contact', need: 'the daily inbox', todo: 'the daily inbox' },
+  ] }), 'file', NOW);
+  await markNextNeeds(d.installationId, [{ words: 'the daily inbox', key: 'work_email', program_id: 'l45-need', project_id: null }]);
+  assert.deepEqual((await mcpCall(d, 'record', { get: true })).reply!.missing, ['the daily inbox']);
+  const t = await mcpCall(d, 'record', { set: { person: { email: 'daily@example.com' } } });
+  assert.equal(t.reply!.show_to_builder, 'Saved 1 fact.');
+  assert.deepEqual(t.reply!.missing, []);
+  // Another agent of the builder reads the same.
+  const other = await installation();
+  await linkInstallation(other, d.builderId, NOW);
+  await markNextNeeds(other, [{ words: 'the daily inbox', key: 'work_email', program_id: 'l45-need', project_id: null }]);
+  assert.deepEqual((await mcpCall({ installationId: other, builderId: d.builderId, now: NOW }, 'record', { get: true })).reply!.missing, []);
+});
+
+test('L45-6 (v6.1.19): a value empty once hidden characters are gone is refused and never overwrites; null still clears', async () => {
+  const c = await linked();
+  await mcpCall(c, 'record', { set: { person: { name: 'Ada' }, company: { name: 'Acme' } } });
+  for (const set of [{ person: { name: '​​' } }, { person: { name: '' } }, { company: { name: '   ' } }]) {
+    const r = await mcpCall(c, 'record', { set });
+    assert.equal(r.isError, true, JSON.stringify(set));
+    assert.equal(r.reply!.show_to_builder, 'Not saved: name was empty.', JSON.stringify(set));
+  }
+  const rec = await getRecord(c.builderId);
+  assert.deepEqual([rec.person.name, rec.company.name], ['Ada', 'Acme']);
+  await mcpCall(c, 'record', { set: { person: { name: null } } });
+  assert.equal((await getRecord(c.builderId)).person.name, undefined);
+});
+
+test('L45-19 (v6.1.19): a get that is neither true nor a kind names the kinds', async () => {
+  const c = await linked();
+  const r = await mcpCall(c, 'record', { get: 'PROBLEM' });
+  assert.equal(r.reply!.show_to_builder, '');
+  assert.match(r.reply!.agent_note as string, /get: true, or one answer kind: one_liner, problem, solution, /);
+});
+
+test('L45-13 (v6.1.19): record keeps a project repo given with no scheme, as SSH or with a /tree/ path, as find reads it', async () => {
+  const c = await linked();
+  const forms = ['github.com/acme/one', 'git@github.com:acme/two.git', 'https://github.com/acme/three/tree/main'];
+  const r = await mcpCall(c, 'record', { set: { projects: forms.map((repo_url, n) => ({ id: `p${n}`, name: `P${n}`, repo_url })) } });
+  assert.equal(r.isError, false, r.text);
+  assert.deepEqual((await getRecord(c.builderId)).projects.map((p) => p.repo_url), ['https://github.com/acme/one', 'https://github.com/acme/two', 'https://github.com/acme/three']);
 });

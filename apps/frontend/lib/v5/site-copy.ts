@@ -15,6 +15,8 @@ export { dayWords } from './deadline';
 
 /** L23-15 (v6.1.16): the line at the top of /docs#record after /me found the sign-in gone (`/docs?expired=1`). */
 export const SIGN_IN_EXPIRED = 'Your sign-in expired. Ask your agent for a new link.';
+/** L43-12 (v6.1.19): /docs?signin=1, a cookie that was never a live session here (garbage, forged, signed out). */
+export const SIGN_IN_FROM_LINK = 'Sign in from the link your agent gives you.';
 
 /** The landing hero's figure, the one money that may round (lane 22, v6.1.15): down to one decimal in millions
  *  ("$3.1M" for 3,159,600), in full under a million ("$950,000"). Pure. */
@@ -228,22 +230,44 @@ export const ME_AN_AGENT = (day: string | null): string => (day ? `An agent link
 export const ME_REVIEWS = (program: string): string => `You review ${program}. Results come through your agent.`;
 /** After an unlink (L21-7) and for an agent that is not the builder's (L21-15, v6.1.16). */
 export const ME_UNLINKED = (agent: string): string => `Unlinked ${agent}.`;
+/**
+ * L43-10 (v6.1.19): after an unlink, a named agent quoted as ME_LINK_DONE quotes it (`Unlinked "{name}".`, the page
+ * isolates the quoted name); an unnamed one by its label, lower case mid-sentence (`Unlinked an agent linked Nov 11.`).
+ */
+export const ME_UNLINKED_AGENT = (name: string | null, label: string): string =>
+  ME_UNLINKED(name ? quoteName(name, 60) : label.charAt(0).toLowerCase() + label.slice(1));
+/** L43-10 (v6.1.19): a second unlink of an agent this builder already unlinked (a double click, the back button). */
+export const ME_ALREADY_UNLINKED = 'Already unlinked.';
+/** L43-1 (v6.1.19): Approve with the box edited saves the box as the builder's text and approves it. */
+export const ME_SAVED_APPROVED = 'Saved and approved.';
+/** L43-6 (v6.1.19): a section's Save with no field changed and none refused. */
+export const ME_NOTHING = 'Nothing to save.';
+/** L43-2 (v6.1.19): a claim the builder held reads as held, never as an unfinished send. */
+export const ME_HELD_ROW = (day: string): string => `On hold since ${day}; say go to your agent to send.`;
+/** L43-9 (v6.1.19): the button on a started row the builder sent by hand, and the note after it. */
+export const ME_SENT_IT = 'I sent it';
+export const ME_SENT = (title: string): string => `Sent ${title}.`;
+/** Fix round 1 (M3): I sent it on a claim the builder held. */
+export const ME_HELD_SENT = (title: string): string => `${title} is on hold; say go to your agent first.`;
+/** L43-16 (v6.1.19): the answers card folds every empty answer into one row; its body opens each. */
+export const ME_NOT_SET_YET = (n: number): string => `Not set yet: ${n} ${n === 1 ? 'answer' : 'answers'}.`;
 export const ME_UNLINK_NOT_YOURS = 'That agent is not on your account.';
 /** After a save, beside the control (L21-11, v6.1.16). */
 export const ME_SAVED = 'Saved.';
 export const ME_LINKED = (day: string): string => `Linked ${day}.`;
 export const ME_UNLINK = 'Unlink';
-/** The banner above the record after sign-in from /link/<code>: the link happens only on Link this agent. */
-export const ME_LINK_TITLE = 'Link an agent to this account?';
-/** The link banner in three parts: the words before the agent's own name, the name (shown isolated, it is the agent's text) and the rest. */
-export const ME_LINK_PARTS = (agent: string | null, day: string): [string, string, string] => {
-  const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose This is not me.`;
-  // Task 11 fix round 1 (N3): the agent's own name through quoteName, as the /link page shows it.
-  return agent ? ['The agent calling itself ', quoteName(agent), rest] : ['Your agent', '', rest];
-};
-export const ME_LINK_LINE = (agent: string | null, day: string): string => ME_LINK_PARTS(agent, day).join('');
+/**
+ * L43-17 (v6.1.19): one sentence per link state. The live title names the agent (its shown name through quoteName at
+ * 60, isolated on the page): `Link "{name}" to your GitHub account?`, `Link your agent to your GitHub account?` unnamed.
+ */
+export const LINK_ASK_PARTS = (agent: string | null): [string, string, string] =>
+  agent ? ['Link ', quoteName(agent, 60), ' to your GitHub account?'] : ['Link your agent to your GitHub account?', '', ''];
+/** L43-17 (v6.1.19): the live banner's one line on /me, under LINK_ASK_PARTS. */
+export const LINK_FIRST_SEEN = (day: string): string => `First seen ${day}. If you did not just ask your agent for this, choose This is not me.`;
+/** L43-17 (v6.1.19): a code the builder answered This is not me to, on /me and /link. */
+export const ME_LINK_DENIED = 'Not linked. If it was you, ask your agent for a new link.';
 /** After POST /me/link (v6.1.7 C2). */
-export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ? quoteName(agent) : 'your agent'}.`;
+export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ? quoteName(agent, 60) : 'your agent'}.`;
 export const ME_LINK_NOT = 'Not linked.';
 /** The banner's title for a code this builder used (L21-6, v6.1.16). */
 export const ME_LINK_USED = 'Linked.';
@@ -257,7 +281,8 @@ export const ME_DELETE_TITLE = 'Delete your record';
 export const ME_DELETE_LINE = 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep what they already screened.';
 /** On the home page after a delete (L21-9; L27-11, v6.1.16: "record", the page's own word). */
 export const ME_DELETED_LINE = 'Your record is deleted.';
-export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
+/** L43-11 (v6.1.19): the label and, after a refused delete, the one problem line in its place. */
+export const ME_DELETE_HINT = 'Type your GitHub login to delete.';
 export const ME_DELETE = 'Delete everything';
 export const ME_NOT_SET = 'Not set';
 export const ME_YES = 'Yes';
@@ -300,6 +325,8 @@ export const ME_STATUS: Record<string, string> = {
   held: 'Held', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
   // L23-7 (v6.1.16): a claim past its 24 hours with no send.
   started_not_sent: 'Started, not sent',
+  // L43-2 (v6.1.19): a started row with held_at (ME_HELD_ROW is the row's sentence).
+  on_hold: 'On hold',
 };
 export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.', 'project.name': PROJECT_NAME_LIMIT } as const;
 export const ME_ERRORS = {
@@ -311,6 +338,7 @@ export const ME_ERRORS = {
   large: 'That is too long to save.',
   slow: 'The request took too long. Try again.',
   field: 'That cannot be changed here.',
+  /** L43-11 (v6.1.19): the delete label's words, shown once in its place. */
   confirm: 'Type your GitHub login to delete.',
   broken: 'Your record could not be read, so nothing was saved. Try again later.',
   changed: 'This text changed since you opened the page. Read it again.',
@@ -323,6 +351,11 @@ const amount = (n: number) => n.toLocaleString('en-US');
 export const ME_VALUE_WORDS = {
   under: (n: number) => `at most ${amount(n)} characters`,
   atMost: (n: number) => `at most ${amount(n)}`,
+  /** L43-4 (v6.1.19): an over-long value says what was typed: "2,100 characters typed; at most 2,000". */
+  typed: (n: number, max: number) => `${amount(n)} characters typed; at most ${amount(max)}`,
+  /** L43-19 (v6.1.19): the skip list's own words. */
+  programs: (n: number) => `at most ${amount(n)} programs`,
+  longLine: (k: number, max: number) => `line ${k} is over ${amount(max)} characters`,
   option: 'pick one of the options',
   https: 'a link starting with https://',
   email: 'an email address',

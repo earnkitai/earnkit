@@ -11,7 +11,7 @@ export async function GET(request: Request) {
 /** An explicit OPTIONS, so Next's automatic one never lists the 405 methods. */
 export const OPTIONS = () => new Response(null, { status: 204, headers: { Allow: ALLOW, 'Cache-Control': 'no-store' } });
 /** L19-1: every other method is 405 with Allow. */
-const refuse = () => notAllowed(ALLOW);
+const refuse = () => notAllowed(ALLOW, true);
 export const POST = refuse;
 export const PUT = refuse;
 export const PATCH = refuse;

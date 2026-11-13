@@ -71,15 +71,18 @@ answers"`). It reads after "Needs your", so never start it with a verb or a ques
 (`"the stage"`, not `"how far along you are"`). When the `todo` is a clause that does not read well after
 "Needs your" (`"the problem you solve"`), add `need`: the noun phrase said there instead (`"problem statement"`,
 `"Kiro write-up"`), at most 40 characters, no trailing punctuation, never the word "you". The guide still shows the
-`todo`. Changing `need`, `todo`, `description` or `guidance` alone is not a form change: no builder is told the form
+`todo` (v6.1.19: only the label when the `todo` says the same thing, and no form at all once the program is closed;
+say a round or a category once, in one place, not again as a rule or a `focus` line). Changing `need`, `todo`,
+`description` or `guidance` alone is not a form change: no builder is told the form
 changed. Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
 
 How-you-heard fields (v6.1.18): a field that asks only how the builder heard of the program is EarnKit's to fill.
 Give it the key `referral`, `heard_from`, `how_did_you_hear`, `hear_about` or `referral_source`, or keep the form's
 own label when it starts "How did you hear / find / learn", "Referral" or "Where did you hear". A `text` field is
-filled `EarnKit (earnkit.com)`; a `choice` or `multi_choice` takes the option naming a referral, else the one starting
-"Other" (the agent is told to write EarnKit in an other box); a choice with neither is left to the builder. A field
+filled `EarnKit (earnkit.com)`; a `choice` or `multi_choice` takes the option starting "Other" (the agent is told to
+write EarnKit in its box), else the one naming a referral (v6.1.19: Other first, so the box names EarnKit); a choice
+with neither is left to the builder. A field
 about a partner or alumni referral, or one that asks for more than the source (its `need` holds "with", as in
 `"referral source with email"`), is not one: label it as the form does and it is left alone.
 

@@ -6,7 +6,7 @@ import { answerOldTools } from '../../lib/v5/old-tools';
 import { publicOrigin, resourceOf } from '../../lib/v5/oauth';
 import { clientIp } from '../../lib/v5/rate-limit';
 import { BODY_TOO_LARGE, MAX_ARG_DEPTH, readCapped, scrubToolCalls, withScrubNotes } from '../../lib/v5/secrets';
-import { UNREADABLE_REQUEST, answerUnreadable, plainErrors } from '../../lib/v5/tool-input';
+import { UNREADABLE_REQUEST, answerParams, answerUnreadable, distinctIds, plainErrors } from '../../lib/v5/tool-input';
 
 /** What /mcp answers to every method it does not serve (L19-1). */
 const ALLOW = 'POST, DELETE, OPTIONS';
@@ -19,7 +19,8 @@ function badId(m: unknown): boolean {
   if (!m || typeof m !== 'object' || Array.isArray(m) || !('id' in m)) return false;
   const id = (m as { id: unknown }).id;
   if (typeof id === 'number') return !Number.isSafeInteger(id);
-  return typeof id === 'object' && id !== null;
+  // L45-17 (v6.1.19): a boolean id is an invalid request too, never a parse error.
+  return typeof id === 'boolean' || (typeof id === 'object' && id !== null);
 }
 const INVALID_ID = { jsonrpc: '2.0', id: null, error: { code: -32600, message: UNREADABLE_REQUEST } } as const;
 
@@ -47,7 +48,7 @@ function withHeader(request: Request, name: string, value: string): Request {
  * are scrubbed of secret keys before the transport sees them (only the count is logged), and
  * `scrubbed` holds those calls' ids so their replies lead with the scrub line.
  */
-async function scrubbed(request: Request): Promise<{ request: Request | null; ids: Set<string | number>; old: unknown[]; batch: boolean } | Response> {
+async function scrubbed(request: Request): Promise<{ request: Request | null; ids: Set<string | number>; old: unknown[]; batch: boolean; back?: (answer: unknown) => unknown } | Response> {
   const none = new Set<string | number>();
   const old: unknown[] = [];
   let batch = false;
@@ -75,8 +76,15 @@ async function scrubbed(request: Request): Promise<{ request: Request | null; id
     parsed = parsed.filter((m) => !badId(m));
     if ((parsed as unknown[]).length === 0) return { request: null, ids: none, old, batch: true };
   }
-  // Old tool names are answered here; only the rest goes on (nothing: see handle).
+  // L45-17 (v6.1.19): params the method cannot take are -32602, and a tool EarnKit has not is named with the four.
   batch = Array.isArray(parsed);
+  const pre = answerParams(parsed);
+  if (pre.answers.length > 0) {
+    old.push(...pre.answers);
+    parsed = pre.rest;
+    if (parsed === null) return { request: null, ids: none, old, batch };
+  }
+  // Old tool names are answered here; only the rest goes on (nothing: see handle).
   const split = answerOldTools(parsed);
   if (split.answers.length > 0) {
     console.log(`[mcp] old tool ${split.names.join(',')}`);
@@ -92,13 +100,17 @@ async function scrubbed(request: Request): Promise<{ request: Request | null; id
     parsed = unread.rest;
     if (parsed === null) return { request: null, ids: none, old, batch };
   }
+  // L45-8 (v6.1.19): members of one batch that share an id are each answered.
+  const distinct = distinctIds(parsed);
+  const back = distinct.body === parsed ? undefined : distinct.back;
+  parsed = distinct.body;
   const scrub = scrubToolCalls(parsed);
-  if (scrub.removed === 0 && old.length === 0) return { request: again(raw, request.headers), ids: none, old, batch };
+  if (scrub.removed === 0 && old.length === 0 && !back) return { request: again(raw, request.headers), ids: none, old, batch };
   if (scrub.removed > 0) console.log(`[mcp] scrubbed ${scrub.removed}`);
   // The rewritten body has its own length.
   const headers = new Headers(request.headers);
   headers.delete('content-length');
-  return { request: again(JSON.stringify(scrub.body), headers), ids: scrub.ids, old, batch };
+  return { request: again(JSON.stringify(scrub.body), headers), ids: scrub.ids, old, batch, ...(back && { back }) };
 }
 
 /**
@@ -137,6 +149,11 @@ async function handle(incoming: Request) {
   try {
     // A refusal by the MCP library is one plain line; its detail goes to the log only (v6.1.7, C35).
     response = await plainErrors(await withScrubNotes(await transport.handleRequest(s.request), s.ids));
+    // L45-8 (v6.1.19): each repeated id's answer carries its own id again.
+    if (s.back) {
+      const body = await response.clone().json().catch(() => undefined);
+      if (body !== undefined) response = json(s.back(body), response.status);
+    }
   } catch (err) {
     // Input shape never answers a bare 500.
     console.error('[mcp] request failed', err instanceof Error ? err.name : typeof err);
@@ -153,9 +170,9 @@ async function handle(incoming: Request) {
 }
 
 /** EarnKit never pushes, so there is no event stream to open (v6.1.7, B6). */
-export const GET = (_request?: Request) => notAllowed(ALLOW, 'EarnKit does not push. Send requests with POST.');
+export const GET = (_request?: Request) => notAllowed(ALLOW, true, 'EarnKit does not push. Send requests with POST.');
 export const POST = handle;
 export const DELETE = handle;
 export const OPTIONS = preflight;
-export const PUT = () => notAllowed(ALLOW);
-export const PATCH = () => notAllowed(ALLOW);
+export const PUT = () => notAllowed(ALLOW, true);
+export const PATCH = () => notAllowed(ALLOW, true);

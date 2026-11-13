@@ -26,8 +26,10 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
   assert.ok(g.eligibility.includes('A live product.'));
   assert.ok(g.eligibility.includes('On Base.'));
   assert.ok(g.fields.length > 0);
-  assert.deepEqual(g.fields[0], { label: 'Full name', todo: 'Your full name.' });
-  assert.equal(g.rules.length, 7);
+  // L43-18 (v6.1.19): a to-do that only repeats its label is dropped (the page shows "Full name."); the round state and
+  // the categories are said once (the opens note, the description), so the rules lose both.
+  assert.deepEqual(g.fields[0], { label: 'Full name', todo: '' });
+  assert.equal(g.rules.length, 5);
   assert.ok(g.sources.some((s) => s.label === 'Program page.' && s.url === 'https://docs.base.org/get-started/builders'));
 });
 
@@ -146,7 +148,6 @@ test('#9 (v6.1.15): focus joins with "and", lower-casing a plain first word only
   assert.match(pp.focus!, / wants AI agents that pay or get paid, new payment experiences built with AI and business tools on PayPal APIs\.$/);
   assert.match(guideText(real('lido-lego-grants')).focus!, /^Lido wants Ethereum liquid staking/);
   assert.match(guideText(real('uniswap-foundation-security-fund')).focus!, /^Uniswap wants Uniswap v4 hooks/);
-  assert.match(guideText(real('base-builder-grants')).focus!, /and DeFi 2\.0/);
 });
 
 test('L1g-4 (v6.1.15): Kiroween\'s folder rule reads as words on the guide; the form asks for the Kiro folder', () => {
@@ -199,7 +200,7 @@ test('#9 (v6.1.15): every guide string is a sentence with no path and no ISO dat
     const g = guideText(row, NOW);
     const parts: [string, string][] = [
       ...g.eligibility.map((t): [string, string] => ['eligibility', t]),
-      ...g.fields.map((f): [string, string] => [`field ${f.label}`, f.todo]),
+      ...g.fields.filter((f) => f.todo !== '').map((f): [string, string] => [`field ${f.label}`, f.todo]),
       ...(g.focus ? [['focus', g.focus] as [string, string]] : []),
       ...g.past_rounds.map((t): [string, string] => ['past_rounds', t]),
       ...(g.best_bet ? [['best_bet', g.best_bet] as [string, string]] : []),
@@ -308,7 +309,7 @@ test('L21-23, L21-16 (v6.1.16): Base and PayPal guide fragments end in a full st
   const now = new Date('2026-11-11T12:00:00Z');
   for (const id of ['base-builder-grants', 'paypal-ai-hackathon']) {
     const g = guideText(real(id), now);
-    const lines = [g.description, ...g.eligibility, ...guidePills(g), ...(g.focus ? [g.focus] : []), ...(g.best_bet ? [g.best_bet] : []), ...g.past_rounds, ...g.fields.map((x) => x.todo)];
+    const lines = [g.description, ...g.eligibility, ...guidePills(g), ...(g.focus ? [g.focus] : []), ...(g.best_bet ? [g.best_bet] : []), ...g.past_rounds, ...g.fields.map((x) => x.todo).filter(Boolean)];
     for (const l of lines) assert.match(l, /[.?!]$/, `${id}: ${l}`);
   }
   const alliance = guideText(real('alliance-all19'), now);
@@ -321,4 +322,34 @@ test('L21-23, L21-16 (v6.1.16): Base and PayPal guide fragments end in a full st
     const row = real(f.replace(/\.json$/, ''));
     if (row.file.in_person) assert.match(guidePills(guideText(row, now))[0], /^In person: .+\.$/, f);
   }
+});
+
+test('L43-13: a16z-speedrun (closed) lists its rules under who can apply and has no form block', async () => {
+  const now = new Date('2026-11-12T12:00:00Z');
+  const g = guideText(real('a16z-speedrun'), now);
+  assert.ok(g.closed_on);
+  assert.ok(g.eligibility.length > 0 && g.eligibility_from_rules);
+  assert.ok(g.eligibility.some((l) => l.includes('In-person attendance is required.')), g.eligibility.join(' | '));
+  assert.deepEqual(g.fields, []);
+  const { default: GuideView } = await import('../../app/programs/[id]/GuideView');
+  const React = await import('react');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  (globalThis as { React?: unknown }).React = React;
+  const { guidePageOf } = await import('./guide-page');
+  const html = renderToStaticMarkup(React.createElement(GuideView, { id: 'a16z-speedrun', page: guidePageOf(real('a16z-speedrun'), now) }));
+  assert.ok(!html.includes('No special requirements are listed.'), 'who can apply is the rules');
+  assert.ok(!html.includes('What the form asks'), 'no form block');
+  assert.equal(html.split('In-person attendance is required.').length, 2, 'the rules said once');
+  // With neither, the no-requirements line stays.
+  const bare = guideText(rowOf(programFixture({ id: 'l43-bare', rules: [] })), now);
+  assert.deepEqual([bare.eligibility, bare.eligibility_from_rules], [[], false]);
+});
+
+test('L43-18: the Base guide says the round once and "Full name."', () => {
+  const g = guideText(real('base-builder-grants'), new Date('2026-11-12T12:00:00Z'));
+  const all = [g.description, ...g.rules, g.focus ?? ''].join(' ');
+  assert.equal(all.split('Round 3').length - 1, 0, 'the round is the opens note only');
+  assert.equal(all.split('prediction markets').length - 1, 1, 'categories once, in the description');
+  assert.deepEqual(g.fields.find((f) => f.label === 'Full name'), { label: 'Full name', todo: '' });
+  assert.deepEqual(g.fields.find((f) => f.label === 'Email'), { label: 'Email', todo: '' });
 });

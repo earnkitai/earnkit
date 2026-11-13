@@ -5,7 +5,7 @@
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
 import { codeSpent, installOnce, revokeInstallation } from './installations';
-import { CIMD_FAILED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, clientNameOf, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
+import { CIMD_FAILED, CIMD_RESERVED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, clientNameOf, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
 import { BLOCK_LIMITED, BLOCK_WARN_SHARE, LIMITS, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
@@ -110,7 +110,7 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });
     // Unknown client or redirect URI: shown here, never redirected to an unverified URI.
     // A client document that fails any check: its own line, already a whole sentence (v6.1.15 Task 14).
-    if (err instanceof OAuthError && err.message === CIMD_FAILED) return page(CIMD_FAILED, 400);
+    if (err instanceof OAuthError && (err.message === CIMD_FAILED || err.message === CIMD_RESERVED)) return page(err.message, 400);
     if (err instanceof OAuthError) return page(`Connecting EarnKit failed. ${err.message}`, 400);
     throw err;
   }

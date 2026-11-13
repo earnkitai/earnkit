@@ -171,14 +171,14 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet.');
   assert.equal(one(SW, [{ ...SW, item: 'integration:x', what: 'add X' }]), '1. G, $1K: add Smart Wallet and add X.');
   assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video link (a short screen recording of it working).');
-  assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: ARC, also: [DEMO] })] }), false).split('\n').slice(0, 2).join('\n'), 'More to do first (1):\n1. G, $1K: the step below, then 1 more step.');
+  assert.equal(replyText(base({ gaps: [gap({ title: 'G', gap: ARC, also: [DEMO] })] }), false).split('\n').slice(0, 2).join('\n'), 'More to do first (1):\n1. G, $1K: a contract on Arc, then 1 more step.');
   // v6.1.14 (was C57): the unlinked proof is a gap after the colon; its sign-in is asked once, in the closing.
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof of real users', effort: 'weeks' as const, agent_can: false };
   assert.equal(one(TIER), '1. G, $1K: proof of real users.');
   assert.equal(one(TIER, [DEMO]), '1. G, $1K: proof of real users and a demo video link (a short screen recording of it working).');
   const two = base({ gaps: [gap({ title: 'G', money: '$1K', also: [{ kind: 'live_product', item: 'live_product', what: 'put a live link up', effort: 'hours', agent_can: false }] })] });
-  // Task 10 fix round 1 (M4): the closing names the deploy, so the row points at it.
-  assert.match(replyText(two, false), /^1\. G, \$1K: the step below, then 1 more step\.\nNothing is ready yet\. Tell me when the contract is on Arc and I look again\.$/m);
+  // L1l-2 (v6.1.19): the row names the deploy too.
+  assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc, then 1 more step\.\nNothing is ready yet\. Tell me when the contract is on Arc and I look again\.$/m);
   assert.equal(gapLine(two.gaps[0]), '1. G, $1K: deploy the contract on Arc and put a live link up.');
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   // L29-18 (v6.1.16 Task 15): "You give:", the words as the form names them, at most three and the count.
@@ -1127,8 +1127,8 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   // L38 big 3 (v6.1.18 Task 10): each row has more than one step: the first, then the count.
   assert.equal(both, [
     'More to do first (2):',
-    // Task 10 fix round 1 (M4): the row the closing names points at the step below.
-    '1. FLOSS/fund, $1K: the step below, then 1 more step.',
+    // L1l-2 (v6.1.19): a More row names its first step even when the closing repeats it.
+    '1. FLOSS/fund, $1K: a public repo, then 1 more step.',
     '2. HeroDevs, $1K: a public repo, then 1 more step.',
     'Nothing is ready yet. Tell me when the repo is public and I look again.',
   ].join('\n'));
@@ -1140,7 +1140,7 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   assert.equal(gapLine(atom, true), 'FLOSS/fund, $1K: a live repo. First: tell me the live repo; publish a funding manifest on your site or repo.');
   const archived = replyText(base({ gaps: [atom] }), true);
   // L38 big 3 (v6.1.18 Task 10): a live repo and the manifest are two steps.
-  assert.equal(archived, ['More to do first (1):', '1. FLOSS/fund, $1K: the step below, then 1 more step.', 'Nothing is ready yet. Tell me the live repo and I look again.'].join('\n'));
+  assert.equal(archived, ['More to do first (1):', '1. FLOSS/fund, $1K: a live repo, then 1 more step.', 'Nothing is ready yet. Tell me the live repo and I look again.'].join('\n'));
   assert.equal(end(base({ gaps: [atom] })), 'Nothing is ready yet. Tell me the live repo and I look again.');
   assert.equal(gapAction({ ...atom, setup: [] }), 'Tell me the live repo and I look again.');
   // M3: the code closing is picked by the gap's kind.
@@ -1580,6 +1580,21 @@ test('L38 big 2 (v6.1.18 Task 10): the default In person block is one line, numb
   assert.deepEqual(p.shown.slice(-2), [yc.program_id, alliance.program_id]);
 });
 
+test('L1l-3 (v6.1.19): a setup step plus a rule is More to do first', async () => {
+  const { oneStep } = await import('./reply');
+  const essp = gap({
+    title: 'Ethereum Security Subsidy Program', money: 'up to 30% of audit cost', gap: ruleGap('a defined audit scope: lines of code and contract count'),
+    setup: ['set aside a security budget to co-fund the audit'], rules: ['a defined audit scope: lines of code and contract count'],
+  });
+  assert.equal(oneStep(essp), false);
+  assert.equal(oneStep({ ...essp, setup: [] }), true);
+  const text = replyText(base({ linked: true, gaps: [essp] }), true);
+  const lines = text.split('\n');
+  assert.equal(lines[0], 'More to do first (1):', text);
+  assert.doesNotMatch(text, /One step away/);
+  assert.ok(lines.length <= 10 && /^(Nothing|Say)/.test(lines.at(-1)!), text);
+});
+
 test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under More to do first as the first step and the count', async () => {
   const { stepItems, oneStep, moreStepsLine } = await import('./reply');
   const colosseum = gap({
@@ -1591,6 +1606,8 @@ test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under Mo
   assert.equal(stepItems(colosseum).length, 5);
   assert.equal(oneStep(colosseum), false);
   assert.equal(moreStepsLine({ ...colosseum, n: 2 }), '2. Colosseum Eternal, $25,000 award: a demo video, then 4 more steps.');
+  // L1l-2 (v6.1.19): the row always names its first step, even when the closing repeats it.
+  assert.equal(moreStepsLine({ ...colosseum, gap: VIDEO, n: 2 }), '2. Colosseum Eternal, $25,000 award: a demo video link (a short screen recording of it working), then 4 more steps.');
   // One real gap alone is one step; a rule-only row is one yes (every rule in one ask), so one step too.
   const solana = gap({ title: 'Solana Foundation Grants', money: 'milestone grants', gap: ruleGap('a public good'), also: [ruleGap('open source', 'rule:0000000b')] });
   assert.equal(oneStep(solana), true);
@@ -1944,7 +1961,7 @@ test('L38-30 (v6.1.18): a ready program whose setup step is the builder\'s own c
 test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I note it." and sits before the Say (or is it, last)', async () => {
   const { sentLines, replyParts: parts } = await import('./reply');
   const NOW = new Date('2026-11-12T12:00:00Z');
-  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-12T10:00:00.000Z', project_id: null };
+  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-12T10:00:00.000Z', project_id: null, project: null };
   assert.deepEqual(sentLines({ ask_sent: [kiro] }), ['Did you send Kiroween 2026? Say sent and I note it.']);
   const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
   // ONE_SAY_ORDER: after the started lines, before the closing; alone, the sent question is the reply's one Say, last.
@@ -1956,9 +1973,9 @@ test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I no
   const t = renderReply({ ...one, ask_sent: [kiro], released: [started] }, false, NOW);
   assert.ok(t.endsWith('\nDid you send Kiroween 2026?\nA Grant: started Nov 10, nothing sent. Say yes to apply or say skip.'), t);
   assert.equal(t.match(/\bSay\b/g)?.length, 1, t);
-  // Two asks: the first keeps the Say.
+  // L41-11 (v6.1.19): two asks are one line, one Say for both.
   const two = renderReply({ ...one, ask_sent: [kiro, { ...kiro, program_id: 'b', title: 'Beta Jam' }] }, false, NOW);
-  assert.ok(two.endsWith('\nDid you send Beta Jam?\nDid you send Kiroween 2026? Say sent and I note it.'), two);
+  assert.ok(two.endsWith('\n1. Alpha Grant, $1K.\nDid you send Kiroween 2026 and Beta Jam? Say which you sent and I note them.'), two);
   // The agent note says how to record each answer, also when nothing is listed.
   const note = 'The reply asks whether each was sent: Kiroween 2026. "sent" is track applied with submitted_by builder; "not yet" needs no call.';
   assert.ok(agentNote({ ...one, ask_sent: [kiro] }, { more: 0 }).split('\n').includes(note));
@@ -1966,12 +1983,42 @@ test('L18-4c: the sent line reads "Did you send Kiroween 2026? Say sent and I no
   assert.equal(renderReply(base({ ask_sent: [kiro] }), false, NOW).split('\n').at(-1), 'Did you send Kiroween 2026? Say sent and I note it.');
 });
 
+test('L41-11 (v6.1.19): every sent question in a reply is one line; a released row that asks has no line of its own', async () => {
+  const { sentLines } = await import('./reply');
+  const NOW = new Date('2026-11-12T12:00:00Z');
+  const ask = (id: string, title: string) => ({ program_id: id, title, started_at: '2026-11-12T10:00:00.000Z', project_id: null, project: null });
+  const kiro = { program_id: 'kiro', title: 'Kiroween 2026', started_at: '2026-11-11T09:00:00.000Z', ask: true as const };
+  const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
+  const t = renderReply({ ...one, ask_sent: [ask('code', 'Codegeist 2026')], released: [kiro] }, false, NOW);
+  assert.equal(t.split('\n').at(-1), 'Did you send Codegeist 2026 and Kiroween 2026? Say which you sent and I note them.');
+  assert.doesNotMatch(t, /started Nov 11/);
+  assert.equal(t.match(/Did you send/g)?.length, 1, t);
+  assert.ok(t.split('\n').length <= 10);
+  // Three named, then the count.
+  const five = ['A', 'B', 'C', 'D', 'E'].map((x) => ask(x, `${x} Jam`));
+  assert.deepEqual(sentLines({ ask_sent: five }), ['Did you send A Jam, B Jam, C Jam and 2 more? Say which you sent and I note them.']);
+  // A sent question offers nothing to apply.
+  assert.equal(replyParts({ ...base({}), ask_sent: five.slice(0, 2) }, false, NOW).offer, null);
+});
+
+test('fix round 1 (v6.1.19 Task 3, M2): sentAskOf names exactly the programs the one question names, never by a title inside another', async () => {
+  const { sentAskOf } = await import('./reply');
+  const ask = (id: string, title: string) => ({ program_id: id, title, started_at: '2026-11-12T10:00:00.000Z', project_id: null, project: null });
+  const r = { ask_sent: [ask('a', 'Kiroween 2026'), ask('b', 'Codegeist'), ask('c', 'QNX Jam'), ask('d', 'Kiroween')], released: [], not_sent: undefined };
+  const got = sentAskOf(r);
+  assert.equal(got.question, 'Did you send Kiroween 2026, Codegeist, QNX Jam and 1 more?');
+  // "Kiroween" sits inside "Kiroween 2026" but is counted, not named: it is not marked.
+  assert.deepEqual(got.named, ['a', 'b', 'c']);
+  assert.deepEqual(sentAskOf({ ask_sent: [], released: [], not_sent: undefined }), { question: null, named: [] });
+});
+
 test('L36-2: a builder-sent claim past 24 hours asks instead of saying nothing sent; its agent note is the sent note', () => {
   const NOW = new Date('2026-11-12T12:00:00Z');
   const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
   const futo = { program_id: 'futo', title: 'FUTO Microgrants', started_at: '2026-11-11T09:00:00.000Z', ask: true as const };
   const t = renderReply({ ...one, released: [futo] }, false, NOW);
-  assert.equal(t.split('\n').at(-1), 'FUTO Microgrants: started Nov 11; did you send it? Say sent and I note it.');
+  // L41-11 (v6.1.19): asked in the one sent question.
+  assert.equal(t.split('\n').at(-1), 'Did you send FUTO Microgrants? Say sent and I note it.');
   assert.doesNotMatch(t, /nothing sent/);
   const n = agentNote({ ...one, released: [futo] }, { more: 0 });
   assert.match(n, /The reply asks whether each was sent: FUTO Microgrants\./);

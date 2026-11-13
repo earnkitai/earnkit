@@ -710,3 +710,22 @@ test('v6.1.16 Task 16: a code exchange marks the registered client used, once, s
   await exchangeCode(tokenForm(id, await codeOf(id)));
   assert.equal(((await sql()`SELECT used_at FROM oauth_clients WHERE client_id = ${id}`)[0].used_at as Date).getTime(), first.getTime());
 });
+
+test('L45-16 (v6.1.19, fix round 1): earnkit anywhere is refused unless its word is on the allow list: LearnKit, Yearn Kit and Learn Kit Pro register; run-ons and Earn Kitchen do not', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['LearnKit', 'Yearn Kit', 'Learn Kit Pro', 'Learn\u200bKit', 'learn-kit', 'Kit Earner', 'Yearnkit'])
+    assert.equal(reservedClientName(name), false, name);
+  for (const name of ['EarnKit', 'earn-kit', 'Earn Kit', 'x (EarnKit)', 'AIEarnKit', 'XEarnKit', 'THEEARNKIT', '1EarnKit', 'MYEARNKIT', 'x-earnkit', 'EarnKitBot', 'Earn Kitchen',
+    'My EarnKit', 'e a r n k i t', 'earn\u00adkit', 'earn\u200bkit', 'earn\tkit', 'LearnKit EarnKit', 'XLearnKit'])
+    assert.equal(reservedClientName(name), true, name);
+  let n = 0;
+  for (const client_name of ['LearnKit', 'Yearn Kit', 'Learn Kit Pro']) {
+    const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': `10.45.16.${++n}` },
+      body: JSON.stringify({ redirect_uris: [redirect], client_name }),
+    }));
+    assert.equal(r.status, 201, client_name);
+  }
+  const { CIMD_RESERVED } = await import('./oauth');
+  assert.equal(CIMD_RESERVED, "Connecting EarnKit failed. Your agent's client document uses EarnKit's own name; it needs the agent's name.");
+});

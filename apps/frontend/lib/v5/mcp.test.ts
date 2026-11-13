@@ -25,7 +25,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find), or won (with amount_usd as dollars, 5000 or 1234.56, converting 5k to 5000; or amount with currency): amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount. A win with no application here is recorded as the builder's own send. Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
+    "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find), or won (with amount_usd as dollars, 5000 or 1234.56, converting 5k to 5000; or amount with currency): amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount. A win with no application here is recorded as the builder's own send. A program that has not opened takes a win only with outside true, for a win from outside EarnKit such as an earlier round. Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
@@ -293,7 +293,8 @@ test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments lenientl
   plain(long, true);
   // L1j-2 (v6.1.17): each names what it was given, through quoteName (cut to 40 characters).
   assert.equal(num.reply!.show_to_builder, 'I do not know a program called "12345". Say its full name.');
-  assert.equal(long.reply!.show_to_builder, `I do not know a program called "${'x'.repeat(40)}". Say its full name.`);
+  // L45-14 (v6.1.19): a cut echo is marked.
+  assert.equal(long.reply!.show_to_builder, `I do not know a program called "${'x'.repeat(40)}...". Say its full name.`);
   // A string filter.all reads as the boolean; a category that is not one is dropped and named for the agent.
   const P = { name: 'Lenient App', description: 'An app for lenient tests.' };
   const all = await mcpCall(c, 'find', { project: P, filter: { all: 'true' } });
@@ -358,7 +359,7 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const info = await mcpServerInfo(await ctx());
   assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
-  assert.equal(pkg.version, '6.1.18');
+  assert.equal(pkg.version, '6.1.19');
 });
 
 /**

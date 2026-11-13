@@ -10,9 +10,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { sql } from '../v5/db';
 import { publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
-import { quoteName } from '../v5/controls';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
-import { ME_ERRORS, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
+import { LINK_ASK_PARTS, ME_ERRORS, ME_LINK_DENIED, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signState, verifyState } from './github-auth';
 import { cookieOf, cookieValue, createSession, legacyClear } from './sessions';
@@ -109,7 +108,7 @@ async function guarded(request: Request, fn: () => Promise<Response>): Promise<R
 
 const day = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 
-export type LinkStateName = 'live' | 'used' | 'expired' | 'unknown' | 'failed' | 'limited' | 'not_set_up';
+export type LinkStateName = 'live' | 'used' | 'denied' | 'expired' | 'unknown' | 'failed' | 'limited' | 'not_set_up';
 /**
  * What a /link page shows (L27-4, L27-26, v6.1.16): the state, its title (the page's one h1, full stop or `?` kept),
  * its line, the agent's shown name and first-seen day for the live confirm, and the HTTP status the state means (a page
@@ -123,14 +122,19 @@ export const linkDocTitle = (title: string): string => `${title.replace(/\.$/, '
 /** A line without its leading title sentence ("This link has expired. Ask ..." under "This link has expired."). Pure. */
 const after = (line: string, title: string) => (line.startsWith(title) ? line.slice(title.length).trim() : line);
 
-/** Each state but live, as data (pure): Task 7's texts, the title as the h1 and the rest as the line. */
+/**
+ * Each state but live, as data (pure): Task 7's texts, the title as the h1 and the rest as the line. L43-17 (v6.1.19):
+ * one sentence per state, read by /link and /me?link alike: used is `Linked.` alone, not set up its title alone, a
+ * code answered This is not me `Not linked.` then the next step.
+ */
 export const LINK_STATES = {
-  used: { state: 'used', title: ME_LINK_USED, line: ALREADY_LINKED, status: 404 },
+  used: { state: 'used', title: ME_LINK_USED, line: '', status: 404 },
+  denied: { state: 'denied', title: 'Not linked.', line: after(ME_LINK_DENIED, 'Not linked.'), status: 404 },
   expired: { state: 'expired', title: ME_LINK_EXPIRED_TITLE, line: after(EXPIRED, ME_LINK_EXPIRED_TITLE), status: 404 },
   unknown: { state: 'unknown', title: UNKNOWN_CODE, line: 'Ask your agent for a new link.', status: 404 },
   failed: { state: 'failed', title: 'Sign-in failed.', line: after(FAILED, 'Sign-in failed.'), status: 400 },
   limited: { state: 'limited', title: 'Too many sign-ins.', line: `${LIMITED_LINE} Try again later.`, status: 429 },
-  not_set_up: { state: 'not_set_up', title: 'Sign-in is not set up yet.', line: NOT_SET_UP, status: 503 },
+  not_set_up: { state: 'not_set_up', title: 'Sign-in is not set up yet.', line: '', status: 503 },
 } as const satisfies Record<Exclude<LinkStateName, 'live'>, LinkState>;
 
 /**
@@ -150,13 +154,15 @@ export async function linkState(code: string, now: Date, headers: Headers = new 
   const live = await liveCode(code, now);
   if (!live) {
     const dead = await codeState(code, now);
+    if (dead === 'expired' && (await deniedCode(code))) return LINK_STATES.denied;
     return dead === 'used' ? LINK_STATES.used : dead === 'unknown' ? LINK_STATES.unknown : LINK_STATES.expired;
   }
-  // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)".
+  // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)"; L43-14 (v6.1.19): cut once at 60, as /me shows it.
   const name = displayName(live.client_name);
   return {
     state: 'live',
-    title: `Connect ${name ? quoteName(name) : 'your agent'}?`,
+    // L43-17 (v6.1.19): one question, the agent named in it.
+    title: LINK_ASK_PARTS(name).join(''),
     line: 'Once linked, it can read and change your record and apply to programs in your name.',
     agent: name,
     seen: day(live.created_at),

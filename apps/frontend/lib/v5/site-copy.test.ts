@@ -269,7 +269,27 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Ask me first above (USD)');
   assert.equal(copy.ME_LABELS['traction.line_pre_launch'], 'Your one line on traction');
   assert.equal(copy.ME_HINTS['policy.never'], 'One program per line, by its title (for example Base Builder Grants).');
-  assert.equal(copy.ME_LINK_LINE(null, 'Nov 6'), 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.');
+  // L43-17 (v6.1.19): one question and one line for a live link.
+  assert.equal(copy.LINK_ASK_PARTS('Codex').join(''), 'Link "Codex" to your GitHub account?');
+  assert.equal(copy.LINK_ASK_PARTS(null).join(''), 'Link your agent to your GitHub account?');
+  assert.equal(copy.LINK_FIRST_SEEN('Nov 6'), 'First seen Nov 6. If you did not just ask your agent for this, choose This is not me.');
+  assert.equal(copy.ME_LINK_DENIED, 'Not linked. If it was you, ask your agent for a new link.');
+  // v6.1.19 Task 2 (lane 43): the new /me lines, word for word.
+  assert.equal(copy.ME_SAVED_APPROVED, 'Saved and approved.');
+  assert.equal(copy.ME_HELD_ROW('Nov 11'), 'On hold since Nov 11; say go to your agent to send.');
+  assert.equal(`Not saved: ${copy.ME_VALUE_WORDS.typed(2100, 2000)}.`, 'Not saved: 2,100 characters typed; at most 2,000.');
+  assert.equal(copy.ME_NOTHING, 'Nothing to save.');
+  assert.equal(copy.ME_SENT_IT, 'I sent it');
+  assert.equal(copy.ME_SENT('Avalanche Team1 Mini Grants'), 'Sent Avalanche Team1 Mini Grants.');
+  assert.equal(copy.ME_ALREADY_UNLINKED, 'Already unlinked.');
+  assert.equal(copy.ME_HELD_SENT('Base Builder Grants'), 'Base Builder Grants is on hold; say go to your agent first.');
+  assert.equal(copy.ME_UNLINKED_AGENT('Codex', 'Codex'), 'Unlinked "Codex".');
+  assert.equal(copy.ME_UNLINKED_AGENT(null, 'An agent linked Nov 11'), 'Unlinked an agent linked Nov 11.');
+  assert.equal(copy.ME_DELETE_HINT, 'Type your GitHub login to delete.');
+  assert.equal(copy.SIGN_IN_FROM_LINK, 'Sign in from the link your agent gives you.');
+  assert.equal(copy.ME_NOT_SET_YET(14), 'Not set yet: 14 answers.');
+  assert.equal(`Programs to skip: ${copy.ME_VALUE_WORDS.programs(50)}.`, 'Programs to skip: at most 50 programs.');
+  assert.equal(`Programs to skip: ${copy.ME_VALUE_WORDS.longLine(3, 100)}.`, 'Programs to skip: line 3 is over 100 characters.');
   // No slug, path or file name in a /me hint (lane 5, 3.27).
   for (const s of Object.values(copy.ME_HINTS)) assert.ok(!/[a-z]+-[a-z]+-[a-z]+|\/me\b/.test(s), s);
   assert.equal(copy.ME_APPROVED('Nov 7'), 'Approved Nov 7.');
@@ -301,13 +321,15 @@ const LABELS = new Set([
   'DOCS_SESSION.title', 'DOCS_RECORD.title', 'DOCS_SCREEN.title', 'DOCS_PROGRAMS.title', 'DOCS_CHECKED.title', 'DOCS_TERMS.title', 'DOCS_TERMS.link',
   'TERMS_TITLE', 'TERMS_SECTIONS.title', 'TERMS_LINKS', 'ME_TITLE', 'ME_SIGN_OUT', 'ME_SAVE', 'ME_APPROVE', 'ME_UNAPPROVE', 'ME_BY_AGENT',
   'ME_PENDING_TITLE', 'ME_ANSWER_OPEN', 'ME_PENDING_FIRST', 'ME_TEAM.name', 'ME_TEAM.role', 'ME_TEAM.add', 'ME_LEDGER_TITLE', 'ME_AGENTS_TITLE', 'ME_AN_AGENT', 'ME_UNLINK',
-  'ME_LINK_PARTS', 'ME_LINK_YES', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
+  'LINK_ASK_PARTS', 'ME_SENT_IT', 'ME_LINK_YES', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
   'ME_CHOICES', 'ME_STATUS', 'ME_VALUE_WORDS', 'heroChipText', 'dayWords', 'heroUsdText', 'programKind',
 ]);
 /** Sample arguments for the exported templates; a template not listed is called with none. */
 const SAMPLES: Record<string, unknown[]> = {
   EARN_ALL: [45], GUIDE_ASK: ['Base Builder Grants'], ME_SIGNED_IN: ['ada'], ME_APPROVED: ['Nov 6'], ME_LINKED: ['Nov 6'],
-  ME_LINK_PARTS: [null, 'Nov 6'], ME_AN_AGENT: ['Nov 6'], ME_REVIEWS: ['Base Builder Grants'], ME_UNLINKED: ['Claude Code'], ME_PROJECT_SEEN: ['github.com/ada/kit', 2], ME_LINK_LINE: [null, 'Nov 6'], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
+  LINK_ASK_PARTS: ['Codex'], ME_AN_AGENT: ['Nov 6'], ME_REVIEWS: ['Base Builder Grants'], ME_UNLINKED: ['Claude Code'], ME_PROJECT_SEEN: ['github.com/ada/kit', 2], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
+  LINK_FIRST_SEEN: ['Nov 6'], ME_UNLINKED_AGENT: ['Codex', 'Codex'], ME_HELD_ROW: ['Nov 11'], ME_SENT: ['Base Builder Grants'], ME_HELD_SENT: ['Base Builder Grants'], ME_NOT_SET_YET: [14],
+  'ME_VALUE_WORDS.typed': [2100, 2000], 'ME_VALUE_WORDS.programs': [50], 'ME_VALUE_WORDS.longLine': [3, 100],
   heroChipText: [105_000], dayWords: [new Date('2026-11-04T12:00:00Z'), new Date('2026-11-04T12:00:00Z')], heroUsdText: [3_159_600], programKind: [{}],
   'ME_VALUE_WORDS.under': [300], 'ME_VALUE_WORDS.atMost': [5], 'ME_VALUE_WORDS.range': [1, 10, true],
 };

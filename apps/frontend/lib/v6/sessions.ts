@@ -6,8 +6,9 @@ import { sql } from '../v5/db';
 import { getBuilder, type Builder } from './builders';
 
 /**
- * The session cookie's old name, read for one more release (v6.1.17 Task 4: never promoted; ignored from v6.1.18), so a
- * builder signed in under it stays signed in until that session ends or a /me write asks for a new sign-in.
+ * The session cookie's old name (v6.1.17 Task 4: never promoted). From v6.1.19 (L43-3) it is never read in production:
+ * a request carrying only it is signed out. Sign-in, sign-out and delete still expire it (`clearCookies`), and
+ * `endSession` still ends the session behind it.
  */
 export const OLD_COOKIE = 'ek_me';
 /**
@@ -31,19 +32,15 @@ export function cookieValue(cookieHeader: string | null, name: string): string |
   }
   return null;
 }
-/** The session token in a Cookie header: the current name first, else the old one (L31-6, one release). Pure. */
-export const sessionToken = (cookieHeader: string | null): string | null =>
-  cookieValue(cookieHeader, cookieName()) ?? cookieValue(cookieHeader, OLD_COOKIE);
-const tokenOf = sessionToken;
-
 /**
- * Whether the request's session token is held under the current name (v6.1.17 Task 4, L35-17). The old `ek_me` is
- * still read for this release but never promoted into `__Host-ek_me` (a planted old-name cookie would be minted into
- * the new one for 30 days): a page reads it, a /me write asks for a new sign-in. On local http the two names are one.
- * Pure.
+ * The session token in a Cookie header (L43-3, v6.1.19): only the current name, `__Host-ek_me` in production, so an old
+ * or planted `ek_me` is never a session there. Pure.
  */
-export const currentName = (cookieHeader: string | null): boolean =>
-  cookieName() === OLD_COOKIE || cookieValue(cookieHeader, cookieName()) !== null;
+export const sessionToken = (cookieHeader: string | null): string | null => cookieValue(cookieHeader, cookieName());
+const tokenOf = sessionToken;
+/** Whether the header carries a session cookie under any name, the old one included (it is cleared on sight). Pure. */
+export const anySessionCookie = (cookieHeader: string | null): boolean =>
+  cookieValue(cookieHeader, cookieName()) !== null || cookieValue(cookieHeader, OLD_COOKIE) !== null;
 
 export async function createSession(builderId: number, now: Date): Promise<{ token: string; cookie: string }> {
   const token = randomBytes(32).toString('base64url');
@@ -79,6 +76,48 @@ export async function hasSession(cookieHeader: string | null, now: Date): Promis
 export async function endSession(cookieHeader: string | null): Promise<void> {
   const tokens = [...new Set([cookieValue(cookieHeader, cookieName()), cookieValue(cookieHeader, OLD_COOKIE)].filter((t): t is string => Boolean(t)))];
   if (tokens.length > 0) await sql()`DELETE FROM sessions WHERE token_hash = ANY(${tokens.map(hash)})`;
+}
+
+export type SessionState = 'live' | 'expired' | 'unknown' | 'none';
+/**
+ * What the request's session cookie is (L43-12, v6.1.19), read only: `none` without one, `live`, `expired` only when a
+ * session row with that hash exists and has ended, else `unknown` (garbage, forged, or a session signed out or deleted).
+ */
+export async function sessionState(cookieHeader: string | null, now: Date): Promise<SessionState> {
+  const token = tokenOf(cookieHeader);
+  if (!token) return 'none';
+  const [r] = await sql()<{ expires_at: Date }[]>`SELECT expires_at FROM sessions WHERE token_hash = ${hash(token)}`;
+  if (!r) return 'unknown';
+  return r.expires_at.getTime() > now.getTime() ? 'live' : 'expired';
+}
+
+/** How long a refused form's typed values are kept for the page (L43-4, v6.1.19). */
+export const DRAFT_MS = 15 * 60_000;
+/** The typed values of a refused form, by field path. */
+export type Draft = Record<string, string>;
+/**
+ * Keeps what the builder typed into a refused /me form (L43-4, v6.1.19) on this session's row, replacing any earlier
+ * draft, so the page shows it again for DRAFT_MS. Only the session's own row; nothing without a session.
+ */
+export async function saveDraft(cookieHeader: string | null, values: Draft, now: Date): Promise<void> {
+  const token = tokenOf(cookieHeader);
+  if (!token || Object.keys(values).length === 0) return;
+  await sql()`UPDATE sessions SET draft = ${sql().json(values)}, draft_at = ${now} WHERE token_hash = ${hash(token)}`;
+}
+/** This session's draft while it is younger than DRAFT_MS, else null. */
+export async function draftOf(cookieHeader: string | null, now: Date): Promise<Draft | null> {
+  const token = tokenOf(cookieHeader);
+  if (!token) return null;
+  const [r] = await sql()<{ draft: Draft | null; draft_at: Date | null }[]>`SELECT draft, draft_at FROM sessions WHERE token_hash = ${hash(token)}`;
+  if (!r?.draft || !r.draft_at || r.draft_at.getTime() <= now.getTime() - DRAFT_MS) return null;
+  const out: Draft = {};
+  for (const [k, v] of Object.entries(r.draft)) if (typeof v === 'string') out[k] = v;
+  return out;
+}
+/** Drops this session's draft: the next save that succeeds. */
+export async function clearDraft(cookieHeader: string | null): Promise<void> {
+  const token = tokenOf(cookieHeader);
+  if (token) await sql()`UPDATE sessions SET draft = NULL, draft_at = NULL WHERE token_hash = ${hash(token)} AND draft IS NOT NULL`;
 }
 
 /** The Set-Cookie value that removes the session cookie. Pure. */

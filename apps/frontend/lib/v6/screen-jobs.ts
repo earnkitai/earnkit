@@ -24,12 +24,15 @@ import { listWords } from './reply-words';
 import { currentReviewerLine } from './tier-words';
 import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
 
+/** L45-9 (v6.1.19): how an outcome's ref that is empty after cleaning is named. */
+export const EMPTY_REF = '(empty name)';
 /** An applicant's ref, as the program gives it and as an outcome names it (screen-tool's outcome ref cap). */
 export const REF_MAX = 60;
 
 export const ScreenApplicant = z
   .object({
-    ref: z.string().trim().min(1).max(REF_MAX).describe("The program's own id for the applicant"),
+    // L45-9 (v6.1.19): a ref empty once hidden and control characters are gone is refused, never stored as a placeholder.
+    ref: z.string().max(REF_MAX).transform((x) => cleanText(x, REF_MAX)).pipe(z.string().min(1, 'empty after removing hidden characters')).describe("The program's own id for the applicant"),
     name: z.string().trim().max(120).optional(),
     repo_url: z.string().trim().max(300).optional(),
     live_url: z.string().trim().max(300).optional(),
@@ -525,6 +528,10 @@ export const OUTCOME_NOTES = {
   unmatched: (refs: string[]) => `Not matched to an EarnKit application: ${listWords(refs, 10)}.`,
   noAmount: (refs: string[]) => `Passed on as a win, amount not given: ${listWords(refs, 10)}.`,
   replaced: (items: string[]) => `Replaced the outcome recorded before: ${listWords(items, 10)}.`,
+  /** L45-2 (v6.1.19): an outcome that is not a win, over a kept win: the win stays. */
+  beside: (items: string[]) => `A win is kept; noted beside it, not replacing it: ${listWords(items, 10)}.`,
+  /** Fix round 1 (M6): shortlisted over a kept win; nothing is written. */
+  winKept: (refs: string[]) => `Not recorded, a win is kept: ${listWords(refs, 10)}.`,
   /** L15-17, T8-F1 (v6.1.14): a further payment (marked) on an applicant's win; the item names the total. */
   added: (items: string[]) => `Added to the win recorded before: ${listWords(items, 10)}.`,
   older: (refs: string[]) => `Not recorded, a later outcome is already kept: ${listWords(refs, 10)}.`,
@@ -712,6 +719,10 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const noAmount: string[] = [];
   const older: string[] = [];
   const replaced: string[] = [];
+  /** L45-2 (v6.1.19): outcomes noted beside a kept win, never replacing it. */
+  const beside: string[] = [];
+  /** Fix round 1 (M6): a shortlisted outcome over the screen's kept win: not recorded, the win kept. */
+  const winKept: string[] = [];
   const added: string[] = [];
   const ambiguous: string[] = [];
   const superseded: string[] = [];
@@ -739,8 +750,9 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     const [a] = await sql()<{ application_id: string | null; name: string; repo_url: string | null }[]>`
       SELECT application_id, name, repo_url FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
-      once(notFound, o.ref);
-      miss(o.ref, NOT_PASSED.notFound, false);
+      // L45-9 (v6.1.19): a ref empty after cleaning is named as such, never as nothing.
+      once(notFound, o.ref || EMPTY_REF);
+      miss(o.ref || EMPTY_REF, NOT_PASSED.notFound, false);
       continue;
     }
     const app = a.application_id ? await applicationOf(a.application_id, job.program_id, builderId) : undefined;
@@ -766,6 +778,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       // L16-16 (v6.1.16): the outcome kept already, the same in every part: nothing changes.
       const kept = b ? keptAmounts(b) : null;
       if (pkey === null && b && b.outcome === o.outcome && sameAmounts(kept, money)) return { repeat: true as const, at: b.at };
+      // L45-2 (v6.1.19): an outcome that is not a win never replaces a kept win: the win stays, this one is noted beside it.
+      if (b?.outcome === 'won' && o.outcome !== 'won') return { beside: b };
       // L15-17, T8-F1: a further payment over a win with an amount is kept as the total, within its currency and keeping
       // both across currencies (L22-3, v6.1.16; never a replace); T8-F3, L22-4: over the cap, each currency converted
       // for the check only, nothing is written. Unmarked, another amount replaces the first.
@@ -781,7 +795,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
           payment_keys = EXCLUDED.payment_keys, amount_given = EXCLUDED.amount_given, currency = EXCLUDED.currency
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
       return { before: b, kept: k.length > 0, total: sum };
-    })) as { repeat: true; at: Date } | { refused: string } | { overCap: string } | { before: Before | undefined; kept: boolean; total: Amounts | null };
+    })) as { repeat: true; at: Date } | { refused: string } | { overCap: string } | { beside: Before } | { before: Before | undefined; kept: boolean; total: Amounts | null };
     if ('overCap' in w) {
       once(overCap, o.ref);
       overCapAt.push({ ref: o.ref, at: w.overCap });
@@ -797,7 +811,11 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     // key (the ledger's own key check makes that a no-op once written), so a ledger write that failed after the screen's
     // commit is delivered on the retry, once. L16-16: it counts as recorded only when the ledger took it.
     const repeat = 'repeat' in w;
-    if (!repeat) {
+    // L45-2 (v6.1.19): beside a kept win; a rejection still goes on to the ledger, which keeps the win and notes it.
+    const besideWin = 'beside' in w;
+    // Fix round 1 (M6): named beside the win only once the ledger answered beside; a shortlisted one reaches no ledger.
+    const besideItem = besideWin ? `${o.ref} (${o.outcome}; kept: ${keptWords(w.beside)})` : '';
+    if (!repeat && !besideWin) {
       const { before, kept, total } = w;
       if (!kept) {
         once(older, o.ref);
@@ -811,6 +829,10 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     // A repeat whose ledger write changes nothing is named in `repeats`; one the ledger takes counts as recorded.
     const repeated = () => once(repeats, o.ref);
     if (o.outcome === 'shortlisted') {
+      if (besideWin) {
+        once(winKept, o.ref);
+        continue;
+      }
       if (repeat) repeated();
       else miss(o.ref, NOT_PASSED.shortlisted, true);
       continue;
@@ -871,7 +893,23 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     // (an FR-4 delivery stays silent), and any ledger refusal is one generic reason, its detail in the server log, so
     // the builder's own corrections, results and totals never reach a program.
     if (repeat) repeated();
-    else if (res.ok || res.note === 'Already tracked.' || res.note === CONFIRMED) {
+    else if (besideWin) {
+      if (res.ok) {
+        recorded++;
+        passed++;
+        if ('beside' in res) once(beside, besideItem);
+      } else if (res.note === 'Already tracked.') {
+        repeated();
+        once(beside, besideItem);
+      } else {
+        once(stands, o.ref);
+        once(reasons, `${o.ref}: ${NOT_PASSED.builderStands}`);
+      }
+    } else if (res.ok && 'beside' in res) {
+      // Fix round 1 (I2): a win beside the builder's own win, which stands; the reviewer hears only the generic line (C1).
+      once(stands, o.ref);
+      once(reasons, `${o.ref}: ${NOT_PASSED.builderStands}`);
+    } else if (res.ok || res.note === 'Already tracked.' || res.note === CONFIRMED) {
       passed++;
       if (o.outcome === 'won' && money === null) once(noAmount, o.ref);
     } else {
@@ -882,6 +920,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   }
   const notes = [
     ...(replaced.length ? [OUTCOME_NOTES.replaced(replaced)] : []),
+    ...(beside.length ? [OUTCOME_NOTES.beside(beside)] : []),
+    ...(winKept.length ? [OUTCOME_NOTES.winKept(winKept)] : []),
     ...(added.length ? [OUTCOME_NOTES.added(added)] : []),
     ...(older.length ? [OUTCOME_NOTES.older(older)] : []),
     ...(noAmount.length ? [OUTCOME_NOTES.noAmount(noAmount)] : []),

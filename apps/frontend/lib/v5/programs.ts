@@ -5,7 +5,7 @@
  */
 import { inTx, sql, type Db } from './db';
 import { ProgramFile, categoryOf, type Program } from './program-file';
-import { quoteName } from './controls';
+import { cleanText } from './controls';
 
 export type ProgramRow = {
   id: string;
@@ -137,9 +137,22 @@ export const SUGGESTED = 3;
  *  question ("Which program do you mean: A, B or C?"); with none, L1j-2 (v6.1.17): the name given, through quoteName
  *  ('I do not know a program called "zzqx". Say its full name.'), or with no name "Which program do you mean? Say its
  *  name.". Pure. */
+/**
+ * L45-14 (v6.1.19): a name echoed back, quoted as `quoteName` quotes it, but over 40 characters cut at the last word
+ * boundary (a space, `-`, `/`, `.` or `_`) and marked with three dots, never mid-word. Pure.
+ */
+export function echoName(s: string): string {
+  const t = cleanText(s, Infinity).replace(/"/g, "'");
+  const points = Array.from(t);
+  if (points.length <= 40) return `"${t}"`;
+  const head = points.slice(0, 40).join('');
+  const at = Math.max(...[' ', '-', '/', '.', '_'].map((c) => head.lastIndexOf(c)));
+  return `"${(at >= 10 ? head.slice(0, at) : head).replace(/[\s\-/._]+$/, '')}..."`;
+}
+
 export function unknownProgramLine(suggest: readonly string[], name?: string): string {
   const shown = suggest.slice(0, SUGGESTED);
-  if (shown.length === 0 && name !== undefined && name.trim()) return `I do not know a program called ${quoteName(name.trim())}. Say its full name.`;
+  if (shown.length === 0 && name !== undefined && name.trim()) return `I do not know a program called ${echoName(name.trim())}. Say its full name.`;
   if (shown.length === 0) return 'Which program do you mean? Say its name.';
   return `Which program do you mean: ${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`}?`;
 }
@@ -350,6 +363,9 @@ export async function upsertProgram(
 const NUMBER_WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
 const TENS = ['twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
 
+/** L45-11 (v6.1.19): a number no list holds: a negative, or one with a decimal part (at most 4 digits either side). */
+const OFF_LIST = /^-\d{1,4}(?:\.\d{1,4})?$|^\d{1,4}\.\d{1,4}$/;
+
 /** What a list reference reads after its `#`, `No.` or `no `, and a trailing dot, are stripped, lower case. Pure. */
 const refBody = (raw: string): string => raw.trim().toLowerCase().replace(/^(#|no\.\s*|no\s+|number\s+)/, '').replace(/\.$/, '').trim();
 
@@ -361,6 +377,8 @@ const refBody = (raw: string): string => raw.trim().toLowerCase().replace(/^(#|n
 export function looksLikeListRef(raw: string): boolean {
   const b = refBody(raw);
   if (/^\d{1,4}$/.test(b)) return true;
+  // L45-11 (v6.1.19): 0, a negative or a decimal is a number too, never on a list.
+  if (OFF_LIST.test(b)) return true;
   if (NUMBER_WORDS.includes(b)) return true;
   const [t, u] = b.split(/[-\s]+/);
   return TENS.includes(t) && (u === undefined || NUMBER_WORDS.slice(0, 9).includes(u));
@@ -377,20 +395,41 @@ export function listRef(raw: string, lastList: string[]): string | null {
 }
 
 /** Fix round 1 (M4, v6.1.18 Task 8): a list reference's number, from 1 to `length` (digits or a number word), else
- *  null; the one parse `listRef` and `listHole` share. Pure. */
+ *  null; the one parse `listRef` and `listMiss` share. Pure. */
 function listNumber(raw: string, length: number): number | null {
+  const n = refNumber(raw);
+  return n !== null && Number.isInteger(n) && n >= 1 && n <= length ? n : null;
+}
+/** M4 (v6.1.19): the number a list-shaped reference reads as (1 to 9999, digits or a number word, a compound like
+ *  `twenty-one` too), with no list bound; else null. Pure. */
+function refNumber(raw: string): number | null {
+  if (!looksLikeListRef(raw)) return null;
   const b = refBody(raw);
-  const n = /^\d{1,4}$/.test(b) ? Number(b) : NUMBER_WORDS.indexOf(b) + 1;
-  return Number.isInteger(n) && n >= 1 && n <= length ? n : null;
+  if (/^\d{1,4}$/.test(b)) return Number(b);
+  if (OFF_LIST.test(b)) return Number(b);
+  if (NUMBER_WORDS.includes(b)) return NUMBER_WORDS.indexOf(b) + 1;
+  const [t, u] = b.split(/[-\s]+/);
+  return (TENS.indexOf(t) + 2) * 10 + (u === undefined ? 0 : NUMBER_WORDS.indexOf(u) + 1);
 }
 
 /**
- * L36-10 (v6.1.18): a list number whose slot in the last list is empty (that program left the list, as an already-sent
- * one does): its number, else null. Pure.
+ * M4 (v6.1.19, was L36-10 `listHole`): a list-shaped number the last list does not hold (past its end, or a slot that
+ * is empty because its program left the list, as an already-sent one does): its number, else null. So a bare number is
+ * never answered with the unknown-program line. Pure.
  */
-export function listHole(raw: string, lastList: string[]): number | null {
-  const n = listNumber(raw, lastList.length);
-  return n !== null && !lastList[n - 1] ? n : null;
+export function listMiss(raw: string, lastList: string[]): number | null {
+  const n = refNumber(raw);
+  return n !== null && !listRef(raw, lastList) ? n : null;
 }
-/** L36-10 (v6.1.18): the line for a list number no longer in the list. */
-export const LIST_GONE = (n: number): string => `Number ${n} is not in the list now (already sent). Say a number from the last list.`;
+/** M4 (v6.1.19): the line for a list number the last list does not hold. */
+// L45-11 (v6.1.19): the program's name is the other way on.
+export const LIST_GONE = (n: number): string => `Number ${n} is not in the list. Say a number from the last list or the program's name.`;
+
+/**
+ * L45-14 (v6.1.19): EarnKit's own program page link (`earnkit.com/programs/<id>`, any scheme, `www.`, a trailing slash,
+ * a query or fragment) is that program's id; anything else as given. Pure.
+ */
+export function programIdOf(raw: string): string {
+  const m = /^\s*(?:https?:\/\/)?(?:www\.)?earnkit\.com\/programs\/([A-Za-z0-9][A-Za-z0-9-]*)\/?(?:[?#]\S*)?\s*$/i.exec(raw);
+  return m ? m[1].toLowerCase() : raw;
+}

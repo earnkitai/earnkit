@@ -79,6 +79,11 @@ const MAX = { name: 80, description: 280 } as const;
  */
 const clean = (s: string) => cleanText(s, Infinity);
 const text = (v: unknown) => (typeof v === 'string' ? clean(v).trim() : '');
+/** L45-12 (v6.1.19): a chain EarnKit knows no program on, noted as the agent gave it (never "send corrected"). */
+// Fix round 1 (M3): the entry is not kept, so the note says dropped (with nothing for the agent to correct).
+export const CHAIN_KEPT = (name: string): string => `chain ${name} dropped: no program here asks for it`;
+/** L45-12: whether a problem line is a CHAIN_KEPT note. Pure. */
+export const isChainKept = (p: string): boolean => /^chain .+ dropped: no program here asks for it$/.test(p);
 /** The chains read from one report; the rest are named, not read. */
 const MAX_CHAINS = 20;
 /** A commit date this far past now is a mistake, not a clock skew. */
@@ -117,8 +122,31 @@ export function sshAsHttps(raw: string): string {
   const ssh = /^(?:ssh|git\+ssh):\/\/(?:[\w.-]+@)?([\w.-]+)(?::\d+)?\/(.+)$/i.exec(raw);
   return ssh ? `https://${ssh[1]}/${ssh[2]}` : raw;
 }
-/** A repo link as a web link: an SSH clone link read as https first (FR-2). */
-const repoInput = (v: unknown): unknown => (typeof v === 'string' && v.length <= 500 ? sshAsHttps(clean(v).trim()) : v);
+/**
+ * L45-13 (v6.1.19): a code host's link written with no scheme (`github.com/owner/repo`, `www.github.com/...`) as https;
+ * anything else as given. Pure.
+ */
+export const withScheme = (raw: string): string => (/^(?:www\.)?(?:github\.com|gitlab\.com|codeberg\.org|bitbucket\.org)\//i.test(raw) ? `https://${raw}` : raw);
+/** A repo link as a web link: an SSH clone link (FR-2) or a code host's link with no scheme (L45-13) read as https first. */
+const repoInput = (v: unknown): unknown => (typeof v === 'string' && v.length <= 500 ? withScheme(sshAsHttps(clean(v).trim())) : v);
+/**
+ * L45-13 (v6.1.19): a GitHub repo link as record keeps it, read as find reads it: an SSH form, no scheme, `www.`, a
+ * `/tree/...` or `/blob/...` path, a query, a trailing slash or `.git` all read as `https://github.com/<owner>/<repo>`
+ * (case kept). Anything that is not a GitHub repo link is returned as given, for the caller's own check. Pure.
+ */
+export function githubRepoLink(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(withScheme(sshAsHttps(raw.trim())));
+  } catch {
+    return raw;
+  }
+  if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.hostname.toLowerCase().replace(/^www\./, '') !== 'github.com' || u.username || u.password || u.port) return raw;
+  const parts = u.pathname.split('/').filter(Boolean);
+  if (parts.length < 2 || GITHUB_PAGES.has(parts[0].toLowerCase())) return raw;
+  const name = parts[1].replace(/(\.git)+$/i, '');
+  return name ? `https://github.com/${parts[0]}/${name}` : raw;
+}
 const repoWebUrl = (v: unknown): string | null => webUrl(repoInput(v));
 
 /** Words that name a testnet in a chain slug or a network (v6.1.14 fix round 1, F1). */
@@ -230,6 +258,8 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     const t = typeof raw[k] === 'string' ? Date.parse(raw[k] as string) : NaN;
     if (Number.isNaN(t)) problems.push(`${k} dropped: not a date`);
     else if (t > now.getTime() + FUTURE_MS) problems.push(`${k} is in the future; not used`);
+    // L45-19 (v6.1.19): no commit is from before 1970, so such a date is not known.
+    else if (t < 0) problems.push(`${k} is before 1970; not used`);
     else out[k] = new Date(t).toISOString();
   }
   for (const k of ['private', 'builder_codes', 'users'] as const) {
@@ -245,7 +275,8 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     let extra = 0;
     for (const c of raw.chains) {
       // A bare slug ("base") is that chain on mainnet; so is an object that leaves mainnet out and names no testnet (v6.1.14 T1, F1).
-      const o = (typeof c === 'string' ? { chain: c } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
+      // L45-12 (v6.1.19): a bare number is a chain id, read through the registry (8453 is base).
+      const o = (typeof c === 'string' ? { chain: c } : typeof c === 'number' ? { chain_id: c } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
       const net = networkOf(o);
       const e: Record<string, unknown> = { ...o, mainnet: net.mainnet };
       const chain = net.chain;
@@ -259,12 +290,18 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
       }
       read++;
       seen.add(key);
+      // L45-12 (v6.1.19): a bare chain id the registry does not hold reads as its number, noted as given.
+      if (typeof c === 'number' && !chain) {
+        problems.push(CHAIN_KEPT(String(c).slice(0, 20)));
+        continue;
+      }
       if (net.problem) {
         problems.push(net.problem);
         continue;
       }
+      // L45-12 (v6.1.19): a real chain EarnKit has no program on is noted as given, nothing for the agent to correct.
       if (!isKnownChain(chain)) {
-        problems.push(`chain ${typeof e.chain === 'string' ? clean(e.chain).slice(0, 40) : '?'} dropped: not a known chain`);
+        problems.push(typeof e.chain === 'string' && /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(clean(e.chain).trim()) ? CHAIN_KEPT(clean(e.chain).trim().slice(0, 40)) : `chain ${typeof e.chain === 'string' ? clean(e.chain).slice(0, 40) : '?'} dropped: not a known chain`);
         continue;
       }
       if (typeof e.mainnet !== 'boolean') {
@@ -280,7 +317,8 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
       chains.push({ chain, mainnet: e.mainnet, ...(contract && { contract }) });
     }
     if (chains.length) out.chains = chains;
-    if (extra) problems.push(`${extra} chains beyond ${MAX_CHAINS} were not read`);
+    // L45-12 (v6.1.19): "1 chain beyond 20".
+    if (extra) problems.push(`${extra} ${extra === 1 ? 'chain' : 'chains'} beyond ${MAX_CHAINS} ${extra === 1 ? 'was' : 'were'} not read`);
   } else if (raw.chains != null) problems.push('chains dropped: not a list');
 
   return { ok: true, project: out as Project, problems };

@@ -2,7 +2,7 @@
   "id": "base-builder-grants",
   "organizer": "Base",
   "title": "Base Builder Grant Program",
-  "description": "Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. Categories: prediction markets, launchpads for new crypto assets, DeFi 2.0, agents (commerce, x402, autonomous trading), new asset creation, and consumer apps focused on transaction growth. Round 2 was reviewed in cohorts and is closed; Round 3 is not announced yet.",
+  "description": "Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. Categories: prediction markets, launchpads for new crypto assets, DeFi 2.0, agents (commerce, x402, autonomous trading), new asset creation, and consumer apps focused on transaction growth.",
   "source_url": "https://docs.base.org/get-started/builders",
   "submission_url": "https://forms.gle/urqjBJYJjR6Vqqre6",
   "reward": "Up to $5,000 in grants, plus GTM and product support",
@@ -37,12 +37,10 @@
     "a Loom demo"
   ],
   "rules": [
-    "Round 2 of the Builder Grant Program is closed; its form says Round 3 is coming. Round 2 took teams in cohorts.",
     "The Base team provides grants very selectively. The first step to be eligible is to integrate Builder Codes.",
     "For builders exclusively building on Base right now.",
     "You're past the idea stage, with a live product that's getting used.",
     "For teams that need product, GTM, and launch help more than capital.",
-    "Categories: prediction markets; launchpads for new crypto assets; DeFi 2.0 (lending, borrowing, looping, yield generation, vaults, tokenized equities); agents (commerce, x402 implementations, autonomous trading); new asset creation; consumer apps focused on transaction growth.",
     "Accepted teams unlock the Builder Stack: a pool of tools and credits (LLM inference, cloud, other dev infrastructure)."
   ],
   "submission_requirements": [
@@ -89,11 +87,6 @@
       ]
     }
   ],
-  "focus": {
-    "areas": ["Prediction markets", "Agents: commerce, x402, autonomous trading", "DeFi 2.0: lending, borrowing, yield, vaults"],
-    "source_url": "https://docs.base.org/get-started/builders",
-    "ecosystem": "Base"
-  },
   "best_bet": "A live x402 agent-payments product with Builder Codes integrated",
   "form": { "platform": "google", "url": "https://docs.google.com/forms/d/e/1FAIpQLSeEFi9BLm5XCm7KrFzRZC-rxcAqCNZPzWZ9He4aZkxsKuRXjw/viewform", "fields": {"full_name": "entry.100652540", "email": "entry.567744978", "x_handle": "entry.57269102", "telegram": "entry.1412451360", "project_name_description": "entry.736699383", "founding_team": "entry.2135613942", "live_product_url": "entry.1792418505", "demo_loom": "entry.1167675868", "contract_address": "entry.1872809856", "track": "entry.1495021877", "usage_numbers": "entry.1765671176", "revenue": "entry.612337056", "gtm_plan": "entry.158694497", "builder_code": "entry.703891879", "primary_challenge": "entry.475374687", "credits": "entry.1350986773", "what_changed": "entry.1460571512"} },
   "submit": "either",

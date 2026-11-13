@@ -60,16 +60,23 @@ export type ManifestStep = {
   note: string;
 };
 
+/** M6 (v6.1.19): the fund's steps above its floor (`$10,000 minimum and multiples of $25,000 thereafter`). */
+export const PLAN_STEP_USD = 25_000;
+
 /**
  * Fix round 1 (I3): the plan's starting amount: the record's most the builder asks (`policy.max_ask_usd`), kept within
- * the program's award floor and ceiling, else the floor; null with no floor. Pure.
+ * the program's award floor and ceiling, else the floor; null with no floor. M6 (v6.1.19): an ask at the floor stays the
+ * floor; above it rounds up to the next multiple of `PLAN_STEP_USD`, never above the largest multiple within the
+ * ceiling (and never below the floor). Pure.
  */
 export function planAmount(p: Pick<Program, 'min_award_usd' | 'max_award_usd'>, rec: RecordContext | null): number | null {
   const floor = p.min_award_usd;
   if (floor === undefined) return null;
   const ask = rec?.record.policy.max_ask_usd;
-  if (ask === undefined) return floor;
-  return Math.round(Math.min(Math.max(ask, floor), p.max_award_usd ?? Infinity));
+  if (ask === undefined || ask <= floor) return floor;
+  const up = Math.ceil(ask / PLAN_STEP_USD) * PLAN_STEP_USD;
+  const top = p.max_award_usd === undefined ? Infinity : Math.floor(p.max_award_usd / PLAN_STEP_USD) * PLAN_STEP_USD;
+  return Math.max(floor, Math.min(up, top));
 }
 
 /** A guid: lower-case letters, digits and dashes, at most 32. Pure. */

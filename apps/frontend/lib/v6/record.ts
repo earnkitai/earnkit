@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
 import { cleanProse, cleanText } from '../v5/controls';
+import { githubRepoLink } from '../v5/project-input';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
 /** Each value once, in first order (F10, v6.1.12): the one de-duplication /me and the record tool share. Pure. */
@@ -21,6 +22,23 @@ export const cleanLine = (s: string): string => cleanText(s, Infinity);
  * L35-15 (v6.1.17): every length here is in characters as people count them, code points, never UTF-16 units: zod 4's
  * string max counts code points (pinned in record.test.ts), so 1,996 emoji fit an answer of at most 2,000 characters.
  */
+/** L45-19 (v6.1.19): the ISO 3166-1 alpha-2 codes (249), so a made-up code like ZZ is refused. */
+const COUNTRY_CODES: ReadonlySet<string> = new Set([
+  'AD', 'AE', 'AF', 'AG', 'AI', 'AL', 'AM', 'AO', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AW', 'AX', 'AZ', 'BA', 'BB',
+  'BD', 'BE', 'BF', 'BG', 'BH', 'BI', 'BJ', 'BL', 'BM', 'BN', 'BO', 'BQ', 'BR', 'BS', 'BT', 'BV', 'BW', 'BY',
+  'BZ', 'CA', 'CC', 'CD', 'CF', 'CG', 'CH', 'CI', 'CK', 'CL', 'CM', 'CN', 'CO', 'CR', 'CU', 'CV', 'CW', 'CX',
+  'CY', 'CZ', 'DE', 'DJ', 'DK', 'DM', 'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ES', 'ET', 'FI', 'FJ', 'FK',
+  'FM', 'FO', 'FR', 'GA', 'GB', 'GD', 'GE', 'GF', 'GG', 'GH', 'GI', 'GL', 'GM', 'GN', 'GP', 'GQ', 'GR', 'GS',
+  'GT', 'GU', 'GW', 'GY', 'HK', 'HM', 'HN', 'HR', 'HT', 'HU', 'ID', 'IE', 'IL', 'IM', 'IN', 'IO', 'IQ', 'IR',
+  'IS', 'IT', 'JE', 'JM', 'JO', 'JP', 'KE', 'KG', 'KH', 'KI', 'KM', 'KN', 'KP', 'KR', 'KW', 'KY', 'KZ', 'LA',
+  'LB', 'LC', 'LI', 'LK', 'LR', 'LS', 'LT', 'LU', 'LV', 'LY', 'MA', 'MC', 'MD', 'ME', 'MF', 'MG', 'MH', 'MK',
+  'ML', 'MM', 'MN', 'MO', 'MP', 'MQ', 'MR', 'MS', 'MT', 'MU', 'MV', 'MW', 'MX', 'MY', 'MZ', 'NA', 'NC', 'NE',
+  'NF', 'NG', 'NI', 'NL', 'NO', 'NP', 'NR', 'NU', 'NZ', 'OM', 'PA', 'PE', 'PF', 'PG', 'PH', 'PK', 'PL', 'PM',
+  'PN', 'PR', 'PS', 'PT', 'PW', 'PY', 'QA', 'RE', 'RO', 'RS', 'RU', 'RW', 'SA', 'SB', 'SC', 'SD', 'SE', 'SG',
+  'SH', 'SI', 'SJ', 'SK', 'SL', 'SM', 'SN', 'SO', 'SR', 'SS', 'ST', 'SV', 'SX', 'SY', 'SZ', 'TC', 'TD', 'TF',
+  'TG', 'TH', 'TJ', 'TK', 'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW', 'TZ', 'UA', 'UG', 'UM', 'US', 'UY',
+  'UZ', 'VA', 'VC', 'VE', 'VG', 'VI', 'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW'
+]);
 const line = (max: number) => z.string().overwrite(cleanLine).max(max);
 /** Prose keeps its line breaks; every other control or format character (NUL, bidi, zero-width) is dropped (L24-21). */
 const prose = (max: number) => z.string().overwrite(cleanProse).max(max);
@@ -34,7 +52,8 @@ const noUserInfo = (s: string) => {
   }
 };
 const https = line(500).pipe(z.url({ protocol: /^https$/ })).refine(noUserInfo, 'a link with no user name or password');
-const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
+// L45-13 (v6.1.19): read as find reads a repo link (no scheme, SSH, a /tree/ path), so record keeps what find takes.
+const githubRepo = z.string().overwrite(cleanLine).overwrite(githubRepoLink).max(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
 const email = line(200).pipe(z.email());
 const isoDate = line(10).refine((s) => {
   const d = new Date(`${s}T00:00:00Z`);
@@ -150,6 +169,8 @@ type Merge = { record: BuilderRecord; problems: string[]; changed: string[] };
 const isObj = (v: unknown): v is { [k: string]: unknown } => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** A problem line, "<path>: <issue>", the path cut to 60 characters (a patch's keys are the agent's). */
 const bad = (path: string, what: string) => `${path.slice(0, 60)}: ${what}`;
+/** L45-6 (v6.1.19): the problem for a text value empty after cleaning. */
+export const EMPTY = 'was empty';
 const issue = (path: string, err: z.ZodError) => {
   const i = err.issues[0];
   return bad(i.path.length ? `${path}.${i.path.join('.')}` : path, i.message);
@@ -182,6 +203,17 @@ function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.Zod
     const schema = allowedKey(shape, key) ? (shape[key] as z.ZodType) : undefined;
     if (!schema) {
       problems.push(bad(path, 'not a field'));
+      continue;
+    }
+    // L45-6 (v6.1.19): text empty once hidden and control characters are gone is no value: refused, never stored over
+    // what is kept (null is the clear).
+    if (typeof value === 'string' && cleanLine(value) === '') {
+      problems.push(bad(path, EMPTY));
+      continue;
+    }
+    // L45-19 (v6.1.19): a country is one of the ISO 3166-1 codes; checked on a set only, so a stored record still reads.
+    if (path === 'person.based_country' && typeof value === 'string' && /^[A-Z]{2}$/.test(cleanLine(value)) && !COUNTRY_CODES.has(cleanLine(value))) {
+      problems.push(bad(path, 'not a country code'));
       continue;
     }
     let next: unknown;
@@ -423,6 +455,18 @@ type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnsw
  * answer at all is missing.
  */
 export function recordItems(record: BuilderRecord, o: Asks): { total: number; missing: string[] } {
+  const items = itemsOf(record, o);
+  return { total: items.length, missing: items.filter(([has]) => !has).map(([, words]) => words) };
+}
+
+/**
+ * L45-1 (v6.1.19): the words of every record item the record holds now, whatever a program asks (each answer kind, an
+ * answer waiting for approval included, and each document). A need in these words is met. Pure.
+ */
+export const heldWords = (record: BuilderRecord): string[] =>
+  itemsOf(record, { needs: NEED_DOCS.map((d) => d.need), kinds: [...ANSWER_KINDS], anyAnswer: true }).filter(([has]) => has).map(([, words]) => words);
+
+function itemsOf(record: BuilderRecord, o: Asks): [boolean, string][] {
   const items: [boolean, string][] = [];
   // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
   items.push([Boolean(record.person.name), 'your name'], [Boolean(record.person.email), 'your email']);
@@ -436,7 +480,7 @@ export function recordItems(record: BuilderRecord, o: Asks): { total: number; mi
     items.push([Boolean(any), `${o.anyAnswer ? 'an answer' : 'an approved answer'} on ${KIND_WORDS[k]}`]);
   }
   for (const d of NEED_DOCS) if (o.needs.includes(d.need)) items.push([d.has(record), d.words]);
-  return { total: items.length, missing: items.filter(([has]) => !has).map(([, words]) => words) };
+  return items;
 }
 
 /** What the record lacks for the open programs, in builder words (`recordItems`' missing). Pure. */

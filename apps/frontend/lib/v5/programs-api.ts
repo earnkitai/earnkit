@@ -37,7 +37,8 @@ import {
 import { findProgramsDir } from './programs-dir';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
-import { SENT, sendCounts, sendRows, throughEarnkit } from './stats';
+import { BUILDER_OWN_NOTE } from './ledger';
+import { SENT, sendCounts, sendRows, sendTime, throughEarnkit } from './stats';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
 /** The largest body the API reads. */
@@ -62,9 +63,9 @@ const BUSY = 'EarnKit is busy. Try again in a minute.';
 /** A bot wall or a sign-in still means the page exists. */
 const BOT_WALL_STATUSES = [401, 403, 429];
 
-/** The token is set (at least 32 characters) and EARNKIT_PROGRAMS_API isn't off. */
+/** The token is set (at least 32 characters, read trimmed: L42-3, v6.1.19) and EARNKIT_PROGRAMS_API isn't off. */
 export function programsApiOn(env: NodeJS.ProcessEnv = process.env): boolean {
-  const token = env.EARNKIT_PROGRAMS_TOKEN;
+  const token = env.EARNKIT_PROGRAMS_TOKEN?.trim();
   return Boolean(token && token.length >= 32) && !OFF_VALUES.has((env.EARNKIT_PROGRAMS_API ?? '').trim().toLowerCase());
 }
 
@@ -461,16 +462,42 @@ export async function writesGet(request: Request, now = new Date()): Promise<Res
 /** The owner's list of sends: at most this many rows a call (default APPLICATIONS_DEFAULT). */
 export const APPLICATIONS_MAX = 500;
 export const APPLICATIONS_DEFAULT = 100;
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+const SINCE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+
+/**
+ * v6.1.19 Task 1 (L42-4, L42-8): `since` as a time, or null. `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MM[:SS[.fff]]` with an
+ * optional `Z` or `±HH:MM`; no zone is UTC (never the server's zone). The date and clock must exist: `2026-02-30` and
+ * `T24:00` are null, not rolled over. Pure.
+ */
+export function parseSince(text: string): Date | null {
+  const m = SINCE.exec(text);
+  if (!m) return null;
+  const [y, mo, d, hh, mm, ss] = [m[1], m[2], m[3], m[4] ?? '0', m[5] ?? '0', m[6] ?? '0'].map(Number);
+  const ms = m[7] ? Number(m[7].padEnd(3, '0')) : 0;
+  // Years 0000 to 0099 fail the round-trip on purpose (Date.UTC reads them as 1900 to 1999): never a real since.
+  const t = Date.UTC(y, mo - 1, d, hh, mm, ss, ms);
+  const back = new Date(t);
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d
+    || back.getUTCHours() !== hh || back.getUTCMinutes() !== mm || back.getUTCSeconds() !== ss) return null;
+  const zone = m[8];
+  if (!zone || zone === 'Z') return back;
+  const [zh, zm] = zone.slice(1).split(':').map(Number);
+  if (zh > 14 || zm > 59) return null;
+  const offset = (zh * 60 + zm) * 60_000 * (zone[0] === '-' ? -1 : 1);
+  return new Date(t - offset);
+}
 
 /**
  * GET /api/programs/applications?since=<ISO>&limit=<1..500>, owner only (authFailure): every send (applied or any
- * result), newest first by its send time (`sent_at`, else `at`). `since` filters the rows only (a bad one is 400
- * `since: an ISO date`); `limit` defaults to 100, a number over 500 is read as 500, and 0, a negative or a non-number is
+ * result), newest first by its send time (`sendTime`; v6.1.19 L42-2: a send with none, made outside EarnKit, is listed
+ * last and its `sent_at` is null). `since` (parseSince, UTC when no zone) filters the rows only: a dated row by its send
+ * time, an undated one by its `at` (a bad one is 400 `since: an ISO date`); `limit` defaults to 100, a number over 500 is read as 500, and 0, a negative or a non-number is
  * 400 `limit: 1 to 500`. `totals` and `by_program` are always all time: `agent`, `drafted` (a builder sent an EarnKit
  * draft), `reported` (EarnKit had no part), `auto` (standing approval); see `sendCounts` in stats.ts. A row names the
  * builder by GitHub login (a `b:` owner, or the linked builder of an `i:` owner's installation) and the agent by its
- * client name, and says `through_earnkit` (L36-3); never an email, a sign-in code, the owner key or an installation id.
+ * client name (L42-6: the installation that recorded the send, not a result's; final fix round M1: none for a builder's
+ * send with no sending installation kept), and says `through_earnkit` (L36-3) and
+ * `reported` (L42-2); never an email, a sign-in code, the owner key or an installation id.
  */
 export async function applicationsGet(request: Request): Promise<Response> {
   const denied = authFailure(request);
@@ -479,9 +506,8 @@ export async function applicationsGet(request: Request): Promise<Response> {
   const sinceText = params.get('since')?.trim() ?? null;
   let since: Date | null = null;
   if (sinceText !== null) {
-    const t = Date.parse(sinceText);
-    if (!ISO_DAY.test(sinceText) || !Number.isFinite(t)) return json({ ok: false, error: 'since: an ISO date' }, 400);
-    since = new Date(t);
+    since = parseSince(sinceText);
+    if (!since) return json({ ok: false, error: 'since: an ISO date' }, 400);
   }
   const limitText = params.get('limit')?.trim() ?? null;
   let limit = APPLICATIONS_DEFAULT;
@@ -500,13 +526,17 @@ export async function applicationsGet(request: Request): Promise<Response> {
       application_id: string | null; program_id: string; title: string | null; status: string; submitted_by: string | null; auto_applied: boolean;
       sent_at: Date | null; at: Date; builder: string | null; agent: string | null; fields_used: string[] | null; amount_usd: string | null; through: boolean;
     }[]>`
-      SELECT a.application_id, a.program_id, a.title, a.status, a.submitted_by, a.auto_applied, a.sent_at, a.at,
-             b.login AS builder, i.client_name AS agent, a.fields_used, a.amount_usd, ${throughEarnkit(db)} AS through
+      SELECT a.application_id, a.program_id, a.title, a.status, a.submitted_by, a.auto_applied, ${sendTime(db)} AS sent_at, a.at,
+             b.login AS builder, s.client_name AS agent, a.fields_used, a.amount_usd, ${throughEarnkit(db)} AS through
       FROM applications a
       LEFT JOIN installations i ON i.id = a.installation_id
+      LEFT JOIN installations s ON s.id = CASE WHEN a.sent_by_installation_id IS NULL AND EXISTS (SELECT 1 FROM application_history h
+        WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '')
+          AND h.status = 'applied' AND h.note = ${BUILDER_OWN_NOTE}) THEN NULL ELSE COALESCE(a.sent_by_installation_id, a.installation_id) END
       LEFT JOIN builders b ON b.id::text = CASE WHEN a.owner LIKE 'b:%' THEN substring(a.owner from 3) ELSE i.builder_id::text END
-      WHERE a.status = ANY(${SENT}) ${since ? db`AND COALESCE(a.sent_at, a.at) >= ${since}` : db``}
-      ORDER BY COALESCE(a.sent_at, a.at) DESC, a.application_id DESC LIMIT ${limit}`;
+      WHERE a.status = ANY(${SENT})
+        ${since ? db`AND (${sendTime(db)} >= ${since} OR (${sendTime(db)} IS NULL AND a.at >= ${since}))` : db``}
+      ORDER BY ${sendTime(db)} DESC NULLS LAST, a.at DESC, a.application_id DESC LIMIT ${limit}`;
     const by = (v: string | null) => (v === 'agent' || v === 'builder' ? v : null);
     return json({
       ok: true,
@@ -519,7 +549,8 @@ export async function applicationsGet(request: Request): Promise<Response> {
         program_id: r.program_id,
         title: r.title ?? r.program_id,
         status: r.status,
-        submitted_by: by(r.submitted_by),
+        // L42-9 (v6.1.19): an unmarked send is the agent's (L29-23); the stored null stays.
+        submitted_by: by(r.submitted_by ?? 'agent'),
         auto_applied: r.auto_applied,
         sent_at: r.sent_at?.toISOString() ?? null,
         at: r.at.toISOString(),
@@ -528,6 +559,8 @@ export async function applicationsGet(request: Request): Promise<Response> {
         fields_used: r.fields_used?.length ?? 0,
         amount_usd: r.amount_usd === null ? null : Number(r.amount_usd),
         through_earnkit: r.through,
+        // L42-2 (v6.1.19): a builder's send EarnKit had no part in, as the totals' `reported` counts it.
+        reported: r.submitted_by === 'builder' && !r.through,
       })),
     });
   } catch (err) {

@@ -25,14 +25,17 @@ export function cleanClientName(name: string | null | undefined): string | null 
 }
 
 /**
- * The agent's name as /me and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)" group
- * dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. The stored
- * `client_name` is untouched. Pure.
+ * The agent's name as /me, /link and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)"
+ * group dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. L43-14
+ * (v6.1.19): the group is dropped from the full cleaned name first, then the name is cut once at 60 characters keeping
+ * the start, so every surface shows the same cut. The stored `client_name` is untouched. Pure.
  */
 export function displayName(name: string | null | undefined): string | null {
-  const s = cleanClientName(name);
-  if (s === null) return null;
-  return s.replace(/\s*\([^()]*\)$/, '').trim() || s;
+  if (!name) return null;
+  const full = cleanText(name.replace(/\s+/g, ' '), Infinity);
+  if (!full) return null;
+  const shown = full.replace(/\s*\([^()]*\)$/, '').trim() || full;
+  return cleanText(shown, 60) || null;
 }
 
 /**
@@ -241,21 +244,6 @@ export async function lastListIds(id: number): Promise<string[]> {
   return Array.isArray(row?.l) ? (row.l as unknown[]).map((x) => (typeof x === 'string' ? x : '')) : [];
 }
 
-/**
- * L1i-5 (v6.1.16.1): the stable list numbers of a session: a program the last list (`prev`, ids by number) of the same
- * project held keeps its number; any other in `order` is numbered on after the last one, in that order. Pure.
- */
-export function stableNumbers(prev: string[], order: string[]): Map<string, number> {
-  const want = new Set(order);
-  const out = new Map<string, number>();
-  prev.forEach((id, i) => {
-    if (id && want.has(id) && !out.has(id)) out.set(id, i + 1);
-  });
-  let next = prev.length;
-  for (const id of order) if (!out.has(id)) out.set(id, ++next);
-  return out;
-}
-
 /** L24-2 (v6.1.16 Task 11): the kind of the last `Say` this installation's find offered, or null. */
 export async function lastOfferOf(id: number): Promise<OfferKind | null> {
   const [row] = await sql()<{ o: string | null }[]>`SELECT last_offer AS o FROM installations WHERE id = ${id}`;
@@ -268,15 +256,32 @@ export async function markOffer(id: number, offer: OfferKind | null, now: Date):
 }
 
 /**
- * L29-11 (v6.1.16 Task 15): what the next send needs from the builder (the first ready program's `need_you`, at most
- * two), kept by each linked project find; null before any.
+ * One thing the next send needs from the builder: its words, and (L45-1, v6.1.19) the form field it fills (`key` of
+ * `program_id`, for the find's `project_id`), so record can tell when the record now holds it.
  */
-export async function markNextNeeds(id: number, needs: string[]): Promise<void> {
-  await sql()`UPDATE installations SET next_needs = ${sql().json(needs.slice(0, 2))} WHERE id = ${id}`;
+export type NextNeed = { words: string; key?: string; program_id?: string; project_id?: string | null };
+
+/**
+ * L29-11 (v6.1.16 Task 15): what the next send needs from the builder (the first ready program's `need_you`, at most
+ * two), kept by each linked project find. L45-1 (v6.1.19): each with its field, when known.
+ */
+export async function markNextNeeds(id: number, needs: (string | NextNeed)[]): Promise<void> {
+  const kept = needs.slice(0, 2).map((n) => (typeof n === 'string' ? n : { w: n.words, ...(n.key ? { k: n.key, p: n.program_id ?? null, j: n.project_id ?? null } : {}) }));
+  await sql()`UPDATE installations SET next_needs = ${sql().json(kept)} WHERE id = ${id}`;
 }
 
-/** L29-11: the last linked project find's next needs (at most two), or null before any such find. */
-export async function nextNeedsOf(id: number): Promise<string[] | null> {
+/** L29-11: the last linked project find's next needs (at most two), or null before any such find. A need stored as
+ *  plain words (before v6.1.19) reads with no field. */
+export async function nextNeedsOf(id: number): Promise<NextNeed[] | null> {
   const [row] = await sql()<{ n: unknown }[]>`SELECT next_needs AS n FROM installations WHERE id = ${id}`;
-  return Array.isArray(row?.n) ? (row.n as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 2) : null;
+  if (!Array.isArray(row?.n)) return null;
+  const out: NextNeed[] = [];
+  for (const x of row.n as unknown[]) {
+    if (typeof x === 'string') out.push({ words: x });
+    else if (x && typeof x === 'object' && typeof (x as { w?: unknown }).w === 'string') {
+      const o = x as { w: string; k?: unknown; p?: unknown; j?: unknown };
+      out.push({ words: o.w, ...(typeof o.k === 'string' && typeof o.p === 'string' ? { key: o.k, program_id: o.p, project_id: typeof o.j === 'string' ? o.j : null } : {}) });
+    }
+  }
+  return out.slice(0, 2);
 }

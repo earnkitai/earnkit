@@ -713,3 +713,21 @@ test('L35-3, L35-20 (v6.1.16.1 Task 2): a fork\'s read keeps its parent; the cac
   assert.equal(readAgrees({ html_url: 'https://github.com/x/y', full_name: 'X/Y' }, 'x/y'), true);
   assert.equal(readAgrees({ html_url: 'https://github.com/x/y', full_name: 'x/z' }, 'x/y'), false);
 });
+
+test('minor: a private miss row 31 minutes old is not served', async () => {
+  const { cachedRepoMiss } = await import('./repo-facts');
+  const put = async (repo: string, miss: string, at: Date) => {
+    await sql()`DELETE FROM repo_cache WHERE repo = ${repo}`;
+    await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${repo}, ${sql().json({ miss })}, ${at}, NULL)`;
+  };
+  const ago = (min: number) => new Date(NOW.getTime() - min * 60_000);
+  await put('missage/priv', 'private', ago(31));
+  assert.equal(await cachedRepoMiss('https://github.com/missage/priv', NOW), null);
+  await put('missage/priv', 'private', ago(29));
+  assert.equal(await cachedRepoMiss('https://github.com/missage/priv', NOW), 'private');
+  // A slow miss keeps 10 minutes.
+  await put('missage/slow', 'slow', ago(9));
+  assert.equal(await cachedRepoMiss('https://github.com/missage/slow', NOW), 'slow');
+  await put('missage/slow', 'slow', ago(11));
+  assert.equal(await cachedRepoMiss('https://github.com/missage/slow', NOW), null);
+});

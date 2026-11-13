@@ -42,7 +42,7 @@ const APP_DIRS = new Set([
   // v6.1.17 Task 4: the header's signed-in check, and the page a guide goes to when its ids cannot be read.
   'api/me', 'api/me/signed-in', 'guide-unavailable',
   'link', 'link/[code]', 'link/[code]/confirm', 'auth', 'auth/github', 'auth/github/callback',
-  'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link',
+  'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link', 'me/sent',
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

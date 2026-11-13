@@ -12,6 +12,7 @@ import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { applicationsLine } from './ledger';
 import { closesWords, dayWords } from './deadline';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
+import { isChainKept } from './project-input';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 
@@ -433,17 +434,17 @@ export function stepItems(g: GapProgram): string[] {
   const listed = [...real.filter((x) => !readingGap(x)), ...real.filter(readingGap)].map((x) => x.what);
   return [...listed, ...g.setup, ...all.filter((x) => x.kind === 'rule').map((x) => x.what)];
 }
-/** L38 big 3: one step means one step: a rule-only row (one yes), or a row whose only item is one gap or one setup step. Pure. */
-export const oneStep = (g: GapProgram): boolean => ruleOnlyGap(g) || stepItems(g).length === 1;
+/** L38 big 3: one step means one step: a rule-only row with no setup step (one yes), or a row whose only item is one
+ *  gap or one setup step. L1l-3 (v6.1.19): a setup step beside a rule is two things to do, so More to do first. Pure. */
+export const oneStep = (g: GapProgram): boolean => (ruleOnlyGap(g) && g.setup.length === 0) || stepItems(g).length === 1;
 /** L38 big 3 (v6.1.18 Task 10): a row under "More to do first": the first thing to do, then how many more:
- *  "2. Colosseum Eternal, $25,000 award: a demo video, then 4 more steps." The one-program reply keeps the whole line. Pure. */
-export function moreStepsLine(g: GapProgram, closed: Gap | null = null): string {
+ *  "2. Colosseum Eternal, $25,000 award: a demo video link (...), then 4 more steps." L1l-2 (v6.1.19): the row always
+ *  names its first step, even when the closing repeats it. The one-program reply keeps the whole line. Pure. */
+export function moreStepsLine(g: GapProgram): string {
   const [head, ...rest] = stepItems(g);
-  // Fix round 1 (M4): the step the closing names (`closed`) is said there only; the row points at it.
-  const first = closed && head === closed.what ? 'the step below' : head;
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
   const more = rest.length === 0 ? '' : `, then ${rest.length} more ${rest.length === 1 ? 'step' : 'steps'}`;
-  return `${g.n}. ${g.title}, ${money}: ${first}${more}.`;
+  return `${g.n}. ${g.title}, ${money}: ${head}${more}.`;
 }
 /** L38 big 3: the default view's step headings, and the full list's one heading for every row not ready. */
 export const ONE_STEP_HEAD = 'One step away';
@@ -839,21 +840,49 @@ export function notSentLine(r: Pick<R, 'not_sent'>, now: Date): string | null {
 
 /** L23-7 (v6.1.16): at most this many started-not-sent lines, the rest counted. */
 const RELEASED_SHOWN = 3;
-/** L23-7 (v6.1.16): a claim left unsent for 24 hours, one line per program (at most three, the rest counted). Pure. */
+/** L23-7 (v6.1.16): a claim left unsent for 24 hours, one line per program (at most three, the rest counted). L41-11
+ *  (v6.1.19): a program the builder sends themselves is asked in the one sent question (`sentLines`), never here. Pure. */
 export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[] {
-  // L36-2 (v6.1.18 Task 4): a program the builder sends themselves is asked about, never said unsent.
-  const shown = r.released.slice(0, RELEASED_SHOWN).map((p) => p.ask
-    ? `${p.title}: started ${dayWords(new Date(p.started_at), now)}; did you send it? ${SENT_SAY}`
-    : `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
-  const rest = r.released.length - shown.length;
-  return rest > 0 ? [...shown, r.released.slice(RELEASED_SHOWN).some((p) => p.ask) ? `And ${rest} more started.` : `And ${rest} more started, nothing sent.`] : shown;
+  const unsent = r.released.filter((p) => !p.ask);
+  const shown = unsent.slice(0, RELEASED_SHOWN).map((p) => `${p.title}: started ${dayWords(new Date(p.started_at), now)}, nothing sent. Say yes to apply or say skip.`);
+  const rest = unsent.length - shown.length;
+  return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
 }
+
+/** L41-2 (v6.1.19): a draft this agent started under an hour ago for the builder to send, one line each. Pure. */
+export const draftedLines = (r: Pick<R, 'drafted'>): string[] => (r.drafted ?? []).map((d) => `${d.title}: drafted, waiting for you to send.`);
 
 /** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
 const SENT_SAY = 'Say sent and I note it.';
-/** L18-4, L36-1 (v6.1.18 Task 4): whether each form the builder sends themselves went out. Pure. */
-export const sentLines = (r: Pick<R, 'ask_sent'>): string[] =>
-  (r.ask_sent ?? []).map((a) => `Did you send ${a.title}? ${SENT_SAY}`);
+/** L41-11 (v6.1.19): the Say of the one question about several forms. */
+const SENT_MANY_SAY = 'Say which you sent and I note them.';
+/** L41-11 (v6.1.19): whether a line ends on a sent question's Say (it offers nothing to apply). Pure. */
+export const endsOnSentSay = (line: string): boolean => line.endsWith(SENT_SAY) || line.endsWith(SENT_MANY_SAY);
+/** L41-11 (v6.1.19): every form the builder sends themselves and the reply asks about: the sent asks, then the
+ *  released rows that ask. Pure. */
+export const sentTitles = (r: Pick<R, 'ask_sent'> & { released?: R['released'] }): string[] =>
+  [...(r.ask_sent ?? []), ...(r.released ?? []).filter((p) => p.ask)].map((a) => a.title);
+/** L41-11 (v6.1.19): the one sent question, without its Say: "Did you send A and B?" (three named, then the count);
+ *  null when none. Pure. */
+export function sentQuestion(titles: string[]): string | null {
+  return titles.length === 0 ? null : `Did you send ${listWords(titles)}?`;
+}
+/** Fix round 1 (v6.1.19 Task 3): the one sent question a reply asks and the programs it names (three at most, the rest
+ *  counted), as `replyText` builds it, so find marks exactly the named ones. Pure. */
+export function sentAskOf(r: Pick<R, 'ask_sent' | 'released' | 'not_sent'>): { question: string | null; named: string[] } {
+  const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
+  const items = [...(r.ask_sent ?? []), ...r.released.filter((p) => p.ask && !notSentIds.has(p.program_id))];
+  return { question: sentQuestion(items.map((x) => x.title)), named: items.slice(0, 3).map((x) => x.program_id) };
+}
+/** L41-11 (v6.1.19): the sent question's Say for this many forms. Pure. */
+export const sentSay = (n: number): string => (n === 1 ? SENT_SAY : SENT_MANY_SAY);
+/** L18-4, L36-1 (v6.1.18 Task 4); L41-11 (v6.1.19): one line for every sent question in the reply:
+ *  "Did you send Codegeist 2026 and Kiroween 2026? Say which you sent and I note them." Pure. */
+export function sentLines(r: Pick<R, 'ask_sent'> & { released?: R['released'] }): string[] {
+  const titles = sentTitles(r);
+  const q = sentQuestion(titles);
+  return q ? [`${q} ${sentSay(titles.length)}`] : [];
+}
 /** L18-4 (v6.1.18 Task 4): the agent note for the sent questions (the ask lines and the release lines that ask); null when none. Pure. */
 export function sentNote(r: Pick<R, 'ask_sent' | 'released'>): string | null {
   const titles = [...(r.ask_sent ?? []), ...r.released.filter((p) => p.ask)].map((a) => a.title);
@@ -1090,7 +1119,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const notSentIds = new Set((r.not_sent?.programs ?? []).map((p) => p.program_id));
   const started = startedNotSentLines({ released: r.released.filter((p) => !notSentIds.has(p.program_id)) }, now);
   // L18-4 (v6.1.18 Task 4): the sent question after the started lines (ONE_SAY_ORDER).
-  const sent = sentLines(r);
+  // L41-11 (v6.1.19): every sent question in one line, the released rows that ask included.
+  const sent = sentLines({ ask_sent: r.ask_sent, released: r.released.filter((p) => !notSentIds.has(p.program_id)) });
   const sayFirst = [notSent, ...started, ...sent].some((x) => x !== null && carriesSay(x));
   const proofWaits = !r.linked && !asksSignIn && tonight === 0 && closingOf.offer !== 'apply' && !sayFirst;
   const proofCheck = signInCheck(r.sign_in ?? null, o.repo ?? true, proofBarOf(r.gaps.flatMap((g) => [g.gap, ...g.also])) ?? 'used');
@@ -1112,7 +1142,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const early = sayLine !== closingOf.text;
   const plain = (x: string | null) => (x === null || x === sayLine ? null : carriesSay(x) ? withoutSay(x) || null : x);
   // L18-4: a sent question offers nothing to apply.
-  const offer = early ? (sayLine.endsWith(SENT_SAY) ? null : 'apply') : closingOf.offer;
+  const offer = early ? (endsOnSentSay(sayLine) ? null : 'apply') : closingOf.offer;
 
   const after = [...(notes.length > 0 ? [repoNoteText(notes)] : []), ...(notice ? [notice] : [])];
   // L1i-5 (v6.1.16.1): the full view closes on the default view's Say, never on a rule it does not show.
@@ -1162,10 +1192,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // go under More to do first, each as its first step and how many more. The row a rule Say names keeps its whole line,
   // so the rules it asks about are on screen.
   const ruleNamed = closingOf.offer === 'rule' ? steps.find((g) => g.n === (firstRule ?? stepRule)) : undefined;
-  // Fix round 1 (M4): the gap a single-step closing names, said there only.
-  const stepNamed = firstStep && !firstStep.users && firstStep.gap && closingOf.text.endsWith(singleStepClosing(firstStep.gap)) ? firstStep : null;
   const stepLine = (g: GapProgram): string =>
-    (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g, stepNamed?.program_id === g.program_id ? stepNamed.gap ?? null : null));
+    (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g));
   const stepBlock = (head: string, gs: GapProgram[]): Block | null => {
     if (gs.length === 0) return null;
     const lines = gs.map(stepLine);
@@ -1204,6 +1232,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     { lines: apps ? [apps] : [], rank: 3 },
     { lines: [plain(notSent)].filter((x): x is string => !!x), rank: 4 },
     { lines: started.map(plain).filter((x): x is string => !!x), rank: 5 },
+    // L41-2 (v6.1.19): this agent's own fresh draft of a form the builder sends, at the started lines' rank.
+    { lines: draftedLines(r), rank: 5 },
     { lines: [since ?? nothingNew].filter((x): x is string => !!x), rank: 6 },
     // L1i-2 (v6.1.16.1): the results question is asked once a day, so it stays ahead of what moved since.
     { lines: outcomeLines(r, now), rank: 5.8 },
@@ -1383,8 +1413,12 @@ export const standingNote = (ids: string[]): string =>
 export const STANDING_ONE = 'Under your standing approval; I apply when your agent next checks. Say stop and I hold it.';
 /** L24-29 (v6.1.16 Task 11): the dropped project facts, said the same on the list and the one-program reply; null when none. Pure. */
 export function droppedNote(problems: string[] | undefined): string | null {
-  const dropped = (problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
-  return dropped.length > 0 ? `Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.` : null;
+  const all = (problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
+  // L45-12 (v6.1.19): a chain no program asks for is said apart, with nothing to correct.
+  const kept = all.filter(isChainKept);
+  const dropped = all.filter((p) => !isChainKept(p));
+  const lines = [...(dropped.length > 0 ? [`Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.`] : []), ...(kept.length > 0 ? [`${kept.join('; ').replace(/^c/, 'C')}.`] : [])];
+  return lines.length > 0 ? lines.join(' ') : null;
 }
 
 /** Fix round 1 (M2, v6.1.16 Task 12): the full list's style line. */

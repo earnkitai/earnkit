@@ -54,10 +54,11 @@ export const cleanProse = (s: string): string =>
   s.replace(/\r\n?|[\u0085\u2028\u2029]/g, '\n').split('\n').map((l) => cleanText(l, Infinity)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 
 /**
- * A builder- or agent-written name as shown to a person or another agent (L24-1): `cleanText` to 40 inside straight
- * double quotes, any `"` inside turned to `'`. Pure.
+ * A builder- or agent-written name as shown to a person or another agent (L24-1): `cleanText` to `max` (40; an agent's
+ * name passes 60, L43-14 v6.1.19, the cut `displayName` made) inside straight double quotes, any `"` inside turned to
+ * `'`. Pure.
  */
-export const quoteName = (s: string): string => `"${cleanText(s, 40).replace(/"/g, "'")}"`;
+export const quoteName = (s: string, max = 40): string => `"${cleanText(s, max).replace(/"/g, "'")}"`;
 
 /** @deprecated v6.1.16: `cleanText(s, Infinity)`; kept one release (dropped in v6.1.17). */
 export const dropControls = (s: string): string => cleanText(s, Infinity);

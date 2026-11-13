@@ -4,7 +4,7 @@ import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { claim } from '../v6/claims';
-import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
+import { BESIDE_NOTE, CONFIRMED, EARLIER_RESULT, WIN_KEPT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
 
 after(() => sql().end());
 
@@ -116,9 +116,9 @@ test('a result over a result: no_result and applied are refused and change nothi
   await record(o(i), 'l-res', 'applied', { now: NOW });
   assert.equal((await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW })).ok, true);
   const before = await counts(i);
-  const won = { ok: false, note: 'That one already has a result here: won $3,000.' };
-  assert.deepEqual(await record(o(i), 'l-res', 'no_result', { now: NOW }), won);
-  assert.deepEqual(await record(o(i), 'l-res', 'applied', { now: NOW }), won);
+  // L45-2 (v6.1.19): no result over a win names the win kept.
+  assert.deepEqual(await record(o(i), 'l-res', 'no_result', { now: NOW }), { ok: false, note: 'Test Grants already has a win recorded here ($3,000). Say won again to change it.' });
+  assert.deepEqual(await record(o(i), 'l-res', 'applied', { now: NOW }), { ok: false, note: 'That one already has a result here: won $3,000.' });
   assert.deepEqual(await counts(i), before);
   // T8-F1 (v6.1.14), L17-8 (v6.1.16): the same win resent is a confirmation; another amount, unmarked, is a correction that replaces it.
   assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: CONFIRMED });
@@ -152,8 +152,8 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): the ledger keeps the latest result
   await record(o(i), 'l-mirror', 'applied', { now: NOW });
   const state = async () => (await sql()`SELECT status, amount_usd, note FROM applications WHERE owner = ${o(i)} AND program_id = 'l-mirror'`)
     .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd), x.note])[0];
-  assert.deepEqual(await record(o(i), 'l-mirror', 'won', { amount_usd: 100, now: NOW }), { ok: true });
-  assert.deepEqual(await record(o(i), 'l-mirror', 'rejected', { now: NOW }), { ok: true, corrected: true });
+  // L45-2 (v6.1.19): the program's rejection comes first here; a rejection never replaces a win (the next test).
+  assert.deepEqual(await record(o(i), 'l-mirror', 'rejected', { now: NOW }), { ok: true });
   assert.deepEqual(await state(), ['rejected', null, null]);
   const before = await counts(i);
   assert.deepEqual(await record(o(i), 'l-mirror', 'won', { amount_usd: 10, payment: { key: 's:p2' }, now: NOW }),
@@ -174,8 +174,8 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): the ledger keeps the latest result
   assert.deepEqual(await record(o(i), 'l-mirror', 'won', { amountNotGiven: true, note: 'amount in EUR, not converted', now: NOW }), { ok: false, note: CONFIRMED });
   const e = await summary(o(i), [], NOW);
   assert.deepEqual([e.won, e.won_usd], [1, 0]);
-  // A no_result over a result is still refused.
-  assert.deepEqual(await record(o(i), 'l-mirror', 'no_result', { now: NOW }), { ok: false, note: 'That one already has a result here: won, amount not given.' });
+  // A no_result over a result is still refused; over a win it names the win kept (L45-2, v6.1.19).
+  assert.deepEqual(await record(o(i), 'l-mirror', 'no_result', { now: NOW }), { ok: false, note: 'Test Grants already has a win recorded here. Say won again to change it.' });
   // Fix round 1 (M1): a further payment over a send with no result yet is refused too, as the screen refuses it.
   await prog('l-m1');
   await record(o(i), 'l-m1', 'applied', { now: NOW });
@@ -491,6 +491,22 @@ test('ledgerCounts (L21-1, v6.1.16): the counts the find reply and /me share', a
   assert.equal(ledgerCounts({ ...l, won: 0, won_usd: 0, rejected: 0, pending: 6 }), '6 sent, 6 waiting.');
 });
 
+test('L43-8: ledgerCounts names no result apart', async () => {
+  const { ledgerCounts } = await import('./ledger');
+  const l = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+  assert.equal(ledgerCounts({ ...l, applied: 5, won: 1, won_usd: 5000, rejected: 1, no_result: 1, pending: 2 }), '5 sent, 1 won ($5,000), 1 rejected, 1 no result, 2 waiting.');
+  // summary counts a no result apart from the applied rows that wait.
+  const i = await install();
+  const a = await prog('l43-nr-a');
+  const b = await prog('l43-nr-b');
+  await record(o(i), 'l43-nr-a', 'applied', { now: NOW });
+  await record(o(i), 'l43-nr-b', 'applied', { now: NOW });
+  await record(o(i), 'l43-nr-b', 'no_result', { now: NOW });
+  const s = await summary(o(i), [a, b], NOW);
+  assert.deepEqual([s.applied, s.pending, s.no_result], [2, 1, 1]);
+  assert.equal(ledgerCounts(s), '2 sent, 1 no result, 1 waiting.');
+});
+
 test('L17-8 (v6.1.16): paymentKeyOf strips a legacy s: or t: prefix only', () => {
   assert.equal(paymentKeyOf('final'), 'final');
   assert.equal(paymentKeyOf('s:final'), 'final');
@@ -523,7 +539,8 @@ test('L17-2, L17-8 (v6.1.16): an older correction changes nothing; a key stored 
   await record(o(i), 'l-time', 'applied', { now: NOW });
   const t = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
   assert.equal((await record(o(i), 'l-time', 'won', { amount_usd: 1000, now: t(5), fromScreen: true })).ok, true);
-  assert.deepEqual(await record(o(i), 'l-time', 'rejected', { now: t(4) }), { ok: false, note: EARLIER_RESULT });
+  // L45-2 (v6.1.19): a rejection never replaces a win, whenever it is dated.
+  assert.deepEqual(await record(o(i), 'l-time', 'rejected', { now: t(4) }), { ok: false, note: WIN_KEPT('Test Grants', { USD: 1000 }) });
   assert.deepEqual(await record(o(i), 'l-time', 'won', { amount_usd: 2000, now: t(3) }), { ok: false, note: EARLIER_RESULT });
   // At the same time it applies.
   assert.deepEqual(await record(o(i), 'l-time', 'won', { amount_usd: 2000, now: t(5) }), { ok: true, corrected: true, replaced: { USD: 1000 } });
@@ -536,7 +553,32 @@ test('L17-2, L17-8 (v6.1.16): an older correction changes nothing; a key stored 
   assert.deepEqual([Number(row.amount_usd), row.at.getTime()], [2000, t(5).getTime()]);
 });
 
-test('L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to the sent count', async () => {
+test('L45-2 (v6.1.19): a result never erases a win: the builder\'s rejected or no result is refused and writes nothing; a screen\'s rejection is noted beside the win, once', async () => {
+  const i = await install();
+  await prog('l45-keep', { title: 'Keep Grant', max_award_usd: 10_000 });
+  await record(o(i), 'l45-keep', 'applied', { now: NOW });
+  await record(o(i), 'l45-keep', 'won', { amount_usd: 4000, now: NOW });
+  await record(o(i), 'l45-keep', 'won', { amount_usd: 1000, payment: { key: 'k1' }, now: NOW });
+  const before = await counts(i);
+  const kept = 'Keep Grant already has a win recorded here ($5,000). Say won again to change it.';
+  assert.equal(WIN_KEPT('Keep Grant', { USD: 5000 }), kept);
+  assert.equal(WIN_KEPT('Keep Grant', null), 'Keep Grant already has a win recorded here. Say won again to change it.');
+  assert.deepEqual(await record(o(i), 'l45-keep', 'rejected', { now: NOW }), { ok: false, note: kept });
+  assert.deepEqual(await record(o(i), 'l45-keep', 'no_result', { now: NOW }), { ok: false, note: kept });
+  assert.deepEqual(await counts(i), before);
+  const state = async () => (await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${o(i)} AND program_id = 'l45-keep'`).map((x) => [x.status, Number(x.amount_usd)])[0];
+  assert.deepEqual(await state(), ['won', 5000]);
+  // A program's screen: recorded beside the win (one history row), the win and its payment key kept; a resend adds nothing.
+  assert.deepEqual(await record(o(i), 'l45-keep', 'rejected', { now: NOW, fromScreen: true }), { ok: true, beside: true });
+  assert.deepEqual(await record(o(i), 'l45-keep', 'rejected', { now: NOW, fromScreen: true }), { ok: false, note: 'Already tracked.' });
+  assert.deepEqual(await state(), ['won', 5000]);
+  assert.equal((await counts(i)).hist, before.hist + 1);
+  assert.deepEqual(await record(o(i), 'l45-keep', 'won', { amount_usd: 1000, payment: { key: 'k1' }, now: NOW }), { ok: false, note: 'Already tracked.' });
+  // Won again changes it.
+  assert.deepEqual(await record(o(i), 'l45-keep', 'won', { amount_usd: 4500, now: NOW }), { ok: true, corrected: true, replaced: { USD: 5000 } });
+});
+
+test('L22-8 (v6.1.16), L43-8 (v6.1.19): no result is counted apart, and the parts always sum to the sent count', async () => {
   const i = await install();
   for (const id of ['l-nr-a', 'l-nr-b']) {
     await prog(id, { max_award_usd: 10_000 });
@@ -546,7 +588,7 @@ test('L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to t
   await record(o(i), 'l-nr-b', 'no_result', { now: NOW });
   const { ledgerCounts } = await import('./ledger');
   const l = await summary(o(i), [], NOW);
-  assert.equal(ledgerCounts(l), '2 sent, 1 won ($5,000), 1 waiting.');
+  assert.equal(ledgerCounts(l), '2 sent, 1 won ($5,000), 1 no result.');
   const base = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
   for (const f of [l, { ...base, applied: 6, won: 3, won_usd: 12_000, rejected: 1, pending: 2 }, { ...base, applied: 3, won: 3, won_usd: 3500.5, won_other: [{ currency: 'EUR', amount: 2000 }] }]) {
     const parts = ledgerCounts(f).replace(/\([^)]*\)/g, '').replace(/\.$/, '').split(', ').map((x) => Number(x.split(' ')[0]));
@@ -767,11 +809,19 @@ test('L18-4: askSent lists a builder-submit program started 2 days ago with no s
   assert.equal(SENT_ASK_AFTER_HOURS, 1);
   assert.deepEqual(await claim(o(i), 'l-sent-new', 'p1', i, new Date(NOW.getTime() - 0.5 * H)), { ok: true });
   const all = [own, fresh, agent, done, held];
-  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString(), project_id: 'p1' }]);
+  assert.deepEqual(await askSent(o(i), all, NOW), [{ program_id: 'l-sent', title: 'Kiroween 2026', started_at: twoDays.toISOString(), project_id: 'p1', project: 'p1' }]);
   assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent', 'l-sent-new']);
   // The builder says sent: the ask ends.
   await record(o(i), 'l-sent', 'applied', { now: NOW, submitted_by: 'builder', projectKey: 'p1', project_id: 'p1' });
   assert.deepEqual((await askSent(o(i), all, new Date(NOW.getTime() + 0.5 * H))).map((x) => x.program_id), ['l-sent-new']);
+});
+
+test('L41-7 (v6.1.19): projectLabel names a project by the record, else its key', async () => {
+  const { projectLabel } = await import('./ledger');
+  assert.equal(projectLabel(null), null);
+  assert.equal(projectLabel('https://github.com/lane41/sa-app'), 'sa-app');
+  assert.equal(projectLabel('name:rent split'), 'rent split');
+  assert.equal(projectLabel('https://github.com/lane41/sa-app', new Map([['https://github.com/lane41/sa-app', 'SA App']])), 'SA App');
 });
 
 test('L41-10 (v6.1.18.1): a builder-submits program started, then closed an hour later, is still asked about for 7 days after the close', async () => {
@@ -783,7 +833,7 @@ test('L41-10 (v6.1.18.1): a builder-submits program started, then closed an hour
   // The claim was taken while the program was open.
   await sql()`INSERT INTO applications (owner, installation_id, program_id, project_id, status, at, claimed_at) VALUES (${o(i)}, ${i}, 'l-sent-closed', 'p1', 'started', ${started}, ${started})`;
   // An hour after the close, a find reads the open list only (the closed program is not in it): still asked.
-  assert.deepEqual(await askSent(o(i), [], NOW), [{ program_id: 'l-sent-closed', title: 'Late Hackathon', started_at: started.toISOString(), project_id: 'p1' }]);
+  assert.deepEqual(await askSent(o(i), [], NOW), [{ program_id: 'l-sent-closed', title: 'Late Hackathon', started_at: started.toISOString(), project_id: 'p1', project: 'p1' }]);
   assert.deepEqual((await askSent(o(i), [], NOW, (p) => p === 'p1')).map((x) => x.program_id), ['l-sent-closed']);
   // Seven days after the close it is no longer asked.
   assert.deepEqual(await askSent(o(i), [], new Date(close.getTime() + 7 * 24 * H + H)), []);
@@ -830,4 +880,56 @@ test('L18-4 fix round 1: askSent with a project lists that project\'s started ro
   assert.equal((await sentAsksOpen(i, due, NOW)).length, 2);
   await markSentAsked(i, o(i), ['l-sp-a'], NOW);
   assert.deepEqual(ids(await sentAsksOpen(i, due, NOW)), ['l-sp-none']);
+});
+
+test('L42-6: a result keeps sent_by_installation_id and sent_at', async () => {
+  // Two agents of one builder: one sends, the other records the result.
+  const [bl] = await sql()<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (918421, 'l42-ledger') RETURNING id`;
+  const a = await install();
+  const b = await install();
+  await sql()`UPDATE installations SET builder_id = ${bl.id} WHERE id IN (${a}, ${b})`;
+  const owner = `b:${bl.id}`;
+  await prog('l42-keep');
+  const sentAt = new Date(NOW.getTime() - 3 * DAY);
+  assert.equal((await record(owner, 'l42-keep', 'applied', { installationId: a, now: sentAt })).ok, true);
+  const read = async () => (await sql()<{ installation_id: number; sent_by_installation_id: string | null; sent_at: Date | null; status: string }[]>`
+    SELECT installation_id, sent_by_installation_id, sent_at, status FROM applications WHERE owner = ${owner} AND program_id = 'l42-keep'`)[0];
+  assert.equal(Number((await read()).sent_by_installation_id), a);
+  // Another installation records the result, then corrects it: the send's installation and time stay.
+  assert.equal((await record(owner, 'l42-keep', 'won', { installationId: b, amount_usd: 100, now: NOW })).ok, true);
+  let r = await read();
+  assert.equal(r.installation_id, b, 'installation_id is the last toucher');
+  assert.equal(Number(r.sent_by_installation_id), a);
+  assert.equal(r.sent_at?.toISOString(), sentAt.toISOString());
+  assert.equal((await record(owner, 'l42-keep', 'won', { installationId: b, amount_usd: 80, now: new Date(NOW.getTime() + DAY) })).ok, true);
+  r = await read();
+  assert.equal(r.status, 'won');
+  assert.equal(Number(r.sent_by_installation_id), a);
+  assert.equal(r.sent_at?.toISOString(), sentAt.toISOString());
+  // An outside win names the installation that recorded it as the send's.
+  await prog('l42-out');
+  assert.equal((await record(owner, 'l42-out', 'won', { installationId: b, amount_usd: 50, outsideWin: true, now: NOW })).ok, true);
+  const [w] = await sql()<{ sent_by_installation_id: string | null; sent_at: Date | null }[]>`
+    SELECT sent_by_installation_id, sent_at FROM applications WHERE owner = ${owner} AND program_id = 'l42-out'`;
+  assert.equal(Number(w.sent_by_installation_id), b);
+  assert.equal(w.sent_at, null);
+});
+
+test('fix round 1 (I2, v6.1.19): a screen win never reduces or blanks the builder\'s own win: the same amount or none is no change, another amount is kept beside it once', async () => {
+  const i = await install();
+  await prog('l45-i2', { max_award_usd: 10_000 });
+  await record(o(i), 'l45-i2', 'applied', { now: NOW });
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 5000, now: NOW }), { ok: true });
+  const state = async () => (await sql()`SELECT status, amount_usd, amounts FROM applications WHERE owner = ${o(i)} AND program_id = 'l45-i2'`).map((x) => [x.status, Number(x.amount_usd), x.amounts])[0];
+  const before = await counts(i);
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amountNotGiven: true, now: NOW, fromScreen: true }), { ok: false, note: CONFIRMED });
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 5000, now: NOW, fromScreen: true }), { ok: false, note: CONFIRMED });
+  assert.deepEqual(await counts(i), before);
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 1000, now: NOW, fromScreen: true }), { ok: true, beside: true });
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 1000, now: NOW, fromScreen: true }), { ok: false, note: 'Already tracked.' });
+  assert.deepEqual(await state(), ['won', 5000, { USD: 5000 }]);
+  const [h] = await sql()`SELECT amount_usd, note, source, corrected FROM application_history WHERE owner = ${o(i)} AND program_id = 'l45-i2' ORDER BY id DESC LIMIT 1`;
+  assert.deepEqual([Number(h.amount_usd), h.note, h.source, h.corrected], [1000, BESIDE_NOTE, 'screen', false]);
+  // A further payment from the screen still adds.
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 500, payment: { key: 's1' }, now: NOW, fromScreen: true }), { ok: true, total: { USD: 5500 } });
 });

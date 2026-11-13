@@ -312,12 +312,15 @@ export const SLOW_KEEP_MS = 10 * 60_000;
 type Miss = { miss: 'gone' | 'private' | 'slow' };
 const isMiss = (f: unknown): f is Miss => typeof f === 'object' && f !== null && 'miss' in f;
 
-/** v6.1.18.1 (review M4): the miss a repo's cache row keeps (gone, private, slow), or null; never a fetch. */
-export async function cachedRepoMiss(url: string | undefined): Promise<'gone' | 'private' | 'slow' | null> {
+/** v6.1.18.1 (review M4): the miss a repo's cache row keeps (gone, private, slow), or null; never a fetch. v6.1.19: only
+ *  while the row is younger than `MISS_KEEP_MS` (`SLOW_KEEP_MS` for slow), as `cachedCodeFacts` reads it; older is null. */
+export async function cachedRepoMiss(url: string | undefined, now: Date = new Date()): Promise<'gone' | 'private' | 'slow' | null> {
   const key = repoKey(url);
   if (!key) return null;
-  const [row] = await sql()<{ facts: unknown }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
-  return row && isMiss(row.facts) ? row.facts.miss : null;
+  const [row] = await sql()<{ facts: unknown; fetched_at: Date }[]>`SELECT facts, fetched_at FROM repo_cache WHERE repo = ${key}`;
+  if (!row || !isMiss(row.facts)) return null;
+  const age = now.getTime() - row.fetched_at.getTime();
+  return age >= 0 && age < (row.facts.miss === 'slow' ? SLOW_KEEP_MS : MISS_KEEP_MS) ? row.facts.miss : null;
 }
 
 /** Deletes repo_cache rows read over 30 days ago; the count deleted. */

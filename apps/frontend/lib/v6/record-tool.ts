@@ -6,9 +6,10 @@
 import { z } from 'zod';
 import { looksSecret, MAX_ARG_DEPTH } from '../v5/secrets';
 import { inputDetail, inputError, refuse } from '../v5/tool-input';
-import { nextNeedsOf } from '../v5/installations';
+import { nextNeedsOf, type NextNeed } from '../v5/installations';
+import { recordValue } from '../v5/prefill';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
-import { listOpenPrograms } from '../v5/programs';
+import { getProgram, listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
 import { LinkRefused, readStoredRecord, takeUnlinkedNotice, unlinkedReason, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
@@ -16,7 +17,7 @@ import { createLinkCode } from './link-routes';
 import { DELETED_NOTICE, listWords } from './reply-words';
 
 export { listWords };
-import { APPROVABLE, type Answer, type BuilderRecord, KIND_WORDS, allowedKey, isApproved, mergeRecord, recordItems } from './record';
+import { APPROVABLE, type Answer, type BuilderRecord, EMPTY, KIND_WORDS, allowedKey, heldWords, isApproved, mergeRecord, recordItems } from './record';
 import { cleanText, quoteName } from '../v5/controls';
 import { ME_VALUE_WORDS } from '../v5/site-copy';
 
@@ -24,7 +25,8 @@ export const RecordInput = z
   .object({
     set: z.unknown().optional().describe('A partial record to merge: person, team, company, docs, traction, answers, and projects as a list of { id (a lowercase slug), name, repo_url, live_url, answers }, merged by id'),
     // L26-2 (v6.1.16 Task 12): true reads the summary (facts, and each answer kind's length and start); a kind reads that kind in full.
-    get: z.union([z.boolean(), z.enum(ANSWER_KINDS)]).optional().describe('true for the record\'s facts and each answer kind\'s length and start; an answer kind for that kind\'s answers in full'),
+    // L45-19 (v6.1.19): a get that is neither names what it takes.
+    get: z.union([z.boolean(), z.enum(ANSWER_KINDS)], { error: `true, or one answer kind: ${ANSWER_KINDS.join(', ')}` }).optional().describe('true for the record\'s facts and each answer kind\'s length and start; an answer kind for that kind\'s answers in full'),
     brief: z.enum(ANSWER_KINDS).optional().describe('One answer kind: the question, the facts to use, the length and the style'),
     // Fix round 1 (I2): one kind's answers come in whole answers, a page at a time.
     page: z.number().int().min(1).max(100).optional().describe('With get and an answer kind: the page of that kind\'s answers, from 1'),
@@ -297,6 +299,8 @@ export function refusedWords(problem: string): string {
   // L24-21 (v6.1.16 Task 11): a refusal for length names the limit, in /me's words.
   const max = /^Too big: expected string to have <=(\d+) characters$/.exec(why)?.[1];
   if (max) return `${known ?? what} is ${ME_VALUE_WORDS.under(Number(max))}`;
+  // L45-6 (v6.1.19): "Not saved: name was empty."
+  if (why === EMPTY) return `${what} was empty`;
   if (why.startsWith('set by EarnKit')) return `${what} is set by EarnKit only`;
   if (why.startsWith('set by the builder')) return `${what} is yours to set on earnkit.com/me`;
   return `${what} was not valid`;
@@ -398,6 +402,30 @@ export function kindPage(reply: RecordReply, kind: string, page: number, cap = R
   return { ...reply, answers: page > pages.length ? [] : pages[at - 1], page, pages: pages.length, agent_note: [...past, reply.agent_note, ...more].filter(Boolean).join(' ') };
 }
 
+/** L45-1 (v6.1.19): a record get once the record holds everything the next application asked for. */
+export const NOTHING_MORE = 'Saved. The next application needs nothing more.';
+
+/**
+ * L45-1 (v6.1.19): the next send's needs the record does not hold yet, in their words: a need with its form field is
+ * met when the record now fills that field (as find fills it); any need is met when its words are an item the record
+ * holds (`heldWords`).
+ */
+async function stillNeeded(needs: NextNeed[], record: BuilderRecord): Promise<string[]> {
+  const held = new Set(heldWords(record));
+  const programs = new Map<string, Awaited<ReturnType<typeof getProgram>>>();
+  const out: string[] = [];
+  for (const n of needs) {
+    if (held.has(n.words)) continue;
+    if (n.key && n.program_id) {
+      if (!programs.has(n.program_id)) programs.set(n.program_id, await getProgram(n.program_id));
+      const field = programs.get(n.program_id)?.file.submission_requirements.find((r) => r.key === n.key);
+      if (field && recordValue(field, { record, projectId: n.project_id ?? null, verifiedUsage: null }) !== null) continue;
+    }
+    out.push(n.words);
+  }
+  return out;
+}
+
 async function recordReply(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
   const parsed = RecordInput.safeParse(input);
@@ -440,8 +468,12 @@ async function recordReply(ctx: { installationId: number; builderId: number | nu
   const waiting = waitingAnswers(record);
   // L29-11 (v6.1.16 Task 15): what the next send needs (the last find's first ready program, at most two), never the
   // whole list; before any linked project find, nothing is asked yet.
-  const needs = (await nextNeedsOf(ctx.installationId))?.filter((n) => !answered.has(n)) ?? null;
+  // L45-1 (v6.1.19): and never one the record holds now (a fact or an answer just saved), so the list drops it at once.
+  const stored = await nextNeedsOf(ctx.installationId);
+  const needs = stored === null ? null : (await stillNeeded(stored, record)).filter((n) => !answered.has(n));
   const missing = needs ?? [];
+  /** L45-1: the next application asked for something and the record now holds all of it. */
+  const allMet = stored !== null && stored.length > 0 && missing.length === 0;
   const briefNote = i.brief ? [BRIEF_NOTE, shortNote(i.brief, record)].filter(Boolean).join(' ') : '';
   // v6.1.9: every get and set says what to do next.
   const next = needs === null
@@ -489,7 +521,8 @@ async function recordReply(ctx: { installationId: number; builderId: number | nu
   const have = items.total - items.missing.length;
   const holds = [`Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`, waitingLine(waiting)].filter(Boolean).join(' ');
   return {
-    show_to_builder: !brief && missing.length > 0 ? [waitingLine(waiting), nextNeedsLine(missing)].filter(Boolean).join(' ') : holds,
+    show_to_builder: !brief && missing.length > 0 ? [waitingLine(waiting), nextNeedsLine(missing)].filter(Boolean).join(' ')
+      : !brief && allMet ? [waitingLine(waiting), NOTHING_MORE].filter(Boolean).join(' ') : holds,
     agent_note: briefNote || next,
     linked: true,
     ...(brief ? {} : i.get === undefined || i.get === false ? { summary: recordSummary(record) } : read),

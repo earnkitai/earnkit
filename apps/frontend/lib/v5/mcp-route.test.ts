@@ -159,8 +159,10 @@ test('L19-1: PATCH and PUT on /mcp are 405 with Allow: POST, DELETE, OPTIONS; th
   // L27-3, L27-4 (v6.1.16): a guide path and a /link page (one segment, no dot) for the 404 rewrite and the 405.
   assert.deepEqual(config.matcher.slice(3, 5), ['/programs/:id([^/.]+)', '/link/:code([^/.]+)']);
   // L31-1 (v6.1.16 Task 17): a page entry for every page's 405, which never matches /mcp, /oauth/, /api/, /me/ or /link/.
-  assert.equal(config.matcher.length, 7);
-  for (const m of config.matcher.slice(5)) assert.ok(m.includes('[Mm][Cc][Pp]') && m.includes('[Oo][Aa][Uu][Tt][Hh]/'), m);
+  // L43-20 (v6.1.19): then the sitemap and robots files, for their OPTIONS 405.
+  assert.equal(config.matcher.length, 9);
+  assert.deepEqual(config.matcher.slice(7), ['/sitemap.xml', '/robots.txt']);
+  for (const m of config.matcher.slice(5, 7)) assert.ok(m.includes('[Mm][Cc][Pp]') && m.includes('[Oo][Aa][Uu][Tt][Hh]/'), m);
 });
 
 const accepting = (accept: string | null) => {
@@ -225,4 +227,63 @@ test('L19-10: a /mcp body that sends one byte and stalls answers 408 within 6 s,
   assert.equal(r.status, 408);
   assert.deepEqual(await r.json(), { error: 'request_timeout', error_description: 'The request body came too slowly.' });
   assert.deepEqual(logs, ['[http] body read timed out']);
+});
+
+test('L45-19 (v6.1.19): bytes that are not UTF-8 in a tool call answer one plain line, never an echo', async () => {
+  await saveInstallation(token, null);
+  const head = Buffer.from('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"track","arguments":{"program_id":"');
+  const tail = Buffer.from('","status":"skipped"}}}');
+  const body = Buffer.concat([head, Buffer.from([0xff, 0xfe, 0xfd]), tail]);
+  const r = await POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }));
+  assert.equal(r.status, 200);
+  const m = (await r.json()) as Msg;
+  assert.equal(m.result.isError, true);
+  assert.deepEqual(plain(m), { show_to_builder: 'I could not read that.', agent_note: 'Nothing was done. Part of the arguments was not valid UTF-8; send the text as UTF-8 and call again.', refused: true });
+});
+
+test('L45-8 (v6.1.19): a batch whose members share an id answers each of them', async () => {
+  await saveInstallation(token, null);
+  const r = await post([{ jsonrpc: '2.0', id: 5, method: 'ping' }, { jsonrpc: '2.0', id: 5, method: 'tools/list' }]);
+  assert.equal(r.status, 200);
+  const body = (await r.json()) as { id: number; result: { tools?: unknown[] } }[];
+  assert.ok(Array.isArray(body), JSON.stringify(body));
+  assert.equal(body.length, 2);
+  assert.deepEqual(body.map((m) => m.id), [5, 5]);
+  assert.equal(body.filter((m) => Array.isArray(m.result.tools)).length, 1);
+});
+
+test('L45-17 (v6.1.19): bad params are -32602, a boolean id -32600, and an unknown tool names the four tools', async () => {
+  await saveInstallation(token, null);
+  for (const body of [
+    { jsonrpc: '2.0', id: 41, method: 'tools/call' },
+    { jsonrpc: '2.0', id: 42, method: 'tools/call', params: { arguments: {} } },
+    { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 7, arguments: {} } },
+    { jsonrpc: '2.0', id: 44, method: 'initialize', params: { protocolVersion: 20250618, capabilities: {}, clientInfo: { name: 't', version: '0' } } },
+    { jsonrpc: '2.0', id: 45, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } },
+  ]) {
+    const m = (await (await post(body)).json()) as { id: number; error: { code: number; message: string } };
+    assert.deepEqual([m.id, m.error.code, m.error.message], [body.id, -32602, 'I could not read that request.'], JSON.stringify(body));
+  }
+  const b = await post({ jsonrpc: '2.0', id: true, method: 'ping' });
+  assert.equal(b.status, 400);
+  assert.deepEqual(await b.json(), { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'I could not read that request.' } });
+  for (const [name, text] of [
+    ['apply', 'No tool apply. The tools are find, track, record and screen.'],
+    ['Find', 'No tool Find. The tools are find, track, record and screen.'],
+    ['fin​d', 'No tool by that name. The tools are find, track, record and screen.'],
+  ]) {
+    const m = (await (await post(call(46, name))).json()) as Msg;
+    assert.equal(m.result.isError, true);
+    assert.equal(m.result.content[0].text, text, name);
+  }
+});
+
+test('fix round 1 (M5): the unknown-tool reply drops replacement marks and cuts a long name on a word', async () => {
+  await saveInstallation(token, null);
+  const long = (await (await post(call(47, 'apply now to the very long program name that keeps going'))).json()) as Msg;
+  assert.equal(long.result.content[0].text, 'No tool apply now to the very long program name... The tools are find, track, record and screen.');
+  const head = Buffer.from('{"jsonrpc":"2.0","id":48,"method":"tools/call","params":{"name":"ap');
+  const body = Buffer.concat([head, Buffer.from([0xff]), Buffer.from('ply","arguments":{}}}')]);
+  const m = (await (await POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }))).json()) as Msg;
+  assert.doesNotMatch(m.result.content[0].text, /�/);
 });

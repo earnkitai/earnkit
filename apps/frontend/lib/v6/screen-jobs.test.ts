@@ -137,7 +137,7 @@ test('L13-1 (v6.1.14): recordOutcomes writes a ledger only through the applicati
   assert.equal((await summary(`b:${noAmount.id}`, [], NOW)).won_usd, 700);
   assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 800, now: NOW }), { ok: true, corrected: true, replaced: { USD: 700 } });
   // L16-2 (v6.1.16): no_result over a result is refused (a rejection would be a correction).
-  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'no_result', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'That one already has a result here: won $800.' });
+  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'no_result', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'jobs-c title already has a win recorded here ($800). Say won again to change it.' });
   const [e] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${elsewhere.id}`} AND program_id = 'jobs-c-other'`;
   assert.equal(e.status, 'applied');
   const other = await reviewer('jobs-c2');
@@ -240,14 +240,15 @@ test('T5-F5 (v6.1.14): two outcome calls for one ref at once keep the later one 
   const j = await job(r, [{ ref: 'v', name: 'V' }]);
   const at = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
   await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(0));
+  // L45-2 (v6.1.19): a win is never replaced by an outcome that is not one, so the race is between two wins.
   const [a, b] = await Promise.all([
     recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 100 }], at(1)),
-    recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(2)),
+    recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 200 }], at(2)),
   ]);
   const replaced = [...a.notes, ...b.notes].filter((n) => n.startsWith('Replaced'));
   assert.ok(replaced.length >= 1, JSON.stringify([a, b]));
   assert.ok(b.notes.some((n) => /^Replaced the outcome recorded before: v \(was (rejected|won \$100)\)\.$/.test(n)), JSON.stringify(b));
-  assert.equal((await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].outcome, 'shortlisted');
+  assert.equal(Number((await sql()`SELECT amount_usd FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].amount_usd), 200);
 });
 
 test('L13-12, L15-17, T8-F1, T8-F3 (v6.1.14): a newer outcome replaces the first and the note names it; a resend changes nothing; another amount corrects; a marked payment adds once, never over the cap', async () => {
@@ -276,14 +277,16 @@ test('L13-12, L15-17, T8-F1, T8-F3 (v6.1.14): a newer outcome replaces the first
   assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900, payment: { key: 'p3' } }], at(4)),
     { recorded: 0, notFound: [], notes: ['Not recorded, the total would be over what this program pays: v.'], overCap: ['v'], overCapAt: [{ ref: 'v', at: '$2,100' }] });
   assert.deepEqual([await shown(), await ledger()], [1200, 1200]);
+  // L45-2 (v6.1.19): shortlisted or rejected over the win never replaces it: noted beside it, the win kept; a rejection
+  // reaches the ledger beside the win once.
   assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(5)),
-    { recorded: 1, notFound: [], notes: ['Replaced the outcome recorded before: v (was won $1,200).'] });
-  // The same outcome again replaces nothing worth naming; an older one is not kept.
-  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(6)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: v.'] });
-  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(2)),
-    { recorded: 0, notFound: [], notes: ['Not recorded, a later outcome is already kept: v.'] });
+    { recorded: 0, notFound: [], notes: ['Not recorded, a win is kept: v.'] });
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(6)),
+    { recorded: 1, notFound: [], notes: ['A win is kept; noted beside it, not replacing it: v (rejected; kept: won $1,200).'] });
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(7)),
+    { recorded: 0, notFound: [], notes: ['A win is kept; noted beside it, not replacing it: v (rejected; kept: won $1,200).', 'Already recorded, nothing new: v.'] });
   const [o] = await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`;
-  assert.equal(o.outcome, 'shortlisted');
+  assert.equal(o.outcome, 'won');
   // The builder's ledger keeps its one result: the corrected win plus the one further payment.
   const [a] = await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-twice'`;
   assert.deepEqual([a.status, Number(a.amount_usd)], ['won', 1200]);
@@ -672,10 +675,9 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): won $100, rejected, a further paym
     .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd), x.note])[0];
   const hist = async () => (await sql()`SELECT status, amount_usd, corrected FROM application_history WHERE owner = ${owner} AND program_id = 'jobs-rf3' ORDER BY id`)
     .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd), x.corrected]);
-  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 100 }], at(1))).passed, 1);
-  assert.deepEqual([await screen(), await ledger()], [['won', 100], ['won', 100, null]]);
+  // L45-2 (v6.1.19): the program's rejection comes first here (over a win it is noted beside it, below).
   const rej = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(2));
-  assert.deepEqual([rej.recorded, rej.passed, rej.notes], [1, 1, ['Replaced the outcome recorded before: v (was won $100).']]);
+  assert.deepEqual([rej.recorded, rej.passed, rej.notes], [1, 1, []]);
   assert.deepEqual([await screen(), await ledger()], [['rejected', null], ['rejected', null, null]]);
   // The further payment over the rejection: refused, nothing written on either side.
   const pay = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 10, payment: { key: 'p2' } }], at(3));
@@ -688,14 +690,38 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): won $100, rejected, a further paym
   // The builder's own win replaces the rejection in the ledger: one corrected history row.
   assert.deepEqual(await record(owner, 'jobs-rf3', 'won', { installationId: await instOf(b.id), amount_usd: 150, now: at(4) }), { ok: true, corrected: true });
   assert.deepEqual(await ledger(), ['won', 150, null]);
-  assert.deepEqual(await hist(), [['applied', null, false], ['won', 100, false], ['rejected', null, true], ['won', 150, true]]);
+  assert.deepEqual(await hist(), [['applied', null, false], ['rejected', null, false], ['won', 150, true]]);
   const l = await summary(owner, [], NOW);
   assert.deepEqual([l.applied, l.won, l.won_usd, l.rejected], [1, 1, 150, 0]);
-  // A program's rejection after a win moves the ledger to rejected.
-  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 400 }], at(5))).passed, 1);
-  assert.deepEqual(await ledger(), ['won', 400, null]);
-  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(6))).passed, 1);
-  assert.deepEqual([await screen(), await ledger()], [['rejected', null], ['rejected', null, null]]);
+  // Fix round 1 (I2, v6.1.19): the builder's own win stands; the screen's win of another amount is kept beside it, and
+  // the reviewer hears only the generic line (C1).
+  const four = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 400 }], at(5));
+  assert.deepEqual([four.recorded, four.passed, four.notes], [1, 0, ['Replaced the outcome recorded before: v (was rejected).', "Not passed on; the builder's record stands: v."]]);
+  assert.deepEqual([await screen(), await ledger()], [['won', 400], ['won', 150, null]]);
+  assert.deepEqual((await hist()).at(-1), ['won', 400, false]);
+  // The same screen win again changes nothing; one with no amount never blanks the builder's figure.
+  await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 400 }], at(5));
+  assert.equal((await hist()).length, 4);
+  // L45-2 (v6.1.19): a program's rejection after a win is noted beside it; the screen and the ledger keep their wins.
+  const rej2 = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(6));
+  assert.equal(rej2.passed, 1);
+  assert.deepEqual(rej2.notes, ['A win is kept; noted beside it, not replacing it: v (rejected; kept: won $400).']);
+  assert.deepEqual([await screen(), await ledger()], [['won', 400], ['won', 150, null]]);
+  assert.deepEqual((await hist()).at(-1), ['rejected', null, false]);
+  await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won' }], at(7));
+  assert.deepEqual(await ledger(), ['won', 150, null]);
+});
+
+test('L22-3, L16-4 (v6.1.16): a screen corrects its own win, in EUR too; the replaced note names the earlier amount with its currency', async () => {
+  const r = await reviewer('jobs-rf3e');
+  await upsertProgram(programFixture({ id: 'jobs-rf3e', title: 'jobs-rf3e title', max_award_usd: 5000 }), 'file', NOW);
+  const b = await upsertBuilder({ github_id: ++gh, login: 'rf3e' + gh, name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  assert.deepEqual(await record(owner, 'jobs-rf3e', 'applied', { installationId: await instOf(b.id), now: NOW, project_id: 'name:v' }), { ok: true });
+  const j = await job(r, [{ ref: 'v', name: 'V', application_id: await appId(owner, 'jobs-rf3e') }]);
+  const at = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  const ledger = async () => (await sql()`SELECT status, amount_usd, note FROM applications WHERE owner = ${owner} AND program_id = 'jobs-rf3e'`)
+    .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd), x.note])[0];
   // A correction in EUR after a dollar win: won in EUR (L22-3, v6.1.16: kept as given), no dollar amount for the builder.
   await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300 }], at(7));
   assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', money: { value: 2500, currency: 'EUR' } }], at(8))).passed, 1);
@@ -868,8 +894,13 @@ test('R15 (L17-2): 25 screen wins of $1,000 against 25 builder wins of $2,000 at
   const res = await Promise.allSettled(order.map((x) => x.c()));
   assert.equal(res.filter((x) => x.status === 'rejected').length, 0);
   const [row] = await sql()`SELECT status, amount_usd, at FROM applications WHERE owner = ${a.owner} AND program_id = 'jobs-r15'`;
-  const hist = await sql()`SELECT amount_usd, at, source FROM application_history WHERE owner = ${a.owner} AND program_id = 'jobs-r15' AND status = 'won' ORDER BY id`;
-  for (const h of hist) assert.equal(h.source, Number(h.amount_usd) === 1000 ? 'screen' : 'builder');
+  const all = await sql()`SELECT amount_usd, at, source, note FROM application_history WHERE owner = ${a.owner} AND program_id = 'jobs-r15' AND status = 'won' ORDER BY id`;
+  for (const h of all) assert.equal(h.source, Number(h.amount_usd) === 1000 ? 'screen' : 'builder');
+  // Fix round 1 (I2, v6.1.19): once the builder's own win is written, a screen win is kept beside it, never over it.
+  const { BESIDE_NOTE } = await import('../v5/ledger');
+  const hist = all.filter((h) => h.note !== BESIDE_NOTE);
+  assert.ok(all.filter((h) => h.note === BESIDE_NOTE).every((h) => h.source === 'screen'));
+  assert.equal(Number(row.amount_usd), 2000);
   // Each result written is at or after the one before it, so at never moves back.
   for (let k = 1; k < hist.length; k++) assert.ok(hist[k].at.getTime() >= hist[k - 1].at.getTime());
   // Fix round 1 (I1): a repeat never moves the stored time, so what is kept is the latest result written, at that

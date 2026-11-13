@@ -12,7 +12,7 @@ export async function GET(request: Request, context?: { params: Promise<{ path?:
 }
 export const OPTIONS = preflight;
 /** L19-1: every other method is 405 with Allow (HEAD is answered from GET). */
-const refuse = () => notAllowed('GET, HEAD, OPTIONS');
+const refuse = () => notAllowed('GET, HEAD, OPTIONS', true);
 export const POST = refuse;
 export const PUT = refuse;
 export const PATCH = refuse;

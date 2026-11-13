@@ -6,7 +6,7 @@ import Money from '../../components/site/Money';
 import { CARD_PANEL, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
 import AskAgent from './AskAgent';
 import type { GuidePage } from '../../../lib/v5/guide-page';
-import { guidePills } from '../../../lib/v5/guide';
+import { guidePills, sentence } from '../../../lib/v5/guide';
 import {
   ALL_PROGRAMS, GUIDE_ASK, GUIDE_BEST_BET_TITLE, GUIDE_ELIGIBILITY_TITLE, GUIDE_FIELDS_TITLE, GUIDE_FOCUS_TITLE, GUIDE_NO_ELIGIBILITY,
   GUIDE_ROUNDS_TITLE, GUIDE_RULES_TITLE, GUIDE_SOURCES_TITLE,
@@ -83,14 +83,22 @@ export default function GuideView({ id, page }: { id: string; page: GuidePage })
             <ul className="flex flex-col gap-2 text-[16px] leading-normal text-s-muted">
               {g.fields.map((f, i) => (
                 <li key={i}>
-                  <span className="text-s-text">{f.label}</span>: {f.todo}
+                  {/* L43-18 (v6.1.19): a to-do that only repeats its label is the label alone. */}
+                  {f.todo ? (
+                    <>
+                      <span className="text-s-text">{f.label}</span>: {f.todo}
+                    </>
+                  ) : (
+                    <span className="text-s-text">{sentence(f.label)}</span>
+                  )}
                 </li>
               ))}
             </ul>
           </Part>
         ) : null}
 
-        {g.rules.length > 0 ? (
+        {/* L43-13 (v6.1.19): the rules are said once: under who can apply when they stand in for it. */}
+        {g.rules.length > 0 && !g.eligibility_from_rules ? (
           <Part title={GUIDE_RULES_TITLE}>
             <List items={g.rules} />
           </Part>

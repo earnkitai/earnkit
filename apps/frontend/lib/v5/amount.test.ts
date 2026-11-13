@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAP_RATES, amountsOverCap, overCap, readAmount } from './amount';
+import { CAP_RATES, KNOWN_CURRENCIES, UNKNOWN_CURRENCY, amountsOverCap, overCap, readAmount, underADollar, usdAt } from './amount';
 
 test('L22-6 (v6.1.16): the seven spellings read 5,000 in USD, USD, USD, USD, USD, EUR and GBP', () => {
   const read = ['5k', '$5,000', '5000 USD', 'USD 5000', '5,000.00', '€5000', '£5000'].map((amount) => readAmount({ amount }));
@@ -19,18 +19,32 @@ test('L22-6 (v6.1.16): cents are kept, never rounded away; a dot-thousands amoun
   assert.equal(readAmount({ amount: '5.000' }), 'ambiguous');
   assert.equal(readAmount({ amount: '1.000.000' }), 'ambiguous');
   assert.equal(readAmount({ amount: 'lots' }), 'bad');
-  assert.equal(readAmount({ amount: '5000', currency: 'EURO' }), 'bad');
+  // L45-4 (v6.1.19): a four-letter code that is not one EarnKit knows is named.
+  assert.deepEqual(readAmount({ amount: '5000', currency: 'EURO' }), { unknownCurrency: 'EURO' });
+  // Fix round 1 (M4): 2 to 6 letters is a code; 7 is not one.
+  assert.deepEqual(readAmount({ amount: '5000', currency: 'EUROS' }), { unknownCurrency: 'EUROS' });
+  assert.equal(readAmount({ amount: '5000', currency: 'EUROSSS' }), 'bad');
   assert.equal(readAmount({}), null);
 });
 
-test('L22-4, L22-5 (v6.1.16): the cap compares the given amount before rounding; a listed code at its rate; an unknown code by its number', () => {
+test('L22-4, L22-5 (v6.1.16), L45-4 (v6.1.19): the cap compares the given amount before rounding; a listed code at its rate; fix round 1: every coin at a cap rate, a code with none weighs as infinite', () => {
   assert.equal(overCap(10_000.99, 'USD', 10_000), true);
   assert.equal(overCap(10_000, 'USD', 10_000), false);
   assert.equal(overCap(50_000, 'EUR', 10_000), true);
   assert.equal(overCap(7_000, 'EUR', 10_000), false);
   assert.equal(overCap(1_000_000, 'JPY', 10_000), false);
-  assert.equal(overCap(10_001, 'XYZ', 10_000), true);
-  assert.equal(overCap(9_999, 'XYZ', 10_000), false);
+  // Fix round 1 (security, v6.1.19): a coin never weighs 0: stablecoins at the peg, ETH, BTC and SOL at cap-only upper
+  // bounds; a code with no cap rate weighs as infinite.
+  assert.equal(overCap(10_001, 'USDC', 10_000), true);
+  assert.equal(overCap(10_000, 'USDT', 10_000), false);
+  assert.equal(overCap(1, 'ETH', 10_000), false);
+  assert.equal(overCap(1.01, 'ETH', 10_000), true);
+  assert.equal(overCap(0.05, 'BTC', 10_000), true);
+  assert.equal(overCap(11, 'SOL', 10_000), true);
+  assert.equal(overCap(1, 'XYZ', 10_000), true);
+  assert.equal(amountsOverCap({ USD: 9_000, BTC: 5_000 }, 10_000), true);
+  assert.equal(amountsOverCap({ USD: 9_000, USDC: 1_000 }, 10_000), false);
+  for (const c of KNOWN_CURRENCIES) assert.ok(c === 'USD' || Object.hasOwn(CAP_RATES, c), c);
   assert.equal(amountsOverCap({ USD: 5_000, EUR: 4_000 }, 10_000), false);
   assert.equal(amountsOverCap({ USD: 5_000, EUR: 4_100 }, 10_000), true);
   // Each rate is above 1 unit's recent value, so a foreign amount never slips under a cap.
@@ -57,4 +71,40 @@ test('v6.1.17 final round (Task 2 review N1): a leading 0, is a decimal comma, n
   assert.deepEqual(readAmount({ amount: '€0,25' }), { value: 0.25, currency: 'EUR' });
   assert.deepEqual(readAmount({ amount: '5,000' }), { value: 5000, currency: 'USD' });
   assert.equal(readAmount({ amount: '0,5,000' }), 'bad');
+});
+
+test('L45-4 (v6.1.19): only known currencies are read; any other code is named, not weighed by its number', () => {
+  assert.deepEqual(KNOWN_CURRENCIES, ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'CAD', 'AUD', 'CHF', 'SGD', 'BRL', 'ETH', 'BTC', 'SOL', 'USDC', 'USDT']);
+  assert.deepEqual(readAmount({ amount: '1 ABC' }), { unknownCurrency: 'ABC' });
+  assert.deepEqual(readAmount({ amount: '4999 XYZ' }), { unknownCurrency: 'XYZ' });
+  assert.deepEqual(readAmount({ amount: '8999 KRW' }), { unknownCurrency: 'KRW' });
+  assert.deepEqual(readAmount({ amount: '5000 MATIC' }), { unknownCurrency: 'MATIC' });
+  assert.deepEqual(readAmount({ amount: '5k EUR' }), { value: 5000, currency: 'EUR' });
+  assert.deepEqual(readAmount({ amount: 1, currency: 'abc' }), { unknownCurrency: 'ABC' });
+  assert.deepEqual(readAmount({ amount: '5000 BTC' }), { value: 5000, currency: 'BTC' });
+  assert.deepEqual(readAmount({ amount: 1, currency: 'btc' }), { value: 1, currency: 'BTC' });
+  assert.deepEqual(readAmount({ amount: '250 USDC' }), { value: 250, currency: 'USDC' });
+  assert.deepEqual(readAmount({ amount: 'USDT 1,000' }), { value: 1000, currency: 'USDT' });
+  assert.equal(UNKNOWN_CURRENCY('ABC'), 'I do not know the currency "ABC". Say the amount with its currency.');
+  assert.equal(usdAt(100, 'EUR'), 125);
+  assert.equal(usdAt(100, 'XYZ'), null);
+  assert.equal(usdAt(2, 'USDC'), 2);
+});
+
+test('L45-3 (v6.1.19): a win under one dollar once converted is under a dollar; a code with no rate is not judged', () => {
+  assert.equal(underADollar(0.001, 'USD'), true);
+  assert.equal(underADollar(0.99, 'USD'), true);
+  assert.equal(underADollar(1, 'USD'), false);
+  assert.equal(underADollar(100, 'JPY'), true);
+  assert.equal(underADollar(200, 'JPY'), false);
+  assert.equal(underADollar(0.000001, 'BTC'), true);
+  assert.equal(underADollar(0.001, 'BTC'), false);
+  // Final fix round (M3): coins are weighed at their low floor bounds, never the cap's high ones.
+  assert.equal(underADollar(0.00005, 'ETH'), true, 'about $0.20 at a real price; $0.05 at the floor bound');
+  assert.equal(underADollar(0.0005, 'ETH'), true);
+  assert.equal(underADollar(0.001, 'ETH'), false);
+  assert.equal(underADollar(0.00001, 'BTC'), true, '$2.50 at the cap bound, $0.20 at the floor bound');
+  assert.equal(underADollar(0.0001, 'BTC'), false, '$2 at the floor bound');
+  assert.equal(underADollar(0.04, 'SOL'), true);
+  assert.equal(underADollar(0.05, 'SOL'), false);
 });

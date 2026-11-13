@@ -11,12 +11,14 @@ import { nameKeyOf, projectKeyOf } from '../v5/project-input';
 import { amountsText, moneyText, usdFull, type Amounts } from '../v5/programs-read';
 import { cleanClientName, displayName } from '../v5/installations';
 import {
-  ME_AN_AGENT, ME_BLOCKS, ME_LABELS, ME_LINK_EXPIRED_TITLE, ME_LINK_NOT, ME_LINK_PARTS, ME_LINK_TITLE, ME_LINK_USED, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
-  ME_CHOICES, ME_TEAM, UNKNOWN_CODE, dayWords, mePolicyStatus,
+  LINK_ASK_PARTS, LINK_FIRST_SEEN, ME_AN_AGENT, ME_BLOCKS, ME_HELD_ROW, ME_LABELS, ME_LINK_NOT, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
+  ME_CHOICES, ME_TEAM, dayWords, mePolicyStatus,
 } from '../v5/site-copy';
+import { SENT_ASK_AFTER_HOURS } from '../v5/ledger';
 import { CLAIM_HOURS } from './claims';
 import { type Builder, getRecord } from './builders';
-import { ALREADY_LINKED, OTHER, codeShaped, codeState, deniedCode, linkedBy, liveCode } from './link-routes';
+import { LINK_STATES, OTHER, codeShaped, codeState, deniedCode, linkedBy, liveCode } from './link-routes';
+import type { Draft } from './sessions';
 import { reviewerPrograms } from './reviewers';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
@@ -31,6 +33,8 @@ export type MeField = {
   seen: string;
   /** An answer's short form, shown under it and approved with it (v6.1.8 B16). */
   short?: string;
+  /** L43-4 (v6.1.19): what the builder typed here before a refusal (the session's draft), shown in place of `value`. */
+  typed?: string;
 };
 export type MeData = {
   login: string; name: string | null; csrf: string;
@@ -40,7 +44,11 @@ export type MeData = {
    * The title only, never the slug (v6.1.8, lane 5). `words` is the row's result as a sentence (L21-1, v6.1.16):
    * "Won $5,000, Nov 11.", "Won $3,500 in all, Nov 11." after a further payment; `money` the win's full figure or null.
    */
-  ledger: { title: string; status: string; at: string; money: string | null; words: string }[];
+  ledger: {
+    title: string; status: string; at: string; money: string | null; words: string;
+    /** L43-9 (v6.1.19): a started row the builder may say they sent (`I sent it`): its program and project key. */
+    send: { program_id: string; project_id: string } | null;
+  }[];
   /** "6 sent, 3 won ($12,000), 1 rejected, 2 waiting.": the find reply's counts, word for word (Review Focus 9); null with none sent. */
   ledger_line: string | null;
   /** `label`: the agent's own name, else "An agent linked Nov 6" (L21-10, v6.1.16); never a client id. */
@@ -55,6 +63,12 @@ export type MeData = {
    * the agent's own name, which the page shows isolated (v6.1.7 C1); null without one.
    */
   link: { title: string; code: string | null; text: string; parts: [string, string, string] | null } | null;
+  /**
+   * L43-4 (v6.1.19): what the builder typed into a form that was refused, by field path (the policy form's own names
+   * under `policy.`, the delete box under `delete.confirm`), kept 15 minutes; null without one. Rendered escaped as
+   * every value is.
+   */
+  draft: Draft | null;
   /** L24-14 (v6.1.16 Task 11): the standing approval's state in words, then what was sent under it. */
   policy_status: string[];
 };
@@ -232,9 +246,11 @@ export function pendingApprovals(record: BuilderRecord): MeData['pending_approva
   const add = (path: string, labelText: string, text: string | undefined, short?: string) => {
     if (text && APPROVABLE(path) && !isApproved(record, path)) out.push({ path, label: labelText, text, seen: seenOf(record, path), ...(short ? { short } : {}) });
   };
-  for (const k of ANSWER_KINDS) add(`answers.${k}`, answerLabel(k), record.answers[k]?.text, record.answers[k]?.short);
+  // L43-7 (v6.1.19): in page order (recordBlocks: the projects card before Your answers), so Open the first one opens
+  // the first waiting answer on the page.
   for (const p of record.projects)
     for (const k of ANSWER_KINDS) add(`projects.${p.id}.answers.${k}`, `${p.name ?? p.id}: ${KIND_WORDS[k]}`, p.answers[k]?.text, p.answers[k]?.short);
+  for (const k of ANSWER_KINDS) add(`answers.${k}`, answerLabel(k), record.answers[k]?.text, record.answers[k]?.short);
   add('traction.line_pre_launch', label('traction.line_pre_launch'), record.traction.line_pre_launch);
   const { raised_usd: n, raised_from: from } = record.company;
   const raised = [n !== undefined ? usdFull(n) : '', from ? `from ${from}` : ''].filter(Boolean).join(' ');
@@ -242,31 +258,29 @@ export function pendingApprovals(record: BuilderRecord): MeData['pending_approva
   return out;
 }
 
-/** The words of an expired link after its title: "Ask your agent for a new one." */
-const EXPIRED_REST = 'Ask your agent for a new one.';
-
 /**
- * The link banner for /me?link=<code>, its title per state (L21-6, L21-17, v6.1.16): live asks to link (buttons);
- * used by this builder `Linked.`; answered Not me `Not linked.`; another account's agent `Not linked.` with OTHER (no
- * buttons: the post would answer that); expired `This link has expired.`; a code EarnKit never made, or malformed,
- * `This link is not one of ours.`
+ * The link banner for /me?link=<code>, its title per state (L21-6, L21-17, v6.1.16), one sentence each from the
+ * LINK_STATES /link reads (L43-17, v6.1.19): live asks `Link "{name}" to your GitHub account?` (buttons) with its one
+ * line; used by this builder `Linked.`; answered Not me `Not linked. If it was you, ask your agent for a new link.`;
+ * another account's agent `Not linked.` with OTHER (no buttons: the post would answer that); expired `This link has
+ * expired.`; a code EarnKit never made, or malformed, `This link is not one of ours.`
  */
 async function linkBanner(code: string | null | undefined, builderId: number, now: Date): Promise<MeData['link']> {
   if (code === null || code === undefined) return null;
-  const dead = (title: string, text = '') => ({ title, code: null, text, parts: null });
-  if (!codeShaped(code)) return dead(UNKNOWN_CODE);
+  const dead = (st: { title: string; line: string }) => ({ title: st.title, code: null, text: st.line, parts: null });
+  if (!codeShaped(code)) return dead(LINK_STATES.unknown);
   const live = await liveCode(code, now);
   if (!live) {
-    if (await linkedBy(code, builderId)) return dead(ME_LINK_USED, ALREADY_LINKED);
+    if (await linkedBy(code, builderId)) return dead(LINK_STATES.used);
     // Low 16 (v6.1.13): a code the builder said Not me to says what they chose.
-    if (await deniedCode(code)) return dead(ME_LINK_NOT);
-    return (await codeState(code, now)) === 'unknown' ? dead(UNKNOWN_CODE) : dead(ME_LINK_EXPIRED_TITLE, EXPIRED_REST);
+    if (await deniedCode(code)) return dead(LINK_STATES.denied);
+    return (await codeState(code, now)) === 'unknown' ? dead(LINK_STATES.unknown) : dead(LINK_STATES.expired);
   }
-  if (live.builder_id !== null && Number(live.builder_id) !== builderId) return dead(ME_LINK_NOT, OTHER);
-  // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)".
+  if (live.builder_id !== null && Number(live.builder_id) !== builderId) return dead({ title: ME_LINK_NOT, line: OTHER });
+  // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)"; the title names it, isolated on the page (`parts`).
   const name = displayName(live.client_name);
-  const parts = ME_LINK_PARTS(name, dayWords(live.created_at, now));
-  return { title: ME_LINK_TITLE, code, text: parts.join(''), parts: name ? parts : null };
+  const parts = LINK_ASK_PARTS(name);
+  return { title: parts.join(''), code, text: LINK_FIRST_SEEN(dayWords(live.created_at, now)), parts: name ? parts : null };
 }
 
 /**
@@ -323,13 +337,13 @@ export function projectsSeen(record: BuilderRecord, rows: { project_id: string; 
 }
 
 /** The page's data for this builder only; `session` is the request's session cookie value (the csrf binds to it); `link` is the ?link= code, if any. */
-export async function meData(builder: Builder, now: Date, session: string, link?: string | null): Promise<MeData> {
+export async function meData(builder: Builder, now: Date, session: string, link?: string | null, draft: Draft | null = null): Promise<MeData> {
   const record = await getRecord(builder.id);
   const owner = `b:${builder.id}`;
   // L21-1 (v6.1.16): the current amount (a correction replaced it; a further payment added to it) and whether a further
   // payment came after the last correction, so the row reads "in all".
-  const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date; claimed_at: Date | null; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
-    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at, a.claimed_at, a.amount_usd, a.amounts,
+  const ledger = await sql()<{ title: string | null; program_id: string; project_id: string | null; status: string; at: Date; claimed_at: Date | null; held_at: Date | null; submit: string | null; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
+    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.project_id, a.status, a.at, a.claimed_at, a.held_at, p.file->>'submit' AS submit, a.amount_usd, a.amounts,
       EXISTS (SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.payment_key IS NOT NULL
         AND h.at >= COALESCE((SELECT max(c.at) FROM application_history c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = COALESCE(a.project_id, '') AND c.corrected), '-infinity'::timestamptz)) AS paid_more
     FROM applications a LEFT JOIN programs p ON p.id = a.program_id
@@ -348,15 +362,23 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     blocks: recordBlocks(record, now),
     pending_approvals: pendingApprovals(record),
     ledger: ledger.map((r) => {
+      const started = (r.claimed_at ?? r.at).getTime();
+      // L43-2 (v6.1.19): a claim the builder held reads as held, from the hold's day, never as an unfinished send.
+      const held = r.status === 'started' && r.held_at !== null;
       // L23-7 (v6.1.16): a claim older than CLAIM_HOURS with no send reads "Started, not sent", until a find releases it.
-      const lapsed = r.status === 'started' && (r.claimed_at ?? r.at).getTime() <= now.getTime() - CLAIM_HOURS * 3_600_000;
-      const status = lapsed ? 'started_not_sent' : r.status;
+      const lapsed = r.status === 'started' && !held && started <= now.getTime() - CLAIM_HOURS * 3_600_000;
+      const status = held ? 'on_hold' : lapsed ? 'started_not_sent' : r.status;
+      // L43-9 (v6.1.19): a lapsed claim, or one the sent ask is about (the builder presses submit, an hour on), may be
+      // said sent here.
+      const asked = r.status === 'started' && !held && r.submit === 'builder' && started <= now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000;
       return {
         title: r.title ?? r.program_id,
         status: ME_STATUS[status] ?? cap(status.replaceAll('_', ' ')),
         at: dayWords(r.at, now),
         money: r.status === 'won' ? amountsText(amountsOf(r)) || null : null,
-        words: ledgerRowWords(status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, dayWords(lapsed ? (r.claimed_at ?? r.at) : r.at, now)),
+        words: held ? ME_HELD_ROW(dayWords(r.held_at!, now))
+          : ledgerRowWords(status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, dayWords(lapsed ? (r.claimed_at ?? r.at) : r.at, now)),
+        send: lapsed || asked ? { program_id: r.program_id, project_id: r.project_id ?? '' } : null,
       };
     }),
     ledger_line: counts.applied > 0 ? ledgerCounts(counts) : null,
@@ -364,6 +386,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     reviews: reviews.map((id) => ME_REVIEWS(titleOf.get(id) ?? id)),
     projects_seen: projectsSeen(record, seen),
     link: await linkBanner(link, builder.id, now),
+    draft,
     policy_status: mePolicyStatus(
       {
         on: record.policy.auto_apply, perDay: record.policy.max_per_night,

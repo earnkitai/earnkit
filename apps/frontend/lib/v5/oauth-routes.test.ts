@@ -50,7 +50,11 @@ const token = (clientId: string, code: string, client: ClientDeps, from = ip(), 
 async function assertFailed(r: Response, what: string) {
   assert.equal(r.status, 400, what);
   assert.equal(r.headers.get('location'), null, what);
-  assert.equal(await r.text(), "Connecting EarnKit failed. Your agent's client document could not be read.", what);
+  // L45-16 (v6.1.19): a document that uses EarnKit's own name says so.
+  const reserved = /EarnKit( as the name\)(: cached)?| look-alike)?$/.test(what);
+  assert.equal(await r.text(), reserved
+    ? "Connecting EarnKit failed. Your agent's client document uses EarnKit's own name; it needs the agent's name."
+    : "Connecting EarnKit failed. Your agent's client document could not be read.", what);
 }
 
 test('a client document authorizes and exchanges; the installation is named Claude', async () => {

@@ -12,12 +12,12 @@ test('a bad live_url is dropped with a problem and the project still parses', ()
   assert.deepEqual(r.problems, ['live_url dropped: not a web link']);
 });
 
-test('an unknown chain is dropped with a problem, a known one kept', () => {
+test('an unknown chain is named with a problem (L45-12, v6.1.19 fix round 1: dropped, nothing to correct), a known one kept', () => {
   const r = parseProject({ ...base, chains: [{ chain: 'foo', mainnet: true }, { chain: 'Base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] });
   assert.ok(r.ok);
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }]);
   assert.equal(r.problems.length, 1);
-  assert.match(r.problems[0], /chain foo dropped/);
+  assert.equal(r.problems[0], 'chain foo dropped: no program here asks for it');
 });
 
 test('a bad contract and a bad date are dropped; the chain stays', () => {
@@ -60,11 +60,11 @@ test('a clean report parses with no problems and keeps the flags', () => {
   assert.equal(r.project.first_commit_at, '2026-01-02T00:00:00.000Z');
 });
 
-test('a bare string chain is a mainnet chain; an unknown bare string is dropped by name', () => {
+test('a bare string chain is a mainnet chain; an unknown bare string is named (L45-12, v6.1.19 fix round 1: dropped, nothing to correct)', () => {
   const r = parseProject({ ...base, chains: ['base', 'Arc', 'nowhere'] });
   assert.ok(r.ok);
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }]);
-  assert.deepEqual(r.problems, ['chain nowhere dropped: not a known chain']);
+  assert.deepEqual(r.problems, ['chain nowhere dropped: no program here asks for it']);
 });
 
 test('C13: chains are deduplicated by chain, mainnet and contract; entries beyond 20 are named, not read', () => {
@@ -182,8 +182,10 @@ test('projectKeyOf: the repo link lower-cased without a trailing slash or .git, 
     assert.equal(projectKeyOf(raw), projectKeyOf(parsed.project), JSON.stringify(raw));
   }
   assert.equal(projectKeyOf({ name: 'My  App' }), 'name:my app');
-  // A link that is not a web link is no repo key: the name stands, as in find.
-  assert.equal(projectKeyOf({ name: 'X', repo_url: 'github.com/a/b' }), 'name:x');
+  // A link that is not a web link is no repo key: the name stands, as in find. L45-13 (v6.1.19): a code host's link
+  // with no scheme is read as https, as find reads it.
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'github.com/a/b' }), 'https://github.com/a/b');
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'example.com/a/b' }), 'name:x');
 });
 
 test('B4 (v6.1.13): one canonical repo link for projectKeyOf and the repo read; every spelling of one repo is one key', async () => {
@@ -452,4 +454,51 @@ test('L1j-5 (v6.1.17): a project key that is no project field is named as not re
   assert.deepEqual(unknownProjectKeys({ name: 'A', users: true }), []);
   assert.deepEqual(unknownProjectKeys(null), []);
   assert.deepEqual(unknownProjectKeys(['bogus']), []);
+});
+
+test('L45-13 (v6.1.19): a code host link with no scheme is read as https; githubRepoLink reads every form find reads', async () => {
+  const { githubRepoLink, withScheme } = await import('./project-input');
+  const r = parseProject({ name: 'Rg', description: 'A search tool.', repo_url: 'github.com/burntsushi/ripgrep' });
+  assert.ok(r.ok);
+  assert.equal(r.project.repo_url, 'https://github.com/burntsushi/ripgrep');
+  assert.deepEqual(r.problems, []);
+  assert.equal(withScheme('www.gitlab.com/a/b'), 'https://www.gitlab.com/a/b');
+  assert.equal(withScheme('example.com/a/b'), 'example.com/a/b');
+  for (const form of ['git@github.com:Acme/App.git', 'ssh://git@github.com/Acme/App', 'github.com/Acme/App', 'https://github.com/Acme/App/tree/main', 'https://www.github.com/Acme/App.git/', 'https://github.com/Acme/App?tab=readme'])
+    assert.equal(githubRepoLink(form), 'https://github.com/Acme/App', form);
+  for (const other of ['https://gitlab.com/a/b', 'https://github.com/orgs/acme', 'https://github.com/acme', 'not a link'])
+    assert.equal(githubRepoLink(other), other, other);
+});
+
+test('L45-12 (v6.1.19): a real chain EarnKit has no program on is dropped with nothing to correct; a bare chain id reads through the registry; one chain past the cap reads singular', async () => {
+  const { droppedNote } = await import('./reply');
+  const r = parseProject({ ...base, chains: ['celo', 'sui', 8453, 99999] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }]);
+  assert.deepEqual(r.problems, ['chain celo dropped: no program here asks for it', 'chain sui dropped: no program here asks for it', 'chain 99999 dropped: no program here asks for it']);
+  const note = droppedNote(r.problems)!;
+  assert.equal(note, 'Chain celo dropped: no program here asks for it; chain sui dropped: no program here asks for it; chain 99999 dropped: no program here asks for it.');
+  assert.doesNotMatch(note, /corrected/);
+  const many = parseProject({ ...base, chains: Array.from({ length: 21 }, (_, n) => ({ chain: 'base', mainnet: true, contract: `0x${String(n).padStart(40, '0')}` })) });
+  assert.ok(many.ok);
+  assert.ok(many.problems.includes('1 chain beyond 20 was not read'), JSON.stringify(many.problems));
+  // A name that is no chain word at all is still dropped.
+  const odd = parseProject({ ...base, chains: ['💥'] });
+  assert.ok(odd.ok);
+  assert.match(odd.problems[0], /dropped: not a known chain$/);
+});
+
+test('L45-19 (v6.1.19): a commit date before 1970 is not known', () => {
+  const r = parseProject({ ...base, first_commit_at: '-000001-01-01', last_commit_at: '1969-12-31T00:00:00Z' });
+  assert.ok(r.ok);
+  assert.equal(r.project.first_commit_at, undefined);
+  assert.equal(r.project.last_commit_at, undefined);
+  assert.deepEqual(r.problems, ['last_commit_at is before 1970; not used', 'first_commit_at is before 1970; not used']);
+});
+
+test('L45-19 (v6.1.19): a filter key find does not take is named, never read silently', async () => {
+  const { findInputOf } = await import('./find');
+  const r = findInputOf({ filter: { all: true, sort: 'money' } });
+  assert.deepEqual(r.i.filter, { all: true });
+  assert.deepEqual(r.unread, ['filter.sort was not read: filter takes category and all']);
 });
