@@ -20,8 +20,9 @@ export const UNKNOWN_CODES = (codes: string[]): string => {
 };
 /** Fix round 1 (I3): the one Say after unknown currencies, last in the reply. */
 export const SAY_CURRENCY = 'Say the amount with its currency.';
-/** L45-3 (v6.1.19): the builder line for a win under one dollar (after conversion). */
-export const UNDER_A_DOLLAR = 'Tell me the amount in whole dollars, 1 or more.';
+/** L45-3 (v6.1.19): the builder line for a win under one dollar (after conversion). L47-13 (v6.1.22): cents are
+ *  accepted, so the line never asks for whole dollars. */
+export const UNDER_A_DOLLAR = 'Tell me the amount, 1 dollar or more.';
 /** v6.1.19.1 (L47-1): the line for a win in another currency worth under a dollar at its floor rate; the whole-dollar
  *  line (`UNDER_A_DOLLAR`) is for US dollars only. */
 export const UNDER_A_DOLLAR_OTHER = 'That amount is too small to record. Tell me the amount and its currency.';

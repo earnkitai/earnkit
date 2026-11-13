@@ -46,7 +46,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(tools[3].description, SCREEN_DESCRIPTION);
   assert.equal(
     SERVER_INSTRUCTIONS,
-    "Call find first in every session with the project you are in, unless the builder is only screening applicants. Call record with get after that, and only when find's reply has linked true. Show find's reply as given; shorten if you must, keep money first and the last action. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When the builder sends a form themselves, ask whether it went and call track applied with submitted_by builder. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
+    "Call find first in every session with the project you are in, unless the builder is only screening applicants. Call record with get after that, and only when find's reply has linked true. Show find's reply as given, in the builder's language when they write in another (names, money and links unchanged); shorten if you must, keep money first and the last action. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When the builder sends a form themselves, ask whether it went and call track applied with submitted_by builder. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
   );
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
   assert.ok(SERVER_INSTRUCTIONS.startsWith(SESSION_START));
@@ -359,7 +359,7 @@ test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', asyn
   const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
   const info = await mcpServerInfo(await ctx());
   assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
-  assert.equal(pkg.version, '6.1.21');
+  assert.equal(pkg.version, '6.1.22');
 });
 
 /**

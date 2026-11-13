@@ -11,7 +11,7 @@ import { sql } from '../v5/db';
 import { OAuthError, type PendingAuthorize, issueCode, publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
-import { LINK_ASK_PARTS, ME_ERRORS, ME_LINK_DENIED, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
+import { LINK_CONFIRM_LATER, LINK_SIGN_IN_PARTS, ME_ERRORS, ME_LINK_DENIED, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signInstallState, signState, verifyInstallState, verifyState } from './github-auth';
 import { cookieOf, cookieValue, createSession, legacyClear } from './sessions';
@@ -142,7 +142,7 @@ export const LINK_STATES = {
 /**
  * The state of /link/<code> for this visitor (L27-4, v6.1.16): not set up, rate limited (one count per page view, by
  * `headers`' address), the failed page (`failed`, where refused posts and callbacks land), then Task 7's codeState:
- * live (the confirm, `Connect {agent}?`), used, expired or unknown.
+ * live (`Sign in to link "{agent}".`, L46-14), used, expired or unknown.
  */
 export async function linkState(code: string, now: Date, headers: Headers = new Headers()): Promise<LinkState> {
   if (!oauthConfigured()) return LINK_STATES.not_set_up;
@@ -163,9 +163,9 @@ export async function linkState(code: string, now: Date, headers: Headers = new 
   const name = displayName(live.client_name);
   return {
     state: 'live',
-    // L43-17 (v6.1.19): one question, the agent named in it.
-    title: LINK_ASK_PARTS(name).join(''),
-    line: 'Once linked, it can read and change your record and apply to programs in your name.',
+    // L46-14 (v6.1.22): no question here, the agent named; the confirm is on /me after sign-in.
+    title: LINK_SIGN_IN_PARTS(name).join(''),
+    line: LINK_CONFIRM_LATER(day(live.created_at)),
     agent: name,
     seen: day(live.created_at),
     status: 200,

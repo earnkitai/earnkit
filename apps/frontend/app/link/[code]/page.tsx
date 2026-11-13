@@ -3,7 +3,6 @@ import { headers } from 'next/headers';
 import { cache } from 'react';
 import Footer from '../../components/common/Footer';
 import LinkView from './LinkView';
-import { publicOrigin } from '../../../lib/v5/oauth';
 import { linkDocTitle, linkState } from '../../../lib/v6/link-routes';
 
 export const dynamic = 'force-dynamic';
@@ -27,11 +26,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function LinkPage({ params }: Props) {
   const { code } = await params;
   const s = await stateOf(code);
-  const h = await headers();
-  const host = publicOrigin(new Request(`http://${h.get('host') ?? 'localhost'}/`)).replace(/^https?:\/\//, '');
   return (
     <>
-      <LinkView s={s} code={code} host={host} />
+      <LinkView s={s} code={code} />
       <Footer />
     </>
   );

@@ -110,6 +110,9 @@ export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a pu
 /** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question.
  *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
 export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+/** L46-10 (v6.1.22, ruling 2): an audit program and a project on a chain with no contract read, reported or named: the
+ *  address is the step, re-checked by the next find (the agent passes it in project.chains[].contract). */
+export const CONTRACT_ADDRESS: Gap = { kind: 'repo', item: 'repo:contract', what: 'a contract address', setup: 'tell me the contract address', effort: 'minutes', agent_can: false };
 /** L38-27 (v6.1.18 Task 11): a license rule and a repo read that found no license file: EarnKit adds one on "do". */
 export const LICENSE_FILE: Gap = {
   kind: 'feature', item: 'feature:license', what: 'a license file', do: 'add an MIT license file', effort: 'minutes', agent_can: true,
@@ -157,7 +160,7 @@ export const forExistingCode = (p: ProgramRow['file']): boolean => p.existing_wo
 /**
  * The repo steps a program asks of these facts, in order (v6.1.18.1: one source for `evaluate` and track's `openRules`).
  * L1e-6 / L16-8 / L18-2: code in a repo (public for an open source program) for a project with no repo link, or a repo
- * the read found empty on a grant for existing code. L1f-1 (v6.1.14): an open source program is never ready for a
+ * the read found empty on any program that needs a repo (L1m-5, v6.1.22: hackathons and events too). L1f-1 (v6.1.14): an open source program is never ready for a
  * private repo (reported private, or a link not read for being private): its step is making the repo public. L1f-3
  * (v6.1.14): an archived repo, for a program that wants the code or its users: the archive is the gap, and the users
  * question waits for the live repo. Pure.
@@ -166,7 +169,7 @@ export function repoGaps(p: ProgramRow['file'], facts: RepoFacts): Gap[] {
   const notes = facts.notes ?? [];
   const out: Gap[] = [];
   if (p.needs_repo && !facts.private && !facts.repo_url) out.push(p.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
-  else if (p.needs_repo && forExistingCode(p) && !facts.private && notes.includes('empty')) out.push(NEEDS_CODE);
+  else if (p.needs_repo && !facts.private && notes.includes('empty')) out.push(NEEDS_CODE);
   if (p.open_source && (facts.private || notes.includes('private'))) out.push(PUBLIC_REPO);
   if (notes.includes('archived') && (p.needs_repo === true || p.min_tier === 'used' || eligibilityOf(p).some((i) => i.kind === 'users'))) out.push(ARCHIVED_REPO);
   return out;
@@ -201,7 +204,7 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const gaps: Gap[] = [];
   // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
   // an event) is one step from a project with no code to show (no repo link, or a repo the read found
-  // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
+  // empty; L1m-5, v6.1.22: an empty repo is the code step on hackathons and events too): code in a repo, a real change competing in the ordinary step slots. The read settles it.
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does. A repo reported private is a repo: its
   // step is making it public (L1f-1), and the read settles the code then.
   // L18-2 (v6.1.18): a program that needs a repo (any category) and a project with no repo link: the code is the step,
@@ -209,6 +212,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   gaps.push(...repoGaps(p, facts));
   const archived = gaps.includes(ARCHIVED_REPO);
   let inPerson = false;
+  // L46-10 (v6.1.22): an audit program on a chain with no smart contracts read; the address step is decided after the
+  // items, so their order in the file never matters (Task 4 review minor 2).
+  let needsAddress = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
   if (chainItems.length > 0 && !chainItems.some((i) => mainnets.has(i.value ?? ''))) {
@@ -238,6 +244,13 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       }
       case 'in_person': inPerson = true; break;
       case 'rule': {
+        // L46-10 (v6.1.22): an audit program for a project with no smart contracts: a no with no chain at all, whatever
+        // was confirmed; on a chain, the contract address is the one step and the rule waits for it (ruling 2).
+        if (i.check === 'contracts' && !hasContracts(facts)) {
+          if (facts.chains.length === 0) return out('no', [], 'needs smart contracts to audit');
+          needsAddress = true;
+          break;
+        }
         if (done.has(itemKey(i))) break;
         // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
         // the license file gap (once, and closed by its own done); anything else keeps the question. An archived repo's
@@ -264,6 +277,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     }
   }
 
+  // A contract still to deploy on the program's chain gives the address: that step alone is asked.
+  if (needsAddress && !gaps.some((g) => g.kind === 'chain' || g.kind === 'contract_on')) gaps.push(CONTRACT_ADDRESS);
   const reason = inPerson ? 'in person' : null;
   if (gaps.length === 0) return out('ready', [], reason);
   // Real gaps first, then the rules to confirm; only the real ones count toward the limits.
@@ -317,6 +332,16 @@ const unhyphen = (s: string): string => s.replace(/-/g, ' ');
 /** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side), any case. Pure. */
 export const names = (text: string, phrase: string): boolean =>
   new RegExp(`(?<![\\p{L}\\p{N}])${unhyphen(phrase.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(unhyphen(text.toLowerCase()));
+
+/** L46-10 (v6.1.22): the words that name smart contracts in a project's own words (whole words, lower-cased). */
+const CONTRACT_WORDS = ['contract', 'contracts', 'smart contract', 'solidity', 'vyper', 'hook', 'protocol'];
+/** L46-10 (v6.1.22): whether the project has smart contracts: one read or reported (find merges reported addresses into
+ *  `contracts`), or its name, description, README excerpt or topics name one of CONTRACT_WORDS. Pure. */
+export const hasContracts = (facts: RepoFacts): boolean => {
+  if (facts.contracts.length > 0) return true;
+  const own = [...[facts.name, facts.description, facts.readme_excerpt ?? ''].map((t) => wordsOf(proseOf(t), new Set())), ...(facts.topics ?? [])].join('\n');
+  return CONTRACT_WORDS.some((w) => names(own, w));
+};
 
 /**
  * L1c-2 (v6.1.10): whether the program's rule is unlikely to be the project's. True when a rule still to confirm (in

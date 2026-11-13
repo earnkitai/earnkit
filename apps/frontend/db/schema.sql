@@ -140,6 +140,11 @@ CREATE TABLE IF NOT EXISTS outcome_asks (installation_id bigint NOT NULL, owner 
 -- v6.1.18 Task 4 (L18-4, L36-1): which installation asked whether a builder-sent form went out, and on which day; asked
 -- again after SENT_ASK_EVERY_DAYS.
 CREATE TABLE IF NOT EXISTS sent_asks (installation_id bigint NOT NULL, owner text NOT NULL, program_id text NOT NULL, asked_on date NOT NULL, PRIMARY KEY (installation_id, program_id));
+-- v6.1.22 (L47-4): the ask is per project, so one program started on two projects is asked once on each. A row from
+-- before keeps project_id '' and counts for every project of its program.
+ALTER TABLE sent_asks ADD COLUMN IF NOT EXISTS project_id text NOT NULL DEFAULT '';
+ALTER TABLE sent_asks DROP CONSTRAINT IF EXISTS sent_asks_pkey;
+CREATE UNIQUE INDEX IF NOT EXISTS sent_asks_installation_program_project ON sent_asks (installation_id, program_id, project_id);
 -- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
 -- Task 16: `used_at` is its first code exchange; the daily run sweeps one registered over 30 days ago that never exchanged one.
 CREATE TABLE IF NOT EXISTS oauth_clients (
@@ -527,6 +532,15 @@ WHERE a.sent_at IS NULL AND a.status IN ('applied', 'won', 'rejected', 'no_resul
     SELECT h.note FROM application_history h
     WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
     ORDER BY h.at DESC, h.id DESC LIMIT 1), '') <> 'sent by the builder outside EarnKit';
+-- v6.1.22 (L47-6): a win from an earlier round of the program (recorded outside EarnKit before the program opened):
+-- { amount_usd, amounts, at, moved? }. Until the new round is started it never blocks it; a start moves the row to the
+-- new round and marks the earlier win moved (it then counts as one more win). One column, no second row.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS earlier_win jsonb;
+-- Once, idempotent (only rows with none): an outside win dated before the program's start.
+UPDATE applications a SET earlier_win = jsonb_build_object('amount_usd', a.amount_usd, 'amounts', a.amounts, 'at', a.at)
+FROM programs p
+WHERE p.id = a.program_id AND a.status = 'won' AND a.sent_at IS NULL AND a.submitted_by = 'builder' AND a.earlier_win IS NULL
+  AND (p.file->>'starts_at') IS NOT NULL AND (p.file->>'starts_at')::timestamptz > a.at;
 
 -- v6.1.21: people. One row per person behind one or more installations, so the owner's tracker (the `owner_people`
 -- view, read as role earnkit_ro) counts installs that never linked a GitHub account. `builder_id` is the v6 builder once

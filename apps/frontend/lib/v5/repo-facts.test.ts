@@ -731,3 +731,20 @@ test('minor: a private miss row 31 minutes old is not served', async () => {
   await put('missage/slow', 'slow', ago(11));
   assert.equal(await cachedRepoMiss('https://github.com/missage/slow', NOW), null);
 });
+
+test('L47-17 (v6.1.22): an incomplete cached row whose re-read answers not found or private is a miss, never served', async () => {
+  for (const status of [404, 403] as const) {
+    await sql()`DELETE FROM repo_cache`;
+    const rec = replayFetch('nextjs-dashboard');
+    const p = project({ repo_url: `https://github.com/${rec.repo}` });
+    await repoFacts(p, { gh: rec.fetch, now: NOW });
+    await sql()`UPDATE repo_cache SET facts = facts - 'license' - 'license_read'`;
+    const gone = (async () => new Response(JSON.stringify({ message: 'Not Found' }), { status: 404, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const priv = (async (u: string) => (String(u).endsWith(rec.repo) ? new Response(JSON.stringify({ private: true, full_name: rec.repo }), { status: 200, headers: { 'content-type': 'application/json' } }) : new Response('{}', { status: 404 }))) as unknown as typeof fetch;
+    const f = await repoFacts(p, { gh: status === 404 ? gone : priv, now: new Date(NOW.getTime() + 2 * 3_600_000) });
+    assert.equal(f.public, false, String(status));
+    assert.equal(await cachedRepoFacts(p), null, String(status));
+    const [row] = await sql()`SELECT facts FROM repo_cache`;
+    assert.equal('miss' in row.facts, true, String(status));
+  }
+});

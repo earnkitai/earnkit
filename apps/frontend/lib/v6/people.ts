@@ -23,6 +23,9 @@ export const reasonRank = (r: string | null | undefined): number => (r === 'owne
 
 /** The repro scripts' client-name tag (scripts/repro/lib.mts, `l33-<id>-...`): a lane prefix (v6.1.21 I2). */
 const REPRO_TAG = /^l\d+-/i;
+/** v6.1.22: the live persona lanes' client names (`Lane 1h`, `lane1k`): `lane`, at most one space, then a digit, so a
+ *  bare `Lane`, `lane-1`, a product like `Lanely` or `Lane AI` is not one (final fix round, I4). */
+const LANE_TAG = /^lane ?\d/i;
 /**
  * The client-name words (v6.1.21 I2), each as a whole word: a dash, underscore or space or the end of the name on both
  * sides, and the name holds at least one separator. So `Personal Assistant`, `my-personal-agent`, `Dogfooding Inc` and
@@ -33,6 +36,9 @@ const NAME_WORDS: [RegExp, TestReason][] = (
     ['dogfood', 'dogfood'],
     ['persona', 'persona'],
     ['journey', 'persona'],
+    // v6.1.22: the first-run audits' tag (`firstrun-audit`), never the bare word audit (final fix round, I4: a product
+    // such as `Code Audit Agent` stays real).
+    ['firstrun-audit', 'persona'],
     ['repro', 'repro'],
     ['test', 'test'],
   ] as const
@@ -45,6 +51,7 @@ const list = (v: string | undefined): string[] => (v ?? '').split(',').map((s) =
 export function clientNameReason(clientName: string | null | undefined): TestFlag | null {
   const name = (clientName ?? '').trim();
   if (REPRO_TAG.test(name)) return { reason: 'repro', source: 'client_name tag' };
+  if (LANE_TAG.test(name)) return { reason: 'persona', source: 'client_name tag' };
   if (!/[-_ ]/.test(name)) return null;
   for (const [re, reason] of NAME_WORDS) if (re.test(name)) return { reason, source: 'client_name' };
   return null;

@@ -397,3 +397,116 @@ test('v6.1.16 Task 9 N5 (v6.1.17 Task 3): an unlink takes that agent\'s results-
   assert.deepEqual(left.map((r) => [Number(r.installation_id), r.owner]), [[one, `i:${one}`], [two, owner]]);
   await sql()`DELETE FROM outcome_asks WHERE program_id LIKE 'asks-%'`;
 });
+
+// ---- v6.1.22 final fix round (C1, I1, M5): an earlier-round win is never lost, and the builder's counts keep it ----
+
+const L47 = { title: 'L47 Round Grant', max_award_usd: 5000 };
+const roundProg = async (id: string, status: 'upcoming' | 'active', over: Record<string, unknown> = {}) =>
+  upsertProgram(programFixture({ id, ...L47, status, ...(status === 'upcoming' ? { opens_note: 'Soon' } : {}), ...over }), 'file', NOW);
+type RoundRow = { status: string; amount_usd: string | null; claimed_by: number | null; earlier_win: { amount_usd: number; amounts: Record<string, number>; moved?: true } | null };
+const roundRow = async (owner: string, id: string): Promise<RoundRow | undefined> =>
+  (await sql()<RoundRow[]>`SELECT status, amount_usd, claimed_by, earlier_win FROM applications WHERE owner = ${owner} AND program_id = ${id}`)[0];
+/** An outside win while the program is upcoming, then the program opens and a start moves the win off the row. */
+async function movedWin(owner: string, id: string, installationId: number, startedAt: Date) {
+  await roundProg(id, 'upcoming');
+  assert.deepEqual(await record(owner, id, 'won', { amount_usd: 1000, outsideWin: true, installationId, now: new Date(startedAt.getTime() - DAY) }), { ok: true, outside: true });
+  await roundProg(id, 'active');
+  const { claim } = await import('./claims');
+  assert.deepEqual(await claim(owner, id, null, installationId, startedAt), { ok: true });
+  assert.equal((await roundRow(owner, id))?.earlier_win?.moved, true);
+}
+const isRestored = async (owner: string, id: string) => {
+  const r = await roundRow(owner, id);
+  assert.ok(r, 'the row is kept');
+  assert.deepEqual([r.status, Number(r.amount_usd), r.claimed_by, r.earlier_win?.moved, r.earlier_win?.amounts], ['won', 1000, null, undefined, { USD: 1000 }]);
+};
+
+test('C1 (v6.1.22 final fix round): the stale release puts a claim over an earlier-round win back to that win', async () => {
+  const { releaseStale } = await import('./claims');
+  const i = await install();
+  const owner = `i:${i}`;
+  await movedWin(owner, 'l47-c1-stale', i, new Date(NOW.getTime() - 2 * DAY));
+  const released = await releaseStale(owner, NOW);
+  assert.deepEqual(released.map((r) => [r.program_id, r.title, r.ask]), [['l47-c1-stale', 'L47 Round Grant', undefined]]);
+  await isRestored(owner, 'l47-c1-stale');
+  const s = await summary(owner, [], NOW);
+  assert.deepEqual([s.applied, s.won, s.won_usd], [1, 1, 1000]);
+  // A plain stale claim with no earlier win still goes.
+  await prog('l47-c1-plain');
+  const { claim } = await import('./claims');
+  await claim(owner, 'l47-c1-plain', null, i, new Date(NOW.getTime() - 2 * DAY));
+  await releaseStale(owner, NOW);
+  assert.equal(await roundRow(owner, 'l47-c1-plain'), undefined);
+});
+
+test('C1: an unlink puts its claim over an earlier-round win back to that win', async () => {
+  const b = await builder('c1-unlink');
+  const i = await install();
+  await linkInstallation(i, b.id, NOW);
+  const owner = `b:${b.id}`;
+  await movedWin(owner, 'l47-c1-unlink', i, NOW);
+  assert.equal(await unlinkInstallation(i, b.id, NOW), true);
+  await isRestored(owner, 'l47-c1-unlink');
+});
+
+test('C1: skip then unskip over a moved earlier-round win puts that win back', async () => {
+  const i = await install();
+  const owner = `i:${i}`;
+  await movedWin(owner, 'l47-c1-skip', i, NOW);
+  assert.equal((await record(owner, 'l47-c1-skip', 'skipped', { installationId: i, now: NOW })).ok, true);
+  assert.equal((await roundRow(owner, 'l47-c1-skip'))?.status, 'skipped');
+  assert.equal((await record(owner, 'l47-c1-skip', 'unskip', { installationId: i, now: NOW })).ok, true);
+  await isRestored(owner, 'l47-c1-skip');
+});
+
+test('C1: a relink merge never loses an earlier-round win', async () => {
+  // The claim over the win meets the builder's newer skip: the win comes back and is kept.
+  const b = await builder('c1-relink');
+  const i = await install();
+  await movedWin(`i:${i}`, 'l47-c1-merge', i, NOW);
+  const j = await install();
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at) VALUES (${`b:${b.id}`}, ${j}, 'l47-c1-merge', 'skipped', ${new Date(NOW.getTime() + 1000)})`;
+  await linkInstallation(i, b.id, new Date(NOW.getTime() + 2000));
+  await isRestored(`b:${b.id}`, 'l47-c1-merge');
+  // It meets the builder's newer send instead: the send is kept and carries the win, moved (counted once more).
+  const b2 = await builder('c1-relink-2');
+  const k = await install();
+  await movedWin(`i:${k}`, 'l47-c1-merge2', k, NOW);
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at) VALUES (${`b:${b2.id}`}, ${j}, 'l47-c1-merge2', 'applied', ${new Date(NOW.getTime() + 1000)}, ${new Date(NOW.getTime() + 1000)})`;
+  await linkInstallation(k, b2.id, new Date(NOW.getTime() + 2000));
+  const r = await roundRow(`b:${b2.id}`, 'l47-c1-merge2');
+  assert.deepEqual([r?.status, r?.earlier_win?.moved, r?.earlier_win?.amounts], ['applied', true, { USD: 1000 }]);
+  const s = await summary(`b:${b2.id}`, [], NOW);
+  assert.deepEqual([s.applied, s.won, s.won_usd, s.pending], [2, 1, 1000, 1]);
+});
+
+test('I1 (v6.1.22 final fix round): the builder\'s own counts and applications keep a moved earlier win once', async () => {
+  const { applicationsOf, applicationsLine } = await import('../v5/ledger');
+  const i = await install();
+  const owner = `i:${i}`;
+  await movedWin(owner, 'l47-i1', i, NOW);
+  let s = await summary(owner, [], NOW);
+  assert.deepEqual([s.applied, s.won, s.won_usd, s.pending], [1, 1, 1000, 0]);
+  assert.equal(applicationsLine(await applicationsOf(owner), NOW), 'Your applications: L47 Round Grant (won $1,000).');
+  // The new round is sent: two sent, one won, one waiting; the earlier win listed once beside the new send.
+  assert.equal((await record(owner, 'l47-i1', 'applied', { installationId: i, now: NOW })).ok, true);
+  s = await summary(owner, [], NOW);
+  assert.deepEqual([s.applied, s.won, s.won_usd, s.pending], [2, 1, 1000, 1]);
+  const apps = await applicationsOf(owner);
+  assert.deepEqual(apps.map((a) => [a.status, a.amount]), [['waiting', null], ['won', '$1,000']]);
+  assert.equal(apps.some((a) => a.earlier), false);
+});
+
+test('M5 (v6.1.22 final fix round): a reported project name is cut at 60 in the sent ask', async () => {
+  const { askSent } = await import('../v5/ledger');
+  const i = await install();
+  const owner = `i:${i}`;
+  await upsertProgram(programFixture({ id: 'l47-m5', title: 'L47 Builder Sent', submit: 'builder', max_award_usd: 5000 }), 'file', NOW);
+  const long = 'A'.repeat(50) + ' ' + 'B'.repeat(50);
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, 'name:longproject', ${sql().json({ name: long })}, ${NOW})`;
+  const { claim } = await import('./claims');
+  await claim(owner, 'l47-m5', 'name:longproject', i, new Date(NOW.getTime() - 3 * DAY));
+  const [a] = await askSent(owner, [], NOW);
+  assert.equal(a.project, 'A'.repeat(50) + ' ' + 'B'.repeat(9));
+  assert.equal(Array.from(a.project ?? '').length, 60);
+});

@@ -1924,7 +1924,9 @@ test('v6.1.20: ready, signed out with a repo: the gate takes the row\'s apply aw
   v20Rules(gated);
   // An unconfirmed repo: the row and the yes draft for the builder to send.
   assert.equal(gatedRow('1. FLOSS/fund ($10,000 to $100,000). I apply once you say yes.', 'draft'), '1. FLOSS/fund ($10,000 to $100,000). I draft it for you to send.');
-  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000). It is ready: I apply once you say yes.', 'strip'), 'FLOSS/fund ($10,000 to $100,000). It is ready.');
+  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000) is ready to send.', 'strip'), 'FLOSS/fund ($10,000 to $100,000) is ready to send.');
+  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000) is ready: I add the funding file to your repo, then apply.', 'strip'), 'FLOSS/fund ($10,000 to $100,000) is ready to send.');
+  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000) is ready to send.', 'draft'), 'FLOSS/fund ($10,000 to $100,000) is ready: I draft it for you to send.');
 });
 
 test('v6.1.20: the opening, the program sentences and the Also sentence as pure functions', () => {
@@ -2315,4 +2317,67 @@ test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every 
     for (const l of t.split('\n').filter((x) => x !== '')) assert.match(l, /[.?:]$/, t);
     if (/\bSay\b/.test(t)) assert.match(t.split('\n').at(-1)!, /\bSay\b/, t);
   }
+});
+
+test('live v6.1.20 (v6.1.22): a ready program reads "is ready to send." or "is ready: {action}."', async () => {
+  const { readyState } = await import('./reply');
+  const floss = { ...V20.floss, agent_step: { kind: 'funding_manifest' } } as unknown as ReadyProgram;
+  const futo = ready({ title: 'FUTO Microgrants', money: '$1,000 to $5,000' });
+  assert.equal(readyState(floss), 'FLOSS/fund ($10,000 to $100,000) is ready: I add the funding file to your repo, then apply.');
+  assert.equal(readyState(futo), 'FUTO Microgrants ($1,000 to $5,000) is ready to send.');
+  assert.equal(readyState(futo, { click: true }), 'FUTO Microgrants ($1,000 to $5,000) is ready: I draft it for you to send.');
+  assert.equal(readyState(futo, { standing: true }), 'FUTO Microgrants ($1,000 to $5,000) is ready to send.');
+  assert.equal(readyState(futo, { stands: true }), 'FUTO Microgrants ($1,000 to $5,000) is ready, and your yes stands.');
+  assert.equal(readyState(futo, { needs: ['email'] }), 'FUTO Microgrants ($1,000 to $5,000) is ready to send. You give your email.');
+  assert.equal(readyState({ ...futo, closes_in: 'in 6 days' }), 'FUTO Microgrants ($1,000 to $5,000, closes in 6 days) is ready to send.');
+});
+
+test('L1m-2 (v6.1.22): a setup-plus-rule row is never the rule Say; Chainlink closes on the users question', () => {
+  const essp = gap({ title: 'Ethereum Security Subsidy Program', money: 'up to 30% of audit cost', setup: ['set aside a security budget to co-fund the audit'], gap: { kind: 'rule', item: 'rule:essp0001', what: 'a defined audit scope: lines of code and contract count', effort: 'minutes', agent_can: false } });
+  const text = v20(base({ gaps: [V20.users, essp] }), { name: 'Chainlink' });
+  assert.doesNotMatch(text, /Say 2 if|yes 2/, text);
+  assert.match(text.split('\n').at(-1)!, /^Do real people use it\?/, text);
+  v20Rules(text);
+  // A rule-only row is still the rule Say.
+  const only = v20(base({ gaps: [V20.code, V20.rule] }), { name: 'Chainlink' });
+  assert.match(only.split('\n').at(-1)!, /Say 2 if/, only);
+});
+
+test('L47-S2 (v6.1.22): drafted programs are one line', async () => {
+  const { draftedLines } = await import('./reply');
+  const d = (...t: string[]) => draftedLines({ drafted: t.map((title) => ({ title })) } as never);
+  assert.deepEqual(d('FUTO Microgrants'), ['FUTO Microgrants: drafted, waiting for you to send.']);
+  assert.deepEqual(d('FUTO Microgrants', 'Neon Open Source Program'), ['Drafted, waiting for you to send: FUTO Microgrants and Neon Open Source Program.']);
+  assert.deepEqual(d('A', 'B', 'C', 'D', 'E'), ['Drafted, waiting for you to send: A, B, C and 2 more.']);
+  assert.deepEqual(d('A', 'B', 'C'), ['Drafted, waiting for you to send: A, B and C.']);
+  assert.deepEqual(d(), []);
+});
+
+test('Task 2 fix round 1 (I1): an earlier-round win whose row the 10-line cap hides stays on the applications line', () => {
+  const steps = Array.from({ length: 9 }, (_, k) => gap({ title: `Step Grant ${k + 1}` }));
+  const last = { ...steps[8], earlier_win: '$1,000' };
+  const apps = [{ program_id: last.program_id, title: last.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000', earlier: true as const }];
+  const hidden = v20(base({ gaps: [...steps.slice(0, 8), last], applications: apps } as never));
+  assert.match(hidden, /^Also: \d+ more in the full list\./m, hidden);
+  assert.doesNotMatch(hidden, /^\d+\. Step Grant 9 /m, hidden);
+  // Said once: on the applications line, since the row is not on screen.
+  assert.match(hidden, /Your applications: Step Grant 9 \(won \$1,000\)\./, hidden);
+  v20Rules(hidden);
+  // On screen, the row says it and the line does not.
+  const shown = v20(base({ gaps: [last], applications: apps } as never));
+  assert.equal(shown.match(/Won \$1,000 in an earlier round\./g)?.length, 1, shown);
+  assert.doesNotMatch(shown, /\(won \$1,000\)|Your applications/, shown);
+});
+
+test('Final fix round (v6.1.22, M2): only this project\'s earlier-round item leaves the applications line; another project\'s win on the program is said', () => {
+  const row = { ...gap({ title: 'Step Grant' }), earlier_win: '$1,000' };
+  const apps = [
+    { program_id: row.program_id, title: row.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000', earlier: true as const },
+    { program_id: row.program_id, title: row.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$7,000' },
+  ];
+  const shown = v20(base({ gaps: [row], applications: apps } as never));
+  assert.equal(shown.match(/Won \$1,000 in an earlier round\./g)?.length, 1, shown);
+  assert.match(shown, /Your applications: Step Grant \(won \$7,000\)\./, shown);
+  assert.doesNotMatch(shown, /\(won \$1,000\)/, shown);
+  v20Rules(shown);
 });

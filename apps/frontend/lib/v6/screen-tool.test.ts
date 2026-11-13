@@ -861,7 +861,7 @@ test('L45-5 (v6.1.19): a payment key repeated in one screen call is applied once
 test('L45-3, L45-4 (v6.1.19, fix round 1 I3): on the screen, a win under one dollar and unknown currencies are refused by name in one line, its Say last; a coin is weighed at its upper bound', async () => {
   const { post } = await sentTo(['l45-s-a', 'l45-s-b', 'l45-s-c'], 5_000);
   const tiny = await post('l45-s-a', [{ outcome: 'won', amount_usd: 0.004 }]);
-  assert.equal(tiny.reply.show_to_builder, 'Recorded 0 outcomes. Tell me the amount in whole dollars, 1 or more.');
+  assert.equal(tiny.reply.show_to_builder, 'Recorded 0 outcomes. Tell me the amount, 1 dollar or more.');
   // v6.1.19.1 (L47-1): another currency under a dollar has its own line, never the whole-dollar one.
   const tinyEth = await post('l45-s-a', [{ outcome: 'won', amount: '0.00005 ETH' }]);
   assert.equal(tinyEth.reply.show_to_builder, 'Recorded 0 outcomes. That amount is too small to record. Tell me the amount and its currency.');

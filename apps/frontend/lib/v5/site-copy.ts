@@ -262,8 +262,20 @@ export const ME_UNLINK = 'Unlink';
  */
 export const LINK_ASK_PARTS = (agent: string | null): [string, string, string] =>
   agent ? ['Link ', quoteName(agent, 60), ' to your GitHub account?'] : ['Link your agent to your GitHub account?', '', ''];
-/** L43-17 (v6.1.19): the live banner's one line on /me, under LINK_ASK_PARTS. */
-export const LINK_FIRST_SEEN = (day: string): string => `First seen ${day}. If you did not just ask your agent for this, choose This is not me.`;
+/**
+ * L43-17 (v6.1.19): the live banner's one line on /me, under LINK_ASK_PARTS. L46-14 (v6.1.22): /me holds the one
+ * confirm, so its line says what a link lets the agent do.
+ */
+export const LINK_FIRST_SEEN = (day: string): string =>
+  `First seen ${day}. Once linked, it can read and change your record and apply in your name. If you did not just ask your agent for this, choose This is not me.`;
+/**
+ * L46-14 (v6.1.22): /link asks no question (the confirm on /me is the one security step). Its title names the agent,
+ * isolated on the page: `Sign in to link "{name}".`, `Sign in to link your agent.` unnamed.
+ */
+export const LINK_SIGN_IN_PARTS = (agent: string | null): [string, string, string] =>
+  agent ? ['Sign in to link ', quoteName(agent, 60), '.'] : ['Sign in to link your agent.', '', ''];
+/** L46-14 (v6.1.22): the live /link page's one line, under LINK_SIGN_IN_PARTS. */
+export const LINK_CONFIRM_LATER = (day: string): string => `First seen ${day}. You confirm the link after you sign in.`;
 /** L43-17 (v6.1.19): a code the builder answered This is not me to, on /me and /link. */
 export const ME_LINK_DENIED = 'Not linked. If it was you, ask your agent for a new link.';
 /** After POST /me/link (v6.1.7 C2). */

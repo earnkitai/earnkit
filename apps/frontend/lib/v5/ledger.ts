@@ -18,14 +18,14 @@ import { lowerFirst } from '../v6/reply-words';
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
 import { LICENSE_FILE, codeChecked, itemKey } from './eligibility';
-import { getProgram, isOpenAt, programsById, type ProgramRow } from './programs';
+import { getProgram, isOpenAt, programsById, statusAt, type ProgramRow } from './programs';
 import { dayWords } from './deadline';
-import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
+import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, restoreEarlierSet, stillLinked } from '../v6/claims';
 import { identityFor, projectKeyOf, type Project } from './project-input';
 import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
 import { amountsOverCap, overCap, roundIn, underADollar, underADollarLine } from './amount';
-import { quoteName } from './controls';
+import { cleanText, quoteName } from './controls';
 
 /**
  * The items a program's gap_done takes: its eligibility items, the unknown-users gap ('users') only when it has a users
@@ -120,9 +120,23 @@ export const BESIDE_NOTE = "a program's win kept beside the builder's own";
  * linked (`builderOwn`); its application keeps no sending installation, and the schema's one-time fill skips it.
  */
 export const BUILDER_OWN_NOTE = 'sent by the builder, no agent linked';
-/** L45-2 (v6.1.19): the builder's rejected or no result over a win: nothing is written. */
+/** L45-2 (v6.1.19): the builder's rejected or no result over a win: nothing is written. L47-16 (v6.1.22): one
+ *  sentence, the way to change it named. */
 export const WIN_KEPT = (title: string, amounts: Amounts | null): string =>
-  `${title} already has a win recorded here${amounts ? ` (${amountsText(amounts)})` : ''}. Say won again to change it.`;
+  amounts
+    ? `${title} already has a win here (${amountsText(amounts)}); say won again with the new amount to change it.`
+    : `${title} already has a win here; say won again with the amount to change it.`;
+/** L47-6 (v6.1.22): a win from an earlier round of the program, its own sentence after the program's. */
+export const EARLIER_WIN = (money: string | null): string => (money ? `Won ${money} in an earlier round.` : 'Won in an earlier round.');
+/** L47-6 (v6.1.22): the earlier-round win a row keeps (`applications.earlier_win`); `moved` once a new round started. */
+export type EarlierWin = { amount_usd?: number | string | null; amounts?: Amounts | null; at?: string; moved?: true };
+/**
+ * L47-6 (v6.1.22): the row's win is from an earlier round and the new round has not started: it never blocks a start,
+ * a send or the list. Pure.
+ */
+export const isEarlierRound = (row: { status: string; earlier_win?: EarlierWin | null }): boolean =>
+  row.status === 'won' && row.earlier_win != null && !row.earlier_win.moved;
+
 /** A win with no amount above 0 (L22-6, v6.1.16: cents are kept, so a win is no longer whole dollars only). */
 export const WHOLE_DOLLARS = 'Tell me how much you won.';
 const DAY = 86_400_000;
@@ -182,6 +196,10 @@ export const ALREADY_SENT_UNLINKED = 'Already sent from your account; nothing re
 export const NOT_YOUR_REPO = 'This repo is not yours; I apply only with repos you commit to.';
 /** FR-1 (fix round 1): a signed-out builder's claim or send with a repo: sign-in comes first, never "not yours". */
 export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
+/** L47-10 (v6.1.22): signed out with a repo off GitHub: a sign-in can never show it is theirs, only check their users. */
+export const SIGN_IN_USERS = 'Sign in first so I can check your users.';
+/** L47-10 (v6.1.22): the agent's way after that sign-in: EarnKit drafts, the builder sends. */
+export const SIGN_IN_USERS_NOTE = 'After sign-in, do not call track started with this repo: fill the form for the builder to send, then call track applied with submitted_by builder once they say it is sent.';
 /**
  * FR-1, N5 (fix round 2); L38 big 1 (v6.1.18 Task 10): find's one Say for a signed-out builder with a repo: the apply
  * offer the reply made (`offer`), with the sign-in first in the same sentence, so no apply can be offered before it:
@@ -289,6 +307,8 @@ export async function sentForRepo(tx: Db, programId: string, repoKey: string, ow
         OR (${parentId}::bigint IS NOT NULL AND a.repo_id = ${parentId}::bigint)
         OR (${parentKey}::text IS NOT NULL AND a.repo_key = ${parentKey}::text))
       AND a.owner <> ${ownerExcept} AND a.status = ANY(${['applied', ...RESULTS]})
+      -- L47-6 (v6.1.22): a win from an earlier round is no send of this round.
+      AND NOT (a.status = 'won' AND a.earlier_win IS NOT NULL AND NOT (a.earlier_win ? 'moved'))
     ORDER BY COALESCE(a.sent_at, a.at), a.owner LIMIT 1`;
   if (!r) return null;
   // L35-20: an id match counts as this repo's own only when the other send's repo now reads as this one (a rename).
@@ -343,7 +363,8 @@ export async function formerSentAt(tx: Db, owner: string, programId: string, key
   if (!i?.former_builder_id) return null;
   const rows = await tx<{ project_id: string | null; at: Date }[]>`
     SELECT project_id, COALESCE(sent_at, at) AS at FROM applications
-    WHERE owner = ${'b:' + i.former_builder_id} AND program_id = ${programId} AND status = ANY(${['applied', ...RESULTS]}) ORDER BY COALESCE(sent_at, at)`;
+    WHERE owner = ${'b:' + i.former_builder_id} AND program_id = ${programId} AND status = ANY(${['applied', ...RESULTS]})
+      AND NOT (status = 'won' AND earlier_win IS NOT NULL AND NOT (earlier_win ? 'moved')) ORDER BY COALESCE(sent_at, at)`;
   // L35-2 (v6.1.16.1 Task 2): with no project key, any send of the former builder for this program counts.
   return (key === '' ? rows[0] : pickRow(rows, key))?.at ?? null;
 }
@@ -455,8 +476,8 @@ export async function record(
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
     if (!o.fromScreen && !(o.builderOwn && status === 'applied') && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
-    const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null; title: string | null }[]>`
-      SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity, a.title FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null; title: string | null; earlier_win: EarlierWin | null }[]>`
+      SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity, a.title, a.earlier_win FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     // L28-4 (v6.1.16 Task 14): this project's row; a result, a hold or an unskip takes the owner's one row for the program.
     // Fix round 2 (C3): a send or hold keyed by a repo takes only that key's own row, never a keyless one (the ownership
@@ -480,10 +501,16 @@ export async function record(
     // Controller ruling (v6.1.16.1 Task 2): the repo key from this call's own key always, and the picked row's too when
     // it names another; L35-13: a hold too.
     const checkKeys = [...new Set([repoKeyOf(key), repoKeyOf(rk)].filter((x): x is string => x !== null))];
+    // L47-6 (v6.1.22): a send over a win from an earlier round is this round's send: the row is open to it. Fix round 1
+    // (Critical 1): so is a plain win once the program is open (no further payment): a new round's win, never a
+    // correction; the earlier win is marked moved with its own amounts kept.
+    const upcomingNow = program !== null && statusAt(program.file, now) === 'upcoming';
+    const wonNewRound = status === 'won' && row !== undefined && isEarlierRound(row) && !upcomingNow && paymentKey === null;
+    const newRound = (status === 'applied' && row !== undefined && isEarlierRound(row)) || wonNewRound;
     let cofounderSent = false;
     let cofounderClaim = false;
     let offHostSeen = false;
-    if (checkKeys.length > 0 && (status === 'applied' || status === 'held' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || row.status === 'started' || row.status === 'skipped')) {
+    if (checkKeys.length > 0 && (status === 'applied' || status === 'held' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || newRound || row.status === 'started' || row.status === 'skipped')) {
       for (const k of checkKeys) {
         const id = k === repoKeyOf(key) ? o.repoId ?? null : null;
         const parent = k === repoKeyOf(key) ? o.parentRepo ?? null : null;
@@ -513,7 +540,7 @@ export async function record(
     const offHost = status === 'applied' && o.offRepo && !o.offRepo.startsWith('https://github.com/') ? o.offRepo : null;
     if (offHost) offHostSeen = await offHostSent(tx, programId, offHost, owner);
     // L28-10 (v6.1.16 Task 14): an unlinked agent never sends again what the builder it was linked to sent.
-    if (status === 'applied' && (!row || row.status === 'started' || row.status === 'skipped')) {
+    if (status === 'applied' && (!row || newRound || row.status === 'started' || row.status === 'skipped')) {
       if (await formerSentAt(tx, owner, programId, rk)) return { ok: false, note: ALREADY_SENT_UNLINKED } as const;
     }
     // A send for this project over a row from before projects were kept (no key) takes the row as this project's.
@@ -546,7 +573,7 @@ export async function record(
         VALUES (${owner}, ${installationId}, ${programId}, 'held', ${note}, ${now}, ${source}, ${pk})`;
       return { ok: true } as const;
     }
-    const kept = row?.status === 'won' ? amountsOf(row) : null;
+    const kept = row?.status === 'won' && !newRound ? amountsOf(row) : null;
     // L22-2 (v6.1.16): a win with no currency named, over a win held in one other currency, is in that currency.
     const keptCodes = Object.keys(kept ?? {});
     const currency = given?.currency ?? (keptCodes.length === 1 && keptCodes[0] !== 'USD' ? keptCodes[0] : 'USD');
@@ -561,7 +588,7 @@ export async function record(
     if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: underADollarLine(currency) } as const;
     if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
-    const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;
+    const completes = row?.status === 'won' && !newRound && kept === null && status === 'won' && money !== null;
     // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
     // L17-8 (v6.1.16): one key space per application; a key stored with a legacy prefix matches the same key now.
     if (paymentKey !== null && row?.status === 'won'
@@ -576,7 +603,7 @@ export async function record(
     if (status === 'skipped' && row?.status === 'started' && row.held_at === null && row.claimed_by !== null && row.claimed_by !== installationId
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
       return { ok: false, note: OTHER_AGENT_HOLDS } as const;
-    const hasResult = row !== undefined && RESULTS.includes(row.status);
+    const hasResult = row !== undefined && RESULTS.includes(row.status) && !newRound;
     // L45-2 (v6.1.19): a result never erases a win. The builder's rejected or no result over it changes nothing and
     // says so; a program's screen outcome is recorded beside it (a history row), the win kept.
     if (row?.status === 'won' && (status === 'rejected' || status === 'no_result')) {
@@ -664,7 +691,9 @@ export async function record(
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
       if (row?.status !== 'skipped') return { ok: false, note: "That one isn't skipped here." } as const;
-      await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
+      // Final fix round (v6.1.22, C1): a skip over an earlier-round win goes back to that win, never deleted.
+      if (row.earlier_win) await tx`UPDATE applications SET ${restoreEarlierSet(tx)} WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
+      else await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
     } else if (status === 'gap_done') {
       // xmax = 0 only on a fresh insert: an existing row means the item was already noted.
       const [g] = await tx<{ inserted: boolean }[]>`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
@@ -701,7 +730,8 @@ export async function record(
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title, held_at = NULL,
               repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id),
-              off_repo = COALESCE(EXCLUDED.off_repo, applications.off_repo), identity = COALESCE(applications.identity, EXCLUDED.identity)`;
+              off_repo = COALESCE(EXCLUDED.off_repo, applications.off_repo), identity = COALESCE(applications.identity, EXCLUDED.identity),
+              earlier_win = CASE WHEN applications.status = 'won' AND applications.earlier_win IS NOT NULL THEN applications.earlier_win || '{"moved": true}'::jsonb ELSE applications.earlier_win END`;
       // L35-4: this agent's own claim over a co-founder's send is spent with the send.
       if (otherClaim || cofounderSent) await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
       // L35-4 (v6.1.16.1 Task 2): a co-founder's live claim on this repo is cleared; its agent hears it on its own send.
@@ -727,6 +757,17 @@ export async function record(
           SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, amounts = EXCLUDED.amounts, note = EXCLUDED.note, at = EXCLUDED.at,
             identity = COALESCE(applications.identity, EXCLUDED.identity)`;
     }
+    // L47-6 (v6.1.22): a win from outside EarnKit on a program not open yet is an earlier round's: kept on the row so the
+    // new round can still be started and sent. Fix round 1 (Minor 1): a correction of it while still upcoming refreshes
+    // it; (Minor 2) a moved earlier win is never overwritten (a second earlier round is out of scope).
+    if (status === 'won' && upcomingNow && (outside || (row !== undefined && isEarlierRound(row))))
+      await tx`UPDATE applications SET earlier_win = jsonb_build_object('amount_usd', amount_usd, 'amounts', amounts, 'at', at)
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}
+          AND (earlier_win IS NULL OR NOT (earlier_win ? 'moved'))`;
+    // Fix round 1 (Critical 1): the new round's win moves the earlier one, its amounts untouched.
+    if (wonNewRound)
+      await tx`UPDATE applications SET earlier_win = earlier_win || '{"moved": true}'::jsonb
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
     // L17-1 (v6.1.16): a history row only when the ledger changed (a repeated gap_done changed nothing).
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source, project_id)
@@ -764,14 +805,23 @@ export async function autoSentSince(owner: string, since: Date, db: Db = sql(), 
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {
-  const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown }[]>`
-    SELECT program_id, status, amount_usd, amounts FROM applications WHERE owner = ${owner}`;
+  const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown; earlier_win: EarlierWin | null }[]>`
+    SELECT program_id, status, amount_usd, amounts, earlier_win FROM applications WHERE owner = ${owner}`;
   const byId = await withOwn(rows.map((r) => r.program_id), programs);
   const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, no_result: 0, rejected: 0, skipped: 0, closing_soon: [], results_soon: [] };
   let won: Amounts = {};
   const week = (d: Date | null) => d !== null && d.getTime() >= now.getTime() && d.getTime() <= now.getTime() + 7 * DAY;
   const results: { program_id: string; title: string; at: number }[] = [];
   for (const r of rows) {
+    // Final fix round (v6.1.22, I1): an earlier-round win a new round moved off its row is one more sent and won, with its
+    // own amounts, whatever the row is now (as the public stats count it).
+    if (r.earlier_win?.moved) {
+      l.applied++;
+      l.won++;
+      const e = earlierAmounts(r.earlier_win);
+      if (e === null) l.won_no_amount++;
+      else for (const [c, v] of Object.entries(e)) won = plusAmount(won, v, c);
+    }
     if (r.status === 'started') continue;
     if (r.status === 'skipped') {
       l.skipped++;
@@ -830,6 +880,8 @@ export type ApplicationItem = {
   sent_at: string | null;
   result_at: string | null;
   amount: string | null;
+  /** Final fix round (v6.1.22, M2): this project's own win from an earlier round, the new round not started. */
+  earlier?: true;
 };
 
 /**
@@ -837,12 +889,23 @@ export type ApplicationItem = {
  * and the ones the builder held. Skips are not applications, nor is a live claim (an agent filling the form now; a claim
  * left unsent is released and said by Task 9's started-not-sent line).
  */
-export async function applicationsOf(owner: string): Promise<ApplicationItem[]> {
+export async function applicationsOf(owner: string, here?: (projectId: string | null) => boolean): Promise<ApplicationItem[]> {
   const owners = [owner];
-  const rows = await sql()<{ program_id: string; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown; submitted_by: string | null }[]>`
-    SELECT program_id, status, title, sent_at, at, held_at, amount_usd, amounts, submitted_by FROM applications
-    WHERE owner = ANY(${owners}) AND status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL)
-    ORDER BY COALESCE(sent_at, held_at, at) DESC, program_id`;
+  type Row = { program_id: string; project_id?: string | null; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown; submitted_by: string | null; earlier_win?: EarlierWin | null };
+  const listed = await sql()<(Row & { earlier_win: EarlierWin | null })[]>`
+    SELECT program_id, project_id, status, title, sent_at, at, held_at, amount_usd, amounts, submitted_by, earlier_win FROM applications
+    WHERE owner = ANY(${owners}) AND ((status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL)) OR earlier_win ? 'moved')`;
+  // Final fix round (v6.1.22, I1): an earlier-round win a new round moved off its row is its own won item (sent outside
+  // EarnKit, so no send date), listed beside the row's new round.
+  const rows: Row[] = [
+    ...listed.filter((r) => r.status !== 'skipped' && (r.status !== 'started' || r.held_at !== null)),
+    ...listed.filter((r) => r.earlier_win?.moved).map((r) => ({
+      program_id: r.program_id, project_id: null, status: 'won', title: r.title, sent_at: null, held_at: null, submitted_by: 'builder',
+      at: r.earlier_win!.at ? new Date(r.earlier_win!.at) : r.at, amount_usd: r.earlier_win!.amount_usd == null ? null : String(r.earlier_win!.amount_usd), amounts: r.earlier_win!.amounts ?? null,
+    })),
+  ];
+  const key = (r: Row) => (r.sent_at ?? r.held_at ?? r.at).getTime();
+  rows.sort((a, b) => key(b) - key(a) || (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
   const titles = new Map((await programsById(rows.filter((r) => !r.title).map((r) => r.program_id))).map((p) => [p.id, p.file.title]));
   return rows.map((r) => {
     const status: ApplicationItem['status'] = r.status === 'applied' ? 'waiting' : r.status === 'started' ? 'held' : (r.status as ApplicationItem['status']);
@@ -855,6 +918,7 @@ export async function applicationsOf(owner: string): Promise<ApplicationItem[]> 
       sent_at: sent ? sent.toISOString() : null,
       result_at: RESULTS.includes(r.status) ? r.at.toISOString() : null,
       amount: a ? amountsText(a) : null,
+      ...(isEarlierRound(r) && (!here || !r.project_id || here(r.project_id)) ? { earlier: true as const } : {}),
     };
   });
 }
@@ -894,11 +958,13 @@ export async function sentOf(owner: string, programId: string, key?: string): Pr
 
 /**
  * L16-7 (v6.1.16): the program's result for this owner (won, rejected or no result), or null when it has none. L28-4
- * (Task 14): with `key`, that project's (`pickRow`).
+ * (Task 14): with `key`, that project's (`pickRow`). L47-6 (v6.1.22): a win from an earlier round (`isEarlierRound`) is
+ * no result of this round.
  */
 export async function resultOf(owner: string, programId: string, key?: string): Promise<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: Amounts | null; note: string | null } | null> {
   const rows = await sql()<{ project_id: string | null; off_repo: string | null; status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: unknown; note: string | null }[]>`
-    SELECT project_id, off_repo, status, amount_usd, amounts, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})`;
+    SELECT project_id, off_repo, status, amount_usd, amounts, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})
+      AND NOT (status = 'won' AND earlier_win IS NOT NULL AND NOT (earlier_win ? 'moved'))`;
   const r = key === undefined ? rows[0] : pickRow(rows, key, false, true);
   if (!r) return null;
   const { project_id: _p, off_repo: _o, ...rest } = r;
@@ -906,13 +972,38 @@ export async function resultOf(owner: string, programId: string, key?: string): 
 }
 
 /**
+ * L47-6 (v6.1.22): the owner's earlier-round wins by program (`isEarlierRound`), the amounts each kept; with `here`
+ * (whether a stored project key is this project), only this project's rows and those with none.
+ */
+export async function earlierWins(owner: string, here?: (projectId: string | null) => boolean): Promise<Map<string, Amounts | null>> {
+  const rows = await sql()<{ program_id: string; project_id: string | null; earlier_win: EarlierWin }[]>`
+    SELECT program_id, project_id, earlier_win FROM applications WHERE owner = ${owner}
+      AND status = 'won' AND earlier_win IS NOT NULL AND NOT (earlier_win ? 'moved') ORDER BY at`;
+  const out = new Map<string, Amounts | null>();
+  for (const r of rows) if ((!here || !r.project_id || here(r.project_id)) && !out.has(r.program_id)) out.set(r.program_id, earlierAmounts(r.earlier_win));
+  return out;
+}
+/** L47-6 (v6.1.22): one program's earlier-round win for the project, or undefined when it has none. */
+export async function earlierWinOf(owner: string, programId: string, key: string): Promise<Amounts | null | undefined> {
+  const rows = await sql()<{ project_id: string | null; status: string; earlier_win: EarlierWin }[]>`
+    SELECT project_id, status, earlier_win FROM applications WHERE owner = ${owner} AND program_id = ${programId}
+      AND status = 'won' AND earlier_win IS NOT NULL AND NOT (earlier_win ? 'moved')`;
+  const r = pickRow(rows, key, false, true);
+  return r ? earlierAmounts(r.earlier_win) : undefined;
+}
+/** L47-6 (v6.1.22): the amounts an earlier win kept (as `amountsOf` reads a row). Pure. */
+export const earlierAmounts = (w: EarlierWin): Amounts | null => amountsOf({ amounts: w.amounts ?? null, amount_usd: w.amount_usd ?? null });
+
+/**
  * Program ids the builder applied to or skipped: they leave the list. A claimed ('started') one stays, marked. L28-4
  * (v6.1.16 Task 14): with `here` (whether a stored project key is this project), a send leaves only its own project's
- * list (a row with no project, from before projects were kept, leaves every list); a skip leaves every list.
+ * list (a row with no project, from before projects were kept, leaves every list); a skip leaves every list. L47-6
+ * (v6.1.22): a win from an earlier round (`isEarlierRound`) never leaves it.
  */
 export async function excluded(owner: string, here?: (projectId: string | null) => boolean): Promise<Set<string>> {
   const rows = await sql()<{ program_id: string; status: string; project_id: string | null; off_repo: string | null }[]>`
-    SELECT program_id, status, project_id, off_repo FROM applications WHERE owner = ${owner} AND status <> 'started'`;
+    SELECT program_id, status, project_id, off_repo FROM applications WHERE owner = ${owner} AND status <> 'started'
+      AND NOT (status = 'won' AND earlier_win IS NOT NULL AND NOT (earlier_win ? 'moved'))`;
   return new Set(rows.filter((r) => !here || r.status === 'skipped' || !r.project_id || here(r.project_id) || (r.off_repo !== null && here(r.off_repo))).map((r) => r.program_id));
 }
 
@@ -1243,8 +1334,8 @@ export type SentAsk = { program_id: string; title: string; started_at: string; p
  * L18-4, L36-1 (v6.1.18 Task 4): every started row (not one the builder held) at least SENT_ASK_AFTER_HOURS old whose
  * program the builder submits (`submit` 'builder'), open or closed within SENT_ASK_AFTER_CLOSE_DAYS (L41-10). A row is one per owner, program and project, so a started row is
  * one with no send or result on that project. Fix round 1: with `here`, only the rows of this project (a row with no
- * project is every project's); without, every row (a find with no project). One ask per program, the earliest start;
- * by start time.
+ * project is every project's); without, every row (a find with no project). One ask per program and project (L47-4,
+ * v6.1.22), the earliest start; by start time.
  */
 export async function askSent(owner: string, programs: ProgramRow[], now: Date, here?: (projectId: string) => boolean): Promise<SentAsk[]> {
   const rows = await sql()<{ program_id: string; project_id: string | null; started: Date }[]>`
@@ -1252,15 +1343,17 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL
       AND COALESCE(claimed_at, at) <= ${new Date(now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000)}
     ORDER BY COALESCE(claimed_at, at), program_id`;
-  const first = new Map<string, { at: Date; project: string | null }>();
+  // L47-4 (v6.1.22): keyed by program and project, so each project's start is asked on its own.
+  const first = new Map<string, { id: string; at: Date; project: string | null }>();
   for (const r of rows) {
     if (here && r.project_id && !here(r.project_id)) continue;
-    if (!first.has(r.program_id)) first.set(r.program_id, { at: r.started, project: r.project_id });
+    const k = `${r.program_id}\u0000${r.project_id ?? ''}`;
+    if (!first.has(k)) first.set(k, { id: r.program_id, at: r.started, project: r.project_id });
   }
-  const byId = await withOwn([...first.keys()], programs);
-  const names = first.size > 0 ? await recordProjectNames(owner) : new Map<string, string>();
-  return [...first]
-    .map(([id, x]) => ({ p: byId.get(id), ...x }))
+  const byId = await withOwn([...new Set([...first.values()].map((x) => x.id))], programs);
+  const names = first.size > 0 ? await projectNames(owner) : new Map<string, string>();
+  return [...first.values()]
+    .map(({ id, ...x }) => ({ p: byId.get(id), ...x }))
     .filter((x): x is { p: ProgramRow; at: Date; project: string | null } => x.p?.file.submit === 'builder')
     // L41-10 (v6.1.18.1): a program closed since the start is still asked about, for SENT_ASK_AFTER_CLOSE_DAYS after its
     // ends_at. Review M3: a program closed by status with no ends_at has no close time on record, so its ask is bound by
@@ -1268,19 +1361,30 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     .filter(({ p, at }) => p.file.ends_at
       ? Date.parse(p.file.ends_at) > now.getTime() - SENT_ASK_AFTER_CLOSE_DAYS * 86_400_000
       : p.file.status !== 'closed' || at.getTime() > now.getTime() - SENT_ASK_CLOSED_NO_DATE_DAYS * 86_400_000)
-    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project, project: projectLabel(project, names) }));
+    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project, project: shortLabel(projectLabel(project, names)) }));
+}
+/** Final fix round (v6.1.22, M5): a project name in builder text, cut at 60 as /me cuts it. Pure. */
+function shortLabel(label: string | null): string | null {
+  return label ? cleanText(label, 60) || null : null;
 }
 
-/** L41-7 (v6.1.19): the record's project names by project key, for a builder owner; none else. */
-async function recordProjectNames(owner: string): Promise<Map<string, string>> {
+/**
+ * L41-7 (v6.1.19): the project names by project key: a builder owner's record names first; then (L46-16, L47-12,
+ * v6.1.22) the name the agent passed, from each key's newest report, for a key the record does not name.
+ */
+export async function projectNames(owner: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (!owner.startsWith('b:')) return out;
-  const { getRecord } = await import('../v6/builders');
-  for (const p of (await getRecord(Number(owner.slice(2)))).projects) {
-    if (!p.name?.trim()) continue;
-    const key = projectKeyOf({ name: p.name, repo_url: p.repo_url });
-    if (key && !out.has(key)) out.set(key, p.name.trim());
+  if (owner.startsWith('b:')) {
+    const { getRecord } = await import('../v6/builders');
+    for (const p of (await getRecord(Number(owner.slice(2)))).projects) {
+      if (!p.name?.trim()) continue;
+      const key = projectKeyOf({ name: p.name, repo_url: p.repo_url });
+      if (key && !out.has(key)) out.set(key, p.name.trim());
+    }
   }
+  const reports = await sql()<{ project_key: string; name: string | null }[]>`
+    SELECT project_key, report->>'name' AS name FROM project_reports WHERE owner = ${owner} ORDER BY at DESC`;
+  for (const r of reports) if (r.name?.trim() && !out.has(r.project_key)) out.set(r.project_key, r.name.trim());
   return out;
 }
 /** L41-7 (v6.1.19): a project key as a short label: the record's name, else a name key's name or a repo's last
@@ -1296,33 +1400,38 @@ export function projectLabel(key: string | null, names: Map<string, string> = ne
 /**
  * L18-4 (v6.1.18 Task 4): of `due`, the ones this installation has not asked in the last SENT_ASK_EVERY_DAYS days (its
  * own `sent_asks` row for the program, by UTC day). Read only: fix round 1 marks only the ones the reply shows
- * (`markSentAsked`).
+ * (`markSentAsked`). L47-4 (v6.1.22): by program and project; a row with project '' (from before v6.1.22, or a started
+ * row with no project) counts for every project of its program, so nothing is asked twice in its days.
  */
-export async function sentAsksOpen<T extends { program_id: string }>(installationId: number, due: T[], now: Date): Promise<T[]> {
+export async function sentAsksOpen<T extends { program_id: string; project_id?: string | null }>(installationId: number, due: T[], now: Date): Promise<T[]> {
   if (due.length === 0) return [];
-  const rows = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM sent_asks WHERE installation_id = ${installationId} AND program_id IN ${sql()(due.map((d) => d.program_id))}
+  const rows = await sql()<{ program_id: string; project_id: string }[]>`
+    SELECT program_id, project_id FROM sent_asks WHERE installation_id = ${installationId} AND program_id IN ${sql()([...new Set(due.map((d) => d.program_id))])}
       AND asked_on > ${utcDate(now)}::date - ${SENT_ASK_EVERY_DAYS}::int`;
-  const recent = new Set(rows.map((r) => r.program_id));
-  return due.filter((d) => !recent.has(d.program_id));
+  return due.filter((d) => !rows.some((r) => r.program_id === d.program_id && (r.project_id === '' || r.project_id === (d.project_id ?? ''))));
 }
 
-/** L18-4 (v6.1.18 Task 4, fix round 1): marks the sent questions the builder text showed as asked today. */
-export async function markSentAsked(installationId: number, owner: string, programIds: string[], now: Date): Promise<void> {
-  if (programIds.length === 0) return;
+/** A sent question as asked: its program and the started row's project (null for none). */
+export type SentAsked = { program_id: string; project_id: string | null };
+
+/** L18-4 (v6.1.18 Task 4, fix round 1): marks the sent questions the builder text showed as asked today. L47-4
+ *  (v6.1.22): each with its project ('' for none). */
+export async function markSentAsked(installationId: number, owner: string, asks: SentAsked[], now: Date): Promise<void> {
+  if (asks.length === 0) return;
   const day = utcDate(now);
+  const keyed = new Map(asks.map((a) => [`${a.program_id}\u0000${a.project_id ?? ''}`, { program_id: a.program_id, project_id: a.project_id ?? '' }]));
   await sql()`
-    INSERT INTO sent_asks ${sql()([...new Set(programIds)].map((id) => ({ installation_id: installationId, owner, program_id: id, asked_on: day })))}
-    ON CONFLICT (installation_id, program_id) DO UPDATE SET owner = EXCLUDED.owner, asked_on = EXCLUDED.asked_on`;
+    INSERT INTO sent_asks ${sql()([...keyed.values()].map((a) => ({ installation_id: installationId, owner, program_id: a.program_id, project_id: a.project_id, asked_on: day })))}
+    ON CONFLICT (installation_id, program_id, project_id) DO UPDATE SET owner = EXCLUDED.owner, asked_on = EXCLUDED.asked_on`;
 }
 
 /**
  * L18-4 (v6.1.18 Task 4): `sentAsksOpen` and `markSentAsked` in one: the ones this installation has not asked in the
  * last SENT_ASK_EVERY_DAYS days, marked as asked today. A second installation of the same builder asks on its own.
  */
-export async function sentAsksDue<T extends { program_id: string }>(installationId: number, owner: string, due: T[], now: Date): Promise<T[]> {
+export async function sentAsksDue<T extends { program_id: string; project_id?: string | null }>(installationId: number, owner: string, due: T[], now: Date): Promise<T[]> {
   const open = await sentAsksOpen(installationId, due, now);
-  await markSentAsked(installationId, owner, open.map((d) => d.program_id), now);
+  await markSentAsked(installationId, owner, open.map((d) => ({ program_id: d.program_id, project_id: d.project_id ?? null })), now);
   return open;
 }
 

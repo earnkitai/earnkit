@@ -13,22 +13,22 @@ import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, shortTitle, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
-import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
+import { CONTRACT_ADDRESS, evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, earlierWinOf, earlierWins, EARLIER_WIN, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, LIST_GONE, listMiss, listRef, programByName, programIdOf, unknownProgramLine, type ProgramRow } from './programs';
-import { moneyAt, moneyOf as tileMoney } from './programs-read';
+import { amountsText, moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
-import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
+import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
 /**
  * find as agents see it (v6.1.14 T5: track's project schema), registered leniently (L13-4): `find` reads the arguments
@@ -149,6 +149,8 @@ export type ReadyProgram = {
   rule_yes?: true;
   /** L38-1 (v6.1.18 Task 11): what the agent writes into the repo on yes before it applies (the funding manifest). */
   agent_step?: ManifestStep;
+  /** L47-6 (v6.1.22): the money of a win from an earlier round of it (null when none was given), said after its row. */
+  earlier_win?: string | null;
 };
 export type GapProgram = {
   program_id: string;
@@ -177,6 +179,8 @@ export type GapProgram = {
   public_first?: true;
   /** L1g-8b (v6.1.16): its keyword rule is named nowhere in the project (full list only), so its rule is asked only when no step is shown. */
   unlikely?: true;
+  /** L47-6 (v6.1.22): as on ReadyProgram. */
+  earlier_win?: string | null;
 };
 export type FindReply = {
   show_to_builder: string;
@@ -396,7 +400,8 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
   return {
     program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
     category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
-    in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
+    // L46-10 (v6.1.22, ruling 2): the contract address comes first; the program's own setup waits for it.
+    in_person: row.file.in_person, setup: v.gaps.some((x) => x.item === CONTRACT_ADDRESS.item) ? [] : row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
     ...(left ? { closes_in: left } : {}),
     ...(hit ? { keyword_hit: true as const } : {}),
     ...(v.gaps.some((x) => x.item === 'repo:public') ? { public_first: true as const } : {}),
@@ -616,6 +621,14 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   // L38-1 (v6.1.18 Task 11): a ready program whose form takes a manifest not yet in the repo: what the agent writes.
   const step = open && verdict?.status === 'ready' && !heldSince ? manifestStep(p, facts, rec) : null;
+  // L47-6 (v6.1.22): a win from an earlier round is its own sentence after the program's state, never the reply's Say.
+  const earlier = project ? await earlierWinOf(ownerOf(ctx), id, key) : undefined;
+  if (earlier !== undefined) {
+    const at = Math.min(closed ? 1 : 0, show.length - 1);
+    const line = EARLIER_WIN(earlier ? amountsText(earlier) || null : null);
+    if (at === show.length - 1 && show.length > 1) show.splice(at, 0, line);
+    else show[at] = `${show[at]} ${line}`;
+  }
   if (renamed && !show[0]?.includes(short)) show.unshift(`${short}.`);
   await markOffer(ctx.installationId, offer, ctx.now);
   const dropped = droppedNote(problems);
@@ -636,6 +649,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               ...(real.length === 0 || (link && signInOnly(real)) ? [] : canDo(real)
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
+              // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
+              ...(real.some((g) => g.item === CONTRACT_ADDRESS.item) ? [CONTRACT_ADDRESS_NOTE] : []),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
               ...(step ? [MANIFEST_NOTE] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
@@ -716,7 +731,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const sentAll = await sentAsksOpen(ctx.installationId, await askSent(ownerOf(ctx), programs, ctx.now), ctx.now);
   // L41-11 (v6.1.19): one line for them all, three named; L41-7: each with its project.
   const sentShown = OPEN_LINES - 1 - before.length > 0 ? sentAll.slice(0, 3) : [];
-  await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => a.program_id), ctx.now);
+  // L47-4 (v6.1.22): each ask is marked with its project.
+  await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => ({ program_id: a.program_id, project_id: a.project_id })), ctx.now);
   const sentAsk = sentQuestion(sentShown.map((a) => (a.project ? `${a.title} (${a.project})` : a.title)));
   const sentNoteOpen = sentNote({ ask_sent: sentShown, released: [] });
   const reply = {
@@ -865,11 +881,18 @@ const APPLY_NOW = /^(Your yes stands for .+: I (apply now|draft (it|them) for yo
  * row and the opening through `gatedRow`. Pure.
  */
 export function gateLines(text: string, mode: 'strip' | 'draft', gatedOffer: boolean): { kept: string[]; offer: string | null } {
-  const lines = text.split('\n');
-  let last = lines.length - 1;
-  while (last > 0 && lines[last].trim() === '') last--;
-  const closes = gatedOffer && /\b[Ss]ay\b/.test(lines[last] ?? '');
-  const offer = closes ? lines[last] : applyOfferOf(text);
+  const lines0 = text.split('\n');
+  let last = lines0.length - 1;
+  while (last > 0 && lines0[last].trim() === '') last--;
+  const closes = gatedOffer && /\b[Ss]ay\b/.test(lines0[last] ?? '');
+  const offer = closes ? lines0[last] : applyOfferOf(text);
+  // L1m-4 (v6.1.22): when the gate drafts, the one ready row said quietly under the opening reads the draft and what the
+  // builder gives: the funding file's link (the opening's shared action), or the answers the gated closing asked for.
+  const quiet = (l: string) => /^\d+\. .+\)\.$/.test(l);
+  const manifestOpen = /\bready to send now; I add the funding file to your repo, then apply\.$/.test(lines0[0] ?? '');
+  const asked = /^Say yes and tell me (.+), and I (?:apply|add the funding file to your repo, then apply)(?: to [^.]+)?\.$/.exec(offer ?? '')?.[1] ?? null;
+  const give = manifestOpen ? MANIFEST_GIVE : asked ? `You give ${asked.replace(/^the /, 'your ')}.` : null;
+  const lines = mode === 'draft' && give && lines0.filter(quiet).length === 1 ? lines0.map((l) => (quiet(l) ? `${l} ${READY_DRAFT} ${give}` : l)) : lines0;
   let dropped: string | null = null;
   const kept = (closes ? lines.filter((_, i) => i !== last) : lines)
     .filter((l) => !APPLY_OFFER.test(l))
@@ -917,10 +940,15 @@ export function gatedRow(line: string, mode: 'strip' | 'draft'): string {
   if (open) return draft ? `${open[1]} for you to send.` : `${open[1]} to send now.`;
   // A ready row: "{n}. {title} ({money}). {what EarnKit does}".
   const row = /^(\d+\. .+?\))\. (.+)$/.exec(line);
-  if (row && APPLY_ROW.test(row[2])) return draft ? `${row[1]}. ${READY_DRAFT}` : `${row[1]}.`;
-  // The one-program reply: "{title} ({money}). It is ready: {what EarnKit does}. {rest}".
-  const one = /^(.+?\)\.) It is ready: (I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval)\.(.*)$/.exec(line);
-  if (one) return draft ? `${one[1]} It is ready: ${READY_DRAFT}${one[3]}` : `${one[1]} It is ready.${one[3]}`;
+  // L1m-4 (v6.1.22): a manifest row drafted keeps what the builder gives (off GitHub EarnKit adds no file).
+  if (row && APPLY_ROW.test(row[2])) return draft ? `${row[1]}. ${READY_DRAFT}${row[2].includes(MANIFEST_LINE.replace(/^I /, '')) ? ` ${MANIFEST_GIVE}` : ''}` : `${row[1]}.`;
+  // The one-program reply (v6.1.22 live check): "{title} ({money}) is ready to send. {rest}" or "{title} ({money}) is
+  // ready: {what EarnKit does}. {rest}".
+  const one = /^(.+?\)) is ready(?: to send|: (I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval))\.(.*)$/.exec(line);
+  if (one && !/^\d+\. /.test(line)) {
+    const give = one[2] === MANIFEST_LINE.slice(0, -1) && !one[3].includes(MANIFEST_GIVE) ? ` ${MANIFEST_GIVE}` : '';
+    return draft ? `${one[1]} is ready: ${READY_DRAFT}${give}${one[3]}` : `${one[1]} is ready to send.${one[3]}`;
+  }
   return line;
 }
 /** v6.1.20 review C2: a ready row's sentence that applies (its act, a step before it, a yes that stands). */
@@ -938,8 +966,10 @@ export const DRAFT_NOTE = (programId: string | null): string =>
   `On the builder's yes, fill the form${programId ? ` of program_id ${programId}` : ''} from its fields for the builder to send; do not call track started with this repo. Once they say it is sent, call track applied with submitted_by builder.`;
 /** Fix round 1 (I1): signed out with a repo not on GitHub, the sign-in checks users and the yes drafts (a GitHub
  *  sign-in can never show such a repo is theirs, so no apply is offered). */
-export const SIGN_IN_DRAFT = (link: string | null, title: string | null): string =>
-  `Sign in${link ? ` at ${link}` : ''} so I can check your users, then ${lowerFirst(draftToSend(title))}`;
+export const SIGN_IN_DRAFT = (link: string | null, title: string | null, usersSaid = false): string =>
+  // L1m-4 (v6.1.22): users the builder reported need no check, so the sign-in promises none.
+  usersSaid ? `Sign in${link ? ` at ${link}` : ''} and say yes, and I draft ${title ?? 'it'} for you to send.`
+    : `Sign in${link ? ` at ${link}` : ''} so I can check your users, then ${lowerFirst(draftToSend(title))}`;
 /** Fix round 1 (I2): the program a draft yes is for: the one program, else the first ready row by its number; `named`
  *  only when several are ready. Pure. */
 export function draftTarget(r: FindReply | ProgramReply): { id: string | null; named: string | null } {
@@ -1194,7 +1224,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     if (offGitHub) await markOffer(ctx.installationId, 'draft', ctx.now);
     return {
       ...r,
-      show_to_builder: fit([...kept, ...(said || (gated.offer === null && !anyReady) ? [] : ['', offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, gated.offer)])]).join('\n'),
+      show_to_builder: fit([...kept, ...(said || (gated.offer === null && !anyReady) ? [] : ['', offGitHub ? SIGN_IN_DRAFT(link, target.named, project!.users === true) : signInFirst(link, gated.offer)])]).join('\n'),
       ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, offGitHub ? DRAFT_NOTE(target.id) : SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };
@@ -1211,17 +1241,31 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   if (!against && !gate) return r;
   // L41-8 (v6.1.19): EarnKit applies with neither repo, so a ready heading says the builder sends; under "not yours"
   // the apply offer becomes the draft for them to send (never "I apply").
-  const drafts = against && gate;
-  await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
-  const kept = gateLines(r.show_to_builder, 'draft', gatedOffer).kept.filter((l) => !(against && /^Say /.test(l)));
-  const keptSay = kept.some((l) => /\bSay\b/.test(l));
   // Fix round 1 (I2): the draft yes names its program when several are ready, and the agent hears the way through it.
   const target = await shortTarget(draftTarget(r));
+  // L47-9, L47-11 (v6.1.22): off GitHub no read confirms the repo, yet EarnKit can still draft the form for the builder
+  // to send: the draft yes stays (the kept Say, else the draft offer when a row is ready), never "Send it yourself".
+  // That line stays only where EarnKit cannot draft: a GitHub repo it could not read, or a program with no form.
+  const targetRow = target.id ? await getProgram(target.id) : null;
+  const offDraft = !against && offHost && (targetRow === null || hasForm(targetRow));
+  const kept = gateLines(r.show_to_builder, 'draft', gatedOffer).kept.filter((l) => !(against && /^Say /.test(l)));
+  const keptSay = kept.some((l) => /\bSay\b/.test(l));
+  const readyHere = target.id !== null && !!targetRow && ('program' in r ? (r as { verdict?: { status?: string } }).verdict?.status === 'ready' : ((r as FindReply).ready ?? []).length > 0);
+  const offDraftSay = offDraft && !keptSay && readyHere;
+  const drafts = (against && gate) || offDraftSay;
+  // A kept Say off GitHub (the users question, a sent ask) keeps the offer the reply made; fix round 1 (M1): never a
+  // gated offer (apply, do, stop) whose closing the gate took away.
+  if (!(offDraft && keptSay) || GATED_OFFERS.has(await lastOfferOf(ctx.installationId))) await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
+  // Fix round 1 (M2): off GitHub with nothing to draft and the gated closing taken away, the reply still ends on an action:
+  // the could-not-confirm line (the users question, when the reply asked it, is a kept Say).
+  const offClosed = offDraft && !keptSay && !offDraftSay && /\bSay\b/.test(closingLine);
+  const body = against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO]
+    : offDraft ? (offDraftSay ? [...kept, '', draftToSend(target.named)] : offClosed ? [...kept, '', CANT_CONFIRM_REPO(key)] : kept)
+    // v6.1.20 review C1: a line that keeps the Say stays last; the could-not-confirm sentence goes before it.
+    : keptSay ? [...kept.slice(0, -1), CANT_CONFIRM_REPO(key), '', kept.at(-1)!] : [...kept, '', CANT_CONFIRM_REPO(key)];
   return {
     ...r,
-    // v6.1.20 review C1: a line that keeps the Say stays last; the could-not-confirm sentence goes before it.
-    show_to_builder: fit(against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO]
-      : keptSay ? [...kept.slice(0, -1), CANT_CONFIRM_REPO(key), '', kept.at(-1)!] : [...kept, '', CANT_CONFIRM_REPO(key)]).join('\n'),
+    show_to_builder: fit(body).join('\n'),
     // The could-not-confirm reply asks the builder to send it; the agent may still draft it for them (fix round 1, I1).
     agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE, ...(drafts || (!against && gate) ? [DRAFT_NOTE(target.id)] : [])].filter(Boolean).join('\n'),
   };
@@ -1503,9 +1547,16 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     }
     return builderHeld.has(id) ? { ...r, held: true } : r;
   };
+  // L47-6 (v6.1.22): a program won in an earlier round says so after its row.
+  const hereProject = (p: string | null) => p === key || p === i.project_id || p === side?.projectId;
+  const earlierHere = await earlierWins(owner, hereProject);
+  const withEarlier = <T extends { program_id: string }>(r: T): T => {
+    const w = earlierHere.get(r.program_id);
+    return w === undefined ? r : { ...r, earlier_win: w ? amountsText(w) || null : null };
+  };
   const { ready, gaps } = numbered(
-    shownReady.map((v) => marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)))),
-    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v))),
+    shownReady.map((v) => withEarlier(marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id))))),
+    shownGaps.map((v) => withEarlier(gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v)))),
     // L38 big 3 (v6.1.18 Task 10): every in-person gap shown is numbered in the In person block.
     (g) => g.in_person,
   );
@@ -1561,7 +1612,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const r0: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
-    ledger, applications: await applicationsOf(owner), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
+    ledger, applications: await applicationsOf(owner, hereProject), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
     ...(drafted.length > 0 ? { drafted } : {}),
     ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),
@@ -1619,7 +1670,11 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const namedIn = (id: string) => asked && sentAsk.named.includes(id);
   const shownSent = (r.ask_sent ?? []).filter((a) => namedIn(a.program_id));
   const shownRel = r.released.filter((p) => p.ask && namedIn(p.program_id));
-  await markSentAsked(ctx.installationId, owner, [...shownSent, ...shownRel].map((x) => x.program_id), ctx.now);
+  // L47-4 (v6.1.22): each with its project; a kept claim's release line its own (fix round 1, Minor 4; '' for none).
+  await markSentAsked(ctx.installationId, owner, [
+    ...shownSent.map((a) => ({ program_id: a.program_id, project_id: a.project_id })),
+    ...shownRel.map((p) => ({ program_id: p.program_id, project_id: p.project_id ?? null })),
+  ], ctx.now);
   const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
   const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
   const hiddenOut = said.hidden.filter((l) => !(l.startsWith('Did you send ') && unshown.some((a) => l.includes(shortTitle(a.title, repoOpt.shorts.get(a.program_id))))));

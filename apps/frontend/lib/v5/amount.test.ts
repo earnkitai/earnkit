@@ -122,6 +122,12 @@ test('L47-1 (v6.1.19.1): a coin keeps up to 8 places, every other currency 2; th
   assert.equal(roundIn(2.555, 'EUR'), 2.56);
   assert.equal(roundIn(0.001, 'USD'), 0);
   assert.equal(underADollarLine('USD'), UNDER_A_DOLLAR);
-  assert.equal(UNDER_A_DOLLAR, 'Tell me the amount in whole dollars, 1 or more.');
+  assert.equal(UNDER_A_DOLLAR, 'Tell me the amount, 1 dollar or more.');
   for (const c of ['ETH', 'BTC', 'SOL', 'EUR', 'JPY']) assert.equal(underADollarLine(c), 'That amount is too small to record. Tell me the amount and its currency.', c);
+});
+
+test('L47-13 (v6.1.22): under a dollar reads "1 dollar or more"; cents stay accepted', () => {
+  assert.equal(underADollarLine('USD'), 'Tell me the amount, 1 dollar or more.');
+  assert.equal(underADollarLine('ETH'), 'That amount is too small to record. Tell me the amount and its currency.');
+  assert.deepEqual(readAmount({ amount: '1.50 USD' }), { value: 1.5, currency: 'USD' });
 });

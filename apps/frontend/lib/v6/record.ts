@@ -447,8 +447,11 @@ export const TRACTION_APPROVE = 'your traction line approved';
 /** The record item for a project with a link (lane 8 #10, v6.1.10: never missing on a find that passed a repo). */
 export const PROJECT_ITEM = 'a project with its repo or site';
 
-/** `traction` (L46-7, v6.1.20): false when no form these programs hold reads traction, so the line is not asked. */
-type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnswer?: boolean; traction?: boolean };
+/**
+ * `traction` (L46-7, v6.1.20): false when no form these programs hold reads traction, so the line is not asked.
+ * `contact` (L46-17, v6.1.22): false when no form these programs hold reads a name or an email, so neither is asked.
+ */
+type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnswer?: boolean; traction?: boolean; contact?: boolean };
 
 /**
  * The items the open programs ask of the record (`total`) and the ones it lacks, in builder words (`missing`). `needs`:
@@ -471,8 +474,8 @@ export const heldWords = (record: BuilderRecord): string[] =>
 
 function itemsOf(record: BuilderRecord, o: Asks): [boolean, string][] {
   const items: [boolean, string][] = [];
-  // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
-  items.push([Boolean(record.person.name), 'your name'], [Boolean(record.person.email), 'your email']);
+  // Two items, so a saved name is no longer named as missing (v6.1.7 C12); L46-17 (v6.1.22): only for a form that reads them.
+  if (o.contact !== false) items.push([Boolean(record.person.name), 'your name'], [Boolean(record.person.email), 'your email']);
   items.push([record.projects.some((p) => p.repo_url || p.live_url), PROJECT_ITEM]);
   // L46-7 (v6.1.20): asked only for a form that reads traction; once typed it is used, and only its approval is named.
   if (!o.verifiedUsage && o.traction !== false)

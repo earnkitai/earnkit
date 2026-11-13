@@ -25,14 +25,16 @@ function dayOf(p: ProgramRow['file'], now: Date): string | null {
   return closeDay(p, now) ?? dayWords(new Date(p.ends_at), now);
 }
 
-/** The changed fields in builder words; `firstOpen`: no status change before this one, so it was never open (C33). Pure. */
-function whatOf(p: ProgramRow['file'], fields: Set<string>, firstOpen: boolean, now: Date): string | null {
+/** The changed fields in builder words; `firstOpen`: no status change before this one, so it was never open (C33).
+ *  `formWatched` (L46-15, v6.1.22): the owner has a draft out (started, not held, not sent), the only case a form
+ *  change is theirs to hear. Pure. */
+export function whatOf(p: ProgramRow['file'], fields: Set<string>, firstOpen: boolean, now: Date, formWatched = false): string | null {
   if (fields.has('status') && p.status === 'closed') return 'closed';
   const out: string[] = [];
   if (fields.has('status') && p.status === 'active') out.push(firstOpen ? 'now open' : 'open again');
   if (fields.has('ends_at')) out.push(p.ends_at ? `deadline moved to ${dayOf(p, now)}` : 'no deadline now');
   if (fields.has('max_award_usd')) out.push('amount changed');
-  if (FORM_FIELDS.some((f) => fields.has(f))) out.push('form changed');
+  if (formWatched && FORM_FIELDS.some((f) => fields.has(f))) out.push('form changed');
   return out.length > 0 ? out.join(', ') : null;
 }
 
@@ -48,8 +50,10 @@ export async function since(
   const byId = new Map(programs.map((p) => [p.id, p]));
   const shown = new Set([...ready, ...gaps]);
 
-  const applied = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM applications WHERE owner = ${owner} AND status <> 'skipped'`;
+  const applied = await sql()<{ program_id: string; status: string; held_at: Date | null }[]>`
+    SELECT program_id, status, held_at FROM applications WHERE owner = ${owner} AND status <> 'skipped'`;
+  // L46-15 (v6.1.22): a form change is said only for a program this owner has started and not sent.
+  const drafting = new Set(applied.filter((r) => r.status === 'started' && r.held_at === null).map((r) => r.program_id));
   const watched = new Set([...shown, ...applied.map((r) => r.program_id)]);
   const rows = await sql()<{ program_id: string; fields: string[] }[]>`
     SELECT program_id, fields FROM program_changes
@@ -74,7 +78,7 @@ export async function since(
   const changed: Since['changed'] = [];
   for (const [id, fields] of fieldsOf) {
     const p = byId.get(id);
-    const what = p && !fresh(id) ? whatOf(p.file, fields, (statusChanges.get(id) ?? 0) <= 1, now) : null;
+    const what = p && !fresh(id) ? whatOf(p.file, fields, (statusChanges.get(id) ?? 0) <= 1, now, drafting.has(id)) : null;
     if (p && what) changed.push({ program_id: id, title: p.file.title, what });
   }
   const closing: Since['closing'] = [];

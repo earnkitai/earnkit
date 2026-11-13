@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LLMS_TEXT } from './llms';
-import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, SESSION_START, TRACK_DESCRIPTION } from './tool-text';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, SESSION_START, SHOW_REPLY, TRACK_DESCRIPTION } from './tool-text';
 import { APPROVAL_LINE } from './site-copy';
 
 test('#2 (v6.1.15): llms.txt carries the session order and each tool description byte for byte from the server', () => {
@@ -29,4 +29,12 @@ test('the mcp module re-exports the tool text unchanged', async () => {
   assert.equal(mcp.TRACK_DESCRIPTION, TRACK_DESCRIPTION);
   assert.equal(mcp.RECORD_DESCRIPTION, RECORD_DESCRIPTION);
   assert.equal(mcp.SCREEN_DESCRIPTION, SCREEN_DESCRIPTION);
+});
+
+test('L46-11 (v6.1.22): the instructions let the agent translate, and llms.txt says the same words', () => {
+  const show = "Show find's reply as given, in the builder's language when they write in another (names, money and links unchanged); shorten if you must, keep money first and the last action.";
+  assert.equal(SHOW_REPLY, show);
+  assert.ok(SERVER_INSTRUCTIONS.startsWith(`${SESSION_START} ${show} `));
+  assert.match(SERVER_INSTRUCTIONS, /in the builder's language when they write in another/);
+  assert.ok(LLMS_TEXT.includes(`what is one change away. The agent's rule: ${show}\n`));
 });

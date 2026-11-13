@@ -17,6 +17,11 @@ async function installation() {
   return r.id as number;
 }
 
+/** L46-15: a draft out (a started claim, not held) for this owner. */
+const started = (id: number, program: string, held = false) =>
+  sql()`INSERT INTO applications (owner, installation_id, program_id, project_id, status, at, claimed_at, held_at)
+    VALUES (${`i:${id}`}, ${id}, ${program}, 'p1', 'started', ${at(-5)}, ${at(-5)}, ${held ? at(-4) : null})`;
+
 test('empty on the first find', async () => {
   const id = await installation();
   await upsertProgram(programFixture({ id: 's-first', ends_at: at(48).toISOString() }), 'file', at(1));
@@ -55,6 +60,7 @@ test('an amount and a form change', async () => {
   await upsertProgram(programFixture({ id: 's-amt', max_award_usd: 9000 }), 'file', at(1));
   await upsertProgram(programFixture({ id: 's-form', submission_url: 'https://example.com/a' }), 'file', at(-10));
   await upsertProgram(programFixture({ id: 's-form', submission_url: 'https://example.com/b' }), 'file', at(1));
+  await started(id, 's-form');
   const s = await since(`i:${id}`, T0, await listOpenPrograms(at(2)), ['s-amt', 's-form'], at(2));
   assert.deepEqual(s.changed.map((c) => [c.program_id, c.what]).sort(), [['s-amt', 'amount changed'], ['s-form', 'form changed']]);
 });
@@ -68,4 +74,21 @@ test('C33: a program opening for the first time is "now open"; one that was open
   await upsertProgram(programFixture({ id: 's-reopen', status: 'active' }), 'file', at(1));
   const s = await since(`i:${id}`, T0, await listOpenPrograms(at(2)), ['s-first-open', 's-reopen'], at(2));
   assert.deepEqual(s.changed.map((c) => [c.program_id, c.what]).sort(), [['s-first-open', 'now open'], ['s-reopen', 'open again']]);
+});
+
+test('L46-15 (v6.1.22): a sent program\'s form change is not said; a started one\'s is', async () => {
+  const id = await installation();
+  const p = (o: Parameters<typeof programFixture>[0]) => programFixture({ ends_at: at(24 * 20).toISOString(), ...o });
+  for (const [pid, title] of [['s15-floss', 'FLOSS/fund'], ['s15-codegeist', 'Codegeist 2026'], ['s15-held', 'Held Grant'], ['s15-shown', 'Shown Grant']]) {
+    await upsertProgram(p({ id: pid, title, submission_url: 'https://example.com/a' }), 'file', at(-10));
+  }
+  await record(`i:${id}`, 's15-floss', 'applied', { now: at(-5) });
+  await started(id, 's15-codegeist');
+  await started(id, 's15-held', true);
+  for (const pid of ['s15-floss', 's15-codegeist', 's15-held', 's15-shown'])
+    await upsertProgram(p({ id: pid, title: pid, submission_url: 'https://example.com/b' }), 'file', at(1));
+  // A deadline move is said as before, for a sent program too.
+  await upsertProgram(p({ id: 's15-floss', title: 's15-floss', submission_url: 'https://example.com/b', ends_at: '2026-11-20T23:59:00Z' }), 'file', at(1.5));
+  const s = await since(`i:${id}`, T0, await listOpenPrograms(at(2)), ['s15-shown', 's15-floss', 's15-codegeist', 's15-held'], at(2));
+  assert.deepEqual(s.changed.map((c) => [c.program_id, c.what]).sort(), [['s15-codegeist', 'form changed'], ['s15-floss', 'deadline moved to Nov 20']]);
 });

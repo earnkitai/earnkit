@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { NEEDS_CODE, NEEDS_PUBLIC_CODE, PUBLIC_REPO, codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
+import { CONTRACT_ADDRESS, NEEDS_CODE, NEEDS_PUBLIC_CODE, PUBLIC_REPO, codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
 import { readmeExcerpt, repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile, eligibilityOf } from './program-file';
@@ -310,11 +310,22 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does.
   assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a public repo');
-  // L18-2 (v6.1.18): hackathons no longer exempt: with no repo link the code is the step there too; an empty repo
-  // (the entry itself is the code) stays a step only for a grant for existing code.
+  // L18-2 (v6.1.18): hackathons no longer exempt: with no repo link the code is the step there too. L1m-5 (v6.1.22):
+  // an empty repo is the code step there too.
   const qnx = fromFile('qnx-global-hackathon-2026');
   assert.equal(evaluate(qnx, idea, new Set(), NOW).gaps[0].what, 'code in a public repo');
-  assert.ok(!evaluate(qnx, empty, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  assert.deepEqual(evaluate(qnx, empty, new Set(), NOW).gaps[0], NEEDS_CODE);
+});
+
+test('L1m-5 (v6.1.22): an empty repo on QNX needs the code first and no license step', async () => {
+  const qnx = fromFile('qnx-global-hackathon-2026');
+  const empty = await factsOf('empty-repo');
+  const v = evaluate(qnx, { ...empty, notes: ['empty'], license: null }, new Set(), NOW);
+  // The code first; the demo video and the QNX rule stay; no license file step (it waits for code, as on any repo step).
+  assert.deepEqual(v.gaps.map((g) => g.what), ['code in a repo', 'a demo video link (a short screen recording of it working)', 'runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software']);
+  assert.ok(!v.gaps.some((g) => /license/i.test(`${g.item} ${g.what}`)), JSON.stringify(v.gaps));  // A repo with code and no license does get the license step.
+  const code = evaluate(qnx, { ...empty, notes: [], license: null, first_commit_at: '2026-06-01T00:00:00Z' }, new Set(), NOW);
+  assert.ok(code.gaps.some((g) => /license/i.test(`${g.item} ${g.what}`)), JSON.stringify(code.gaps));
 });
 
 test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {
@@ -778,4 +789,76 @@ test('L46-3 (v6.1.20): the users yes never makes FLOSS/fund ready for a repo wit
   const v = evaluate(floss, unlicensed, new Set(), NOW);
   const g = { program_id: 'floss-fund-zerodha', title: 'FLOSS/fund', money: '$10,000 to $100,000', max_award_usd: 100000, category: 'grant', closes_at: null, gap: v.gaps[0], also: [], rules: [], in_person: false, setup: [], n: 1 };
   assert.equal(gapSentence(g as never), '1. FLOSS/fund ($10,000 to $100,000) needs a license file first.');
+});
+
+test('L46-10 (v6.1.22): an audit program is a no for a project with no chain and no contracts; on a chain, the contract address is the one step', async () => {
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const chainlensFacts: RepoFacts = {
+    ...base, name: 'Chainlens', description: 'Dashboards and charts on Ethereum data for analysts.', repo_url: 'https://github.com/l46/chainlens', public: true,
+    readme_excerpt: 'Chainlens reads Ethereum blocks and shows them as dashboards.', topics: ['analytics', 'dashboard'],
+    chains: [{ chain: 'ethereum', mainnet: true, basis: 'reported' }],
+  };
+  const essp = fromFile('ethereum-security-subsidy-program');
+  const rule = eligibilityOf(essp.file).find((i) => i.kind === 'rule')!;
+  // No chain at all: a no (ESSP's and Arbitrum's own chain items say so first; Uniswap's by the contracts check).
+  for (const [slug, reason] of [['ethereum-security-subsidy-program', 'needs a contract on Ethereum'], ['arbitrum-security-program', 'needs a contract on Arbitrum'], ['uniswap-foundation-security-fund', 'needs smart contracts to audit']]) {
+    const v = evaluate(fromFile(slug), { ...chainlensFacts, chains: [], contracts: [] }, new Set(), NOW);
+    assert.equal(v.status, 'no', slug);
+    assert.equal(v.reason, reason, slug);
+    assert.deepEqual(v.gaps, [], slug);
+  }
+  // On a chain with no address and no contract words: the address alone, the rule waits; an earlier yes changes nothing.
+  for (const slug of ['ethereum-security-subsidy-program', 'uniswap-foundation-security-fund']) {
+    const v = evaluate(fromFile(slug), { ...chainlensFacts, contracts: [] }, new Set(), NOW);
+    assert.equal(v.status, 'gap', slug);
+    assert.deepEqual(v.gaps, [CONTRACT_ADDRESS], slug);
+  }
+  assert.deepEqual(evaluate(essp, { ...chainlensFacts, contracts: [] }, new Set([ruleItem(rule.note!)]), NOW).gaps, [CONTRACT_ADDRESS]);
+  // A contract still to deploy on the program's chain is the step; the address is not asked as well.
+  const arb = evaluate(fromFile('arbitrum-security-program'), { ...chainlensFacts, contracts: [] }, new Set(), NOW);
+  assert.deepEqual(arb.gaps.map((g) => g.kind), ['chain']);
+  assert.deepEqual(CONTRACT_ADDRESS, { kind: 'repo', item: 'repo:contract', what: 'a contract address', setup: 'tell me the contract address', effort: 'minutes', agent_can: false });
+});
+
+test('L46-10b (v6.1.22): a contract read or a Solidity README keeps the audit rule as a question', async () => {
+  const essp = fromFile('ethereum-security-subsidy-program');
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({
+    ...base, name: 'Vault', description: 'A lending vault.', repo_url: 'https://github.com/l46/vault', public: true, chains: [{ chain: 'ethereum', mainnet: false, basis: 'code' }], ...over,
+  });
+  const ruleGap = (f: RepoFacts) => {
+    const v = evaluate(essp, f, new Set(), NOW);
+    assert.notEqual(v.status, 'no', JSON.stringify(v));
+    assert.ok(v.gaps.some((g) => g.kind === 'rule'), JSON.stringify(v));
+  };
+  ruleGap(facts({ contracts: [{ chain: 'ethereum', address: '0x' + 'b'.repeat(40), basis: 'reported' }] }));
+  ruleGap(facts({ readme_excerpt: 'Written in Solidity with Foundry; not deployed yet.' }));
+  ruleGap(facts({ description: 'A lending protocol on Ethereum.' }));
+  ruleGap(facts({ topics: ['vyper'] }));
+  ruleGap(facts({ name: 'Swap Hook' }));
+  // Whole words only: "protocols" or "hooked" name none, so the address is asked (the project is on a chain).
+  const words = evaluate(essp, facts({ description: 'Hooked on network protocols.', chains: [{ chain: 'ethereum', mainnet: true, basis: 'reported' }] }), new Set(), NOW);
+  assert.deepEqual(words.gaps, [CONTRACT_ADDRESS]);
+  // Still to deploy on the chain: that step stands and the address is not asked as well; the rule waits.
+  assert.deepEqual(evaluate(essp, facts({ description: 'Charts.' }), new Set(), NOW).gaps.map((g) => g.kind), ['chain']);
+});
+
+test('L46-10 (v6.1.22, Task 4 review minor 2): the address step is decided after the items, so their order never matters', async () => {
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts: RepoFacts = { ...base, name: 'Chainlens', description: 'Charts.', repo_url: 'https://github.com/l46/chainlens', public: true, contracts: [], chains: [{ chain: 'arbitrum', mainnet: true, basis: 'reported' }] };
+  const file = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', 'arbitrum-security-program.json'), 'utf8'));
+  const rule = file.eligibility.find((i: { kind: string }) => i.kind === 'rule');
+  const contractOn = { kind: 'contract_on', value: 'arbitrum' };
+  // A contract still to deploy on the chain is the one step either way; the address is never asked as well.
+  for (const eligibility of [[rule, contractOn], [contractOn, rule]]) {
+    const v = evaluate(toRow(ProgramFile.parse({ ...file, eligibility })), facts, new Set(), NOW);
+    assert.deepEqual(v.gaps.map((g) => g.kind), ['contract_on'], JSON.stringify(eligibility));
+  }
+});
+
+test('L46-10 (v6.1.22): only a rule takes check contracts', () => {
+  const essp = fromFile('ethereum-security-subsidy-program');
+  assert.ok(eligibilityOf(essp.file).some((i) => i.kind === 'rule' && i.check === 'contracts'));
+  assert.throws(() => ProgramFile.parse({ ...essp.file, eligibility: [{ kind: 'feature', value: 'x', check: 'contracts' }] }));
+  assert.throws(() => ProgramFile.parse({ ...essp.file, eligibility: [{ kind: 'rule', note: 'x', check: 'code' }] }));
 });

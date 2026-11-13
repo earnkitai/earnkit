@@ -5,11 +5,11 @@
  */
 import { EARNKIT_CUT_NOTE } from './prefill';
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, lowerFirst, shortTitle, signInCheck, signInThen, type ProofBar } from '../v6/reply-words';
-import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
+import { CONTRACT_ADDRESS, NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { MANIFEST_LINE } from './funding-manifest';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
-import { applicationsLine } from './ledger';
+import { EARLIER_WIN, applicationsLine } from './ledger';
 import { closesWords, dayWords } from './deadline';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
 import { isChainKept } from './project-input';
@@ -857,8 +857,15 @@ export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[]
   return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
 }
 
-/** L41-2 (v6.1.19): a draft this agent started under an hour ago for the builder to send, one line each. Pure. */
-export const draftedLines = (r: Pick<R, 'drafted'>): string[] => (r.drafted ?? []).map((d) => `${d.title}: drafted, waiting for you to send.`);
+/** L41-2 (v6.1.19): a draft this agent started under an hour ago for the builder to send. L47-S2 (v6.1.22): one line,
+ *  three named, then "and {k} more". Pure. */
+export const draftedLines = (r: Pick<R, 'drafted'>): string[] => {
+  const t = (r.drafted ?? []).map((d) => d.title);
+  if (t.length === 0) return [];
+  if (t.length === 1) return [`${t[0]}: drafted, waiting for you to send.`];
+  const named = t.length > 3 ? [...t.slice(0, 3), `${t.length - 3} more`] : t;
+  return [`Drafted, waiting for you to send: ${named.slice(0, -1).join(', ')} and ${named.at(-1)}.`];
+};
 
 /** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
 const SENT_SAY = 'Say sent and I note it.';
@@ -1033,7 +1040,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // list) only when no step is shown to close on.
   // A `public_first` program holds the public repo gap, so it is never rule-only: `stepRuleOf` is its guard.
   const firstStep = firstStepOf(steps);
-  const askable = steps.filter((g) => ruleOnlyGap(g) && !(g.unlikely && firstStep !== null));
+  // L1m-2 (v6.1.22): the rule Say names only a row whose one item is its rule (one step away); a row with a setup step
+  // beside its rule is never the closing's yes.
+  const askable = steps.filter((g) => ruleOnlyGap(g) && g.setup.length === 0 && [g.gap, ...g.also].every((x) => !x.setup) && !(g.unlikely && firstStep !== null));
   const firstRule = (askable.find((g) => g.keyword_hit) ?? askable[0])?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
@@ -1242,7 +1251,13 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const shownInMore = moreSteps.includes(gapShown);
   const l = r.ledger;
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
+  // Task 2 (v6.1.22): a program whose row says its earlier-round win leaves that win out of this line (said once).
+  // Fix round 1 (I1): only a row the 10-line cap keeps on screen, so the line is settled after the fit (`appsAfter`).
+  // Final fix round (M2): only this project's earlier-round item (`earlier`), so another project's win is still said.
+  const earlierOnRow = new Set([...ready, ...steps].filter((p) => p.earlier_win !== undefined).map((p) => p.program_id));
   const apps = applicationsLine(r.applications ?? [], now);
+  const appsAfter = (shownIds: string[]): string | null =>
+    applicationsLine((r.applications ?? []).filter((a) => !(a.earlier && earlierOnRow.has(a.program_id) && shownIds.includes(a.program_id))), now);
   const since = first ? null : sinceLine(r, now);
   // L23-16 (v6.1.16): the same list as the last find, and nothing else moved. L35-21 (v6.1.17): the same day reads "your
   // last look", never today's date.
@@ -1300,7 +1315,11 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const opening = openingSentence({ name: o.name, ready: free.length, held: heldReady.length, onHold: onHold.length, steps: steps.length, inPerson: attendCount, act: readyAct });
   const room = DEFAULT_LINES - (sayLine ? 1 : 0) - 1 - (attendRows.length > 0 ? 1 : 0);
   const once = fit(slots, room);
-  const { kept, hidden, shown, rows } = attendRows.length === 0 && hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
+  const fitted = attendRows.length === 0 && hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
+  const { hidden, shown, rows } = fitted;
+  // Fix round 1 (I1): the applications line drops an earlier-round win only when its row is shown; a line left empty goes.
+  const settled = apps ? appsAfter(shown) : null;
+  const kept = apps && settled !== apps ? fitted.kept.flatMap((l) => (l === apps ? (settled ? [settled] : []) : [l])) : fitted.kept;
   const left = hiddenOf(shown) + capHidden;
   // Task 7 (v6.1.18): by id, never by title (two programs may share one).
   const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shown.includes(c.program_id) && !attendIds.includes(c.program_id)).map((c) => ({ ...c, title: shortTitle(c.title, o.shorts?.get(c.program_id)) }));
@@ -1404,7 +1423,7 @@ export function fullView(blocks: [string, (ReadyProgram | GapProgram)[]][], afte
   const line = (p: ReadyProgram | GapProgram, head: string) => {
     const when = closes?.get(p.program_id) || p.closes_in;
     const inPerson = p.in_person && head !== IN_PERSON_HEAD;
-    return `${p.n}. ${p.title} (${[p.money, ...(when ? [`closes ${when}`] : []), ...(inPerson ? ['in person'] : [])].join(', ')})${clause[head] ? `, ${clause[head]}` : ''}.`;
+    return `${p.n}. ${p.title} (${[p.money, ...(when ? [`closes ${when}`] : []), ...(inPerson ? ['in person'] : [])].join(', ')})${clause[head] ? `, ${clause[head]}` : ''}.${earlierTail(p)}`;
   };
   const lead: Record<string, string> = { [NOT_READY_HEAD]: 'Not ready yet:', [IN_PERSON_HEAD]: 'In person:' };
   const runs = new Map<string, string[]>();
@@ -1485,7 +1504,12 @@ export function readyAction(p: ReadyProgram, o: ReadyOpts = {}): string {
 /** v6.1.20 polish (1): the opening's action for `n` ready rows ("I draft them for you to send."). Pure. */
 const actFor = (act: string, n: number): string =>
   n === 1 ? act : act.replace('I draft it for you to send.', 'I draft them for you to send.').replace('I send it under', 'I send them under');
+/** L47-6 (v6.1.22): a row's earlier-round win as its own sentence after the row, or nothing. Pure. */
+const earlierTail = (p: { earlier_win?: string | null }): string => (p.earlier_win === undefined ? '' : ` ${EARLIER_WIN(p.earlier_win)}`);
 export function readySentence(p: ReadyProgram, o: ReadyOpts = {}): string {
+  return `${readyRow(p, o)}${earlierTail(p)}`;
+}
+function readyRow(p: ReadyProgram, o: ReadyOpts = {}): string {
   const head = `${o.alone ? '' : `${p.n}. `}${p.title} ${moneyParen(p)}`;
   if (p.claimed_since) return `${head}, ${HELD_BY_OTHER}.`;
   if (p.held) return `${head}, ${ON_HOLD}.`;
@@ -1507,7 +1531,8 @@ function askedOf(g: GapProgram, closed: string | null = null): { needs: string[]
   const real = all.filter((x) => x.kind !== 'rule');
   const own = real.filter(readingGap).map((x) => x.what);
   const gaps = real.filter((x) => !readingGap(x)).map((x) => needWords(x.what));
-  const setup = [...all.flatMap((x) => (x.setup ? [x.setup] : [])).filter((x) => x !== closed), ...g.setup].map(needWords);
+  // L46-10 (v6.1.22, ruling 2): the contract address's own "tell me" step is the gap itself, never a second step.
+  const setup = [...all.flatMap((x) => (x.setup && x.item !== CONTRACT_ADDRESS.item ? [x.setup] : [])).filter((x) => x !== closed), ...g.setup].map(needWords);
   return { needs: [...gaps, ...setup], rules: all.filter((x) => x.kind === 'rule').map((x) => midSentence(x.what)), own };
 }
 /** v6.1.20: the own sentences after a gap row: the proof still being read, a step looked for again. Pure. */
@@ -1518,6 +1543,9 @@ const afterGap = (g: GapProgram, own: string[]): string => `${own.map((x) => ` $
  * the rule on screen. Pure.
  */
 export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
+  return `${gapRow(g, o)}${earlierTail(g)}`;
+}
+function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
   const head = `${g.n}. ${g.title} ${moneyParen(g)}`;
   const { needs, rules, own } = askedOf(g, o.closed ?? null);
   const yes = rules.length > 0 ? `one yes from you: ${rules.join('; ')}` : '';
@@ -1544,16 +1572,19 @@ export function gapState(g: GapProgram, closed: string | null = null): string {
 }
 /** v6.1.20: the one-program reply's head: "{title} ({money}, closes ...)." Pure. */
 export const oneHead = (title: string, money: string, when?: string | null): string => `${title} (${[money, ...(when ? [when] : [])].join(', ')}).`;
-/** v6.1.20: the one-program reply for a ready program: head, then "It is ready: {what EarnKit does}". Pure. */
+/** v6.1.22 (live check): the one-program reply for a ready program, one terse sentence: "{title} ({money}) is ready to
+ *  send." (a plain apply, the standing approval), "{title} ({money}) is ready: {what EarnKit does}" (its own action: the
+ *  funding file, a draft), "{title} ({money}) is ready, and your yes stands.". Pure. */
 export function readyState(p: ReadyProgram, o: { click?: boolean; needs?: string[]; standing?: boolean; stands?: boolean } = {}): string {
+  const head = oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null).replace(/\.$/, '');
   // The builder already said yes: the closing says what follows.
-  if (o.stands) return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready, and your yes stands.`;
+  if (o.stands) return `${head} is ready, and your yes stands.`;
   // Review M2: under the standing approval the closing says what happens; the state is only that it is ready.
-  if (o.standing) return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready.`;
-  const act = p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : READY_APPLY;
+  if (o.standing) return `${head} is ready to send.`;
+  const act = p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : null;
   const needs = (o.needs ?? []).map(bare);
   const give = needs.length > 0 ? ` You give your ${joinAnd(capped(needs))}.` : '';
-  return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready: ${lowerFirst(act)}${give}`;
+  return act ? `${head} is ready: ${lowerFirst(act)}${give}` : `${head} is ready to send.${give}`;
 }
 /** v6.1.20: an in-person program's own reply: head, "You attend in person.", the odds, then what it needs. Pure. */
 export function inPersonState(p: ReadyProgram): string {
@@ -1611,6 +1642,8 @@ export const unreadNote = (unread: string[]): string => {
 
 /** A contract the read still does not find may be on chain only (v6.1.9 fix round 1). */
 export const CONTRACT_NOTE = 'Pass the contract address if it is on chain.';
+/** L46-10 (v6.1.22, ruling 2): where the address the audit programs wait on goes. */
+export const CONTRACT_ADDRESS_NOTE = 'When the builder gives the contract address, pass it in project.chains[].contract and call find again.';
 /** Whether the gap's "looked again" names a contract. Pure. */
 export const contractLookedAgain = (g: Pick<GapProgram, 'looked_again'>): boolean => (g.looked_again ?? []).some((w) => /contract on /.test(w));
 
@@ -1655,7 +1688,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     return ["Show find's reply as given. Nothing is listed for this project now; pass users, live_url and chains whenever you know them, and call find again when the builder asks.", ...(sentAsked ? [sentAsked] : [])].join('\n');
   const tonightIds = tonightIn(r).list.map((t) => t.program_id);
   const lines = [
-    "Show find's reply as given; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts.",
+    // Task 2 (v6.1.22, from Task 4): the same translate clause as the server instructions.
+    "Show find's reply as given, translated into the builder's language when they write in another one; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts.",
     ...(r.ready.length === 0 ? [] : [r.linked
       ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given, ${CUT_NOTE}; ${AGENT_FIELDS}`
       : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`]),
@@ -1693,6 +1727,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:public' || x.item === 'repo:archived')))
     lines.push(REPO_STEP_NOTE);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
+  // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === CONTRACT_ADDRESS.item))) lines.push(CONTRACT_ADDRESS_NOTE);
   // L36-13 (v6.1.18): the demo video link goes in the project.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(DEMO_NOTE);
   // L29-19 (v6.1.16 Task 15): one way.

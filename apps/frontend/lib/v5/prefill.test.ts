@@ -687,3 +687,23 @@ test('L47-5 (v6.1.19.1): a count or score field is never filled from the tractio
   const prose = rowWith([req({ key: 'traction', label: 'Traction', type: 'text', kind: 'traction', todo: 'your traction' })]);
   assert.equal(prefill(prose, LINK_FACTS, rec(withLine)).fields[0].value, line);
 });
+
+test('L47-7 (v6.1.22): the record\'s phone and country fill their fields; with none they stay the builder\'s', async () => {
+  const row = fromFile('nlnet-open-call');
+  const facts = await factsOf('earnkit');
+  const record = mergeRecord(EMPTY_RECORD, { person: { name: 'Ada Lane', email: 'ada@example.com', phone: '+31 20 555 0100', based_country: 'NL' } }, 'builder', NOW).record;
+  const pick = (fields: { key: string; value: string | null; from: string }[], key: string) => (({ value, from }) => ({ value, from }))(fields.find((f) => f.key === key)!);
+  const fields = prefill(row, facts, { record, projectId: null, verifiedUsage: null }).fields;
+  assert.deepEqual(pick(fields, 'phone'), { value: '+31 20 555 0100', from: 'record' });
+  assert.deepEqual(pick(fields, 'country'), { value: 'Netherlands', from: 'record' });
+  const bare = prefill(row, facts, { record: mergeRecord(EMPTY_RECORD, { person: { name: 'Ada Lane' } }, 'builder', NOW).record, projectId: null, verifiedUsage: null }).fields;
+  assert.deepEqual(pick(bare, 'phone'), { value: null, from: 'builder' });
+  assert.deepEqual(pick(bare, 'country'), { value: null, from: 'builder' });
+  // A mobile field reads the phone too; telephone is not the whole word and stays the builder's.
+  const mobile = rowWith([req({ key: 'mobile', label: 'Mobile', type: 'text', kind: 'contact', from: 'builder' }), req({ key: 'tel', label: 'Telephone', type: 'text', kind: 'contact', from: 'builder' })]);
+  const m = prefill(mobile, facts, { record, projectId: null, verifiedUsage: null }).fields;
+  assert.deepEqual([pick(m, 'mobile'), pick(m, 'tel')], [{ value: '+31 20 555 0100', from: 'record' }, { value: null, from: 'builder' }]);
+  // Fix round 1 (Minor 6): a company's country is not the person's.
+  const org = rowWith(['Country of incorporation', 'Organisation country', 'Company country', 'Registered country'].map((label, n) => req({ key: `c${n}`, label, type: 'text', kind: 'contact', from: 'builder' })));
+  assert.deepEqual(prefill(org, facts, { record, projectId: null, verifiedUsage: null }).fields.map((f) => f.value), [null, null, null, null]);
+});

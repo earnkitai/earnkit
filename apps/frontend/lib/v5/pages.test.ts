@@ -409,7 +409,7 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
 test('L27-4 (v6.1.16): /link/nope is a page: 404 in the data with its h1 when sign-in is set up, 503 when not; a POST to it is 405', async () => {
   const keys = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_AUTH_SECRET'] as const;
   const saved = keys.map((k) => process.env[k]);
-  const view = (s: Awaited<ReturnType<typeof linkState>>) => html(React.createElement(LinkView, { s, code: 'nope', host: 'earnkit.com' }));
+  const view = (s: Awaited<ReturnType<typeof linkState>>) => html(React.createElement(LinkView, { s, code: 'nope' }));
   try {
     for (const k of keys) delete process.env[k];
     const off = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.201' }));
