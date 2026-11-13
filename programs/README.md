@@ -137,6 +137,15 @@ Leave it off a rule that asks more than the license (recent releases, open stand
 { "kind": "rule", "note": "an OSI-approved open source license", "check": "license" }
 ```
 
+A `rule` about smart contracts to audit (an audit subsidy) takes `"check": "contracts"`: a project with no contract read
+or reported, whose name, description, README excerpt and topics name none of `contract`, `contracts`, `smart contract`,
+`solidity`, `vyper`, `hook` or `protocol` (whole words), is a hard no, `needs smart contracts to audit`; with contracts
+the rule stays a question. So a dashboard on chain data gets no audit program; a Solidity protocol before deploy keeps it.
+
+```json
+{ "kind": "rule", "note": "a defined audit scope: lines of code and contract count", "check": "contracts" }
+```
+
 ### `form`
 
 The application form, so a draft can be pre-filled: `platform` (`google`, `airtable`, `tally`,

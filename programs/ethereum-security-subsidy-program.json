@@ -12,7 +12,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "chain", "value": "ethereum" },
-    { "kind": "rule", "note": "a defined audit scope: lines of code and contract count" }
+    { "kind": "rule", "note": "a defined audit scope: lines of code and contract count", "check": "contracts" }
   ],
   "ideas": [
     "An open source DeFi protocol nearing its first audit",

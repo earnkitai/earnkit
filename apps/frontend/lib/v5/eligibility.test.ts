@@ -779,3 +779,49 @@ test('L46-3 (v6.1.20): the users yes never makes FLOSS/fund ready for a repo wit
   const g = { program_id: 'floss-fund-zerodha', title: 'FLOSS/fund', money: '$10,000 to $100,000', max_award_usd: 100000, category: 'grant', closes_at: null, gap: v.gaps[0], also: [], rules: [], in_person: false, setup: [], n: 1 };
   assert.equal(gapSentence(g as never), '1. FLOSS/fund ($10,000 to $100,000) needs a license file first.');
 });
+
+test('L46-10 (v6.1.22): an audit program is a no for a project with no contracts', async () => {
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const chainlensFacts: RepoFacts = {
+    ...base, name: 'Chainlens', description: 'Dashboards and charts on Ethereum data for analysts.',
+    readme_excerpt: 'Chainlens reads Ethereum blocks and shows them as dashboards.', topics: ['analytics', 'dashboard'],
+    chains: [{ chain: 'ethereum', mainnet: true, basis: 'reported' }],
+  };
+  for (const slug of ['ethereum-security-subsidy-program', 'arbitrum-security-program', 'uniswap-foundation-security-fund']) {
+    const v = evaluate(fromFile(slug), { ...chainlensFacts, contracts: [] }, new Set(), NOW);
+    assert.equal(v.status, 'no', slug);
+    assert.equal(v.reason, 'needs smart contracts to audit', slug);
+    assert.deepEqual(v.gaps, [], slug);
+  }
+  // The builder's earlier yes to the rule does not make a dashboard auditable.
+  const essp = fromFile('ethereum-security-subsidy-program');
+  const rule = eligibilityOf(essp.file).find((i) => i.kind === 'rule')!;
+  assert.equal(evaluate(essp, { ...chainlensFacts, contracts: [] }, new Set([ruleItem(rule.note!)]), NOW).reason, 'needs smart contracts to audit');
+});
+
+test('L46-10b (v6.1.22): a contract read or a Solidity README keeps the audit rule as a question', async () => {
+  const essp = fromFile('ethereum-security-subsidy-program');
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({
+    ...base, name: 'Vault', description: 'A lending vault.', chains: [{ chain: 'ethereum', mainnet: false, basis: 'code' }], ...over,
+  });
+  const ruleGap = (f: RepoFacts) => {
+    const v = evaluate(essp, f, new Set(), NOW);
+    assert.notEqual(v.status, 'no', JSON.stringify(v));
+    assert.ok(v.gaps.some((g) => g.kind === 'rule'), JSON.stringify(v));
+  };
+  ruleGap(facts({ contracts: [{ chain: 'ethereum', address: '0x' + 'b'.repeat(40), basis: 'reported' }] }));
+  ruleGap(facts({ readme_excerpt: 'Written in Solidity with Foundry; not deployed yet.' }));
+  ruleGap(facts({ description: 'A lending protocol on Ethereum.' }));
+  ruleGap(facts({ topics: ['vyper'] }));
+  ruleGap(facts({ name: 'Swap Hook' }));
+  // Whole words only: "protocols" or "hooked" name none.
+  assert.equal(evaluate(essp, facts({ description: 'Hooked on network protocols.' }), new Set(), NOW).reason, 'needs smart contracts to audit');
+});
+
+test('L46-10 (v6.1.22): only a rule takes check contracts', () => {
+  const essp = fromFile('ethereum-security-subsidy-program');
+  assert.ok(eligibilityOf(essp.file).some((i) => i.kind === 'rule' && i.check === 'contracts'));
+  assert.throws(() => ProgramFile.parse({ ...essp.file, eligibility: [{ kind: 'feature', value: 'x', check: 'contracts' }] }));
+  assert.throws(() => ProgramFile.parse({ ...essp.file, eligibility: [{ kind: 'rule', note: 'x', check: 'code' }] }));
+});

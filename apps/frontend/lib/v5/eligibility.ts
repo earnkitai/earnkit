@@ -238,6 +238,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       }
       case 'in_person': inPerson = true; break;
       case 'rule': {
+        // L46-10 (v6.1.22): an audit program for a project with no smart contracts is a no, whatever was confirmed.
+        if (i.check === 'contracts' && !hasContracts(facts)) return out('no', [], 'needs smart contracts to audit');
         if (done.has(itemKey(i))) break;
         // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
         // the license file gap (once, and closed by its own done); anything else keeps the question. An archived repo's
@@ -317,6 +319,16 @@ const unhyphen = (s: string): string => s.replace(/-/g, ' ');
 /** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side), any case. Pure. */
 export const names = (text: string, phrase: string): boolean =>
   new RegExp(`(?<![\\p{L}\\p{N}])${unhyphen(phrase.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(unhyphen(text.toLowerCase()));
+
+/** L46-10 (v6.1.22): the words that name smart contracts in a project's own words (whole words, lower-cased). */
+const CONTRACT_WORDS = ['contract', 'contracts', 'smart contract', 'solidity', 'vyper', 'hook', 'protocol'];
+/** L46-10 (v6.1.22): whether the project has smart contracts: one read or reported (find merges reported addresses into
+ *  `contracts`), or its name, description, README excerpt or topics name one of CONTRACT_WORDS. Pure. */
+export const hasContracts = (facts: RepoFacts): boolean => {
+  if (facts.contracts.length > 0) return true;
+  const own = [...[facts.name, facts.description, facts.readme_excerpt ?? ''].map((t) => wordsOf(proseOf(t), new Set())), ...(facts.topics ?? [])].join('\n');
+  return CONTRACT_WORDS.some((w) => names(own, w));
+};
 
 /**
  * L1c-2 (v6.1.10): whether the program's rule is unlikely to be the project's. True when a rule still to confirm (in

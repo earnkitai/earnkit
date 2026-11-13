@@ -1,6 +1,6 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
 import { AGENTS, MCP_URL, type Agent } from './agents';
-import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, TRACK_DESCRIPTION } from './tool-text';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SHOW_REPLY, TRACK_DESCRIPTION } from './tool-text';
 import { APPROVAL_LINE } from './site-copy';
 
 /** llms.txt's first session step (L25-7, v6.1.16): find first, record once signed in. */
@@ -38,7 +38,7 @@ Then ask your agent: "What can I earn?"
 
 1. ${LLMS_SESSION_FIRST} EarnKit reads the public repo; for a private repo it uses what the agent reports.
 2. The reply lists every program the repo fits, money first, with the application pre-filled from
-   the record and the repo, and what is one change away.
+   the record and the repo, and what is one change away. The agent's rule: ${SHOW_REPLY}
 3. The builder says yes. The agent calls track with started, drafts and submits in its own browser,
    then calls track with applied. EarnKit never submits.
 4. The agent calls track with the result, won or rejected. Once results are due, EarnKit asks how it went until one is recorded.
