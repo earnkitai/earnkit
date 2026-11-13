@@ -82,6 +82,23 @@ const PERSONAL = /^(amounts?|budgets?|consents?|birth.*|phones?|age|ages|citizen
 const isPersonal = (r: SubmissionRequirement) => PERSONAL_KINDS.has(r.kind) || fieldWords(r).some((w) => PERSONAL.test(w));
 
 /**
+ * v6.1.19.1 (L47-5): a field that asks for a number (a count or a score: `# of Stars`, `Criticality Score`, `Estimated
+ * number of ... users / downloads`), by its key and label. The traction sentence never fills it. Pure.
+ */
+export function isCountField(r: Pick<SubmissionRequirement, 'key' | 'label' | 'type'>): boolean {
+  // The program schema has no number type, so only a text field's words decide (review M6).
+  if (r.type !== 'text') return false;
+  const w = [...words(r.key), ...words(r.label)];
+  const numeric = r.label.includes('#') || /\bnumber of\b|\bhow many\b/i.test(r.label);
+  // Review M3: downloads, users and installs only with a number word (`#`, `number of`, `how many`).
+  return w.some((x) => ['star', 'stars', 'score', 'count'].includes(x)) || (numeric && w.some((x) => ['users', 'downloads', 'installs'].includes(x)));
+}
+/** v6.1.19.1 (L47-5): a stars field asks for the repo's star count, read on its GitHub page. Pure. */
+const asksStars = (r: Pick<SubmissionRequirement, 'key' | 'label'>): boolean => [...words(r.key), ...words(r.label)].some((x) => x === 'star' || x === 'stars');
+/** v6.1.19.1 (L47-5): where the agent reads a star count. */
+export const starSource = (repoUrl: string) => `the star count on ${repoUrl}`;
+
+/**
  * Which URL a links field takes, by its key and label: the live or the repo URL only; 'any' (a generic link: live, else repo);
  * 'both' (a text field labelled only "links" or "relevant links"); or null, the builder's.
  */
@@ -304,6 +321,8 @@ export function recordValue(r: SubmissionRequirement, rec: RecordContext): FromR
   const tk = teamKindFor(r);
   if (tk && tk !== 'team') return r.type === 'file' ? null : (v => (v ? { value: v, prose: false } : null))(teamFact(tk, r, record));
   if (r.type === 'file' || r.type === 'choice' || r.type === 'multi_choice') return null;
+  // v6.1.19.1 (L47-5): a count or score is never the traction sentence (nor any record answer).
+  if (isCountField(r)) return null;
   const project = record.projects.find((p) => p.id === projectId) ?? null;
   const fact = (value: string | null | undefined): FromRecord => (value ? { value, prose: false } : null);
   switch (r.kind) {
@@ -397,6 +416,13 @@ export function prefill(
     // L28-8 (v6.1.16 Task 14): a team question the record holds no fact for is the builder's to answer.
     const tk = teamKindFor(r);
     if (tk && tk !== 'team') return { ...base, value: null, from: 'builder', todo: NEEDS_ANSWER };
+    // v6.1.19.1 (L47-5): a count or score: the agent reads a star count off the GitHub repo EarnKit read; any other
+    // number is the builder's.
+    if (isCountField(r)) {
+      if (asksStars(r) && facts.repo_url?.startsWith('https://github.com/') && !facts.as_reported)
+        return { ...base, value: null, from: 'agent', sources: [starSource(facts.repo_url)] };
+      return { ...base, value: null, from: 'builder' };
+    }
     // Linked or not, traction, money raised, consents, amounts and personal facts are the builder's: never guessed, never drafted.
     if (isPersonal(r)) return { ...base, value: null, from: 'builder' };
     // L18-4 (v6.1.18 Task 4): how the builder heard of the program is EarnKit's to say.

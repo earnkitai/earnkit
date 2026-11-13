@@ -14,6 +14,7 @@
  * (L44-18). Never names a builder.
  */
 import { createHash } from 'node:crypto';
+import { placesOf } from './amount';
 import { sql } from './db';
 import { BESIDE_NOTE } from './ledger';
 import { ownerMail, type Mailer } from './mail';
@@ -85,7 +86,8 @@ const countWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 const age = (days: number) => (days <= 0 ? 'since today' : days === 1 ? '1 day' : `${days} days`);
 /** Money as given: `$5,000` for US dollars, else `2,000 EUR`; never converted. Pure. */
 const money = (m: { currency: string; amount: number }) => {
-  const n = m.amount.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  // v6.1.19.1 (L47-1): a coin shows its places, up to 8.
+  const n = m.amount.toLocaleString('en-US', { maximumFractionDigits: placesOf(m.currency) });
   return m.currency === 'USD' ? `$${n}` : `${n} ${m.currency}`;
 };
 
