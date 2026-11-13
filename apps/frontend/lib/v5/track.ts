@@ -855,7 +855,8 @@ async function act(
   const title = await titleOf(owner, i.program_id);
   // The win as the ledger now holds it (its currency resolved there); a further payment names its own currency.
   // L28-4 (v6.1.16 Task 14): the row just written, read back by its own project key.
-  const rowKey = (await rowHere(owner, i.program_id, appKey, RESULT_STATUSES.includes(i.status)))?.project_id ?? appKey;
+  // v6.1.19.1 (L47-2): a win is read back by its own project, as ledger.record wrote it.
+  const rowKey = (await rowHere(owner, i.program_id, appKey, RESULT_STATUSES.includes(i.status) && i.status !== 'won'))?.project_id ?? appKey;
   const kept = i.status === 'won' ? (await resultOf(owner, i.program_id, rowKey))?.amounts ?? null : null;
   const wonText = kept ? amountsText(kept) : amount ? moneyText(amount.value, amount.currency) : '';
   const wonCurrency = (total: Record<string, number>) =>

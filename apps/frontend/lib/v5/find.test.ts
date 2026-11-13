@@ -4467,3 +4467,19 @@ test('Task 10 fix round 1 (I1, M5): the gate drops every sign-in sentence wherev
   assert.equal(change, `Sign in at ${link} so I know the repo is yours, then say yes and I add Base Builder Codes, then apply to Base Builder Grant Program.`);
   assert.match(change, APPLY_OFFER);
 });
+
+test('L1m-1 (v6.1.19.1): a cache row from before v6.1.18 (no license) is re-read before the first find answers when reads are allowed, so a licensed repo gets no license question', async () => {
+  const project = { ...RIPGREP, users: true };
+  await sql()`DELETE FROM repo_cache`;
+  const mit = () => replayFetch('nextjs-dashboard', (u, b) => (/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace('"license":null', '"license":{"key":"mit","spdx_id":"MIT"}') : b));
+  const first = mit();
+  await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: first.fetch }, 'find', { program_id: 'herodevs-sustainability-fund', project });
+  // The row as the pre-v6.1.18 cache wrote it, read a minute ago: usable (fork, archived) but no license key.
+  await sql()`UPDATE repo_cache SET facts = facts - 'license' - 'license_read', fetched_at = ${new Date(NOW.getTime() - 60_000)}`;
+  const second = mit();
+  const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: second.fetch }, 'find', { program_id: 'herodevs-sustainability-fund', project });
+  assert.ok(second.calls.some((u) => /api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u)), 'the old row is read again before the answer');
+  assert.deepEqual((r.reply!.verdict as { gaps: { what: string }[] }).gaps.map((g) => g.what), ['a developer tool whose versions are near or past official end of life'], r.reply!.show_to_builder as string);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /licen[cs]e/i);
+  assert.equal((await sql()`SELECT facts->>'license' AS license FROM repo_cache`)[0].license, 'MIT');
+});

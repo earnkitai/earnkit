@@ -22,6 +22,20 @@ export const UNKNOWN_CODES = (codes: string[]): string => {
 export const SAY_CURRENCY = 'Say the amount with its currency.';
 /** L45-3 (v6.1.19): the builder line for a win under one dollar (after conversion). */
 export const UNDER_A_DOLLAR = 'Tell me the amount in whole dollars, 1 or more.';
+/** v6.1.19.1 (L47-1): the line for a win in another currency worth under a dollar at its floor rate; the whole-dollar
+ *  line (`UNDER_A_DOLLAR`) is for US dollars only. */
+export const UNDER_A_DOLLAR_OTHER = 'That amount is too small to record. Tell me the amount and its currency.';
+/** v6.1.19.1 (L47-1): the under-a-dollar line for a win in this currency. Pure. */
+export const underADollarLine = (currency: string): string => (currency.trim().toUpperCase() === 'USD' ? UNDER_A_DOLLAR : UNDER_A_DOLLAR_OTHER);
+/** v6.1.19.1 (L47-1): the coins whose wins keep up to 8 places (`0.001 ETH` stays 0.001); every other currency keeps 2. */
+const COIN_PLACES: readonly string[] = ['ETH', 'BTC', 'SOL'];
+/** v6.1.19.1 (L47-1): the decimal places a win in this currency keeps: 8 for ETH, BTC and SOL, else 2. Pure. */
+export const placesOf = (currency: string): number => (COIN_PLACES.includes(currency.trim().toUpperCase()) ? 8 : 2);
+/** v6.1.19.1 (L47-1): the amount rounded to its currency's places, as it is stored and shown. Pure. */
+export const roundIn = (value: number, currency: string): number => {
+  const f = 10 ** placesOf(currency);
+  return Math.round(value * f) / f;
+};
 /** L45-15 (v6.1.19): the builder line when the agent's amount arguments were malformed (the fix is in the note). */
 export const TELL_AMOUNT = 'Tell me the amount.';
 const SYMBOLS: Record<string, string> = { $: 'USD', '€': 'EUR', '£': 'GBP' };

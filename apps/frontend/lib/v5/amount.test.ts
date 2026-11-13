@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAP_RATES, KNOWN_CURRENCIES, UNKNOWN_CURRENCY, amountsOverCap, overCap, readAmount, underADollar, usdAt } from './amount';
+import { CAP_RATES, KNOWN_CURRENCIES, UNDER_A_DOLLAR, UNKNOWN_CURRENCY, amountsOverCap, overCap, placesOf, readAmount, roundIn, underADollar, underADollarLine, usdAt } from './amount';
 
 test('L22-6 (v6.1.16): the seven spellings read 5,000 in USD, USD, USD, USD, USD, EUR and GBP', () => {
   const read = ['5k', '$5,000', '5000 USD', 'USD 5000', '5,000.00', '€5000', '£5000'].map((amount) => readAmount({ amount }));
@@ -107,4 +107,21 @@ test('L45-3 (v6.1.19): a win under one dollar once converted is under a dollar; 
   assert.equal(underADollar(0.0001, 'BTC'), false, '$2 at the floor bound');
   assert.equal(underADollar(0.04, 'SOL'), true);
   assert.equal(underADollar(0.05, 'SOL'), false);
+});
+
+test('L47-1 (v6.1.19.1): a coin keeps up to 8 places, every other currency 2; the whole-dollar line is for US dollars only', () => {
+  assert.equal(placesOf('ETH'), 8);
+  assert.equal(placesOf('BTC'), 8);
+  assert.equal(placesOf('SOL'), 8);
+  assert.equal(placesOf('USD'), 2);
+  assert.equal(placesOf('EUR'), 2);
+  assert.equal(placesOf('USDC'), 2);
+  assert.equal(roundIn(0.001, 'ETH'), 0.001);
+  assert.equal(roundIn(0.0004, 'BTC'), 0.0004);
+  assert.equal(roundIn(0.123456789, 'SOL'), 0.12345679);
+  assert.equal(roundIn(2.555, 'EUR'), 2.56);
+  assert.equal(roundIn(0.001, 'USD'), 0);
+  assert.equal(underADollarLine('USD'), UNDER_A_DOLLAR);
+  assert.equal(UNDER_A_DOLLAR, 'Tell me the amount in whole dollars, 1 or more.');
+  for (const c of ['ETH', 'BTC', 'SOL', 'EUR', 'JPY']) assert.equal(underADollarLine(c), 'That amount is too small to record. Tell me the amount and its currency.', c);
 });

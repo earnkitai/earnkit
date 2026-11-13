@@ -68,9 +68,20 @@ export const sendTime = (db: Sql) => db`CASE WHEN a.sent_at IS NOT NULL THEN a.s
  * send after a hold is reported. Fix round 1: the start is compared with `sendTime`, so a send with none (an outside
  * win recorded over a claim) is never through EarnKit.
  */
+/**
+ * v6.1.19.1 (L47-3): also a builder's send made the draft way (no start; the agent recorded `applied` with submitted_by
+ * builder, so `sent_by_installation_id` is that agent) when that installation found the program for the project first:
+ * a saved find report for the owner and project (`project_reports`, by key; its time moves with each find, so it is not
+ * compared), or a track by that installation on the program before the send (a rule confirmed, a skip, an unskip; a
+ * hold stays reported, L42-5). A send with no send time stays reported, and a /me send with no agent linked names none.
+ */
 export const throughEarnkit = (db: Sql) => db`(COALESCE(a.submitted_by, 'agent') = 'agent' OR EXISTS (
   SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id
-    AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'started' AND h.at < ${sendTime(db)}))`;
+    AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'started' AND h.at < ${sendTime(db)})
+  OR (a.submitted_by = 'builder' AND a.sent_by_installation_id IS NOT NULL AND ${sendTime(db)} IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM project_reports r WHERE r.owner = a.owner AND r.project_key = COALESCE(a.project_id, '') AND r.project_key <> '')
+    OR EXISTS (SELECT 1 FROM application_history h WHERE h.installation_id = a.sent_by_installation_id AND h.program_id = a.program_id
+      AND h.status IN ('gap_done', 'skipped', 'unskip') AND h.at < ${sendTime(db)}))))`;
 
 /** Every send (applied or any result) with its send time (`sendTime`, null for an undated one) and `through` (throughEarnkit). */
 export const sendRows = (db: Sql) => db`

@@ -4,6 +4,7 @@
  * the one the owner's Grok Bot and other readers already parse.
  */
 import { revalidatePath, revalidateTag } from 'next/cache';
+import { placesOf, roundIn } from './amount';
 import { CHAIN_REGISTRY } from './chains';
 import { closeDay, closesWords, programZone } from './deadline';
 import { json } from './http';
@@ -70,9 +71,15 @@ export type ListedProgram = {
   max_award_usd: number;
 };
 
-/** A number with en-US grouping, cents only when it has them to the cent ("5,000", "2,500.50"; 10000.004 reads "10,000"). Pure. */
-const grouped = (n: number): string =>
-  n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
+/**
+ * A number with en-US grouping, cents only when it has them to the cent ("5,000", "2,500.50"; 10000.004 reads "10,000").
+ * v6.1.19.1 (L47-1): a coin (`placesOf` 8) shows the places it has, up to 8 ("0.001", "0.5"). Pure.
+ */
+const grouped = (n: number, currency = 'USD'): string => {
+  const places = placesOf(currency);
+  if (places > 2) return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: places });
+  return n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
+};
 
 /**
  * The one money format (lane 22, v6.1.15; currencies and cents, L22-14 v6.1.16): US dollars as `$5,000` or `$2,500.50`
@@ -81,7 +88,7 @@ const grouped = (n: number): string =>
  */
 export function moneyText(amount: number, currency = 'USD'): string {
   const code = currency.trim().toUpperCase() || 'USD';
-  return code === 'USD' ? `$${grouped(amount)}` : `${code} ${grouped(amount)}`;
+  return code === 'USD' ? `$${grouped(amount)}` : `${code} ${grouped(amount, code)}`;
 }
 
 /** "$10,000": `moneyText` in US dollars (lane 22, v6.1.15). Pure. */
@@ -90,11 +97,11 @@ export const usdFull = (usd: number): string => moneyText(usd);
 /** A win's money by currency code (`{ USD: 3500.5, EUR: 2000 }`), never converted (L22-3, v6.1.16). */
 export type Amounts = Readonly<Record<string, number>>;
 
-/** Two amounts added to the cent, so 0.1 + 0.2 stays 0.30. Pure. */
-export const addMoney = (a: number, b: number): number => Math.round((a + b) * 100) / 100;
+/** Two amounts added to the cent, so 0.1 + 0.2 stays 0.30; v6.1.19.1 (L47-1): to 8 places for a coin. Pure. */
+export const addMoney = (a: number, b: number, currency = 'USD'): number => roundIn(a + b, currency);
 
 /** The amounts plus one more in its currency (a further payment adds within its currency). Pure. */
-export const plusAmount = (a: Amounts | null, value: number, currency: string): Amounts => ({ ...a, [currency]: addMoney(a?.[currency] ?? 0, value) });
+export const plusAmount = (a: Amounts | null, value: number, currency: string): Amounts => ({ ...a, [currency]: addMoney(a?.[currency] ?? 0, value, currency) });
 
 /** Whether two amounts hold the same money in every currency. Pure. */
 export function sameAmounts(a: Amounts | null, b: Amounts | null): boolean {

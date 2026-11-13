@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { PaymentKeyInput, inputDetail, inputError, refuse } from '../v5/tool-input';
 import { cleanText } from '../v5/controls';
 import { FURTHER_PAYMENT_REFUSED, OVER_CAP_FOR, winCapOf } from '../v5/ledger';
-import { AMOUNT_DOT, AMOUNT_UNREAD, SAY_CURRENCY, UNDER_A_DOLLAR, UNKNOWN_CODES, isUnknownCurrency, overCap, readAmount, underADollar } from '../v5/amount';
+import { AMOUNT_DOT, AMOUNT_UNREAD, SAY_CURRENCY, UNDER_A_DOLLAR, UNDER_A_DOLLAR_OTHER, UNKNOWN_CODES, isUnknownCurrency, overCap, readAmount, underADollar } from '../v5/amount';
 import { moneyText } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { SHORT_LINK_NOTE } from '../v5/project-input';
@@ -198,6 +198,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const unknownCur: { ref: string; code: string }[] = [];
       /** L45-3 (v6.1.19): refs whose win is under one dollar once converted; none is recorded. */
       const tiny: string[] = [];
+      const tinyCodes = new Set<'USD' | 'other'>();
       const take: Outcome[] = [];
       for (const o of input.outcomes) {
         const a = o.outcome === 'won' ? readAmount(o) : null;
@@ -215,6 +216,8 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         }
         if (a && underADollar(a.value, a.currency)) {
           if (!tiny.includes(o.ref)) tiny.push(o.ref);
+          // v6.1.19.1 (L47-1): the whole-dollar line for US dollars only.
+          tinyCodes.add(a.currency === 'USD' ? 'USD' : 'other');
           continue;
         }
         const out: Outcome = { ref: o.ref, outcome: o.outcome, ...(o.payment && { payment: o.payment }) };
@@ -246,7 +249,8 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         ...(dotAmount.length ? [SCREEN_TEXT.amountDot] : []),
         // Fix round 1 (I3, v6.1.19): every unknown code in one sentence; its Say ends the reply.
         ...(unknownCur.length ? [UNKNOWN_CODES([...new Set(unknownCur.map((x) => x.code))])] : []),
-        ...(tiny.length ? [UNDER_A_DOLLAR] : []),
+        ...(tinyCodes.has('USD') ? [UNDER_A_DOLLAR] : []),
+        ...(tinyCodes.has('other') ? [UNDER_A_DOLLAR_OTHER] : []),
         ...over,
         // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.
         ...[...new Set(paymentRefused.map((x) => x.status))].map(FURTHER_PAYMENT_REFUSED),
