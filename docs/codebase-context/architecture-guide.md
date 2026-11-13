@@ -1873,7 +1873,7 @@ Plan `v6.1.19.1-patch-plan.md`.
 
 ## People and install attribution (v6.1.20)
 
-Design: `design-docs-and-implementation-plans/v6.1.20-install-attribution.md`. Every installation has a person
+Design: `design-docs-and-implementation-plans/v6.1.20-install-attribution-plan.md`. Every installation has a person
 (`people`, `lib/v6/people.ts`): made in `saveInstallation`'s transaction, joined to the builder's person by
 `linkInstallation`. `testReasonFor` flags owner, dogfood, persona, repro and test people (env lists and client-name
 patterns); `/api/stats` `installs_real` leaves them out. `EARNKIT_INSTALL_SIGNIN=github` makes authorize a GitHub
