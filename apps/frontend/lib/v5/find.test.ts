@@ -4757,3 +4757,26 @@ test('L46-17: FLOSS/fund ready does not ask name and email before applying', asy
   const both = missingFor([row('floss-fund-zerodha'), row('base-builder-grants')], EMPTY_RECORD, false);
   assert.ok(both.includes('your name') && both.includes('your email'));
 });
+
+test('L46-10 (v6.1.22, ruling 2): on a chain with no contract address, an audit program is one step away: the address', async () => {
+  const dash = replayFetch('nextjs-dashboard');
+  const c = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch });
+  const CHAINLENS = { name: 'Chainlens', description: 'Dashboards and charts on Ethereum data for analysts.', repo_url: `https://github.com/${dash.repo}`, chains: [{ chain: 'ethereum', mainnet: true }] };
+  const r = await mcpCall(await c(), 'find', { project: CHAINLENS });
+  const show = r.reply!.show_to_builder as string;
+  assert.match(show, /^\d+\. Ethereum Security Subsidy Program \(up to 30% of audit cost\) needs a contract address first\.$/m, show);
+  assert.match(show, /^\d+\. Uniswap Foundation Security Fund \(UFSF\) Audit Subsidies \(up to 100% of the audit cost\) needs a contract address first\.$/m, show);
+  // The closing names the address when nothing is ready (other files' ready fixtures may lead it here).
+  if (/^Nothing is ready/.test(show)) assert.match(show, /\n\nTell me the contract address and I look again(, or [^\n]+)?\.$/, show);
+  assert.ok((r.reply!.agent_note as string).includes('When the builder gives the contract address, pass it in project.chains[].contract and call find again.'));
+  const one = await mcpCall(await c(), 'find', { project: CHAINLENS, program_id: 'ethereum-security-subsidy-program' });
+  assert.equal(one.reply!.show_to_builder, 'Ethereum Security Subsidy Program (up to 30% of audit cost). It needs a contract address first.\n\nTell me the contract address and I look again.');
+  assert.ok((one.reply!.agent_note as string).includes('pass it in project.chains[].contract'));
+  // With the address passed, the address step is gone and the audit rule is the question again.
+  const withAddr = await mcpCall(await c(), 'find', { project: { ...CHAINLENS, chains: [{ chain: 'ethereum', mainnet: true, contract: '0x' + 'c'.repeat(40) }] }, program_id: 'ethereum-security-subsidy-program' });
+  assert.doesNotMatch(withAddr.reply!.show_to_builder as string, /contract address/);
+  assert.match(withAddr.reply!.show_to_builder as string, /a defined audit scope/);
+  // No chain at all: no audit program.
+  const none = await mcpCall(await c(), 'find', { project: { ...CHAINLENS, chains: [] }, filter: { all: true } });
+  assert.doesNotMatch(listText(none.reply!), /Security Subsidy|Security Fund|Security Program/);
+});

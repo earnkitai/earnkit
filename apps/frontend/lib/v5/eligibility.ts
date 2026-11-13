@@ -110,6 +110,9 @@ export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a pu
 /** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question.
  *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
 export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+/** L46-10 (v6.1.22, ruling 2): an audit program and a project on a chain with no contract read, reported or named: the
+ *  address is the step, re-checked by the next find (the agent passes it in project.chains[].contract). */
+export const CONTRACT_ADDRESS: Gap = { kind: 'repo', item: 'repo:contract', what: 'a contract address', setup: 'tell me the contract address', effort: 'minutes', agent_can: false };
 /** L38-27 (v6.1.18 Task 11): a license rule and a repo read that found no license file: EarnKit adds one on "do". */
 export const LICENSE_FILE: Gap = {
   kind: 'feature', item: 'feature:license', what: 'a license file', do: 'add an MIT license file', effort: 'minutes', agent_can: true,
@@ -238,8 +241,14 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       }
       case 'in_person': inPerson = true; break;
       case 'rule': {
-        // L46-10 (v6.1.22): an audit program for a project with no smart contracts is a no, whatever was confirmed.
-        if (i.check === 'contracts' && !hasContracts(facts)) return out('no', [], 'needs smart contracts to audit');
+        // L46-10 (v6.1.22): an audit program for a project with no smart contracts: a no with no chain at all, whatever
+        // was confirmed; on a chain, the contract address is the one step and the rule waits for it (ruling 2).
+        if (i.check === 'contracts' && !hasContracts(facts)) {
+          if (facts.chains.length === 0) return out('no', [], 'needs smart contracts to audit');
+          // A contract still to deploy on the program's chain gives the address: that step alone is asked.
+          if (!gaps.includes(CONTRACT_ADDRESS) && !gaps.some((g) => g.kind === 'chain' || g.kind === 'contract_on')) gaps.push(CONTRACT_ADDRESS);
+          break;
+        }
         if (done.has(itemKey(i))) break;
         // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
         // the license file gap (once, and closed by its own done); anything else keeps the question. An archived repo's

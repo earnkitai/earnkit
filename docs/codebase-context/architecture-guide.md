@@ -950,10 +950,14 @@ and {f} facts. Approve the answers at earnkit.com/me and they go into drafts." (
 unapproved answer is not missing, and the reply says "{n} answers wait for your approval." `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
 v6.1.22 (L46-10): a rule with `"check": "contracts"` (the audit programs: ESSP, Arbitrum Security, Uniswap Security
-Fund) is a hard no, `needs smart contracts to audit`, when `hasContracts(facts)` is false: no contract read or
-reported, and the project's own words (name, description, README excerpt, topics) name none of contract, contracts,
-smart contract, solidity, vyper, hook, protocol (whole words). Checked before the rule's done, so an earlier yes never
-makes a dashboard auditable; with contracts the rule stays its question.
+Fund) needs contracts: when `hasContracts(facts)` is false (no contract read or reported, and the project's own words,
+name, description, README excerpt, topics, name none of contract, contracts, smart contract, solidity, vyper, hook,
+protocol as whole words) it is a hard no, `needs smart contracts to audit`, with no chain at all; on a chain it is one
+step, `CONTRACT_ADDRESS` (`repo:contract`, `a contract address`, setup `tell me the contract address`), unless a
+chain step on the program's chain already stands. The rule waits, find's `gapOf` empties the program's setup while the
+address is the step, `askedOf` never counts its own setup as a second step, and the agent note
+`CONTRACT_ADDRESS_NOTE` says to pass it in project.chains[].contract. Checked before the rule's done, so an earlier yes
+changes nothing; with contracts the rule stays its question (ruling 2, after review).
 
 **The four tools** (`lib/v5/mcp.ts`):
 
