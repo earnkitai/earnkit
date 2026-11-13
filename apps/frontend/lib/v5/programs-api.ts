@@ -37,6 +37,7 @@ import {
 import { findProgramsDir } from './programs-dir';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
+import { BUILDER_OWN_NOTE } from './ledger';
 import { SENT, sendCounts, sendRows, sendTime, throughEarnkit } from './stats';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
@@ -494,7 +495,8 @@ export function parseSince(text: string): Date | null {
  * 400 `limit: 1 to 500`. `totals` and `by_program` are always all time: `agent`, `drafted` (a builder sent an EarnKit
  * draft), `reported` (EarnKit had no part), `auto` (standing approval); see `sendCounts` in stats.ts. A row names the
  * builder by GitHub login (a `b:` owner, or the linked builder of an `i:` owner's installation) and the agent by its
- * client name (L42-6: the installation that recorded the send, not a result's), and says `through_earnkit` (L36-3) and
+ * client name (L42-6: the installation that recorded the send, not a result's; final fix round M1: none for a builder's
+ * send with no sending installation kept), and says `through_earnkit` (L36-3) and
  * `reported` (L42-2); never an email, a sign-in code, the owner key or an installation id.
  */
 export async function applicationsGet(request: Request): Promise<Response> {
@@ -528,7 +530,9 @@ export async function applicationsGet(request: Request): Promise<Response> {
              b.login AS builder, s.client_name AS agent, a.fields_used, a.amount_usd, ${throughEarnkit(db)} AS through
       FROM applications a
       LEFT JOIN installations i ON i.id = a.installation_id
-      LEFT JOIN installations s ON s.id = COALESCE(a.sent_by_installation_id, a.installation_id)
+      LEFT JOIN installations s ON s.id = CASE WHEN a.sent_by_installation_id IS NULL AND EXISTS (SELECT 1 FROM application_history h
+        WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '')
+          AND h.status = 'applied' AND h.note = ${BUILDER_OWN_NOTE}) THEN NULL ELSE COALESCE(a.sent_by_installation_id, a.installation_id) END
       LEFT JOIN builders b ON b.id::text = CASE WHEN a.owner LIKE 'b:%' THEN substring(a.owner from 3) ELSE i.builder_id::text END
       WHERE a.status = ANY(${SENT})
         ${since ? db`AND (${sendTime(db)} >= ${since} OR (${sendTime(db)} IS NULL AND a.at >= ${since}))` : db``}

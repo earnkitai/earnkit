@@ -574,7 +574,7 @@ function neverWords(never: string[], typed: string): string[] {
   ];
 }
 
-/** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder; its next find says it was unlinked (B10). */
+/** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder; its next find says it was unlinked (B10); the session's draft is wiped. */
 export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
@@ -588,6 +588,8 @@ export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Res
     const [mine] = await sql()<{ one: number }[]>`SELECT 1 AS one FROM installations WHERE id = ${id} AND builder_id IS NULL AND former_builder_id = ${g.builder.id}`;
     return mine ? noteAt(g, ME_ALREADY_UNLINKED) : problemAt(g, ME_UNLINK_NOT_YOURS);
   }
+  // Final fix round (M2): a refused form's draft is wiped on unlink, as on sign-out and delete.
+  await clearDraft(g.cookie);
   // M1 (fix round 1): mid-sentence an unnamed agent's label starts lower case; L43-10: a name is quoted, as Linked is.
   return noteAt(g, ME_UNLINKED_AGENT(agent.client_name ? agent.label : null, agent.label));
 }
@@ -618,7 +620,8 @@ export async function sentPost(request: Request, deps: Deps = {}): Promise<Respo
   // Fix round 1 (M3): a claim the builder held waits for their go.
   if (row.held_at !== null) return problemAt(g, ME_HELD_SENT(row.title), 'ledger');
   // Fix round 1 (M1): written as the agent that claims it while that agent is still this builder's; with none still
-  // linked, as the builder's own send (the ledger's link check is the agent's, not the builder's).
+  // linked, as the builder's own send (the ledger's link check is the agent's, not the builder's), with no sending agent
+  // kept (final fix round, M1), so the owner's list names none.
   const ids = [...new Set([row.claimed_by, row.installation_id].filter((x): x is number => x !== null))];
   const [linked] = ids.length > 0
     ? await sql()<{ id: number }[]>`SELECT id FROM installations WHERE id = ANY(${ids}) AND builder_id = ${g.builder.id} ORDER BY array_position(${ids}::int[], id) LIMIT 1`

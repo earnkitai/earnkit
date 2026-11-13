@@ -470,7 +470,10 @@ could not read`; an upcoming program at its start with no form, by title, under 
   {total} to date.` (`0 sent yesterday (and ...).` when only missed days had sends; L44-9), then `- {title}: {k} sent`
   per program (L44-18); an outside win has no send time, so it is never a send on any day (L44-2);
 - `Results: $5,000 won at {title}; {title} said no.` from `application_history` wins and rejections since the last
-  digest (a further payment adds its money again; money as given, `2,000 EUR` for another currency; never who; L44-11);
+  digest (a further payment adds its money again; money as given, `2,000 EUR` for another currency; never who; L44-11).
+  Final fix round (I1): only results that stand: a history row kept beside a win (`BESIDE_NOTE`) is never counted, a
+  rejection is dropped while its application is still `won`, and one win per application (the newest non-payment row,
+  so a correction counts its new amount only) plus its payment-key rows;
 - `Programs the run could not read`, `Programs to fix`, the deadline closes and the openings as before;
 - `Links that did not load`: `- {title}: down {since today | 1 day | 4 days} ({url})`, from `first_failed_at`;
 - `Forms that say they are closed` (L44-6, active programs only): `- {title}: the form says it is closed, {age} ({url})`
@@ -1158,7 +1161,7 @@ shell, so the line is not in that HTML; v6.1.17 final round: the panel is the sh
 **/me keeps what was typed (v6.1.19 Task 2, lane 43).** Every refusal (a section, the single-field edit, the policy,
 the delete box, an Approve's box, a stale csrf by route) saves what the form carried as the session's draft
 (`saveDraft`, `sessions.draft`, `DRAFT_MS` 15 minutes, one per session, replaced by the next refusal, cleared by the
-next save); `meData(..., draft)` passes it and MeView renders it as escaped `defaultValue`, only while a signed problem
+next save and (final fix round M2) by a successful unlink; sign-out and delete end the session row); `meData(..., draft)` passes it and MeView renders it as escaped `defaultValue`, only while a signed problem
 line shows (fix round 1 M6: a plain reload shows the saved values). An over-long value says what was typed: `Not
 saved: 2,100 characters typed; at most 2,000.` (`ME_VALUE_WORDS.typed`). Save with nothing changed is `Nothing to save.`
 (`ME_NOTHING`, beside that card's Save; L43-6). A held claim's row reads `On hold since {day}; say go to your agent to
@@ -1166,7 +1169,8 @@ send.` (`ME_HELD_ROW`, L43-2). A lapsed started row, or one the sent ask is abou
 `program_id` and `project_id` to `/me/sent` (`sentPost`, `app/me/sent/route.ts`; L43-9): it needs the builder's own
 `started` row, records `applied` with `submitted_by: 'builder'` as the first of `claimed_by` and `installation_id` still
 linked to this builder, else through `record(..., { builderOwn: true })` (the agent link check skipped, for `applied`
-only), and notes `Sent {title}.`; an already sent row answers the same and writes nothing (M2), a held row is refused
+only; final fix round M1: `sent_by_installation_id` stays null and the history row's note is `BUILDER_OWN_NOTE`, so the
+owner's list names no agent and the schema's one-time fill skips it), and notes `Sent {title}.`; an already sent row answers the same and writes nothing (M2), a held row is refused
 `{title} is on hold; say go to your agent first.` (`ME_HELD_SENT`, M3). Delete's label is `Type your GitHub login to
 delete.`, and a refused delete shows that one line as the label with the typed text kept (L43-11). The skip list
 refuses `Programs to skip: at most 50 programs.` and `Programs to skip: line {k} is over 100 characters.` (L43-19);
@@ -1725,7 +1729,9 @@ by task.
   writes `sent_at`. `readStats`' `applications_7d` counts dated sends in the last 7 days; `applications` stays all time.
 - `applications.sent_by_installation_id`: the installation that recorded the send, written by the outside-win and the
   applied inserts in `ledger.record` (and their `ON CONFLICT` updates), never by a result, skip or correction; the
-  owner's list names the agent from `COALESCE(sent_by_installation_id, installation_id)`. Both columns are backfilled once
+  owner's list names the agent from `COALESCE(sent_by_installation_id, installation_id)`, and none for a builder's own
+  send from /me with no agent linked (final fix round M1: `sent_by_installation_id` null and an `applied` history row
+  noted `BUILDER_OWN_NOTE`; the fill skips such a row by that note). Both columns are backfilled once
   at the end of `schema.sql` (they read `application_history.project_id`, added later in the file), `WHERE ... IS NULL`
   and only where an `applied` history row matches; an outside win keeps a null `sent_at`.
 - `throughEarnkit` reads a claim (`started`) only, never a hold, and compares it with `sendTime`, so an undated send is
@@ -1795,7 +1801,7 @@ See the freshness pipeline (the closed read, landing pages) and the daily job (n
 ### Task 7: tool inputs and the ledger's money (lane 45)
 
 - A result never erases a win (`WIN_KEPT` in `ledger.record`): the builder's rejected or no result over a win writes nothing; a screen's rejection is a history row beside the win (`beside`), and `screen_outcomes` never replaces a kept win with a non-win (`OUTCOME_NOTES.beside`).
-- Money: only `KNOWN_CURRENCIES` (USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, BRL, ETH, BTC, SOL, USDC, USDT; a code is 2 to 6 letters, any other well-formed one is `{ unknownCurrency }`, one sentence naming every unknown code, then `Say the amount with its currency.`). Every known code has a `CAP_RATES` rate used for the cap and the under-a-dollar check only, never shown: the fiat rates, USDC and USDT at 1, and cap-only upper bounds ETH 10,000, BTC 250,000, SOL 1,000 (fix round 1, security: `capWeight` is `usdAt ?? Infinity`, so a coin never weighs 0 and the uncapped path and `UNCAPPED_NOTE` are gone); the win is recorded in its own currency. A win under $1 after conversion is refused (`UNDER_A_DOLLAR`, checked in `ledger.record` once the currency resolves). Money arguments on any status but won are an input error; payment keys are cleaned before compare; a key repeated in one screen call counts once.
+- Money: only `KNOWN_CURRENCIES` (USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, BRL, ETH, BTC, SOL, USDC, USDT; a code is 2 to 6 letters, any other well-formed one is `{ unknownCurrency }`, one sentence naming every unknown code, then `Say the amount with its currency.`). Every known code has a `CAP_RATES` rate used for the cap (and, but for the coins, the under-a-dollar check) only, never shown: the fiat rates, USDC and USDT at 1, and cap-only upper bounds ETH 10,000, BTC 250,000, SOL 1,000 (fix round 1, security: `capWeight` is `usdAt ?? Infinity`, so a coin never weighs 0 and the uncapped path and `UNCAPPED_NOTE` are gone); the win is recorded in its own currency. A win under $1 after conversion is refused (`UNDER_A_DOLLAR`, checked in `ledger.record` once the currency resolves); final fix round M3: a coin is weighed for this floor at its `FLOOR_RATES` low bound (ETH 1,000, BTC 20,000, SOL 20), so a coin win passes only when worth a dollar even at a low price (0.00005 ETH refused, 0.001 ETH passes); the cap keeps the high bounds. Money arguments on any status but won are an input error; payment keys are cleaned before compare; a key repeated in one screen call counts once.
 - Next needs (`installations.next_needs`) keep each need's form field (`{ w, k, p, j }`), so record drops a need as soon as the record fills it (`recordValue`, `heldWords`); get then says `Saved. The next application needs nothing more.`
 - Inputs: gap items match loosely (`gapItemOf`), a wrong one is an input error; any number off the last list reads `LIST_GONE`; `earnkit.com/programs/<id>` is the id (`programIdOf`); echoes cut on a word (`echoName`); unknown chain words are dropped and said apart from the corrections (`CHAIN_KEPT`: `chain celo dropped: no program here asks for it`, fix round 1 M3), a bare chain id reads through the registry; repo links with no scheme, SSH or `/tree/` read alike in find and record (`withScheme`, `githubRepoLink`); empty-after-cleaning record values and screen refs are refused; ISO country codes and post-1970 commit dates only; `/me` policy numbers take digits only.
 - Protocol: `answerParams` (-32602, unknown tool names the four), `distinctIds` (duplicate batch ids), boolean id -32600, non-UTF-8 arguments `I could not read that.`

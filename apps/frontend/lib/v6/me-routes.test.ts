@@ -918,6 +918,47 @@ test('fix round 1 M1: I sent it writes as the claiming agent while linked, else 
   assert.equal((await sql()`SELECT source FROM application_history WHERE owner = ${'b:' + two.b.id} AND status = 'applied'`)[0].source, 'builder');
 });
 
+test('final fix M1: the builder\'s own I sent it keeps no sending agent, and the owner\'s list names none', async () => {
+  const { applicationsGet } = await import('../v5/programs-api');
+  const { BUILDER_OWN_NOTE } = await import('../v5/ledger');
+  const { readFileSync } = await import('node:fs');
+  const { b, cookie, csrf } = await signedIn();
+  const gone = (await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'me-own-' + Math.random()}, 'Gone Agent (earnkit)') RETURNING id`)[0].id as number;
+  await linkInstallation(gone, b.id, NOW);
+  await claim(`b:${b.id}`, 'avalanche-team1-mini-grants', null, gone, new Date(NOW.getTime() - 30 * 3_600_000));
+  await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${NOW}, former_builder_id = ${b.id} WHERE id = ${gone}`;
+  assert.equal(lineOf(await sentPost(post('/me/sent', sentForm(csrf), { cookie }), deps), b.id).text, 'Sent Avalanche Team1 Mini Grants.');
+  const [row] = await sql()`SELECT application_id, sent_by_installation_id FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'avalanche-team1-mini-grants'`;
+  assert.equal(row.sent_by_installation_id, null);
+  assert.equal((await sql()`SELECT note FROM application_history WHERE owner = ${'b:' + b.id} AND status = 'applied'`)[0].note, BUILDER_OWN_NOTE);
+  // The schema's one-time fill skips it by the same note.
+  assert.ok(readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8').includes(`IS DISTINCT FROM '${BUILDER_OWN_NOTE}'`));
+  const token = 'm'.repeat(40);
+  const was = process.env.EARNKIT_PROGRAMS_TOKEN;
+  process.env.EARNKIT_PROGRAMS_TOKEN = token;
+  try {
+    const res = await applicationsGet(new Request('https://earnkit.test/api/programs/applications?limit=500', { headers: { authorization: `Bearer ${token}` } }));
+    const out = (await res.json()) as { rows: { application_id: string; agent: string | null }[] };
+    const mine = out.rows.find((r) => r.application_id === row.application_id);
+    assert.ok(mine, 'the send is listed');
+    assert.equal(mine.agent, null);
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_PROGRAMS_TOKEN;
+    else process.env.EARNKIT_PROGRAMS_TOKEN = was;
+  }
+});
+
+test('final fix M2: a successful unlink wipes the session\'s draft', async () => {
+  const { saveDraft } = await import('./sessions');
+  const { b, cookie, csrf } = await signedIn();
+  const inst = (await sql()`INSERT INTO installations (token_hash) VALUES (${'me-ud-' + Math.random()}) RETURNING id`)[0].id as number;
+  await linkInstallation(inst, b.id, NOW);
+  await saveDraft(cookie, { 'answers.team': 'Typed and refused.' }, NOW);
+  assert.deepEqual(await draftOf(cookie, NOW), { 'answers.team': 'Typed and refused.' });
+  assert.equal(lineOf(await unlinkPost(post('/me/unlink', { csrf, installation_id: String(inst) }, { cookie }), deps), b.id).key, 'note');
+  assert.equal(await draftOf(cookie, NOW), null);
+});
+
 test('fix round 1 M2: a double or resubmitted I sent it answers Sent {title}. again and writes once', async () => {
   const { b, cookie, csrf } = await signedIn();
   await startedRow(b.id);

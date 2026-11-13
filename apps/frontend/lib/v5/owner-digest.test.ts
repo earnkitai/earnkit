@@ -391,6 +391,61 @@ test('L44-2, L44-11: an outside win is a result, never a send on any day, and a 
   }
 });
 
+// Final fix round (I1): the Results block counts only results that stand.
+const resultsCase = async (name: string, steps: (rec: (status: 'won' | 'rejected', o: Record<string, unknown>) => Promise<unknown>) => Promise<void>) => {
+  const { record } = await import('./ledger');
+  const db = sql();
+  await resetDigest();
+  await db`DELETE FROM programs WHERE id LIKE 'od-%'`;
+  await upsertProgram(programFixture({ id: 'od-i1', title: 'Stand Grants', max_award_usd: 10_000 }), 'file', new Date('2026-11-01T00:00:00Z'));
+  const [inst] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${'od-i1-' + name}) RETURNING id`;
+  const owner = `i:${inst.id}`;
+  try {
+    assert.equal((await record(owner, 'od-i1', 'applied', { installationId: inst.id, now: new Date('2026-11-02T10:00:00Z') })).ok, true);
+    await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-10', ${new Date('2026-11-10T06:15:00Z')})`;
+    let hour = 8;
+    await steps(async (status, o) => {
+      const r = await record(owner, 'od-i1', status, { installationId: inst.id, now: new Date(`2026-11-10T${String(++hour).padStart(2, '0')}:00:00Z`), ...o });
+      assert.equal(r.ok, true, JSON.stringify(r));
+      return r;
+    });
+    assert.equal(await sendOwnerDigest(new Date('2026-11-11T06:15:00Z'), mailer), 'sent');
+    return sent.at(-1)!.text;
+  } finally {
+    await db`DELETE FROM application_history WHERE owner = ${owner}`;
+    await db`DELETE FROM applications WHERE owner = ${owner}`;
+    await db`DELETE FROM installations WHERE id = ${inst.id}`;
+    await db`DELETE FROM programs WHERE id LIKE 'od-%'`;
+    await resetDigest();
+  }
+};
+
+test('final fix I1: a screen win of another amount kept beside the builder\'s win is not counted', async () => {
+  const text = await resultsCase('beside', async (rec) => {
+    await rec('won', { amount_usd: 5000 });
+    assert.equal(((await rec('won', { amount_usd: 6000, fromScreen: true })) as { beside?: true }).beside, true);
+  });
+  assert.equal(text, 'EarnKit programs: 2026-11-11\n\nResults: $5,000 won at Stand Grants.\n');
+});
+
+test('final fix I1: a screen rejection kept beside a win is not reported as said no', async () => {
+  const text = await resultsCase('reject', async (rec) => {
+    await rec('won', { amount_usd: 5000 });
+    assert.equal(((await rec('rejected', { fromScreen: true })) as { beside?: true }).beside, true);
+  });
+  assert.equal(text, 'EarnKit programs: 2026-11-11\n\nResults: $5,000 won at Stand Grants.\n');
+  assert.doesNotMatch(text, /said no/);
+});
+
+test('final fix I1: a correction that replaced an older amount counts the new amount once, a further payment adds', async () => {
+  const text = await resultsCase('corrected', async (rec) => {
+    await rec('won', { amount_usd: 5000 });
+    assert.equal(((await rec('won', { amount_usd: 6000 })) as { corrected?: true }).corrected, true);
+    await rec('won', { amount_usd: 500, payment: { key: 'od-i1-pay' } });
+  });
+  assert.equal(text, 'EarnKit programs: 2026-11-11\n\nResults: $6,500 won at Stand Grants.\n');
+});
+
 test('L44-9: sends on days no digest went out are carried into the next line; at most 14 days back', async () => {
   const db = sql();
   await resetDigest();

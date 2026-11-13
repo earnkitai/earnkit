@@ -510,7 +510,11 @@ UPDATE applications a SET sent_by_installation_id = (
   ORDER BY h.at DESC, h.id DESC LIMIT 1)
 WHERE a.sent_by_installation_id IS NULL AND EXISTS (
   SELECT 1 FROM application_history h
-  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied');
+  WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied')
+  -- Final fix round (M1): a send the builder recorded with no agent linked keeps none (ledger.ts BUILDER_OWN_NOTE).
+  AND (SELECT h.note FROM application_history h
+    WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
+    ORDER BY h.at DESC, h.id DESC LIMIT 1) IS DISTINCT FROM 'sent by the builder, no agent linked';
 UPDATE applications a SET sent_at = (
   SELECT h.at FROM application_history h
   WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'

@@ -99,4 +99,12 @@ test('L45-3 (v6.1.19): a win under one dollar once converted is under a dollar; 
   assert.equal(underADollar(200, 'JPY'), false);
   assert.equal(underADollar(0.000001, 'BTC'), true);
   assert.equal(underADollar(0.001, 'BTC'), false);
+  // Final fix round (M3): coins are weighed at their low floor bounds, never the cap's high ones.
+  assert.equal(underADollar(0.00005, 'ETH'), true, 'about $0.20 at a real price; $0.05 at the floor bound');
+  assert.equal(underADollar(0.0005, 'ETH'), true);
+  assert.equal(underADollar(0.001, 'ETH'), false);
+  assert.equal(underADollar(0.00001, 'BTC'), true, '$2.50 at the cap bound, $0.20 at the floor bound');
+  assert.equal(underADollar(0.0001, 'BTC'), false, '$2 at the floor bound');
+  assert.equal(underADollar(0.04, 'SOL'), true);
+  assert.equal(underADollar(0.05, 'SOL'), false);
 });

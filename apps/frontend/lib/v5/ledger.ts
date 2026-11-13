@@ -115,6 +115,11 @@ export const FURTHER_PAYMENT_REFUSED = (status: string) =>
   status === 'none' ? 'Further payment refused: no result yet; post a win first.' : `Further payment refused: the current result is ${status}; post a win first.`;
 /** Fix round 1 (I2, v6.1.19): the history note on a screen's win kept beside the builder's own win. */
 export const BESIDE_NOTE = "a program's win kept beside the builder's own";
+/**
+ * Final fix round (M1, v6.1.19): the history note on a send the builder recorded on /me with no agent of theirs still
+ * linked (`builderOwn`); its application keeps no sending installation, and the schema's one-time fill skips it.
+ */
+export const BUILDER_OWN_NOTE = 'sent by the builder, no agent linked';
 /** L45-2 (v6.1.19): the builder's rejected or no result over a win: nothing is written. */
 export const WIN_KEPT = (title: string, amounts: Amounts | null): string =>
   `${title} already has a win recorded here${amounts ? ` (${amountsText(amounts)})` : ''}. Say won again to change it.`;
@@ -679,8 +684,9 @@ export async function record(
       // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
       await takeOverNow();
       // L42-6 (v6.1.19): sent_by_installation_id is the sending installation; no result, skip or correction writes it.
+      // Final fix round (M1): none for the builder's own send (`builderOwn`), so no unlinked agent is named as its sender.
       await tx`INSERT INTO applications (owner, installation_id, sent_by_installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo, identity)
-        VALUES (${owner}, ${installationId}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
+        VALUES (${owner}, ${installationId}, ${o.builderOwn ? null : installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${o.offRepo ?? null}, ${ident})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, sent_by_installation_id = EXCLUDED.sent_by_installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
@@ -715,7 +721,7 @@ export async function record(
     // L17-1 (v6.1.16): a history row only when the ledger changed (a repeated gap_done changed nothing).
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source, project_id)
-        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source}, ${status === 'gap_done' ? null : rk || null})`;
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${o.builderOwn && status === 'applied' ? BUILDER_OWN_NOTE : note}, ${now}, ${paymentKey}, ${corrects}, ${source}, ${status === 'gap_done' ? null : rk || null})`;
     const other = otherClaim ? ({ other_claim: true, ...(ownClaim ? { own_claim: true as const } : {}) } as const) : heldSend ? ({ held: true } as const) : {};
     // L35-4 (v6.1.16.1 Task 2): what the agent tells the builder about a co-founder on this repo.
     const cofounder = { ...(cofounderSent ? { cofounder_sent: true as const } : cofounderClaim ? { cofounder_claim: true as const } : {}), ...(offHostSeen ? { off_host_sent: true as const } : {}) };

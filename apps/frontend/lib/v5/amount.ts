@@ -102,10 +102,15 @@ export const CAP_RATES: Readonly<Record<'EUR' | 'GBP' | 'CHF' | 'CAD' | 'AUD' | 
   USDC: 1, USDT: 1,
   // Fix round 1 (security, v6.1.19): cap-only upper bounds, set well above each coin's highest price known as of June
   // 2026 (ETH under $5,000, BTC under $130,000, SOL under $300), so a coin win is never weighed below its worth against
-  // a program's dollar cap. Used only for the cap and the under-a-dollar check; never shown, never a conversion, and the
+  // a program's dollar cap. Used only for the cap (the under-a-dollar check uses FLOOR_RATES); never shown, never a conversion, and the
   // win is recorded in its own currency.
   ETH: 10_000, BTC: 250_000, SOL: 1_000,
 };
+/**
+ * Final fix round (M3, v6.1.19): floor-only low bounds for the coins, set far below any price each coin held from 2025
+ * to mid-2026, so a coin win passes the one dollar floor only when it is worth a dollar even at a low price. Used only for the under-a-dollar check; the cap uses CAP_RATES.
+ */
+export const FLOOR_RATES: Readonly<Record<'ETH' | 'BTC' | 'SOL', number>> = { ETH: 1_000, BTC: 20_000, SOL: 20 };
 
 
 /**
@@ -119,8 +124,12 @@ export const usdAt = (value: number, currency: string): number | null =>
  * cap rate, and a currency with none weighs as infinite, so a win in it is always over the cap (refused). Pure.
  */
 const capWeight = (value: number, currency: string): number => usdAt(value, currency) ?? Infinity;
-/** L45-3 (v6.1.19): a win under one US dollar once converted; an amount with no rate is not judged. Pure. */
-export const underADollar = (value: number, currency: string): boolean => (usdAt(value, currency) ?? Infinity) < 1;
+/**
+ * L45-3 (v6.1.19): a win under one US dollar once converted; an amount with no rate is not judged. A coin is weighed
+ * at its FLOOR_RATES low bound (final fix round, M3), every other currency at its CAP_RATES rate. Pure.
+ */
+export const underADollar = (value: number, currency: string): boolean =>
+  (Object.hasOwn(FLOOR_RATES, currency) ? value * FLOOR_RATES[currency as keyof typeof FLOOR_RATES] : usdAt(value, currency) ?? Infinity) < 1;
 
 /** Whether the amount is over a US dollar cap, compared before any rounding (L22-5: `$10,000.99` is over $10,000). Pure. */
 export const overCap = (value: number, currency: string, capUsd: number): boolean => capWeight(value, currency) > capUsd;

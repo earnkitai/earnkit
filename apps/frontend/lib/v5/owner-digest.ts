@@ -15,6 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
+import { BESIDE_NOTE } from './ledger';
 import { ownerMail, type Mailer } from './mail';
 import { ProgramFile } from './program-file';
 import { movedByDate, UNREADABLE_FIX, type Unreadable } from './health';
@@ -226,15 +227,23 @@ export const MISSED_DAYS = 14;
 
 /**
  * v6.1.19 (L44-11): the wins and rejections recorded in (`since`, `now`], from the history (a further payment adds its
- * money to its program's win), by program title, never by who.
+ * money to its program's win), by program title, never by who. Final fix round (I1): only results that stand: a row kept
+ * beside a win (BESIDE_NOTE) is never counted, a rejection is dropped while its application is still won, and one win
+ * per application (its newest, which a correction replaced an older amount with) is counted, plus its further payments.
  */
 async function digestResults(since: Date, now: Date): Promise<DigestResults> {
   const db = sql();
   const rows = await db<{ status: string; title: string; currency: string | null; amount: string | null }[]>`
+    WITH r AS (
+      SELECT h.*, row_number() OVER (PARTITION BY h.owner, h.program_id, COALESCE(h.project_id, ''), h.status, (h.payment_key IS NULL) ORDER BY h.at DESC, h.id DESC) AS n
+      FROM application_history h
+      WHERE h.status IN ('won', 'rejected') AND h.at > ${since} AND h.at <= ${now} AND h.note IS DISTINCT FROM ${BESIDE_NOTE})
     SELECT h.status, COALESCE(p.file->>'title', (SELECT a.title FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.title IS NOT NULL LIMIT 1), h.program_id) AS title,
            h.currency, sum(h.amount) AS amount
-    FROM application_history h LEFT JOIN programs p ON p.id = h.program_id
-    WHERE h.status IN ('won', 'rejected') AND h.at > ${since} AND h.at <= ${now}
+    FROM r h LEFT JOIN programs p ON p.id = h.program_id
+    WHERE (h.status = 'won' AND (h.payment_key IS NOT NULL OR h.n = 1))
+      OR (h.status = 'rejected' AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id
+        AND COALESCE(a.project_id, '') = COALESCE(h.project_id, '') AND a.status = 'won'))
     GROUP BY 1, 2, 3 ORDER BY 2, 3`;
   const won = new Map<string, { currency: string; amount: number }[]>();
   const rejected = new Set<string>();
