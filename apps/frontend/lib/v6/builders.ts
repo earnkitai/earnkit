@@ -3,6 +3,7 @@
  * 'i:<installation>' to 'b:<builder>', so every agent of one builder shares one ledger.
  */
 import { inTx, sql, type Db } from '../v5/db';
+import { restoreEarlierSet } from './claims';
 import { linkPerson } from './people';
 import { type BuilderRecord, readRecord } from './record';
 
@@ -106,6 +107,17 @@ export async function linkInstallation(installationId: number, builderId: number
     const both = await tx<{ program_id: string; project_id: string | null; i_id: string | null; b_id: string | null }[]>`
       SELECT i.program_id, i.project_id, i.application_id AS i_id, b.application_id AS b_id FROM applications i JOIN applications b
         ON b.owner = ${to} AND b.program_id = i.program_id AND (COALESCE(b.project_id, '') = COALESCE(i.project_id, '') OR b.identity = i.identity) WHERE i.owner = ${from}`;
+    // Final fix round (v6.1.22, C1): an earlier-round win is never lost in the merge. A claim or skip over it that meets
+    // only a claim or skip goes back to that win first (and then ranks as a win); a row holding one that still loses
+    // hands it, moved, to the kept row when that row holds none.
+    const pair = (x: string, y: string) => tx`x.owner = ${x} AND y.owner = ${y} AND x.program_id = y.program_id
+      AND (COALESCE(x.project_id, '') = COALESCE(y.project_id, '') OR x.identity = y.identity)`;
+    for (const [x, y] of [[from, to], [to, from]])
+      await tx`UPDATE applications x SET ${restoreEarlierSet(tx, 'x')} FROM applications y
+        WHERE ${pair(x, y)} AND x.status IN ('started', 'skipped') AND x.earlier_win IS NOT NULL AND y.status IN ('started', 'skipped')`;
+    for (const [x, y] of [[from, to], [to, from]])
+      await tx`UPDATE applications x SET earlier_win = y.earlier_win || '{"moved": true}'::jsonb FROM applications y
+        WHERE ${pair(x, y)} AND x.earlier_win IS NULL AND y.earlier_win IS NOT NULL`;
     // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink); among
     // results, won beats rejected beats no_result whatever the time (v6.1.9 N3): a relink never loses a win.
     await tx`DELETE FROM applications i USING applications b
@@ -158,7 +170,9 @@ export async function unlinkInstallation(installationId: number, builderId: numb
         former_builder_id = ${builderId}
       WHERE id = ${installationId} AND builder_id = ${builderId}`;
     if (r.count === 0) return false;
-    await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId}`;
+    // Final fix round (v6.1.22, C1): a claim over an earlier-round win goes back to that win, never deleted.
+    await tx`UPDATE applications SET ${restoreEarlierSet(tx)} WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId} AND earlier_win IS NOT NULL`;
+    await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId} AND earlier_win IS NULL`;
     // v6.1.16 Task 9 N5 (v6.1.17 Task 3): this agent's results-question markers for the builder go with the link.
     await tx`DELETE FROM outcome_asks WHERE installation_id = ${installationId} AND owner = ${owner}`;
     // v6.1.18 Task 4: and its sent-question markers.

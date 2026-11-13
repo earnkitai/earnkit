@@ -2356,7 +2356,7 @@ test('L47-S2 (v6.1.22): drafted programs are one line', async () => {
 test('Task 2 fix round 1 (I1): an earlier-round win whose row the 10-line cap hides stays on the applications line', () => {
   const steps = Array.from({ length: 9 }, (_, k) => gap({ title: `Step Grant ${k + 1}` }));
   const last = { ...steps[8], earlier_win: '$1,000' };
-  const apps = [{ program_id: last.program_id, title: last.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000' }];
+  const apps = [{ program_id: last.program_id, title: last.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000', earlier: true as const }];
   const hidden = v20(base({ gaps: [...steps.slice(0, 8), last], applications: apps } as never));
   assert.match(hidden, /^Also: \d+ more in the full list\./m, hidden);
   assert.doesNotMatch(hidden, /^\d+\. Step Grant 9 /m, hidden);
@@ -2367,4 +2367,17 @@ test('Task 2 fix round 1 (I1): an earlier-round win whose row the 10-line cap hi
   const shown = v20(base({ gaps: [last], applications: apps } as never));
   assert.equal(shown.match(/Won \$1,000 in an earlier round\./g)?.length, 1, shown);
   assert.doesNotMatch(shown, /\(won \$1,000\)|Your applications/, shown);
+});
+
+test('Final fix round (v6.1.22, M2): only this project\'s earlier-round item leaves the applications line; another project\'s win on the program is said', () => {
+  const row = { ...gap({ title: 'Step Grant' }), earlier_win: '$1,000' };
+  const apps = [
+    { program_id: row.program_id, title: row.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000', earlier: true as const },
+    { program_id: row.program_id, title: row.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$7,000' },
+  ];
+  const shown = v20(base({ gaps: [row], applications: apps } as never));
+  assert.equal(shown.match(/Won \$1,000 in an earlier round\./g)?.length, 1, shown);
+  assert.match(shown, /Your applications: Step Grant \(won \$7,000\)\./, shown);
+  assert.doesNotMatch(shown, /\(won \$1,000\)/, shown);
+  v20Rules(shown);
 });

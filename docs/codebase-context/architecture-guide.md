@@ -2027,24 +2027,32 @@ v6.1.18 sent-ask key, the v6.1.20 `It is ready:` lines, the older skip, outside-
   a due ask by program and project, and a `''` row (from before this release, or a started row with no project)
   counts for every project of its program, so nothing is asked twice in its 7 days. `askSent` keeps one ask per program
   and project (earliest start), so a no-project find names each project. A kept claim's release line takes the
-  project of its due ask (`Released.project_id`).
+  project of its due ask (`Released.project_id`). A project name in the ask is cut at 60 (final fix round, M5).
 - **Earlier-round wins (L47-6).** `applications.earlier_win` (jsonb `{ amount_usd, amounts, at, moved? }`) holds a win
   from an earlier round on the row: `record`'s outside path writes it when the program is upcoming at `now`, and the
   schema backfills once (an outside win dated before `starts_at`). `isEarlierRound(row)` (ledger.ts): `won`, an
   `earlier_win`, not `moved`. Such a row never blocks the new round: `excluded`, `resultOf`, `sentForRepo`,
   `formerSentAt` and track's `sentHere` skip it; `claim` takes it (`status` started, amounts cleared, `moved` set); an
   `applied` straight over it, or a plain `won` once the program is open, is the new round's and moves it the same way;
-  a moved win is never overwritten. The builder reads `Won {money} in an earlier round.` (`EARLIER_WIN`, money by
+  a moved win is never overwritten, and never deleted (final fix round, C1): the stale release, an unlink, an unskip
+  and a relink merge put a claim or skip over it back to its earlier-round `won` (`restoreEarlierSet`, claims.ts: the
+  earlier amounts and date, `moved` dropped, no claim) instead of deleting the row; in a relink a row holding one that
+  still loses hands it, moved, to the kept row. The builder reads `Won {money} in an earlier round.` (`EARLIER_WIN`, money by
   `earlierAmounts` and `amountsText`) after the program's sentence, in the one-program reply and after a list row
-  (`earlierWins`, `earlierWinOf`), and the applications line leaves that win out while its row is on screen. Stats:
-  `wonOnce` adds each moved earlier win as one more counted win; an unmoved one is the row's own win and counts once.
+  (`earlierWins`, `earlierWinOf`), and the applications line leaves that win out while its row is on screen (only this
+  project's earlier-round item, `ApplicationItem.earlier`, final fix round M2). Stats: `wonOnce` adds each moved earlier
+  win as one more counted win; an unmoved one is the row's own win and counts once. The builder's own counts match
+  (final fix round, I1): `summary` adds each moved earlier win as one more sent and won with its amounts, and
+  `applicationsOf` lists it as its own won item.
 - **Phone and country (L47-7).** `contactValue` (prefill.ts) fills a field naming `phone` or `mobile` (whole word)
   from `person.phone`, and one naming `country` from `person.based_country` as its English name (`countryName`); a
   country label naming a company or entity stays the builder's. The missing list and `You give` agree.
 - **The Next yes (L47-8).** `RememberedGap.next`; a `gap_done` that confirms the rules the Next line named answers
   `Noted; I apply now.` (`NEXT_NOTED`; a program the builder sends `Noted; I draft it for you to send.`,
   `NEXT_NOTED_DRAFT`) with `NEXT_GAP_NOTE(id)`: call track started and fill the form from next.fields, no find. Any
-  other rule gap_done keeps `Tracked: that rule fits you.`
+  other rule gap_done keeps `Tracked: that rule fits you.` Final fix round (I3): the apply promise only when, at the
+  yes, the builder is linked, the repo is shown to be theirs, and the program is open, not sent, held or claimed by
+  another agent (`nextYesHolds`); otherwise `Noted.` (`NEXT_NOTED_LATER`) with `NEXT_LATER_NOTE` (call find first).
 - **Wordings (L47-14 to L47-16).** `OUTSIDE_WIN` `Recorded: {title} won, {money}. Noted: a win outside EarnKit.`;
   `WIN_KEPT` `{title} already has a win here ({money}); say won again with the new amount to change it.`; skips
   `Skipped {title} for good. Say unskip and I bring it back.` with `BRING_BACK_NOTE` `On "unskip", call track with
@@ -2071,7 +2079,8 @@ v6.1.18 sent-ask key, the v6.1.20 `It is ready:` lines, the older skip, outside-
   check your users.` (`SIGN_IN_USERS`, note `SIGN_IN_USERS_NOTE`).
 - **Smaller.** L47-13 `UNDER_A_DOLLAR` `Tell me the amount, 1 dollar or more.`; L47-S2 several drafts in one line
   (`Drafted, waiting for you to send: {a} and {b}.`); L47-S1 `NextReady.alt`, a second one-yes program in
-  `NEXT_NOTE` only (the builder line is one Next); L47-17 an incomplete cached row whose re-read answers not found or
+  `NEXT_NOTE` only (the builder line is one Next; final fix round M3: the note has the agent ask it first in
+  `ALT_ASK`'s words, `{title} ({money}) needs one yes: {rule}. Say yes if that fits and I apply.`); L47-17 an incomplete cached row whose re-read answers not found or
   private is a miss to find and track alike (already so in `cachedCodeFacts`, now pinned).
 - **The agent may translate.** The find agent note opens `Show find's reply as given, translated into the builder's
   language when they write in another one; ...`; the server instructions carry the same rule (`SHOW_REPLY`, Task 4).
@@ -2108,8 +2117,10 @@ v6.1.18 sent-ask key, the v6.1.20 `It is ready:` lines, the older skip, outside-
 
 ### Merge and finish
 
-- Persona client names (people.ts): `lane` followed by a space or a digit (`Lane 1h`, `lane1k`) is a persona tag, and
-  `firstrun` and `audit` join the whole-word list (with a separator: `firstrun-audit`, `ek audit`); `Lane`, `Lanely`,
-  `lane-1`, `Auditor Pro` and a bare `Audit` stay real.
-- Go-live: run `db/schema.sql` on deploy (the `sent_asks` key and `applications.earlier_win` with its backfill, after
-  v6.1.21's people lines). Nothing new in the environment.
+- Persona client names (people.ts): `lane`, at most one space, then a digit (`/^lane ?\d/i`: `Lane 1h`, `lane1k`) is a
+  persona tag, and the first-run audits' tag `firstrun-audit` joins the whole-word list (final fix round, I4); `Lane`,
+  `Lanely`, `lane-1`, `Lane AI`, `Code Audit Agent`, `Auditor Pro` and a bare `Audit` stay real.
+- Go-live: run `db/schema.sql` on deploy, at the cutover (the `sent_asks` key and `applications.earlier_win` with its
+  backfill; one file, one run, so their place in it is no order to follow). Until the new code serves, the old code's
+  sent-ask write (`ON CONFLICT (installation_id, program_id)`) fails once the old key is gone (review M1). Nothing new
+  in the environment.

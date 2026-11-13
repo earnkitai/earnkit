@@ -70,9 +70,10 @@ test('I2 (v6.1.21): client-name patterns are whole words with separators, or a l
 
 test('v6.1.22: the live persona lanes and the first-run audit are personas; Lane alone or Lanely is not', () => {
   const r = (n: string) => clientNameReason(n)?.reason ?? null;
-  for (const n of ['Lane 1h', 'Lane 1k', 'lane1k', 'lane 46 saas', 'firstrun-audit', 'firstrun agent', 'ek audit', 'Audit_Runner'])
+  for (const n of ['Lane 1h', 'Lane 1k', 'lane1k', 'lane 46 saas', 'firstrun-audit', 'ek firstrun-audit 2'])
     assert.equal(r(n), 'persona', n);
-  for (const n of ['Lane', 'Lanely', 'Lanely Agent', 'lane-1', 'Auditor Pro', 'firstrunner-x', 'Audit', 'Firstrun'])
+  // Final fix round (I4): a product named Lane or Audit stays real.
+  for (const n of ['Lane', 'Lanely', 'Lanely Agent', 'lane-1', 'Auditor Pro', 'firstrunner-x', 'Audit', 'Firstrun', 'Lane AI', 'Lane Assistant', 'Code Audit Agent', 'Security-Audit Bot', 'ek audit'])
     assert.equal(r(n), null, n);
   assert.equal(testReasonFor({ clientName: 'Lane 1h' }, {})?.reason, 'persona');
   assert.equal(testReasonFor({ clientName: 'firstrun-audit' }, {})?.reason, 'persona');

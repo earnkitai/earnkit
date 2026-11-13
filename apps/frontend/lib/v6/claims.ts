@@ -172,6 +172,18 @@ export async function claim(owner: string, programId: string, projectId: string 
 /** A released claim (L23-7, v6.1.16): the program, its title and when it was started. `ask` (L36-2, v6.1.18 Task 4): the
  *  builder sends this program themselves, so the claim was kept and the builder is asked whether it went out. */
 /** Fix round 1 (v6.1.22, Minor 4): a kept claim also carries its project key (null for none), so its ask is marked there. */
+/**
+ * Final fix round (v6.1.22, C1): the SET of a row put back to its earlier-round win (`won`, the earlier amounts and
+ * date, `earlier_win` without `moved`, no claim). Every path that would delete a started or skipped row (the stale
+ * release, an unlink, an unskip, a relink merge) puts a row holding an earlier win back this way instead.
+ */
+export const restoreEarlierSet = (tx: Db, t = 'applications') => {
+  const e = tx`${tx(t)}.earlier_win`;
+  return tx`status = 'won', amount_usd = (${e}->>'amount_usd')::numeric, amounts = NULLIF(${e}->'amounts', 'null'::jsonb),
+    at = COALESCE((${e}->>'at')::timestamptz, ${tx(t)}.at), earlier_win = ${e} - 'moved', claimed_at = NULL, claimed_by = NULL, held_at = NULL,
+    submitted_by = 'builder', fields_used = NULL, auto_applied = false, note = NULL`;
+};
+
 export type Released = { program_id: string; title: string; started_at: string; ask?: true; project_id?: string | null };
 
 /**
@@ -189,9 +201,16 @@ export async function releaseStale(owner: string, now: Date): Promise<Released[]
       SELECT program_id FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale} FOR UPDATE`;
     const byId = new Map((await programsById([...new Set(old.map((r) => r.program_id))])).map((p) => [p.id, p]));
     const keep = [...byId.values()].filter((p) => p.file.submit === 'builder').map((p) => p.id);
-    const rows = await tx<Row[]>`
+    // Final fix round (C1): a claim over an earlier-round win is never deleted; the row goes back to that win.
+    const restored = await tx<Row[]>`
+      SELECT program_id, title, claimed_at FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
+        AND program_id <> ALL(${keep}::text[]) AND earlier_win IS NOT NULL`;
+    await tx`UPDATE applications SET ${restoreEarlierSet(tx)} WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
+        AND program_id <> ALL(${keep}::text[]) AND earlier_win IS NOT NULL`;
+    const deleted = await tx<Row[]>`
       DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
-        AND program_id <> ALL(${keep}::text[]) RETURNING program_id, title, claimed_at`;
+        AND program_id <> ALL(${keep}::text[]) AND earlier_win IS NULL RETURNING program_id, title, claimed_at`;
+    const rows = [...restored, ...deleted];
     const kept = keep.length === 0 ? [] : await tx<Row[]>`
       SELECT program_id, title, claimed_at, project_id FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale}
         AND program_id = ANY(${keep}::text[]) ORDER BY claimed_at`;

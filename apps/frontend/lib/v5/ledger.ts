@@ -20,12 +20,12 @@ import { categoryOf, eligibilityOf } from './program-file';
 import { LICENSE_FILE, codeChecked, itemKey } from './eligibility';
 import { getProgram, isOpenAt, programsById, statusAt, type ProgramRow } from './programs';
 import { dayWords } from './deadline';
-import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
+import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, restoreEarlierSet, stillLinked } from '../v6/claims';
 import { identityFor, projectKeyOf, type Project } from './project-input';
 import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
 import { amountsOverCap, overCap, roundIn, underADollar, underADollarLine } from './amount';
-import { quoteName } from './controls';
+import { cleanText, quoteName } from './controls';
 
 /**
  * The items a program's gap_done takes: its eligibility items, the unknown-users gap ('users') only when it has a users
@@ -691,7 +691,9 @@ export async function record(
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
       if (row?.status !== 'skipped') return { ok: false, note: "That one isn't skipped here." } as const;
-      await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
+      // Final fix round (v6.1.22, C1): a skip over an earlier-round win goes back to that win, never deleted.
+      if (row.earlier_win) await tx`UPDATE applications SET ${restoreEarlierSet(tx)} WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
+      else await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
     } else if (status === 'gap_done') {
       // xmax = 0 only on a fresh insert: an existing row means the item was already noted.
       const [g] = await tx<{ inserted: boolean }[]>`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
@@ -803,14 +805,23 @@ export async function autoSentSince(owner: string, since: Date, db: Db = sql(), 
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {
-  const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown }[]>`
-    SELECT program_id, status, amount_usd, amounts FROM applications WHERE owner = ${owner}`;
+  const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown; earlier_win: EarlierWin | null }[]>`
+    SELECT program_id, status, amount_usd, amounts, earlier_win FROM applications WHERE owner = ${owner}`;
   const byId = await withOwn(rows.map((r) => r.program_id), programs);
   const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, no_result: 0, rejected: 0, skipped: 0, closing_soon: [], results_soon: [] };
   let won: Amounts = {};
   const week = (d: Date | null) => d !== null && d.getTime() >= now.getTime() && d.getTime() <= now.getTime() + 7 * DAY;
   const results: { program_id: string; title: string; at: number }[] = [];
   for (const r of rows) {
+    // Final fix round (v6.1.22, I1): an earlier-round win a new round moved off its row is one more sent and won, with its
+    // own amounts, whatever the row is now (as the public stats count it).
+    if (r.earlier_win?.moved) {
+      l.applied++;
+      l.won++;
+      const e = earlierAmounts(r.earlier_win);
+      if (e === null) l.won_no_amount++;
+      else for (const [c, v] of Object.entries(e)) won = plusAmount(won, v, c);
+    }
     if (r.status === 'started') continue;
     if (r.status === 'skipped') {
       l.skipped++;
@@ -869,6 +880,8 @@ export type ApplicationItem = {
   sent_at: string | null;
   result_at: string | null;
   amount: string | null;
+  /** Final fix round (v6.1.22, M2): this project's own win from an earlier round, the new round not started. */
+  earlier?: true;
 };
 
 /**
@@ -876,12 +889,23 @@ export type ApplicationItem = {
  * and the ones the builder held. Skips are not applications, nor is a live claim (an agent filling the form now; a claim
  * left unsent is released and said by Task 9's started-not-sent line).
  */
-export async function applicationsOf(owner: string): Promise<ApplicationItem[]> {
+export async function applicationsOf(owner: string, here?: (projectId: string | null) => boolean): Promise<ApplicationItem[]> {
   const owners = [owner];
-  const rows = await sql()<{ program_id: string; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown; submitted_by: string | null }[]>`
-    SELECT program_id, status, title, sent_at, at, held_at, amount_usd, amounts, submitted_by FROM applications
-    WHERE owner = ANY(${owners}) AND status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL)
-    ORDER BY COALESCE(sent_at, held_at, at) DESC, program_id`;
+  type Row = { program_id: string; project_id?: string | null; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown; submitted_by: string | null; earlier_win?: EarlierWin | null };
+  const listed = await sql()<(Row & { earlier_win: EarlierWin | null })[]>`
+    SELECT program_id, project_id, status, title, sent_at, at, held_at, amount_usd, amounts, submitted_by, earlier_win FROM applications
+    WHERE owner = ANY(${owners}) AND ((status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL)) OR earlier_win ? 'moved')`;
+  // Final fix round (v6.1.22, I1): an earlier-round win a new round moved off its row is its own won item (sent outside
+  // EarnKit, so no send date), listed beside the row's new round.
+  const rows: Row[] = [
+    ...listed.filter((r) => r.status !== 'skipped' && (r.status !== 'started' || r.held_at !== null)),
+    ...listed.filter((r) => r.earlier_win?.moved).map((r) => ({
+      program_id: r.program_id, project_id: null, status: 'won', title: r.title, sent_at: null, held_at: null, submitted_by: 'builder',
+      at: r.earlier_win!.at ? new Date(r.earlier_win!.at) : r.at, amount_usd: r.earlier_win!.amount_usd == null ? null : String(r.earlier_win!.amount_usd), amounts: r.earlier_win!.amounts ?? null,
+    })),
+  ];
+  const key = (r: Row) => (r.sent_at ?? r.held_at ?? r.at).getTime();
+  rows.sort((a, b) => key(b) - key(a) || (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
   const titles = new Map((await programsById(rows.filter((r) => !r.title).map((r) => r.program_id))).map((p) => [p.id, p.file.title]));
   return rows.map((r) => {
     const status: ApplicationItem['status'] = r.status === 'applied' ? 'waiting' : r.status === 'started' ? 'held' : (r.status as ApplicationItem['status']);
@@ -894,6 +918,7 @@ export async function applicationsOf(owner: string): Promise<ApplicationItem[]> 
       sent_at: sent ? sent.toISOString() : null,
       result_at: RESULTS.includes(r.status) ? r.at.toISOString() : null,
       amount: a ? amountsText(a) : null,
+      ...(isEarlierRound(r) && (!here || !r.project_id || here(r.project_id)) ? { earlier: true as const } : {}),
     };
   });
 }
@@ -1336,7 +1361,11 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     .filter(({ p, at }) => p.file.ends_at
       ? Date.parse(p.file.ends_at) > now.getTime() - SENT_ASK_AFTER_CLOSE_DAYS * 86_400_000
       : p.file.status !== 'closed' || at.getTime() > now.getTime() - SENT_ASK_CLOSED_NO_DATE_DAYS * 86_400_000)
-    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project, project: projectLabel(project, names) }));
+    .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project, project: shortLabel(projectLabel(project, names)) }));
+}
+/** Final fix round (v6.1.22, M5): a project name in builder text, cut at 60 as /me cuts it. Pure. */
+function shortLabel(label: string | null): string | null {
+  return label ? cleanText(label, 60) || null : null;
 }
 
 /**

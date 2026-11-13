@@ -1548,7 +1548,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     return builderHeld.has(id) ? { ...r, held: true } : r;
   };
   // L47-6 (v6.1.22): a program won in an earlier round says so after its row.
-  const earlierHere = await earlierWins(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
+  const hereProject = (p: string | null) => p === key || p === i.project_id || p === side?.projectId;
+  const earlierHere = await earlierWins(owner, hereProject);
   const withEarlier = <T extends { program_id: string }>(r: T): T => {
     const w = earlierHere.get(r.program_id);
     return w === undefined ? r : { ...r, earlier_win: w ? amountsText(w) || null : null };
@@ -1611,7 +1612,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const r0: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
-    ledger, applications: await applicationsOf(owner), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
+    ledger, applications: await applicationsOf(owner, hereProject), ask_outcome: ask, ask_sent: askSentNow, as_reported: facts.as_reported,
     ...(drafted.length > 0 ? { drafted } : {}),
     ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),

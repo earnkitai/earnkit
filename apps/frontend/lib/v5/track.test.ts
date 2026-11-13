@@ -3261,12 +3261,45 @@ test('L47-S1 (v6.1.22): the Next note carries a second one-yes program, so a no 
     assert.equal((r.show_to_builder.match(/Next:/g) ?? []).length, 1, r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /Second Rule Grant/);
     const alt = next.alt!;
-    assert.ok(r.agent_note.includes(`If the builder says no: program_id l47s1-c (Second Rule Grant) needs one yes: ${alt.rules[0].what}. On a yes to that, call track gap_done with item ${alt.rules[0].item}, then track started with that program_id; no find needed.`), r.agent_note);
+    // Final fix round (M3): the builder never heard the second one's apply, so the agent asks it in these words first.
+    assert.ok(r.agent_note.includes(`If the builder says no: program_id l47s1-c is the other one yes away. Ask the builder first, in these words: "Second Rule Grant (up to $5,000) needs one yes: ${alt.rules[0].what}. Say yes if that fits and I apply." Only on a yes to that, call track gap_done with item ${alt.rules[0].item}, then track started with that program_id; no find needed.`), r.agent_note);
     // Its rules are remembered as the Next line's: the yes to it needs no find.
     assert.equal((await lastGaps(c.installationId))['l47s1-c'].next, true);
     const gd = await track(c, { program_id: 'l47s1-c', status: 'gap_done', item: alt.rules[0].item, project: P });
     assert.equal(gd.show_to_builder, 'Noted; I apply now.');
   } finally {
     await sql()`DELETE FROM programs WHERE id IN ('l47s1-a', 'l47s1-b', 'l47s1-c')`;
+  }
+});
+
+test('I3 (v6.1.22 final fix round): the Next yes promises the send only when it can go now; signed out or on a repo not shown to be theirs it is a plain note', async () => {
+  const { NEXT_LATER_NOTE } = await import('./track');
+  await upsertProgram(programFixture({ id: 'l47i3', title: 'Yes Rule Grant', eligibility: [{ kind: 'rule', note: 'a team of two or more' }] } as never), 'file', NOW);
+  try {
+    const { markFind, rememberGap } = await import('./installations');
+    const { gapItems } = await import('./ledger');
+    const item = gapItems((await (await import('./programs')).getProgram('l47i3'))!).find((k) => k.startsWith('rule:'))!;
+    const yes = async (c: { installationId: number; builderId: number | null; now: Date }, project: Record<string, unknown>, key: string) => {
+      await markFind(c.installationId, NOW, undefined, key);
+      await rememberGap(c.installationId, 'l47i3', { what: 'a team of two or more', kind: 'rule', item, rules: [item], next: true });
+      return track(c, { program_id: 'l47i3', status: 'gap_done', item, project });
+    };
+    // Signed out (unlinked since the Next line): no apply promise.
+    const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l47i3-' + Math.random()}) RETURNING id`;
+    const out = await yes({ installationId: u.id as number, builderId: null, now: NOW }, { name: 'Yes Tool', description: 'A tool.' }, 'name:yes tool');
+    assert.equal(out.show_to_builder, 'Noted.');
+    assert.equal(out.agent_note, NEXT_LATER_NOTE);
+    // Linked, but the repo is not shown to be theirs.
+    const c = await signedIn('l47i3-me');
+    const key = `l47i3-other/tool${Math.floor(Math.random() * 1e6)}`;
+    await seedRead(key, ['l47i3-other']);
+    const theirs = await yes(c, { name: 'Other Tool', description: 'A tool.', repo_url: `https://github.com/${key}` }, `https://github.com/${key}`);
+    assert.equal(theirs.show_to_builder, 'Noted.');
+    // Linked on their own named project: the yes covers the send.
+    const ok = await yes(c, { name: 'Own Tool', description: 'A tool.' }, 'name:own tool');
+    assert.equal(ok.show_to_builder, 'Noted; I apply now.');
+    for (const t of [out.show_to_builder, theirs.show_to_builder]) assert.doesNotMatch(t, /apply|draft|—/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l47i3'`;
   }
 });

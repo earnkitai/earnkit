@@ -1253,10 +1253,11 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
   // Task 2 (v6.1.22): a program whose row says its earlier-round win leaves that win out of this line (said once).
   // Fix round 1 (I1): only a row the 10-line cap keeps on screen, so the line is settled after the fit (`appsAfter`).
+  // Final fix round (M2): only this project's earlier-round item (`earlier`), so another project's win is still said.
   const earlierOnRow = new Set([...ready, ...steps].filter((p) => p.earlier_win !== undefined).map((p) => p.program_id));
   const apps = applicationsLine(r.applications ?? [], now);
   const appsAfter = (shownIds: string[]): string | null =>
-    applicationsLine((r.applications ?? []).filter((a) => !(a.status === 'won' && earlierOnRow.has(a.program_id) && shownIds.includes(a.program_id))), now);
+    applicationsLine((r.applications ?? []).filter((a) => !(a.earlier && earlierOnRow.has(a.program_id) && shownIds.includes(a.program_id))), now);
   const since = first ? null : sinceLine(r, now);
   // L23-16 (v6.1.16): the same list as the last find, and nothing else moved. L35-21 (v6.1.17): the same day reads "your
   // last look", never today's date.

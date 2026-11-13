@@ -69,7 +69,7 @@ type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; alr
 type NextReady = {
   program_id: string; title: string; money: string; draft: boolean; fields: { key: string; from: string; value: string | null; required: boolean }[]; rules: { item: string; what: string }[];
   /** L47-S1 (v6.1.22): the second one-yes program, for the agent when the builder says no (never on the builder line). */
-  alt?: { program_id: string; title: string; rules: { item: string; what: string }[]; keys: string };
+  alt?: { program_id: string; title: string; money: string; draft: boolean; rules: { item: string; what: string }[]; keys: string };
 };
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
@@ -290,6 +290,10 @@ export const NEXT_NOTED_DRAFT = 'Noted; I draft it for you to send.';
 /** L47-8 (v6.1.22): the agent note after it: no find. */
 export const NEXT_GAP_NOTE = (id: string) =>
   `The builder's yes to the Next line covers the send: call track started with program_id ${id} and fill the form from next.fields; no find needed.`;
+/** Final fix round (v6.1.22, I3): the same yes when the send cannot go now (signed out, a repo not shown to be theirs,
+ *  the program closed or taken): no apply promise. */
+export const NEXT_NOTED_LATER = 'Noted.';
+export const NEXT_LATER_NOTE = 'Nothing is started; call find again and say what it shows before anything is sent.';
 /** L45-20 (v6.1.19): started on a program the builder skipped. */
 export const SKIPPED_START = (title: string) => `${title} is skipped. Say unskip and I bring it back.`;
 export const SKIPPED_START_NOTE = 'Do not submit this one. When the builder says unskip, call track with unskip.';
@@ -863,6 +867,9 @@ async function act(
     // started with no find. A program the builder sends is drafted (controller ruling).
     if (remembered?.next && i.item!.startsWith('rule:') && !('repeated' in res) && shownRules.includes(i.item!) && left === 0) {
       const p = await getProgram(i.program_id);
+      // Final fix round (I3): the apply promise only when it can be kept at the moment of the yes: linked, the repo
+      // shown to be theirs, the program open, not sent here, held, or claimed by another agent. Otherwise a plain note.
+      if (!(await nextYesHolds(ctx, owner, i.program_id, project.key, p))) return { show_to_builder: NEXT_NOTED_LATER, agent_note: NEXT_LATER_NOTE, ledger: await summary(owner, programs, ctx.now) };
       const draft = p?.file.submit === 'builder' || (ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.agent_may_submit === false);
       return { show_to_builder: draft ? NEXT_NOTED_DRAFT : NEXT_NOTED, agent_note: NEXT_GAP_NOTE(i.program_id), ledger: await summary(owner, programs, ctx.now) };
     }
@@ -1055,7 +1062,13 @@ export const NEXT_NOTE = (n: NextReady): string => {
     : `Next is one yes away: program_id ${n.program_id}. On the builder's yes, call track gap_done with item ${n.rules[0].item} (it confirms every rule listed), then track started with that program_id and fill the form from next.fields (keys: ${keys}); no find needed.`;
   // L47-S1 (v6.1.22): the second one-yes program, so a no needs no find.
   const a = n.alt;
-  return a ? `${main} If the builder says no: program_id ${a.program_id} (${a.title}) needs one yes: ${a.rules.map((r) => midSentence(r.what)).join('; ')}. On a yes to that, call track gap_done with item ${a.rules[0].item}, then track started with that program_id; no find needed.` : main;
+  // Final fix round (M3): the builder never heard the second one's apply, so the agent asks it in these words first.
+  return a ? `${main} If the builder says no: program_id ${a.program_id} is the other one yes away. Ask the builder first, in these words: "${ALT_ASK(a)}" Only on a yes to that, call track gap_done with item ${a.rules[0].item}, then track started with that program_id; no find needed.` : main;
+};
+/** Final fix round (v6.1.22, M3): the builder's ask for the second one-yes program, its rules and the apply. Pure. */
+export const ALT_ASK = (a: { title: string; money: string; draft: boolean; rules: { what: string }[] }): string => {
+  const rules = a.rules.map((r) => midSentence(r.what));
+  return `${a.title} (${a.money}) needs one yes: ${rules.join('; ')}. Say yes if ${rules.length === 1 ? 'that' : 'all of that'} fits and I ${a.draft ? 'draft it for you to send' : 'apply'}.`;
 };
 /** The form keys the agent fills, with where each comes from. Pure. */
 const fieldKeys = (fields: NextReady['fields']): string => fields.map((f) => `${f.key} (${f.from})`).join(', ');
@@ -1111,13 +1124,24 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
     };
     if (ready) return next;
     // L47-S1 (v6.1.22): the second one-yes program rides in the note.
-    if (oneYes) oneYes.alt = { program_id: next.program_id, title: next.title, rules: next.rules, keys: fieldKeys(next.fields) };
+    if (oneYes) oneYes.alt = { program_id: next.program_id, title: next.title, money: next.money, draft: next.draft, rules: next.rules, keys: fieldKeys(next.fields) };
     else oneYes = next;
   }
   // L47-8 (v6.1.22): remembered as the Next line's, so the yes's gap_done covers the send (no find); L47-S1: the second's too.
   if (oneYes) await rememberGap(ctx.installationId, oneYes.program_id, { what: oneYes.rules[0].what, kind: 'rule', item: oneYes.rules[0].item, rules: oneYes.rules.map((r) => r.item), next: true });
   if (oneYes?.alt) await rememberGap(ctx.installationId, oneYes.alt.program_id, { what: oneYes.alt.rules[0].what, kind: 'rule', item: oneYes.alt.rules[0].item, rules: oneYes.alt.rules.map((r) => r.item), next: true });
   return oneYes;
+}
+
+/** Final fix round (v6.1.22, I3): whether the Next yes can start the send now: linked, the repo shown to be the
+ *  builder's, the program open, not sent here (or skipped), not held, and not claimed by another agent in the last day. */
+async function nextYesHolds(ctx: TrackContext, owner: string, programId: string, projectKey: string, p: Awaited<ReturnType<typeof getProgram>>): Promise<boolean> {
+  if (ctx.builderId === null || !p || !isOpenAt(p.file, ctx.now)) return false;
+  if (await repoNotMine(ctx, projectKey)) return false;
+  const here = await rowHere(owner, programId, projectKey);
+  if (here && here.status !== 'started' && !isEarlierRound(here)) return false;
+  const c = (await claimed(owner)).get(programId);
+  return !(c && (c.held || (c.by !== ctx.installationId && Date.parse(c.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000)));
 }
 
 /** L41-3 (v6.1.19): the rules a program's verdict still asks when they are all it asks; else none. Pure. */

@@ -4746,13 +4746,6 @@ test('v6.1.20 re-review 3 (N1): signed out on GitHub, the full list whose defaul
   assert.deepEqual(gateLines('A Grant: started Nov 1, nothing sent. Say yes to apply or say skip.', 'strip', false).kept, ['A Grant: started Nov 1, nothing sent.']);
 });
 
-// Registered last (v6.1.20 review I5): every find reply above, gated or not, keeps the builder contract; a full list
-// (the full view or the open full list) has no line budget.
-test('v6.1.20 review I5: every find reply in this file keeps the builder contract', () => {
-  assert.ok(findReplies.length > 200, String(findReplies.length));
-  for (const t of findReplies) builderRules(t, !/^(Everything open|Open now: \d+ programs?, nearest first:)/.test(t) && !t.includes('\nRules:\n'));
-});
-
 // ---- v6.1.22 (lane 47) ----
 
 test('L47-4 (v6.1.22): the same builder-sent program on two projects is asked once on each', async () => {
@@ -5002,4 +4995,12 @@ test('L46-10 (v6.1.22, ruling 2): on a chain with no contract address, an audit 
   // No chain at all: no audit program.
   const none = await mcpCall(await c(), 'find', { project: { ...CHAINLENS, chains: [] }, filter: { all: true } });
   assert.doesNotMatch(listText(none.reply!), /Security Subsidy|Security Fund|Security Program/);
+});
+
+// Registered last (v6.1.20 review I5): every find reply above, gated or not, keeps the builder contract; a full list
+// (the full view or the open full list) has no line budget. Final fix round (v6.1.22, I2): keep this the file's last
+// test; append new tests above it.
+test('v6.1.20 review I5: every find reply in this file keeps the builder contract', () => {
+  assert.ok(findReplies.length > 200, String(findReplies.length));
+  for (const t of findReplies) builderRules(t, !/^(Everything open|Open now: \d+ programs?, nearest first:)/.test(t) && !t.includes('\nRules:\n'));
 });
