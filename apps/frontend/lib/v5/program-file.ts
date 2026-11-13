@@ -226,6 +226,8 @@ export const ProgramFile = z
     id: slug,
     organizer: z.string().min(1),
     title: z.string().min(1),
+    /** v6.1.20: the name the reply uses when cutting the title at its first colon or " - " would read wrong. */
+    short_title: z.string().min(1).max(48).optional(),
     description: z.string().min(1),
     source_url: z.string().url(),
     submission_url: z.string().url(),

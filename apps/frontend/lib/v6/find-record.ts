@@ -340,6 +340,8 @@ export function missingFor(rows: ProgramRow[], record: BuilderRecord, verifiedUs
     needs: [...new Set(rows.flatMap((r) => r.file.needs))],
     kinds: [...new Set(rows.flatMap((r) => r.file.submission_requirements.map((q) => q.kind)))].filter((k) => k !== 'traction'),
     verifiedUsage,
+    // L46-7 (v6.1.20): the traction line only for a form that reads it.
+    traction: rows.some((r) => r.file.submission_requirements.some((q) => q.kind === 'traction')),
   });
   return repoPassed ? missing.filter((m) => m !== PROJECT_ITEM) : missing;
 }

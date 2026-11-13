@@ -14,6 +14,21 @@ export function listWords(items: string[], max = 3): string {
   return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
 }
 
+/** v6.1.20: the most characters a short title holds. */
+export const SHORT_TITLE_MAX = 48;
+/**
+ * v6.1.20: the name a reply uses for a program: the catalog's `short_title` when it has one; else the title cut at its
+ * first colon or " - " (the organiser's long suffix: "PayPal AI Hackathon: Build What's Next ..." reads "PayPal AI
+ * Hackathon") when the cut is at most SHORT_TITLE_MAX characters; else the full title. Pure.
+ */
+export function shortTitle(title: string, short?: string | null): string {
+  if (short) return short;
+  const at = [title.indexOf(':'), title.indexOf(' - ')].filter((i) => i > 0);
+  if (at.length === 0) return title;
+  const cut = title.slice(0, Math.min(...at)).trim();
+  return cut.length > 0 && cut.length <= SHORT_TITLE_MAX ? cut : title;
+}
+
 /** L38-4 (v6.1.18): the users bar reads "real users", the one wording of the users gap. */
 const CONFIRM: Record<'used' | 'live' | 'building', string> = { used: 'of real users', live: 'that your product is live', building: 'that your project has code' };
 

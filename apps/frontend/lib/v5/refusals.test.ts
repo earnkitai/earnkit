@@ -92,8 +92,8 @@ test('track: already sent, both forms; the in-person send; the unconfirmed rule;
   // L29-8: a rule not confirmed for the last find's project, with no project passed.
   await p('rf-rule', { eligibility: [{ kind: 'rule', note: 'a team of two or more' }] });
   await a.call('find', { project: { name: 'Rule App', description: 'An app.' } });
-  refused(await a.call('track', { program_id: 'rf-rule', status: 'started' }), 'Confirm the rule first: a team of two or more. Say yes if that is you.');
-  refused(await a.call('track', { program_id: 'rf-rule', status: 'applied', fields_used: ['project_name'] }), 'Confirm the rule first: a team of two or more. Say yes if that is you.');
+  refused(await a.call('track', { program_id: 'rf-rule', status: 'started' }), 'rf-rule needs one yes from you first: a team of two or more. Say yes if that is you.');
+  refused(await a.call('track', { program_id: 'rf-rule', status: 'applied', fields_used: ['project_name'] }), 'rf-rule needs one yes from you first: a team of two or more. Say yes if that is you.');
   const rows = await sql()`SELECT program_id FROM applications WHERE installation_id = ${a.id} AND program_id IN ('rf-room', 'rf-rule')`;
   assert.equal(rows.length, 0);
   // Confirmed, the same send goes through.
