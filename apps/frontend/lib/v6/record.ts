@@ -442,10 +442,13 @@ const NEED_DOCS: { need: string; has: (r: BuilderRecord) => boolean; words: stri
 /** Whether the record holds the document a program needs (founder_video, deck, ...); unknown needs are held. Pure. */
 export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOCS.find((d) => d.need === need)?.has(record) ?? true;
 
+/** L46-7 (v6.1.20): a traction line typed and not yet approved: where to approve it, once. */
+export const TRACTION_APPROVE = 'your traction line approved at earnkit.com/me';
 /** The record item for a project with a link (lane 8 #10, v6.1.10: never missing on a find that passed a repo). */
 export const PROJECT_ITEM = 'a project with its repo or site';
 
-type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnswer?: boolean };
+/** `traction` (L46-7, v6.1.20): false when no form these programs hold reads traction, so the line is not asked. */
+type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnswer?: boolean; traction?: boolean };
 
 /**
  * The items the open programs ask of the record (`total`) and the ones it lacks, in builder words (`missing`). `needs`:
@@ -471,7 +474,9 @@ function itemsOf(record: BuilderRecord, o: Asks): [boolean, string][] {
   // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
   items.push([Boolean(record.person.name), 'your name'], [Boolean(record.person.email), 'your email']);
   items.push([record.projects.some((p) => p.repo_url || p.live_url), PROJECT_ITEM]);
-  if (!o.verifiedUsage) items.push([isApproved(record, 'traction.line_pre_launch'), 'one approved line on traction']);
+  // L46-7 (v6.1.20): asked only for a form that reads traction; once typed it is used, and only its approval is named.
+  if (!o.verifiedUsage && o.traction !== false)
+    items.push([isApproved(record, 'traction.line_pre_launch'), record.traction.line_pre_launch ? TRACTION_APPROVE : 'one line on traction']);
   const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null && k !== 'traction'))];
   for (const k of ANSWER_KINDS.filter((x) => kinds.includes(x))) {
     const any = o.anyAnswer

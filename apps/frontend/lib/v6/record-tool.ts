@@ -139,7 +139,8 @@ export const waitingAnswers = (record: BuilderRecord): number => answersOf(recor
 export const waitingLine = (n: number): string | null => (n === 0 ? null : n === 1 ? '1 answer waits for your approval.' : `${n} answers wait for your approval.`);
 /** L38-15 (v6.1.18): what the next application needs (at most two named) and the one action. Pure. */
 export const nextNeedsLine = (missing: string[]): string =>
-  `The next application needs ${listWords(missing, 2)}. Tell me ${missing.length === 1 ? 'it and I save it' : 'them and I save them'}.`;
+  // L46-6 (v6.1.20): two named, never "and 5 more"; the rest are asked after these, one at a time.
+  `The next application needs ${listWords(missing.slice(0, 2), 2)}${missing.length > 2 ? ' first' : ''}. Tell me ${missing.length === 1 ? 'it and I save it' : 'them and I save them'}.`;
 
 const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
 

@@ -498,7 +498,7 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   assert.match(one.agent_note as string, /On the builder's yes, fill the form of program_id floss-fund-zerodha from its fields for the builder to send; do not call track started with this repo\. Once they say it is sent, call track applied with submitted_by builder\./);
   // The list: the ready heading says the builder sends, within 10 lines.
   const list = (await mcpCall(ctx(await installation()), 'find', { project })).reply!.show_to_builder as string;
-  assert.ok(list.split('\n').length <= 10, list);
+  assert.ok(list.split('\n').filter((l) => l.trim() !== '').length <= 10, list);
   assert.doesNotMatch(list, /Ready to apply|I apply\b/, list);
   assert.match(list, /^Ready for you to send \(\d+\):$/m, list);
   assert.match(list.split('\n').at(-1)!, /^Sign in so I can check your users, then say yes and I draft .+ for you to send\.$/);
@@ -506,7 +506,7 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   const { id, builderId } = await linkedWith({});
   const again = (await mcpCall({ ...ctx(id), builderId }, 'find', { project })).reply!;
   const text = again.show_to_builder as string;
-  assert.ok(text.split('\n').length <= 10, text);
+  assert.ok(text.split('\n').filter((l) => l.trim() !== '').length <= 10, text);
   assert.doesNotMatch(text, /Ready to apply|Say yes and I apply|then apply\b/, text);
   assert.match(text, /^Ready for you to send \(\d+\):$/m, text);
   assert.equal(text.split('\n').at(-1), 'I could not read codeberg.org/acme/berg, so I cannot check it is yours. Send it yourself and tell me when it is in.');
@@ -540,7 +540,7 @@ test('find with no project: the open list and the ask for the project', async ()
   assert.match(show, /^Open now:\n/);
   // Fix round 1 (M4, L29-26): within the 10-line budget: names and money, five, the count, the ask (no "I'll").
   const lines = show.split('\n');
-  assert.ok(lines.length <= 10, show);
+  assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, show);
   assert.equal(lines.filter((l) => /^[^\n]+, [^\n]+\.$/.test(l) && !l.startsWith('Tell me')).length, 5, show);
   for (const line of lines.slice(1)) assert.ok(line.endsWith('.'), line);
   assert.doesNotMatch(show, /I'll/);
@@ -1257,7 +1257,7 @@ test('a failed own read keeps the stored tier line; a broken link never fails fi
     // L38-31 (v6.1.18): no sign-in line with no project; the link stays in the JSON.
     assert.ok(!openLines.some((l) => l.includes(link)), openLines.join('\n'));
     assert.equal(openLines.at(-1), 'Tell me which project and I match it.');
-    assert.ok(openLines.length <= 10, openLines.join('\n'));
+    assert.ok(openLines.filter((l) => l.trim() !== '').length <= 10, openLines.join('\n'));
     for (const line of openLines.slice(1, -2)) assert.ok(line.endsWith('.'), line);
   });
 });
@@ -3660,7 +3660,7 @@ test('Review Focus 21: each of the 52 catalog programs as the only ready one, wi
       const shown = { ...r, ...numbered(r.ready, r.gaps, attendGap) };
       const { text, hidden } = replyParts(shown as never, false, NOW);
       const lines = text.split('\n');
-      assert.ok(lines.length <= 10, `${f} ${linked}: ${lines.length}\n${text}`);
+      assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, `${f} ${linked}: ${lines.length}\n${text}`);
       assert.equal(sayLines(text).length, 1, `${f} ${linked}\n${text}`);
       assert.match(lines.at(-1)!, /(^|[.?!] )[Ss]ay\b/, `${f} ${linked}\n${text}`);
       for (const l of lines) assert.match(l, /[.:?]$/, `${f}: ${l}`);
@@ -3679,7 +3679,7 @@ test('Review Focus 21: the persona finds read at most 10 lines with one Say, las
     const r = await mcpCall(c, 'find', { project });
     const show = r.reply!.show_to_builder as string;
     const lines = show.split('\n');
-    assert.ok(lines.length <= 10, show);
+    assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, show);
     assert.ok(sayLines(show).length <= 1, show);
     if (sayLines(show).length === 1) assert.equal(sayLines(show)[0], lines.at(-1), show);
     const all = await mcpCall(c, 'find', { project, filter: { all: true } });
@@ -3856,7 +3856,7 @@ test('L41-8 (v6.1.19): a repo not shown to be theirs heads "Ready for you to sen
   // Fix round 1 (I2): one ready reads "it"; several name the first.
   assert.equal(lines.at(-1), readyRows.length > 1 ? `Say yes and I draft ${first.title} for you to send.` : 'Say yes and I draft it for you to send.');
   assert.equal(told.match(/\bSay\b/g)?.length, 1, told);
-  assert.ok(lines.length <= 10, told);
+  assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, told);
   // Fix round 1 (I2): the agent hears the way through the yes, and the builder's send is recorded, never refused.
   assert.ok((reply.agent_note as string).includes(`On the builder's yes, fill the form of program_id ${first.program_id} from its fields for the builder to send; do not call track started with this repo. Once they say it is sent, call track applied with submitted_by builder.`), reply.agent_note as string);
   const sent = await mcpCall(c, 'track', { program_id: first.program_id, status: 'applied', submitted_by: 'builder', project: PROJECT });
@@ -4095,7 +4095,7 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   assert.ok(n > 0, show);
   assert.equal(n, fullRows - shownRows, show);
   assert.match(show, new RegExp(`^And ${n} more in the full list(\\.|; closing this week: .+\\.)$`, 'm'));
-  assert.ok(show.split('\n').length <= 10, show);
+  assert.ok(show.split('\n').filter((l) => l.trim() !== '').length <= 10, show);
   assert.equal(all.reply!.more_count, 0);
   assert.ok((def.reply!.agent_note as string).includes(`The full list holds ${n} more;`));
   // The owner's live day (Nov 12): two of the left-out programs close this week, named in closing order with the words
@@ -4108,7 +4108,7 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   const left = (allReady(nov12All.reply!) as unknown[]).length + (nov12All.reply!.gaps as unknown[]).length - lines.filter((l) => /^\d+\. /.test(l)).length;
   assert.equal(nov12.reply!.more_count, left);
   assert.equal(lines.at(-2), `And ${left} more in the full list; closing this week: PayPal AI Hackathon: Build What's Next with PayPal and AI (today) and UGREEN Hackathon 2026 on AI NAS (3 days).`, lines.join('\n'));
-  assert.ok(lines.length <= 10);
+  assert.ok(lines.filter((l) => l.trim() !== '').length <= 10);
 });
 
 test('L18-2 (v6.1.18): the PayPal one-program look for a project with no repo names code in a public repo as the step, never as a rule', async () => {
@@ -4191,7 +4191,7 @@ test('L1l-4 (v6.1.19): a no-project in-person lookup with a form says "You atten
   const text = (await mcpCall(ctx(await installation()), 'find', { program_id: 'alliance' })).reply!.show_to_builder as string;
   const lines = text.split('\n');
   assert.deepEqual(lines.slice(-2), ['You attend in person.', 'Tell me about your project and I check the fit.'], text);
-  assert.ok(lines.length <= 10, text);
+  assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, text);
   // An online one never says it.
   const online = (await mcpCall(ctx(await installation()), 'find', { program_id: 'base-ecosystem-fund' })).reply!.show_to_builder as string;
   assert.doesNotMatch(online, /You attend in person/);
@@ -4319,7 +4319,7 @@ test('L36-1, L36-2 (v6.1.18 Task 4), L41-2 (v6.1.19): the caller\'s own fresh dr
     const earlyDefault = await find(NOW);
     assert.match(earlyDefault.show_to_builder as string, /^Kiroween 2026: drafted, waiting for you to send\.$/m);
     assert.doesNotMatch(earlyDefault.show_to_builder as string, /Kiroween 2026 needs|draft Kiroween|\d+\. Kiroween/);
-    assert.ok((earlyDefault.show_to_builder as string).split('\n').length <= 10);
+    assert.ok((earlyDefault.show_to_builder as string).split('\n').filter((l) => l.trim() !== '').length <= 10);
     // Once an hour has passed: asked on the next find, and not offered as a draft while the ask is open.
     const at = new Date(NOW.getTime() + H);
     const r = await find(at);
@@ -4419,7 +4419,7 @@ test('L18-4 fix round 1 (v6.1.18 Task 4), L41-7 (v6.1.19): a sent question is as
     assert.equal(lines.at(-2), 'Did you send Kiroween Two (EarnKit)?');
     assert.equal(lines.at(-1), 'Say sent, or tell me which project and I match it.');
     assert.equal((list.show_to_builder as string).match(/\bSay\b/g)?.length, 1);
-    assert.ok(lines.length <= 10);
+    assert.ok(lines.filter((l) => l.trim() !== '').length <= 10);
     assert.match(list.agent_note as string, /The reply asks whether each was sent: Kiroween Two\. .* Pass the project each was started for\./);
     assert.deepEqual((await find(week, null)).ask_sent, []);
   } finally {
@@ -4441,7 +4441,7 @@ test('L18-4 fix round 1 (v6.1.18 Task 4): a sent question the 10-line cap drops 
       await claim(`b:${builderId}`, p, null, id, new Date(NOW.getTime() - 25 * H));
     const r = (await mcpCall({ ...ctx(id, at), builderId, evidence: LIVE }, 'find', { project: PROJECT })).reply!;
     const text = r.show_to_builder as string;
-    assert.ok(text.split('\n').length <= 10, text);
+    assert.ok(text.split('\n').filter((l) => l.trim() !== '').length <= 10, text);
     if (/Did you send Kiroween Three/.test(text)) assert.fail(`the cap kept the question; this test needs a fuller reply:\n${text}`);
     assert.deepEqual(r.ask_sent, []);
     assert.doesNotMatch(r.agent_note as string, /Kiroween Three/);

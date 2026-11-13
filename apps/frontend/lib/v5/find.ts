@@ -11,7 +11,7 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, pickProject, recordSide, sharedRepoProjects, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, shortTitle, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, ownSteps, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
@@ -420,21 +420,25 @@ const actionOffer = (action: string | null): OfferKind | null => {
  */
 function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null; done: Set<string>; lastOffer: OfferKind | null; standing: boolean }): { lines: string[]; offer: OfferKind | null } {
   const p = row.file;
-  if (v.status === 'no') return { lines: [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules], offer: null };
+  // v6.1.20: the program by its short title, its money in parentheses, then one state sentence.
+  const title = shortTitle(p.title, p.short_title);
+  if (v.status === 'no') return { lines: [notFitLine(title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules], offer: null };
   if (v.status === 'gap') {
-    const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
+    const g = { ...gapOf(row, v, o.done, o.now), title, n: 0 };
     // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once. L38 big 1 (v6.1.18 Task 10): inside the action,
     // first ("Sign in at {link} so I can check the repo, then ..."), never a line of its own.
     // L18-3 (v6.1.18): a program the builder sends closes on the draft, never on apply.
     const action = gapAction(g, o.signIn, o.draftOnly);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
-    return { lines: [gapLine(g, true, gapActionStep(g, o.signIn, o.draftOnly)), ...o.rules, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
+    const head = oneHead(g.title, g.money, g.closes_in ? `closes ${g.closes_in}` : null);
+    const state = gapState(g, gapActionStep(g, o.signIn, o.draftOnly));
+    return { lines: [state ? `${head} ${state}` : head, ...o.rules, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
   }
-  const r = { ...ready(), n: 0 };
+  const r = { ...ready(), title, n: 0 };
   // L1j-7 (v6.1.17): an in-person program closes on its one action too.
   // L38 big 2 (v6.1.18 Task 10): one with an online form ends on a real yes: EarnKit drafts it for the builder to send.
-  if (r.in_person) return hasForm(row) ? { lines: [inPersonLine(r, true), ...o.rules, IN_PERSON_DRAFT], offer: 'draft' } : { lines: [inPersonLine(r, true), ...o.rules, IN_PERSON_ONE], offer: null };
-  if (o.standing) return { lines: [readyLine(r, o.linked, o.now, true), ...o.rules, STANDING_ONE], offer: 'stop' };
+  if (r.in_person) return hasForm(row) ? { lines: [inPersonState(r), ...o.rules, IN_PERSON_DRAFT], offer: 'draft' } : { lines: [inPersonState(r), ...o.rules, IN_PERSON_ONE], offer: null };
+  if (o.standing) return { lines: [readyState(r, { click: o.draftOnly }), ...o.rules, STANDING_ONE], offer: 'stop' };
   // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you. L1e-3 (v6.1.13): one
   // the builder submits too, in the draft wording. L24-2 (v6.1.16 Task 11): only after an apply offer.
   const said = r.rule_yes && yesStands(o.lastOffer);
@@ -448,7 +452,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   const first = stands.length === 0 && yesWaits.length === 0 ? ownSteps(r) : [];
   const c = closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands: yesStandsFor, draftStands, yesWaits, title: r.title, ...(first.length > 0 ? { setupFirst: first } : {}) });
   const shown = first.length > 0 ? { ...r, needs: r.needs.filter((x) => !first.includes(x)) } : r;
-  return { lines: [readyLine(shown, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, c.text], offer: c.offer };
+  const needs = yesWaits.length > 0 ? [] : o.linked ? shown.need_you : shown.needs.filter((x) => !shown.setup.includes(x));
+  return { lines: [readyState(shown, { click: o.draftOnly, needs }), ...o.rules, c.text], offer: c.offer };
 }
 
 /** L1j-7 (v6.1.17): the one action of an in-person program's own reply. L38 big 2 (v6.1.18 Task 10): only when it has
@@ -501,6 +506,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const renamed = row.id !== id;
   id = row.id;
   const p = row.file;
+  // v6.1.20: the builder reads the short title.
+  const short = shortTitle(p.title, p.short_title);
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
   // L38-1 (v6.1.18 Task 11): a manifest program the builder started is read again for a push since (the agent wrote the
@@ -545,7 +552,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   if (result) {
     const words = resultWords(result.status, result.amounts);
     return {
-      show_to_builder: [`${p.title}, ${moneyOf(p)}.`, `${words[0].toUpperCase()}${words.slice(1)}.`].join('\n'),
+      show_to_builder: paragraphs(oneHead(short, moneyOf(p)), `${words[0].toUpperCase()}${words.slice(1)}.`),
       agent_note: 'This program already has a result; nothing to send.',
       program: pub, fields, guide, ...(verdict ? { verdict } : {}), rules, linked: ctx.builderId !== null,
     };
@@ -582,19 +589,19 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const show = closed
     // Low 20 (v6.1.13), L23-20 (v6.1.16): closed is said once, and a closed program's rules are not listed.
     ? sent
-      ? [`${p.title}, ${moneyOf(p)}.`, `Closed. You applied ${dayWords(sent, ctx.now)}; results ${due ? dayWords(due, ctx.now) : 'not announced'}.`]
+      ? [oneHead(short, moneyOf(p)), `Closed. You applied ${dayWords(sent, ctx.now)}; results ${due ? dayWords(due, ctx.now) : 'not announced'}.`]
       // L1l-8 (v6.1.19): a closed program not sent here ends on what to do next; closed is still said once.
       // Fix round 1 (M3): with a project given, the way on never asks for the project.
-      : [`${p.title}, ${moneyOf(p)}.`, project ? CLOSED_PROJECT_ONE : CLOSED_ONE]
+      : [oneHead(short, moneyOf(p)), project ? CLOSED_PROJECT_ONE : CLOSED_ONE]
     : upcoming
-      ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
+      ? [`${oneHead(short, moneyOf(p))} Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
       : said
         ? said.lines
         // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too. L1k-4
         // (v6.1.18): an online one ends on the ask for the project, never on a rules bullet.
         // L38 big 2 (v6.1.18 Task 10): an in-person one with an online form asks for the project, as an online one does.
         // L1l-4 (v6.1.19): an in-person one with a form still says so before the project ask.
-        : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
+        : [oneHead(short, moneyOf(p), when), ...rules.map(ruleSentence), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
@@ -609,11 +616,12 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   // L38-1 (v6.1.18 Task 11): a ready program whose form takes a manifest not yet in the repo: what the agent writes.
   const step = open && verdict?.status === 'ready' && !heldSince ? manifestStep(p, facts, rec) : null;
-  if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
+  if (renamed && !show[0]?.includes(short)) show.unshift(`${short}.`);
   await markOffer(ctx.installationId, offer, ctx.now);
   const dropped = droppedNote(problems);
   return {
-    show_to_builder: show.join('\n'),
+    // v6.1.20: a blank line before the one action.
+    show_to_builder: show.length > 1 ? paragraphs(show.slice(0, -1), show.at(-1)) : show.join('\n'),
     agent_note: (open
       ? !project
         ? ['Call find with the project for whether you fit.']
@@ -654,9 +662,15 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
  *  one, `closesWords`). Pure. */
 export const openLine = (p: Program, now: Date): string => {
   const closes = closesIn(p, now) && closeDay(p, now) ? closesWords(p.ends_at!, now, programZone(p)) : null;
-  return `${p.title}, ${moneyOf(p)}${closes ? `, ${closes}` : ''}${p.in_person ? ', in person' : ''}.`;
+  // v6.1.20: the short title, then the money, the close and in person in parentheses.
+  return `${shortTitle(p.title, p.short_title)} (${[moneyOf(p), ...(closes ? [closes] : []), ...(p.in_person ? ['in person'] : [])].join(', ')}).`;
 };
 
+/** L46-4 (v6.1.20): a category filter with nothing to show. Pure. */
+export const emptyFilterLine = (name: string, open: number): string =>
+  `Nothing open fits that filter for ${name}. ${open} program${open === 1 ? ' is' : 's are'} open in all; say all and I list them.`;
+/** v6.1.20: the open list's ask with no project. */
+export const OPEN_ASK = 'Tell me what you build, or its repo link, and I match it.';
 /** L38-13 (v6.1.18): the agent line that maps the open full list's numbers to programs. Pure. */
 export const openNumbersNote = (ids: string[]): string =>
   `The full list's numbers are these program_ids in order: ${ids.map((id, i) => `${i + 1} ${id}`).join(', ')}. When the builder says a number, call find with that program_id and the project.`;
@@ -672,7 +686,6 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const shown = all ? programs : programs.slice(0, OPEN_SHOWN);
   // L38-13 (v6.1.18): the full list numbers its rows, as every other list does; the agent note maps them.
   const lines = shown.map((r, i) => `${all ? `${i + 1}. ` : ''}${openLine(r.file, ctx.now)}`);
-  if (programs.length > shown.length) lines.push(`And ${programs.length - shown.length} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   // L29-1, L29-2 (v6.1.16 Task 15): the applications by name whenever there are any, project or not; then the ask for
   // the project is one line, in place of the open list.
@@ -680,8 +693,11 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const appsLine = applicationsLine(applications, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : 'Tell me which project and I match it.';
-  const head = appsLine ? [appsLine] : programs.length > 0 ? ['Open now:', ...lines] : [];
+  const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : OPEN_ASK;
+  // v6.1.20: one opening with the count, then the nearest five (or every one in the full list), each a sentence.
+  const count = `${programs.length} program${programs.length === 1 ? '' : 's'}`;
+  const opening = all || programs.length <= OPEN_SHOWN ? `Open now: ${count}, nearest first:` : `Open now: ${count}. The ${OPEN_SHOWN === 5 ? 'five' : OPEN_SHOWN} nearest:`;
+  const head = appsLine ? [appsLine] : programs.length > 0 ? [opening, ...lines] : [];
   const action = appsLine || programs.length > 0 ? ask : 'Nothing is open right now. Ask again any time and I show what is new.';
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
@@ -704,7 +720,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
     // L38-31 (v6.1.18): no sign-in line: with no project, signing in buys the builder nothing yet (sign_in stays in the JSON).
     // L18-4 (v6.1.18 Task 4): the open sent questions after it, before the ask.
     // L41-7 (v6.1.19): the closing carries both answers in one Say.
-    show_to_builder: openListLines(before, sentAsk, sentShown.length, action, action === ask).join('\n'),
+    // v6.1.20: the list, then what else there is to say, then the ask, apart by blank lines.
+    show_to_builder: paragraphs(head, before.slice(head.length), openListLines([], sentAsk, sentShown.length, action, action === ask)),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
@@ -842,7 +859,15 @@ export const applyOfferOf = (text: string): string | null => {
 export const withoutSignIn = (line: string): string => line.split(/(?<=[.?!])\s+/).filter((x) => !/^Sign in\b/.test(x)).join(' ');
 /** The builder lines with every apply offer taken out (a whole line, or a line's closing sentence). Pure. */
 const withoutApply = (text: string): string[] =>
-  text.split('\n').filter((l) => l && !APPLY_OFFER.test(l)).map((l) => l.replace(TAIL_OFFER, ''));
+  text.split('\n').filter((l) => !APPLY_OFFER.test(l)).map((l) => l.replace(TAIL_OFFER, ''));
+/** v6.1.20: what a ready row says EarnKit does when it applies; the gate takes it away (`strip`, signed out) or makes it
+ *  the draft for the builder to send (`draft`). Pure. */
+export function gatedRow(line: string, mode: 'strip' | 'draft'): string {
+  const acts = '(I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval)';
+  return line
+    .replace(new RegExp(`: ${acts}\\.$`), mode === 'draft' ? `: ${READY_DRAFT}` : '.')
+    .replace(new RegExp(` (${acts}|Once [^.]*, I apply on your yes)\\.$`), mode === 'draft' ? ` ${READY_DRAFT}` : '');
+}
 /** FR-1 (fix round 1): the agent note when sign-in must come before any claim or send with the repo. */
 export const SIGN_IN_FIRST_NOTE = 'Sign-in comes before any claim or send with this repo: show the sign-in link, then call find again once the builder has signed in.';
 /** Fix round 1 (M1): the one action when the repo is not the builder's. */
@@ -863,7 +888,7 @@ export const SIGN_IN_DRAFT = (link: string | null, title: string | null): string
 export function draftTarget(r: FindReply | ProgramReply): { id: string | null; named: string | null } {
   if ('program' in r) return { id: (r.program as { id?: string } | null)?.id ?? null, named: null };
   const rows = [...((r as FindReply).ready ?? [])].sort((a, b) => a.n - b.n);
-  return { id: rows[0]?.program_id ?? null, named: rows.length > 1 ? rows[0].title : null };
+  return { id: rows[0]?.program_id ?? null, named: rows.length > 1 ? shortTitle(rows[0].title) : null };
 }
 /** Fix round 1 (M1): the agent note when the builder's tie to the repo could not be confirmed (no evidence either way). */
 export const CANT_CONFIRM_NOTE = "EarnKit could not read this repo to check it is the builder's: do not apply with it; let the builder send it, then call track applied with submitted_by builder.";
@@ -1066,7 +1091,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   const r = withoutSteps(given);
   // Fix round 1: a reply within the 10-line budget (the default view, a one-program reply) stays within it once the gate
   // adds its line; the full list has no budget.
-  const fit = (lines: string[]): string[] => (r.show_to_builder.split('\n').length <= 10 ? withinLines(lines) : lines);
+  const fit = (lines: string[]): string[] => (countedLines(r.show_to_builder) <= 10 ? withinLines(lines) : tidy(lines));
   const ask = async (line: string, note: string): Promise<T> => {
     await markOffer(ctx.installationId, null, ctx.now);
     return { ...r, show_to_builder: line, agent_note: [note, r.agent_note].filter(Boolean).join('\n') };
@@ -1086,15 +1111,15 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     // N5b: one sign-in sentence: the unlink notice keeps only its first sentence, and the closing carries the link.
     // L38 big 1 (v6.1.18 Task 10): the apply offer is said again after the sign-in, in one sentence.
     // Fix round 1 (I1): every sign-in sentence, wherever it sits in a line, gives way to the one this line carries.
-    const kept = withoutApply(r.show_to_builder).map(withoutSignIn).filter((l) => l !== '');
+    const offGitHub = !repoKey(project!.repo_url);
+    const kept = withoutApply(r.show_to_builder).map((l) => (l === '' ? l : withoutSignIn(gatedRow(l, offGitHub ? 'draft' : 'strip')))).filter((l, i, xs) => l !== '' || (xs[i - 1] ?? '') !== '');
     // L1l-6 (v6.1.19): a repo not on GitHub: the sign-in checks users, never that the repo is theirs. Fix round 1 (I1):
     // signing in can never confirm it, so the yes drafts for the builder to send, never "I apply".
-    const offGitHub = !repoKey(project!.repo_url);
     const target = draftTarget(r);
     if (offGitHub) await markOffer(ctx.installationId, 'draft', ctx.now);
     return {
       ...r,
-      show_to_builder: fit([...(offGitHub ? kept.map((l) => l.replace(READY_HEAD, SEND_HEAD)) : kept), offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, applyOfferOf(r.show_to_builder))]).join('\n'),
+      show_to_builder: fit([...kept, '', offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, applyOfferOf(r.show_to_builder))]).join('\n'),
       ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, offGitHub ? DRAFT_NOTE(target.id) : SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };
@@ -1112,12 +1137,12 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // the apply offer becomes the draft for them to send (never "I apply").
   const drafts = against && offersApply(r.show_to_builder);
   await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
-  const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l))).map((l) => l.replace(READY_HEAD, SEND_HEAD));
+  const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l))).map((l) => gatedRow(l, 'draft'));
   // Fix round 1 (I2): the draft yes names its program when several are ready, and the agent hears the way through it.
   const target = draftTarget(r);
   return {
     ...r,
-    show_to_builder: fit(against ? [NOT_YOUR_REPO, ...kept, drafts ? draftToSend(target.named) : SAY_WHICH_REPO] : [...kept, CANT_CONFIRM_REPO(key)]).join('\n'),
+    show_to_builder: fit(against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO] : [...kept, '', CANT_CONFIRM_REPO(key)]).join('\n'),
     // The could-not-confirm reply asks the builder to send it; the agent may still draft it for them (fix round 1, I1).
     agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE, ...(drafts || (!against && offersApply(r.show_to_builder)) ? [DRAFT_NOTE(target.id)] : [])].filter(Boolean).join('\n'),
   };
@@ -1126,18 +1151,29 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
 /** L41-8 (v6.1.19): the gate's added line keeps the default within 10 lines: the more line goes first (the JSON keeps
  *  more_count), then the Before line. Pure. */
 export function withinLines(lines: string[], max = 10): string[] {
-  let out = lines;
-  for (const drop of [/^And \d+ more in the full list\.$/, /^Before applying: /]) {
-    if (out.length <= max) break;
+  // v6.1.20: blank lines do not count; the Also line holding only the count goes first, then the Before line.
+  let out = tidy(lines);
+  const n = () => out.filter((l) => l.trim() !== '').length;
+  for (const drop of [/^Also: \d+ more in the full list\b/, /^Before applying: /]) {
+    if (n() <= max) break;
     const at = out.findIndex((l) => drop.test(l));
-    if (at >= 0) out = out.filter((_, i) => i !== at);
+    if (at >= 0) out = tidy(out.filter((_, i) => i !== at));
   }
   // Fix round 1: as a last resort, the lines before the closing go from the end of the body; the first and the last stay.
-  return out.length <= max ? out : [...out.slice(0, max - 1), out[out.length - 1]];
+  while (n() > max) {
+    const at = out.slice(0, -1).map((l, i) => [l, i] as const).filter(([l, i]) => l.trim() !== '' && i > 0).at(-1)?.[1];
+    if (at === undefined) break;
+    out = tidy(out.filter((_, i) => i !== at));
+  }
+  return out;
 }
-/** L41-8 (v6.1.19): the ready heading, and how it reads when the builder sends. */
-const READY_HEAD = /^Ready to apply \((\d+)\):$/;
-const SEND_HEAD = 'Ready for you to send ($1):';
+/** v6.1.20: lines with no blank line first or last and never two together. Pure. */
+export const tidy = (lines: string[]): string[] => {
+  const out = lines.filter((l, i, xs) => l.trim() !== '' || (i > 0 && xs[i - 1].trim() !== ''));
+  while (out.length > 0 && out[0].trim() === '') out.shift();
+  while (out.length > 0 && out.at(-1)!.trim() === '') out.pop();
+  return out;
+};
 
 /** Final fix (M3): a reply without its agent steps (the one program's, and every ready row's in each JSON list) and
  *  without the manifest note. Pure. */
@@ -1287,7 +1323,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const dueIds = new Set(sentDue.map((a) => a.program_id));
   // L36-2: a kept claim's release line is its ask; said only when the ask is due, and then not asked twice.
   const released = releasedAll.filter((p) => !p.ask || dueIds.has(p.program_id));
-  const askSentNow = sentDue.filter((a) => !released.some((p) => p.program_id === a.program_id));
+  // L46-1 (v6.1.20): signed out, the release lines are not said (`unlinkedPart`), so a kept builder-sent claim past the
+  // claim hours is asked through the sent ask itself.
+  const askSentNow = sentDue.filter((a) => !(side && released.some((p) => p.program_id === a.program_id)));
   // L28-4 (v6.1.16 Task 14): a send leaves only its own project's list (`here`, below).
   const skip = await excluded(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
   const all = i.filter?.all === true;
@@ -1438,7 +1476,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   if (promiseDue) await clearPromised(ctx.installationId);
   // L23-16 (v6.1.16): the shown list's hash against the last project find's.
   const shownIds = [...ready.map((p) => p.program_id), ...gaps.map((g) => g.program_id)];
-  const hash = listHash(shownIds);
+  // L46-12 (v6.1.20): a program that moved from a step to ready is news, so the hash keeps each row's state.
+  const hash = listHash([...ready.map((p) => `ready:${p.program_id}`), ...gaps.map((g) => g.program_id)]);
   const prevList = await lastList(ctx.installationId);
 
   const r0: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
@@ -1465,7 +1504,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const lastOffer = await lastOfferOf(ctx.installationId);
   const byN = [...r0.ready, ...r0.gaps].sort((a, b) => a.n - b.n).map((x) => x.program_id);
   // Fix round 1 (M6): whether the project has a repo link, for what a sign-in checks.
-  const repoOpt = { repo: Boolean(project.repo_url) };
+  // v6.1.20: the project's name for the opening, and the catalog's short titles.
+  const repoOpt = { repo: Boolean(project.repo_url), name: project.name, shorts: new Map(open.filter((x) => x.file.short_title).map((x) => [x.id, x.file.short_title!])) };
   const laid = replyParts(r0, last === null, ctx.now, lastOffer, all ? { all: true, ...repoOpt } : { ...repoOpt, ...(hiddenRows ? { hidden: hiddenRows } : {}) }).shown;
   // Task 7 review (v6.1.18): plain 1..N in that order.
   const stable = new Map([...laid, ...byN.filter((id) => !laid.includes(id))].map((id, k) => [id, k + 1]));
@@ -1493,7 +1533,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // or the line cap left out is not marked, not named to the agent, and comes back on the next find.
   // L41-11 (v6.1.19): one sent line; a program is shown when that line names it (three named, the rest counted).
   // Fix round 1 (M2): the exact question the reply builds, and the programs it names, never a title's substring.
-  const sentAsk = sentAskOf(r);
+  const sentAsk = sentAskOf(shortened(r, repoOpt.shorts));
   const asked = sentAsk.question !== null && said.text.split('\n').some((l) => l.startsWith(sentAsk.question!));
   const namedIn = (id: string) => asked && sentAsk.named.includes(id);
   const shownSent = (r.ask_sent ?? []).filter((a) => namedIn(a.program_id));
@@ -1501,10 +1541,12 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   await markSentAsked(ctx.installationId, owner, [...shownSent, ...shownRel].map((x) => x.program_id), ctx.now);
   const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
   const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
-  const hiddenOut = said.hidden.filter((l) => !(l.startsWith('Did you send ') && unshown.some((a) => l.includes(a.title))));
+  const hiddenOut = said.hidden.filter((l) => !(l.startsWith('Did you send ') && unshown.some((a) => l.includes(shortTitle(a.title, repoOpt.shorts.get(a.program_id))))));
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
+  // L46-4 (v6.1.20): a category filter with no rows says so and offers the whole list, with no more line.
+  const emptyFilter = !all && i.filter?.category !== undefined && r.ready.length === 0 && r.gaps.length === 0;
   const reply = {
-    show_to_builder: said.text,
+    show_to_builder: emptyFilter ? emptyFilterLine(project.name, open.length) : said.text,
     agent_note: [agentNote(rOut, { more: said.more, description, hidden: hiddenOut, all, say: said.say }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread), rOut.ready.some((p) => p.agent_step) ? MANIFEST_NOTE : ''].filter(Boolean).join('\n'),
     ...jsonLists(rOut),
     more: said.more > 0 || said.hidden.length > 0,

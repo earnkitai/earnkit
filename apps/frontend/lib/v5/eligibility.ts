@@ -111,6 +111,10 @@ export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a pu
  *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
 export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
 /** L38-27 (v6.1.18 Task 11): a license rule and a repo read that found no license file: EarnKit adds one on "do". */
+/** L46-3 (v6.1.20): a repo younger than a users item's `min_days`: the users yes never settles it; time does. Pure. */
+export const youngProject = (days: number): Gap => ({
+  kind: 'users', item: 'users:age', what: `a project older than ${days === 90 ? 'three months' : `${days} days`}`, effort: 'days', agent_can: false,
+});
 export const LICENSE_FILE: Gap = {
   kind: 'feature', item: 'feature:license', what: 'a license file', do: 'add an MIT license file', effort: 'minutes', agent_can: true,
   details: { docs: 'https://choosealicense.com/licenses/mit/' },
@@ -225,6 +229,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       case 'integration': if (!facts.integrations.includes(v)) gaps.push(gapOf(i)); break;
       case 'builder_codes': if (!facts.builder_codes) gaps.push(gapOf(i)); break;
       case 'users':
+        // L46-3 (v6.1.20): a project younger than the program considers stays a step, whatever the users answer.
+        if (i.min_days && facts.first_commit_at && now.getTime() - Date.parse(facts.first_commit_at) < i.min_days * 86_400_000) gaps.push(youngProject(i.min_days));
         if (facts.users === false) gaps.push(gapOf(i));
         else if (facts.users !== true && !done.has(itemKey(i)) && !archived) gaps.push(USERS_UNKNOWN);
         break;

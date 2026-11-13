@@ -2,6 +2,7 @@
   "id": "arc-microgrants-studio",
   "organizer": "Circle",
   "title": "Arc Microgrants: Built with Arc Studio",
+  "short_title": "Arc Microgrants: Built with Arc Studio",
   "description": "The second round of Arc Microgrants backs experiments built with Arc Studio, Arc's onchain coding agent: start in Arc Studio and finish with something live on Arc mainnet that moves real USDC. Eight microgrants of $500 USDC each, from a $4,000 USDC pool. Submissions close November 1, 2026 and are reviewed as they come in.",
   "source_url": "https://dorahacks.io/hackathon/arc-microgrants-2/detail",
   "submission_url": "https://dorahacks.io/hackathon/arc-microgrants-2",

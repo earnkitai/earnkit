@@ -209,13 +209,17 @@ const EligibilityItemSchema = z
     /** L38-27 (v6.1.18 Task 11), a rule only: `license` when the rule is an open source license the repo read settles:
      *  a license GitHub detects as OSI-approved confirms it, none is the license file gap, any other keeps the question. */
     check: z.enum(['license']).optional(),
+    /** L46-3 (v6.1.20), a users item only: the youngest project the program considers, in days since the first commit
+     *  ("very new projects are not considered"): a younger repo keeps the age step whatever the users answer. */
+    min_days: z.number().int().positive().max(3650).optional(),
   })
   // A rule is its note, read as a sentence ("Their rule: {note}."): a note, no value, no full stop of its own.
   .refine((i) => i.kind !== 'rule' || (i.note !== undefined && i.value === undefined && !i.note.endsWith('.')), {
     message: 'a rule needs a note (no trailing full stop) and takes no value',
   })
   .refine((i) => i.kind === 'rule' || i.keywords === undefined, { message: 'only a rule takes keywords' })
-  .refine((i) => i.kind === 'rule' || i.check === undefined, { message: 'only a rule takes check' });
+  .refine((i) => i.kind === 'rule' || i.check === undefined, { message: 'only a rule takes check' })
+  .refine((i) => i.kind === 'users' || i.min_days === undefined, { message: 'only a users item takes min_days' });
 export type EligibilityItem = z.infer<typeof EligibilityItemSchema>;
 
 export const PROGRAM_CATEGORIES = ['grant', 'hackathon', 'investment', 'bounty'] as const;
@@ -226,6 +230,8 @@ export const ProgramFile = z
     id: slug,
     organizer: z.string().min(1),
     title: z.string().min(1),
+    /** v6.1.20: the name the reply uses when cutting the title at its first colon or " - " would read wrong. */
+    short_title: z.string().min(1).max(48).optional(),
     description: z.string().min(1),
     source_url: z.string().url(),
     submission_url: z.string().url(),
