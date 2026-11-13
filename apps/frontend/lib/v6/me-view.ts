@@ -10,6 +10,7 @@ import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { nameKeyOf, projectKeyOf } from '../v5/project-input';
 import { amountsText, moneyText, usdFull, type Amounts } from '../v5/programs-read';
 import { cleanClientName, displayName } from '../v5/installations';
+import { cleanText } from '../v5/controls';
 import {
   LINK_ASK_PARTS, LINK_FIRST_SEEN, ME_AN_AGENT, ME_BLOCKS, ME_HELD_ROW, ME_LABELS, ME_LINK_NOT, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
   ME_CHOICES, ME_TEAM, dayWords, mePolicyStatus,
@@ -46,6 +47,9 @@ export type MeData = {
    */
   ledger: {
     title: string; status: string; at: string; money: string | null; words: string;
+    /** L47-12 (v6.1.22): the project the row is for, when the rows name more than one: the agent's words, cut at 60 and
+     *  shown after the title in <bdi> (Task 3 review), else null. */
+    project: string | null;
     /** L43-9 (v6.1.19): a started row the builder may say they sent (`I sent it`): its program and project key. */
     send: { program_id: string; project_id: string } | null;
   }[];
@@ -289,6 +293,15 @@ async function linkBanner(code: string | null | undefined, builderId: number, no
  * A corrected win shows the current amount (the row holds it). Money through the one format (L22-7, v6.1.16: cents
  * and currencies kept, "Won $1,000 and EUR 500 in all, Nov 11."); a number is US dollars. Pure.
  */
+/** L47-6 (v6.1.22, Task 1): a win kept from an earlier round (`applications.earlier_win`); `moved` once a new round
+ *  started. Mirrors ledger.ts's EarlierWin, EARLIER_WIN and earlierAmounts on Task 1's branch: switch to those after
+ *  the merge. */
+type EarlierWin = { amount_usd?: number | string | null; amounts?: Amounts | null; at?: string; moved?: true };
+const earlierWinWords = (w: EarlierWin): string => {
+  const money = amountsText(amountsOf({ amounts: w.amounts ?? null, amount_usd: w.amount_usd ?? null }));
+  return money ? `Won ${money} in an earlier round.` : 'Won in an earlier round.';
+};
+
 export function ledgerRowWords(status: string, amounts: Amounts | number | string | null, paid_more: boolean, day: string): string {
   if (status === 'won') {
     const a = amounts === null || typeof amounts === 'object' ? amounts : amountsOf({ amount_usd: amounts });
@@ -332,9 +345,10 @@ export function projectsSeen(record: BuilderRecord, rows: { project_id: string; 
   const held = new Set(record.projects.flatMap((p) => [p.id, projectKeyOf(p), nameKeyOf(p)].filter(Boolean)));
   return rows
     .filter((r) => r.project_id && !held.has(r.project_id))
-    .map((r) => {
-      const label = projectLabel(r.project_id, names) ?? r.project_id;
-      return { key: r.project_id, label, count: r.n, line: ME_PROJECT_SEEN(label, r.n) };
+    .flatMap((r) => {
+      // Task 3 review (v6.1.22): a key with no label is left out, so a repo link or a raw key never shows.
+      const label = projectLabel(r.project_id, names);
+      return label ? [{ key: r.project_id, label, count: r.n, line: ME_PROJECT_SEEN(label, r.n) }] : [];
     });
 }
 
@@ -344,8 +358,9 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   const owner = `b:${builder.id}`;
   // L21-1 (v6.1.16): the current amount (a correction replaced it; a further payment added to it) and whether a further
   // payment came after the last correction, so the row reads "in all".
-  const ledger = await sql()<{ title: string | null; program_id: string; project_id: string | null; status: string; at: Date; claimed_at: Date | null; held_at: Date | null; submit: string | null; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
+  const ledger = await sql()<{ title: string | null; program_id: string; project_id: string | null; status: string; at: Date; claimed_at: Date | null; held_at: Date | null; submit: string | null; amount_usd: string | null; amounts: unknown; paid_more: boolean; earlier_win: EarlierWin | null }[]>`
     SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.project_id, a.status, a.at, a.claimed_at, a.held_at, p.file->>'submit' AS submit, a.amount_usd, a.amounts,
+      to_jsonb(a)->'earlier_win' AS earlier_win,
       EXISTS (SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.payment_key IS NOT NULL
         AND h.at >= COALESCE((SELECT max(c.at) FROM application_history c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = COALESCE(a.project_id, '') AND c.corrected), '-infinity'::timestamptz)) AS paid_more
     FROM applications a LEFT JOIN programs p ON p.id = a.program_id
@@ -360,9 +375,10 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   const names = await projectNames(owner);
   // L47-12 (v6.1.22): when the rows name more than one project, each row with a project names it after the title.
   const many = new Set(ledger.flatMap((r) => (r.project_id ? [r.project_id] : []))).size > 1;
-  const named = (title: string, key: string | null) => {
-    const project = many && key ? projectLabel(key, names) : null;
-    return project ? `${title} (${project})` : title;
+  // Task 3 review (v6.1.22): cut at 60, as the /link agent name is; MeView isolates it in <bdi>.
+  const projectOf = (key: string | null): string | null => {
+    const label = many && key ? projectLabel(key, names) : null;
+    return label ? cleanText(label, 60) || null : null;
   };
   return {
     login: builder.login,
@@ -380,13 +396,18 @@ export async function meData(builder: Builder, now: Date, session: string, link?
       // L43-9 (v6.1.19): a lapsed claim, or one the sent ask is about (the builder presses submit, an hour on), may be
       // said sent here.
       const asked = r.status === 'started' && !held && r.submit === 'builder' && started <= now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000;
+      // L47-6 (v6.1.22): a win kept from an earlier round reads as that; once a new round started, the row reads as
+      // itself and the earlier win follows. `to_jsonb(a)` reads the column whether or not Task 1's schema is in yet.
+      const earlier = r.earlier_win && typeof r.earlier_win === 'object' ? r.earlier_win : null;
+      const words = held ? ME_HELD_ROW(dayWords(r.held_at!, now))
+        : ledgerRowWords(status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, dayWords(lapsed ? (r.claimed_at ?? r.at) : r.at, now));
       return {
-        title: named(r.title ?? r.program_id, r.project_id),
+        title: r.title ?? r.program_id,
+        project: projectOf(r.project_id),
         status: ME_STATUS[status] ?? cap(status.replaceAll('_', ' ')),
         at: dayWords(r.at, now),
         money: r.status === 'won' ? amountsText(amountsOf(r)) || null : null,
-        words: held ? ME_HELD_ROW(dayWords(r.held_at!, now))
-          : ledgerRowWords(status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, dayWords(lapsed ? (r.claimed_at ?? r.at) : r.at, now)),
+        words: earlier?.moved ? `${words} ${earlierWinWords(earlier)}` : earlier && r.status === 'won' ? earlierWinWords(earlier) : words,
         send: lapsed || asked ? { program_id: r.program_id, project_id: r.project_id ?? '' } : null,
       };
     }),

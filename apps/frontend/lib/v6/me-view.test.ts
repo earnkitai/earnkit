@@ -96,7 +96,7 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   assert.ok(html.includes('>This is not me.</button>'));
   assert.ok(html.indexOf(text) < html.indexOf('id="person"'));
   // The ledger rows show the program's title only, never its slug (lane 5, 3.27).
-  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6', money: null, words: 'Applied, Nov 6.', send: null }] }, problem: null }));
+  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6', money: null, words: 'Applied, Nov 6.', send: null, project: null }] }, problem: null }));
   assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6.'), rows);
   assert.ok(!/base-builder-grants/.test(rows), rows);
 
@@ -514,9 +514,24 @@ test('L47-12: two projects with FUTO started name each project on /me', async ()
   await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, project_id) VALUES
     (0, ${owner}, 'l47-futo', 'started', ${NOW}, 'https://github.com/lane47/sa'), (0, ${owner}, 'l47-futo', 'started', ${new Date(NOW.getTime() - 1000)}, 'https://github.com/lane47/sb')`;
   const d = await meData(b, NOW, 'sess');
-  assert.deepEqual(d.ledger.map((r) => r.title), ['FUTO Microgrants (l47 SA App)', 'FUTO Microgrants (l47 SB App)']);
+  assert.deepEqual(d.ledger.map((r) => [r.title, r.project]), [['FUTO Microgrants', 'l47 SA App'], ['FUTO Microgrants', 'l47 SB App']]);
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
-  assert.ok(html.includes('FUTO Microgrants (l47 SA App)'), html);
+  // Task 3 review (v6.1.22): the project, the agent's words, is isolated in <bdi> as the /link agent name is.
+  assert.ok(html.includes('FUTO Microgrants (<bdi>l47 SA App</bdi>)'), html);
+});
+
+test('Task 3 review (v6.1.22): the project suffix on a ledger row is cut at 60 characters, as the /link agent name is', async () => {
+  const b = await upsertBuilder({ github_id: 822_123, login: 'l47-longproj', name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  await sql()`DELETE FROM applications WHERE owner = ${owner}`;
+  await sql()`DELETE FROM project_reports WHERE owner = ${owner}`;
+  await upsertProgram(programFixture({ id: 'l47-futo', title: 'FUTO Microgrants' }), 'file', NOW);
+  const long = 'A'.repeat(50) + ' ' + 'B'.repeat(40);
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, 'https://github.com/lane47/la', ${sql().json({ name: long })}, ${NOW})`;
+  await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, project_id) VALUES
+    (0, ${owner}, 'l47-futo', 'started', ${NOW}, 'https://github.com/lane47/la'), (0, ${owner}, 'l47-futo', 'started', ${new Date(NOW.getTime() - 1000)}, 'https://github.com/lane47/lb')`;
+  const d = await meData(b, NOW, 'sess');
+  assert.deepEqual(d.ledger.map((r) => r.project), [long.slice(0, 60), 'lb']);
 });
 
 test('L47-12b: one project keeps the bare title', async () => {
@@ -537,4 +552,29 @@ test('L46-16: a project outside the record shows the name the agent passed', asy
   assert.equal(projectsSeen(EMPTY_RECORD, [{ project_id: 'https://github.com/lane46/invoicely', n: 1 }], new Map([['https://github.com/lane46/invoicely', 'Invoicely']]))[0].line, 'Invoicely: 1 application.');
   // Never the full repo link: without a name, the repo's last segment.
   assert.equal(projectsSeen(EMPTY_RECORD, [{ project_id: 'https://github.com/lane46/invoicely', n: 2 }])[0].line, 'invoicely: 2 applications.');
+  // Task 3 review (v6.1.22): a key with no label (no name, no last segment) is left out, never shown as the key.
+  assert.deepEqual(projectsSeen(EMPTY_RECORD, [{ project_id: 'name:', n: 1 }, { project_id: 'https://', n: 1 }]), []);
+});
+
+test('L47-6 (v6.1.22, Task 1): a win kept as an earlier round reads so on /me; after the new round starts it follows the row', async () => {
+  // The column lands with Task 1's schema; added here so this branch's database has it before the merge.
+  await sql()`ALTER TABLE applications ADD COLUMN IF NOT EXISTS earlier_win jsonb`;
+  const b = await upsertBuilder({ github_id: 822_124, login: 'l47-earlier', name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  await sql()`DELETE FROM applications WHERE owner = ${owner}`;
+  await upsertProgram(programFixture({ id: 'l47-up1', title: 'Upcoming One' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l47-up2', title: 'Upcoming Two' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l47-plain', title: 'Plain Win' }), 'file', NOW);
+  const win = sql().json({ amount_usd: 1000, amounts: { USD: 1000 }, at: NOW.toISOString() });
+  const moved = sql().json({ amount_usd: 2500, amounts: { USD: 2500 }, at: NOW.toISOString(), moved: true });
+  await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, amount_usd, amounts, earlier_win) VALUES
+    (0, ${owner}, 'l47-up1', 'won', ${NOW}, 1000, ${sql().json({ USD: 1000 })}, ${win}),
+    (0, ${owner}, 'l47-up2', 'applied', ${new Date(NOW.getTime() - 1000)}, NULL, NULL, ${moved}),
+    (0, ${owner}, 'l47-plain', 'won', ${new Date(NOW.getTime() - 2000)}, 500, ${sql().json({ USD: 500 })}, NULL)`;
+  const d = await meData(b, NOW, 'sess');
+  assert.deepEqual(d.ledger.map((r) => [r.title, r.words]), [
+    ['Upcoming One', 'Won $1,000 in an earlier round.'],
+    ['Upcoming Two', `Applied, ${d.ledger[1].at}. Won $2,500 in an earlier round.`],
+    ['Plain Win', `Won $500, ${d.ledger[2].at}.`],
+  ]);
 });

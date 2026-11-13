@@ -522,7 +522,16 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
           <ul>
             {data.ledger.map((l, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 border-t border-s-line py-3 text-[15px] first:border-t-0">
-                <span className="min-w-0">{l.title}</span>
+                <span className="min-w-0">
+                  {l.title}
+                  {l.project && (
+                    <>
+                      {' ('}
+                      <bdi>{l.project}</bdi>
+                      {')'}
+                    </>
+                  )}
+                </span>
                 <span className="text-s-muted">{l.words}</span>
                 {/* L43-9 (v6.1.19): a claim the builder sent by hand is said sent here, as the sent ask's yes is. */}
                 {l.send && (
