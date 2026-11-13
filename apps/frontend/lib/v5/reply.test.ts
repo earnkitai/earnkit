@@ -2331,3 +2331,24 @@ test('live v6.1.20 (v6.1.22): a ready program reads "is ready to send." or "is r
   assert.equal(readyState(futo, { needs: ['email'] }), 'FUTO Microgrants ($1,000 to $5,000) is ready to send. You give your email.');
   assert.equal(readyState({ ...futo, closes_in: 'in 6 days' }), 'FUTO Microgrants ($1,000 to $5,000, closes in 6 days) is ready to send.');
 });
+
+test('L1m-2 (v6.1.22): a setup-plus-rule row is never the rule Say; Chainlink closes on the users question', () => {
+  const essp = gap({ title: 'Ethereum Security Subsidy Program', money: 'up to 30% of audit cost', setup: ['set aside a security budget to co-fund the audit'], gap: { kind: 'rule', item: 'rule:essp0001', what: 'a defined audit scope: lines of code and contract count', effort: 'minutes', agent_can: false } });
+  const text = v20(base({ gaps: [V20.users, essp] }), { name: 'Chainlink' });
+  assert.doesNotMatch(text, /Say 2 if|yes 2/, text);
+  assert.match(text.split('\n').at(-1)!, /^Do real people use it\?/, text);
+  v20Rules(text);
+  // A rule-only row is still the rule Say.
+  const only = v20(base({ gaps: [V20.code, V20.rule] }), { name: 'Chainlink' });
+  assert.match(only.split('\n').at(-1)!, /Say 2 if/, only);
+});
+
+test('L47-S2 (v6.1.22): drafted programs are one line', async () => {
+  const { draftedLines } = await import('./reply');
+  const d = (...t: string[]) => draftedLines({ drafted: t.map((title) => ({ title })) } as never);
+  assert.deepEqual(d('FUTO Microgrants'), ['FUTO Microgrants: drafted, waiting for you to send.']);
+  assert.deepEqual(d('FUTO Microgrants', 'Neon Open Source Program'), ['Drafted, waiting for you to send: FUTO Microgrants and Neon Open Source Program.']);
+  assert.deepEqual(d('A', 'B', 'C', 'D', 'E'), ['Drafted, waiting for you to send: A, B, C and 2 more.']);
+  assert.deepEqual(d('A', 'B', 'C'), ['Drafted, waiting for you to send: A, B and C.']);
+  assert.deepEqual(d(), []);
+});

@@ -1761,7 +1761,8 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   );
   assert.equal(ids(again.reply!.gaps)[0], 'meta-vr-start-competition-2026');
   assert.doesNotMatch(show, /Codegeist/);
-  assert.equal(show.split('\n').at(-1), 'Say 2 if the Meta VR Start Developer Competition 2026 rule fits you and I draft it.');
+  // L1m-2 (v6.1.22): Meta VR keeps setup steps beside its rule, so its rule is never the closing's yes.
+  assert.equal(show.split('\n').at(-1), 'Sign in so I know the repo is yours, then say do 1 and I add an MIT license file.');
   // Another installation, with no claim and no step done, still sees the demo video step.
   const other = await mcpCall(await dashCtx(), 'find', { project: VR });
   assert.equal(lineOf(other.reply!.show_to_builder as string, 2), META_VR_MORE(2));
@@ -4798,6 +4799,12 @@ test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round:
     // The list names the program with its earlier win after the row.
     const list = (await mcpCall(ctx(id), 'find', { project: P, filter: { all: true } })).reply!;
     assert.match(list.show_to_builder as string, /L47 Upcoming Two \([^)]*\)[^\n]*\. Won \$1,000 in an earlier round\./, list.show_to_builder as string);
+    // Task 2 (v6.1.22): the earlier-round win is said once: the applications line leaves it to the program's row.
+    const dflt = (await mcpCall(ctx(id), 'find', { project: P })).reply!;
+    for (const t of [one, list.show_to_builder as string, dflt.show_to_builder as string]) {
+      assert.doesNotMatch(t, /\(won \$1,000\)/, t);
+      assert.equal(t.match(/Won \$1,000 in an earlier round\./g)?.length, 1, t);
+    }
     const s = await mcpCall(ctx(id), 'track', { program_id: 'l47-up-two', status: 'started', project: P });
     assert.equal(s.isError, false, s.text);
     assert.doesNotMatch(s.reply!.show_to_builder as string, /already sent/);

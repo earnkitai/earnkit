@@ -857,8 +857,15 @@ export function startedNotSentLines(r: Pick<R, 'released'>, now: Date): string[]
   return rest > 0 ? [...shown, `And ${rest} more started, nothing sent.`] : shown;
 }
 
-/** L41-2 (v6.1.19): a draft this agent started under an hour ago for the builder to send, one line each. Pure. */
-export const draftedLines = (r: Pick<R, 'drafted'>): string[] => (r.drafted ?? []).map((d) => `${d.title}: drafted, waiting for you to send.`);
+/** L41-2 (v6.1.19): a draft this agent started under an hour ago for the builder to send. L47-S2 (v6.1.22): one line,
+ *  three named, then "and {k} more". Pure. */
+export const draftedLines = (r: Pick<R, 'drafted'>): string[] => {
+  const t = (r.drafted ?? []).map((d) => d.title);
+  if (t.length === 0) return [];
+  if (t.length === 1) return [`${t[0]}: drafted, waiting for you to send.`];
+  const named = t.length > 3 ? [...t.slice(0, 3), `${t.length - 3} more`] : t;
+  return [`Drafted, waiting for you to send: ${named.slice(0, -1).join(', ')} and ${named.at(-1)}.`];
+};
 
 /** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
 const SENT_SAY = 'Say sent and I note it.';
@@ -1033,7 +1040,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // list) only when no step is shown to close on.
   // A `public_first` program holds the public repo gap, so it is never rule-only: `stepRuleOf` is its guard.
   const firstStep = firstStepOf(steps);
-  const askable = steps.filter((g) => ruleOnlyGap(g) && !(g.unlikely && firstStep !== null));
+  // L1m-2 (v6.1.22): the rule Say names only a row whose one item is its rule (one step away); a row with a setup step
+  // beside its rule is never the closing's yes.
+  const askable = steps.filter((g) => ruleOnlyGap(g) && g.setup.length === 0 && [g.gap, ...g.also].every((x) => !x.setup) && !(g.unlikely && firstStep !== null));
   const firstRule = (askable.find((g) => g.keyword_hit) ?? askable[0])?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
@@ -1242,7 +1251,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const shownInMore = moreSteps.includes(gapShown);
   const l = r.ledger;
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
-  const apps = applicationsLine(r.applications ?? [], now);
+  // Task 2 (v6.1.22): a program whose row says its earlier-round win leaves that win out of this line (said once).
+  const earlierOnRow = new Set([...ready.filter((p) => !p.in_person), ...steps].filter((p) => p.earlier_win !== undefined).map((p) => p.program_id));
+  const apps = applicationsLine((r.applications ?? []).filter((a) => !(a.status === 'won' && earlierOnRow.has(a.program_id))), now);
   const since = first ? null : sinceLine(r, now);
   // L23-16 (v6.1.16): the same list as the last find, and nothing else moved. L35-21 (v6.1.17): the same day reads "your
   // last look", never today's date.

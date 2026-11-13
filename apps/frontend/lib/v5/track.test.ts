@@ -2877,7 +2877,7 @@ test('L45-3 (v6.1.19): a win under one dollar, once converted, is refused and wr
   await track(c, { program_id: 'l45-tiny', status: 'applied' });
   for (const args of [{ amount_usd: 0.001 }, { amount_usd: 0.004 }, { amount_usd: 0.5 }, { amount: '0,500' }]) {
     const r = await track(c, { program_id: 'l45-tiny', status: 'won', ...args });
-    assert.equal(r.show_to_builder, 'Tell me the amount in whole dollars, 1 or more.', JSON.stringify(args));
+    assert.equal(r.show_to_builder, 'Tell me the amount, 1 dollar or more.', JSON.stringify(args));
     assert.equal(r.refused, true);
   }
   // v6.1.19.1 (L47-1): the whole-dollar line is for US dollars only; another currency under a dollar has its own.
