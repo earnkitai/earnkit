@@ -13,7 +13,7 @@ import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, shortTitle, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
-import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
+import { CONTRACT_ADDRESS, evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, earlierWinOf, earlierWins, EARLIER_WIN, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
@@ -400,7 +400,8 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
   return {
     program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
     category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
-    in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
+    // L46-10 (v6.1.22, ruling 2): the contract address comes first; the program's own setup waits for it.
+    in_person: row.file.in_person, setup: v.gaps.some((x) => x.item === CONTRACT_ADDRESS.item) ? [] : row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
     ...(left ? { closes_in: left } : {}),
     ...(hit ? { keyword_hit: true as const } : {}),
     ...(v.gaps.some((x) => x.item === 'repo:public') ? { public_first: true as const } : {}),
@@ -648,6 +649,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               ...(real.length === 0 || (link && signInOnly(real)) ? [] : canDo(real)
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
+              // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
+              ...(real.some((g) => g.item === CONTRACT_ADDRESS.item) ? [CONTRACT_ADDRESS_NOTE] : []),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
               ...(step ? [MANIFEST_NOTE] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),

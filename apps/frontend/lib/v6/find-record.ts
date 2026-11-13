@@ -332,6 +332,11 @@ export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[]
   return out;
 }
 
+/** L46-17 (v6.1.22): a contact field whose key or label names a name or an email ("Full name", `email`; not "Telegram
+ *  username"). Pure. */
+const readsNameOrEmail = (q: { kind: string; key: string; label: string }): boolean =>
+  q.kind === 'contact' && [q.key, q.label].some((t) => /(?<![a-z])name|e-?mail/i.test(t));
+
 /** What the record lacks for these programs, in builder words. A traction field reads the usage or the pre-launch line,
  *  never the bank. `repoPassed` (lane 8 #10, v6.1.10): the find passed a repo (or, N5 v6.1.12, a live link), so the project with a link
  *  is not missing. Pure. */
@@ -342,6 +347,9 @@ export function missingFor(rows: ProgramRow[], record: BuilderRecord, verifiedUs
     verifiedUsage,
     // L46-7 (v6.1.20): the traction line only for a form that reads it.
     traction: rows.some((r) => r.file.submission_requirements.some((q) => q.kind === 'traction')),
+    // L46-17 (v6.1.22): name and email only for a form with a contact field that reads one (FLOSS/fund's funding file
+    // step names the builder itself; its form is the manifest link alone).
+    contact: rows.some((r) => r.file.submission_requirements.some(readsNameOrEmail)),
   });
   return repoPassed ? missing.filter((m) => m !== PROJECT_ITEM) : missing;
 }

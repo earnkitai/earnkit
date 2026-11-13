@@ -272,7 +272,11 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   // L43-17 (v6.1.19): one question and one line for a live link.
   assert.equal(copy.LINK_ASK_PARTS('Codex').join(''), 'Link "Codex" to your GitHub account?');
   assert.equal(copy.LINK_ASK_PARTS(null).join(''), 'Link your agent to your GitHub account?');
-  assert.equal(copy.LINK_FIRST_SEEN('Nov 6'), 'First seen Nov 6. If you did not just ask your agent for this, choose This is not me.');
+  assert.equal(copy.LINK_FIRST_SEEN('Nov 6'), 'First seen Nov 6. Once linked, it can read and change your record and apply in your name. If you did not just ask your agent for this, choose This is not me.');
+  // L46-14 (v6.1.22): /link asks nothing; it signs in, and the confirm is on /me.
+  assert.equal(copy.LINK_SIGN_IN_PARTS('Codex').join(''), 'Sign in to link "Codex".');
+  assert.equal(copy.LINK_SIGN_IN_PARTS(null).join(''), 'Sign in to link your agent.');
+  assert.equal(copy.LINK_CONFIRM_LATER('Nov 6'), 'First seen Nov 6. You confirm the link after you sign in.');
   assert.equal(copy.ME_LINK_DENIED, 'Not linked. If it was you, ask your agent for a new link.');
   // v6.1.19 Task 2 (lane 43): the new /me lines, word for word.
   assert.equal(copy.ME_SAVED_APPROVED, 'Saved and approved.');
@@ -321,14 +325,14 @@ const LABELS = new Set([
   'DOCS_SESSION.title', 'DOCS_RECORD.title', 'DOCS_SCREEN.title', 'DOCS_PROGRAMS.title', 'DOCS_CHECKED.title', 'DOCS_TERMS.title', 'DOCS_TERMS.link',
   'TERMS_TITLE', 'TERMS_SECTIONS.title', 'TERMS_LINKS', 'ME_TITLE', 'ME_SIGN_OUT', 'ME_SAVE', 'ME_APPROVE', 'ME_UNAPPROVE', 'ME_BY_AGENT',
   'ME_PENDING_TITLE', 'ME_ANSWER_OPEN', 'ME_PENDING_FIRST', 'ME_TEAM.name', 'ME_TEAM.role', 'ME_TEAM.add', 'ME_LEDGER_TITLE', 'ME_AGENTS_TITLE', 'ME_AN_AGENT', 'ME_UNLINK',
-  'LINK_ASK_PARTS', 'ME_SENT_IT', 'ME_LINK_YES', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
+  'LINK_ASK_PARTS', 'LINK_SIGN_IN_PARTS', 'ME_SENT_IT', 'ME_LINK_YES', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
   'ME_CHOICES', 'ME_STATUS', 'ME_VALUE_WORDS', 'heroChipText', 'dayWords', 'heroUsdText', 'programKind',
 ]);
 /** Sample arguments for the exported templates; a template not listed is called with none. */
 const SAMPLES: Record<string, unknown[]> = {
   EARN_ALL: [45], GUIDE_ASK: ['Base Builder Grants'], ME_SIGNED_IN: ['ada'], ME_APPROVED: ['Nov 6'], ME_LINKED: ['Nov 6'],
   LINK_ASK_PARTS: ['Codex'], ME_AN_AGENT: ['Nov 6'], ME_REVIEWS: ['Base Builder Grants'], ME_UNLINKED: ['Claude Code'], ME_PROJECT_SEEN: ['github.com/ada/kit', 2], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
-  LINK_FIRST_SEEN: ['Nov 6'], ME_UNLINKED_AGENT: ['Codex', 'Codex'], ME_HELD_ROW: ['Nov 11'], ME_SENT: ['Base Builder Grants'], ME_HELD_SENT: ['Base Builder Grants'], ME_NOT_SET_YET: [14],
+  LINK_FIRST_SEEN: ['Nov 6'], LINK_SIGN_IN_PARTS: ['Codex'], LINK_CONFIRM_LATER: ['Nov 6'], ME_UNLINKED_AGENT: ['Codex', 'Codex'], ME_HELD_ROW: ['Nov 11'], ME_SENT: ['Base Builder Grants'], ME_HELD_SENT: ['Base Builder Grants'], ME_NOT_SET_YET: [14],
   'ME_VALUE_WORDS.typed': [2100, 2000], 'ME_VALUE_WORDS.programs': [50], 'ME_VALUE_WORDS.longLine': [3, 100],
   heroChipText: [105_000], dayWords: [new Date('2026-11-04T12:00:00Z'), new Date('2026-11-04T12:00:00Z')], heroUsdText: [3_159_600], programKind: [{}],
   'ME_VALUE_WORDS.under': [300], 'ME_VALUE_WORDS.atMost': [5], 'ME_VALUE_WORDS.range': [1, 10, true],

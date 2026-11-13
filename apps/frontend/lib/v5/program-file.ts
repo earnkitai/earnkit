@@ -207,8 +207,10 @@ const EligibilityItemSchema = z
      *  ("student", "college": L1e-2, v6.1.13), and then it shows only on a hit. Eight at most. */
     keywords: z.array(z.string().min(1).max(30).refine((k) => k === k.toLowerCase() && k === k.trim(), 'a keyword is lower-case, no outer spaces')).min(1).max(8).optional(),
     /** L38-27 (v6.1.18 Task 11), a rule only: `license` when the rule is an open source license the repo read settles:
-     *  a license GitHub detects as OSI-approved confirms it, none is the license file gap, any other keeps the question. */
-    check: z.enum(['license']).optional(),
+     *  a license GitHub detects as OSI-approved confirms it, none is the license file gap, any other keeps the question.
+     *  L46-10 (v6.1.22): `contracts` when the rule is about smart contracts to audit: a project with none read or
+     *  reported, whose own words name none, is a hard no (`needs smart contracts to audit`); else the question stands. */
+    check: z.enum(['license', 'contracts']).optional(),
   })
   // A rule is its note, read as a sentence ("Their rule: {note}."): a note, no value, no full stop of its own.
   .refine((i) => i.kind !== 'rule' || (i.note !== undefined && i.value === undefined && !i.note.endsWith('.')), {

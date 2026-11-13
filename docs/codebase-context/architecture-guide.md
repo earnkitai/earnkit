@@ -29,6 +29,8 @@ One Next.js app (`apps/frontend`) on Railway, one Postgres database, one daily j
 
 Every reply carries `show_to_builder` (plain text the agent may reword) and `agent_note` (what the agent does
 next). The server instructions (the whole text sent to agents) sit in `mcp.ts` and are pinned by `mcp.test.ts`.
+v6.1.22 (L46-11): their second sentence is `SHOW_REPLY` (tool-text.ts): show find's reply as given, in the builder's
+language when they write in another (names, money and links unchanged); llms.txt quotes it in its second step.
 Since v6.1.14 (T1 to T7) the instructions say find first in every session and `record get` only once find's reply has
 `linked` true; find's description asks for every project fact before the first call (chains with contracts,
 `live_url`, `users`, `first_commit_at`); find and track share one project schema (`ProjectArg` and
@@ -141,7 +143,9 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    answers, Base's revenue; L1e-3, v6.1.13, so an idea and an empty repo read the same need). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
    homepage, contracts and chains with basis `code`), never anything the agent passed; the reply's ready line (v6.1.16 Task 15, L29-18, replacing v6.1.15's Drafted shape) is "{title}, {money}, closes {date}. You give: {fields}.", `You give:` left out when the builder gives nothing or the closing names it (`youGive` in `reply.ts`); the counts stay in the JSON.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
-   installation's `last_find_at`. Empty on the first call.
+   installation's `last_find_at`. Empty on the first call. v6.1.22 (L46-15): `form changed` is said only for a program
+   the owner has started and not sent (an `applications` row `started`, `held_at` null: `whatOf(..., formWatched)`);
+   status, deadline and amount changes are said as before.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
    results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
    how it went when results are due." is always kept.
@@ -945,6 +949,15 @@ texts cut to 120 characters, then "Ask for one kind at a time for the rest."). T
 and {f} facts. Approve the answers at earnkit.com/me and they go into drafts." (zero parts left out); a kind with an
 unapproved answer is not missing, and the reply says "{n} answers wait for your approval." `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
+v6.1.22 (L46-10): a rule with `"check": "contracts"` (the audit programs: ESSP, Arbitrum Security, Uniswap Security
+Fund) needs contracts: when `hasContracts(facts)` is false (no contract read or reported, and the project's own words,
+name, description, README excerpt, topics, name none of contract, contracts, smart contract, solidity, vyper, hook,
+protocol as whole words) it is a hard no, `needs smart contracts to audit`, with no chain at all; on a chain it is one
+step, `CONTRACT_ADDRESS` (`repo:contract`, `a contract address`, setup `tell me the contract address`), unless a
+chain step on the program's chain already stands. The rule waits, find's `gapOf` empties the program's setup while the
+address is the step, `askedOf` never counts its own setup as a second step, and the agent note
+`CONTRACT_ADDRESS_NOTE` says to pass it in project.chains[].contract. Checked before the rule's done, so an earlier yes
+changes nothing; with contracts the rule stays its question (ruling 2, after review).
 
 **The four tools** (`lib/v5/mcp.ts`):
 
@@ -1096,7 +1109,13 @@ ended), and /link/<code> uses the same two dead-code lines. v6.1.19 L43-17: both
 one sentence each: used `Linked.`, not set up `Sign-in is not set up yet.`, denied `Not linked.` with `If it was you,
 ask your agent for a new link.`; the live title is `Link "{name}" to your GitHub account?` (unnamed: `Link your agent
 to your GitHub account?`) and /me's line `First seen {day}. If you did not just ask your agent for this, choose This
-is not me.`. Signed out, `/me?link=<code>` goes to `/link/<code>`. Edits
+is not me.`. v6.1.22 L46-14: /me's banner is the one question (its line `First seen {day}. Once linked, it can read and
+change your record and apply in your name. If you did not just ask your agent for this, choose This is not me.`); the
+live /link page asks none: `Sign in to link "{name}".` (`LINK_SIGN_IN_PARTS`, unnamed `Sign in to link your agent.`),
+one line `First seen {day}. You confirm the link after you sign in.` (`LINK_CONFIRM_LATER`) and `Continue with GitHub`.
+v6.1.22 L47-12, L46-16: when the ledger rows name more than one project, each row with one reads `{title} ({project})`,
+and a project seen outside the record reads by its name; both by `projectNames` (ledger.ts: the record's names, then
+each key's report name), else `projectLabel`, never the full repo link. Signed out, `/me?link=<code>` goes to `/link/<code>`. Edits
 and the standing approval come back with a signed `Saved.` shown beside the control (`at` names it); an unlink says
 `Unlinked {agent}.` (an unnamed agent is "An agent linked Nov 6"; v6.1.19 L43-10: a named one `Unlinked "{name}".`,
 and a second unlink `Already unlinked.`), another builder's agent `That agent is not on your
@@ -1125,7 +1144,7 @@ command block is a focusable region. The share card `public/og.png` is drawn by 
 `linkState` in `link-routes.ts`): every state (live `Connect {agent}?`, from v6.1.19 `Link "{name}" to your GitHub account?`, `Linked.`, `This link has expired.`, `This
 link is not one of ours.`, `Sign-in failed.`, `Too many sign-ins.`, `Sign-in is not set up yet.`) renders in the site
 shell with one h1 and the title `{h1 without its full stop} · EarnKit` (v6.1.19 L43-17: the live title is `Link
-"{name}" to your GitHub account?`, the states read `LINK_STATES`, and a denied code is its own state, `Not linked.`). A page answers 200 for every state (Next sets
+"{name}" to your GitHub account?`, v6.1.22 L46-14 `Sign in to link "{name}".`, the states read `LINK_STATES`, and a denied code is its own state, `Not linked.`). A page answers 200 for every state (Next sets
 no 429 or 503 from a page); the state's own status is data only. The confirm form posts to `/link/<code>/confirm`;
 a POST to `/link/<code>` is 405 (`Allow: GET`, proxy); a refused post or callback is a 303 to `/link/failed` (a dead
 code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive). /link pages send
@@ -1926,6 +1945,8 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
   `users:age`, `a project older than three months`, closed by `the project is three months old`), and FLOSS/fund's
   license is a `check: license` rule. L46-7: the record's traction item is asked only when a program's form reads
   traction (`Asks.traction`), named `one line on traction`, and once typed `TRACTION_APPROVE` (with earnkit.com/me).
+  v6.1.22 L46-17: likewise `your name` and `your email` only when a form has a contact field whose key or label names a
+  name or an email (`Asks.contact`, set by `missingFor`); FLOSS/fund's form is the manifest link alone.
   L46-1: signed out, a kept builder-sent claim past the claim hours is asked through `ask_sent`. L46-12: the list hash
   marks ready rows, so a row that moved to ready is never "Nothing new".
 

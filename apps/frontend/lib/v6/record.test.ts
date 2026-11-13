@@ -370,3 +370,10 @@ test('v6.1.20 review M4: an approval is never told; with nothing else missing it
   assert.equal(nextNeedsLine(['your traction line approved']), 'The next application needs your traction line approved. Approve it at earnkit.com/me and I use it.');
   assert.equal(nextNeedsLine(['your traction line approved', 'your email']), 'The next application needs your email. Tell me it and I save it.');
 });
+
+test('L46-17 (v6.1.22): name and email are asked only when a form reads them', () => {
+  const asks = { needs: [], kinds: [], traction: false };
+  assert.deepEqual(recordMissing(EMPTY_RECORD, asks).filter((m) => /your name|your email/.test(m)), ['your name', 'your email']);
+  assert.deepEqual(recordMissing(EMPTY_RECORD, { ...asks, contact: true }).filter((m) => /your name|your email/.test(m)), ['your name', 'your email']);
+  assert.ok(!recordMissing(EMPTY_RECORD, { ...asks, contact: false }).some((m) => /your name|your email/.test(m)));
+});

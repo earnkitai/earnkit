@@ -57,7 +57,7 @@ async function start(code: string, now = NOW) {
 /** GET /link/<code> as the page renders it (L27-4, v6.1.16): the state (its status is data) and the view's HTML. */
 async function linkGet(r: Request, code: string, o: { now?: Date } = {}) {
   const s = await linkState(code, o.now ?? new Date(), r.headers);
-  const html = renderToStaticMarkup(React.createElement(LinkView, { s, code, host: 'earnkit.test' }));
+  const html = renderToStaticMarkup(React.createElement(LinkView, { s, code }));
   return { s, status: s.status, html, text: async () => html };
 }
 /** A refused post or callback: a 303 to a /link page. */
@@ -106,7 +106,7 @@ test('createLinkCode stores only the hash and a nonce; a live code is reused; af
   assert.equal((await linkGet(req(`/link/${fresh}`), fresh, { now: NOW })).status, 200);
 });
 
-test('GET /link renders the confirm page: the h1 Link {agent} to your GitHub account?, a plain post to /confirm, no script', async () => {
+test('GET /link renders the sign-in page: the h1 Sign in to link {agent}., a plain post to /confirm, no script', async () => {
   const code = await createLinkCode(await install('Claude <Code>'), NOW);
   const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
   assert.equal(r.status, 200);
@@ -114,22 +114,29 @@ test('GET /link renders the confirm page: the h1 Link {agent} to your GitHub acc
   const html = r.html;
   // L27-26 (v6.1.16): one h1, the agent's name isolated.
   assert.equal((html.match(/<h1/g) ?? []).length, 1);
-  // L43-17 (v6.1.19): one question naming the agent; the line says when it was first seen.
-  assert.match(html, /<h1[^>]*>Link <bdi>&quot;Claude &lt;Code&gt;&quot;<\/bdi> to your GitHub account\?<\/h1>/);
-  assert.equal(r.s.title, 'Link "Claude <Code>" to your GitHub account?');
-  assert.ok(html.includes('First seen Nov 6. Once linked, it can read'), html);
+  // L46-14 (v6.1.22): no question here; the line says when it was first seen and that the confirm comes after sign-in.
+  assert.match(html, /<h1[^>]*>Sign in to link <bdi>&quot;Claude &lt;Code&gt;&quot;<\/bdi>.<\/h1>/);
+  assert.equal(r.s.title, 'Sign in to link "Claude <Code>".');
+  assert.ok(html.includes('First seen Nov 6. You confirm the link after you sign in.'), html);
   assert.ok(!html.includes('calling itself'), html);
   assert.ok(html.includes(`<form action="/link/${code}/confirm" method="post">`));
   assert.ok(html.includes('Continue with GitHub'));
-  assert.ok(html.includes('Once linked, it can read and change your record and apply to programs in your name.'));
-  assert.ok(html.includes('After you sign in, you confirm the link on your record page. If you did not ask your agent for this just now, close this page.'));
   assert.ok(!/Only continue|someone sent you/.test(html));
   assert.equal(/<script/i.test(html), false);
   assert.equal(/—/.test(html), false);
   const unnamed = await createLinkCode(await install(), NOW);
   const plain = await (await linkGet(req(`/link/${unnamed}`), unnamed, { now: NOW })).text();
-  assert.ok(plain.includes('First seen Nov 6.'));
-  assert.match(plain, /<h1[^>]*>Link your agent to your GitHub account\?<\/h1>/);
+  assert.ok(plain.includes('First seen Nov 6. You confirm the link after you sign in.'));
+  assert.match(plain, /<h1[^>]*>Sign in to link your agent.<\/h1>/);
+});
+
+test('L46-14: /link asks nothing; /me asks once', async () => {
+  const code = await createLinkCode(await install('l46-sol Claude Code (earnkit)'), NOW);
+  const state = await linkState(code, NOW, req('/link/l46').headers);
+  assert.equal(state.title, 'Sign in to link "l46-sol Claude Code".');
+  const html = (await linkGet(req(`/link/${code}`), code, { now: NOW })).html;
+  assert.doesNotMatch(html, /to your GitHub account\?|After you sign in, you confirm|\?/);
+  assert.equal((html.match(/<p/g) ?? []).length, 1, 'one line under the title');
 });
 
 test('L27-26 (v6.1.16, Task 11 quoteName), L43-14 (v6.1.19): an agent name in the h1 is quoted at 60 characters', async () => {
@@ -139,8 +146,8 @@ test('L27-26 (v6.1.16, Task 11 quoteName), L43-14 (v6.1.19): an agent name in th
   assert.equal(quoteName('Claude Code'), '"Claude Code"');
   const code = await createLinkCode(await install(long), NOW);
   const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
-  assert.equal(r.s.title, `Link "${long}" to your GitHub account?`);
-  assert.equal(linkDocTitle(r.s.title), `Link "${long}" to your GitHub account? · EarnKit`);
+  assert.equal(r.s.title, `Sign in to link "${long}".`);
+  assert.equal(linkDocTitle(r.s.title), `Sign in to link "${long}" · EarnKit`);
   assert.ok(r.html.includes(`<bdi>&quot;${long}&quot;</bdi>`));
 });
 
@@ -150,7 +157,7 @@ test('L43-14: a 90-character name ending "(earnkit)" shows the same 60-character
   const code = await createLinkCode(await install(name), NOW);
   const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
   assert.equal(r.s.agent, shown);
-  assert.equal(r.s.title, `Link "${shown}" to your GitHub account?`);
+  assert.equal(r.s.title, `Sign in to link "${shown}".`);
   assert.ok(r.html.includes(`<bdi>&quot;${shown}&quot;</bdi>`), r.html);
 });
 
@@ -162,15 +169,9 @@ test('L43-17: the four link states read one sentence each', async () => {
   assert.equal(said(LINK_STATES.denied), 'Not linked. If it was you, ask your agent for a new link.');
   const code = await createLinkCode(await install('Codex'), NOW);
   const live = await linkState(code, NOW, req('/link/x').headers);
-  assert.equal(said({ title: live.title, line: `First seen ${live.seen}.` }), 'Link "Codex" to your GitHub account? First seen Nov 6.');
+  assert.equal(said(live), 'Sign in to link "Codex". First seen Nov 6. You confirm the link after you sign in.');
   await denyLinkCode(code, NOW);
   assert.equal(said(await linkState(code, NOW, req('/link/y').headers)), 'Not linked. If it was you, ask your agent for a new link.');
-});
-
-test('the confirm page says where to unlink: the host, then /me', async () => {
-  const code = await createLinkCode(await install('Claude'), NOW);
-  const html = await (await linkGet(req(`/link/${code}`), code, { now: NOW })).text();
-  assert.ok(html.includes('Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time at earnkit.test/me.'), html);
 });
 
 test('POST /link sets ek_link and redirects to GitHub with a state whose nonce is the cookie', async () => {
@@ -349,7 +350,7 @@ test('L27-4 (v6.1.16): every state has one h1 ending in its full stop or ?, its 
     assert.match(s.title, /[.?]$/, k);
     // L43-17 (v6.1.19): used and not set up are their title alone.
     assert.match(s.line, k === 'used' || k === 'not_set_up' ? /^$/ : /\.$/, k);
-    const html = renderToStaticMarkup(React.createElement(LinkView, { s, code: 'x', host: 'earnkit.test' }));
+    const html = renderToStaticMarkup(React.createElement(LinkView, { s, code: 'x' }));
     assert.equal((html.match(/<h1/g) ?? []).length, 1, k);
     assert.ok(html.includes(`>${s.title.replace('<', '&lt;')}</h1>`), k);
     assert.ok(html.includes('href="/"') && !html.includes('<form'), k);
@@ -377,6 +378,6 @@ test('codeState (L21-6, L21-17, v6.1.16): live, used, expired, or unknown (malfo
 test('L25-1 (v6.1.16, fix round 1): the confirm page names "Claude Code (earnkit)" as "Claude Code"', async () => {
   const code = await createLinkCode(await install('Claude Code (earnkit)'), NOW);
   const html = await (await linkGet(req(`/link/${code}`), code, { now: NOW })).text();
-  assert.match(html, /<h1[^>]*>Link <bdi>&quot;Claude Code&quot;<\/bdi> to your GitHub account\?<\/h1>/);
+  assert.match(html, /<h1[^>]*>Sign in to link <bdi>&quot;Claude Code&quot;<\/bdi>.<\/h1>/);
   assert.ok(!html.includes('(earnkit)'));
 });

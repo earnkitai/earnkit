@@ -12,7 +12,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "chain", "value": "arbitrum" },
-    { "kind": "rule", "note": "smart contract code that is audit-ready, with a defined audit scope" }
+    { "kind": "rule", "note": "smart contract code that is audit-ready, with a defined audit scope", "check": "contracts" }
   ],
   "ideas": [
     "A lending protocol preparing its first audit",

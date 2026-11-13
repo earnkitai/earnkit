@@ -1530,7 +1530,8 @@ function askedOf(g: GapProgram, closed: string | null = null): { needs: string[]
   const real = all.filter((x) => x.kind !== 'rule');
   const own = real.filter(readingGap).map((x) => x.what);
   const gaps = real.filter((x) => !readingGap(x)).map((x) => needWords(x.what));
-  const setup = [...all.flatMap((x) => (x.setup ? [x.setup] : [])).filter((x) => x !== closed), ...g.setup].map(needWords);
+  // L46-10 (v6.1.22, ruling 2): the contract address's own "tell me" step is the gap itself, never a second step.
+  const setup = [...all.flatMap((x) => (x.setup && x.item !== 'repo:contract' ? [x.setup] : [])).filter((x) => x !== closed), ...g.setup].map(needWords);
   return { needs: [...gaps, ...setup], rules: all.filter((x) => x.kind === 'rule').map((x) => midSentence(x.what)), own };
 }
 /** v6.1.20: the own sentences after a gap row: the proof still being read, a step looked for again. Pure. */
@@ -1640,6 +1641,8 @@ export const unreadNote = (unread: string[]): string => {
 
 /** A contract the read still does not find may be on chain only (v6.1.9 fix round 1). */
 export const CONTRACT_NOTE = 'Pass the contract address if it is on chain.';
+/** L46-10 (v6.1.22, ruling 2): where the address the audit programs wait on goes. */
+export const CONTRACT_ADDRESS_NOTE = 'When the builder gives the contract address, pass it in project.chains[].contract and call find again.';
 /** Whether the gap's "looked again" names a contract. Pure. */
 export const contractLookedAgain = (g: Pick<GapProgram, 'looked_again'>): boolean => (g.looked_again ?? []).some((w) => /contract on /.test(w));
 
@@ -1723,6 +1726,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:public' || x.item === 'repo:archived')))
     lines.push(REPO_STEP_NOTE);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
+  // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:contract'))) lines.push(CONTRACT_ADDRESS_NOTE);
   // L36-13 (v6.1.18): the demo video link goes in the project.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(DEMO_NOTE);
   // L29-19 (v6.1.16 Task 15): one way.
