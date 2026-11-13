@@ -873,3 +873,18 @@ test('L45-3, L45-4 (v6.1.19, fix round 1 I3): on the screen, a win under one dol
   const two = await post2('l45-s-d', [{ outcome: 'won', amount: '1 ABC' }, { ref: 'zz', outcome: 'won', amount: '2 XYZ' }, { ref: 'yy', outcome: 'won', amount_usd: 9000 }]);
   assert.equal(two.reply.show_to_builder, 'Recorded 0 outcomes. I do not know the currencies "ABC" and "XYZ". Over the program\'s $5,000 cap: yy at $9,000. Nothing recorded for it. Say the amount with its currency.');
 });
+
+test('L45-9, L45-18 (v6.1.19): a ref empty once cleaned is refused when queued and named when posted; the names note is a whole sentence, said only with names', async () => {
+  const c = await reviewerOf('l45-ref');
+  const bad = await mcpCall(c, 'screen', { program_id: 'l45-ref', applicants: [{ ref: '​', name: 'Ghost', repo_url: 'https://github.com/acme/ghost' }] });
+  assert.equal(bad.isError, true);
+  assert.equal(bad.reply!.show_to_builder, '');
+  assert.match(bad.reply!.agent_note as string, /applicants\.0\.ref: empty after removing hidden characters/);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs j WHERE j.program_id = 'l45-ref'`)[0].n, 0);
+  const q = await mcpCall(c, 'screen', { program_id: 'l45-ref', applicants: [{ ref: 'a', name: 'Real' }] });
+  const jobId = q.reply!.job_id as string;
+  const out = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: '​', outcome: 'rejected' }] });
+  assert.equal(out.reply!.show_to_builder, 'Recorded 0 outcomes; not found: (empty name).');
+  const past = await mcpCall(c, 'screen', { job_id: jobId, page: 5 });
+  assert.doesNotMatch(past.reply!.agent_note as string, /Applicant names/);
+});
