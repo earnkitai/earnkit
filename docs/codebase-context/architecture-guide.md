@@ -1845,3 +1845,65 @@ See the freshness pipeline (the closed read, landing pages) and the daily job (n
   rest."), never cutting one. The one-program cap drops the guide's copy of the form before any field detail and never
   drops a select's options. The full list's linked note reads `FULL_LIST_STYLE_NOTE`. OAuth counts the block last:
   token is address, client, then block; a reserved client name is refused before any limit.
+
+## v6.1.20: the reply reads like a person
+
+Plan `v6.1.20-reply-plan.md` (and lane 46's rulings). This section replaces the headings, the one-line In person block
+and the more line of the v6.1.18 Task 10 and v6.1.19 sections; the ranking, hiding, the budget, the one-Say order, the
+JSON and every agent note are as before (the agent's hidden lines keep their old shape: `Block.hide`).
+
+- **Default find.** `replyParts` writes, blank lines apart: the opening (`openingSentence`: `For {name}, {n} programs
+  are ready to send now.`; held by another agent or on hold, `..., started by your other agent.` / `..., on hold until
+  you say go.`; `Nothing is ready to send for {name} yet. The closest:`; in person only `Nothing remote is ready for
+  {name} yet.`; nothing at all `nothingFits`, the whole reply, no Say), the numbered program sentences (no headings;
+  the two step blocks keep their ranks), one `Also` sentence (`alsoSentence`: the in-person programs by name with money
+  and close, `in person with long odds`, then `and {n} more in the full list` and two programs closing this week;
+  `Also:` with only the count), the other lines (applications, since, results, report, Before, notes, the notice), and
+  the closing. Blank lines do not count against `DEFAULT_LINES` (10); the opening and the Also line take a line each.
+  `find` passes `ReplyOptions.name` (the project's name) and `shorts` (catalog `short_title`s).
+- **Program sentences.** Ready: `{n}. {title} ({money}). I apply once you say yes.` (`READY_DRAFT` when the builder
+  presses submit, `MANIFEST_LINE`, `READY_STANDING` under the standing approval, `Your yes stands.` after a yes,
+  `Once you give {two needs}, I apply on your yes.`). Steps (`gapSentence`): one rule `needs one yes from you: {rule}.`;
+  one gap `needs {gap words} first.`; several `needs {first}, then {k} more steps.`; the row the rule Say names says
+  every step and `..., and one yes from you: {rules}.`. Gap words (`needWords`): lower-cased common first words, `the
+  code in a (public) repo`, a verb phrase as `you to {step}`. The close sits inside the parentheses.
+- **Short titles.** `shortTitle(title, short_title)` (reply-words): the catalog's `short_title`, else the title cut at
+  its first colon or ` - ` when that is at most 48 characters, else the title. LEGO and Arc Microgrants: Built with Arc
+  Studio carry a `short_title` (README: optional field). `shortened` applies it to every list the builder text names;
+  find's sent-ask matching reads the shortened reply.
+- **Closings.** The opening says nothing is ready, so `closingAfterOpening` drops `Nothing is ready yet.` (an empty
+  closing becomes `FULL_RULE_SAY`). Rule: `Say {n} if the {title} rule fits you and I draft it.`; users: `Do real
+  people use it? Say yes and I check.` (offer `look_again`; signed out `Say yes, sign in at {link}, and I check.`);
+  do: `Say do {n} and I {verb}.` (no quotes; a do offer replaces a step closing and beats the in-person closing). L46-5:
+  signed out, a rule closing is `Sign in at {link}, then say {n} if ...` (the notice drops its own sign-in). L46-2: with
+  nothing ready and a closing that names only a step (offer null), an in-person program on the screen closes it,
+  `Say {n} and I draft {title} for you to send.` (offer `draft`). L46-9: when another line keeps the Say (the sent ask,
+  not-sent, started), the closing is a plain fact (`plainClosing`: `When {step}, I look again.`; a question or a
+  `Tell me` ask is left out). L46-6: a Say names two needs at most (`ASKED_AT_ONCE`), the agent note names the rest
+  to ask one at a time, and the Before line and `nextNeedsLine` name two.
+- **Gates.** `APPLY_OFFER` and `TAIL_OFFER` are unchanged and still match every apply closing (`Say yes and I apply
+  ...`, the setup-first form, the do-users form). The gate (`beforeSend`) keeps blank lines (`withoutApply`, `tidy`),
+  counts non-blank lines (`withinLines` drops an `Also:` count line, then the Before line), and passes each ready row
+  through `gatedRow`: signed out on GitHub the row's apply sentence goes (`1. FLOSS/fund ($10,000 to $100,000).`), and
+  `signInFirst` closes; off GitHub, not yours or not confirmed, the row reads `I draft it for you to send.`. Rule, users,
+  draft and do closings are no apply offer, so they pass ungated; the rule closing carries its own sign-in (L46-5).
+- **Full list.** `Everything open for {name}, nearest first:` then runs `Ready:` (held rows say so on the row), `Not
+  ready yet:`, `In person:`, no counts; rows `{n}. {title} ({money}, closes ...).`; the closing as the default's.
+- **One program.** `{title} ({money}{, closes}). {state}`, a blank line, the action: `It is ready: {what EarnKit does}.`
+  (`readyState`), `It needs {gap} first.` / `It needs one yes from you: {rule}.` / `It needs {a}, {b} and your yes that
+  {rule}.` (`gapState`), in person `You attend in person.` then the odds and needs (`inPersonState`); no-project rule
+  lines `It needs one yes from you: {rule}.` (`ruleAsk`); `Say do and I ... first.`.
+- **Open list.** `Open now: {k} programs. The five nearest:` (or `..., nearest first:` for the full or a short list),
+  a blank line, the rows `{title} ({money}, closes ..., in person).`, then `OPEN_ASK` (`Tell me what you build, or its
+  repo link, and I match it.`); L46-4: a category filter with no rows reads `emptyFilterLine`.
+- **track.** Short titles in every builder line; `NEXT_LINE` `Next: {title} ({money}). Say yes and I apply.` and one
+  rule away `Next: {title} ({money}) needs one yes: {rule}. Say yes if that fits and I apply.`; `CONFIRM_RULE(S)` `{title}
+  needs one yes from you first: {rule}. Say yes if that is you.`; L46-8: `rulesOnlyGap` offers no rule whose keywords
+  the project never names (`unlikely`); L46-13: with no Next, `NEXT_LACKS` names what the next ready program waits on.
+  `started` keeps no builder text.
+- **Lane 46 data rules.** L46-3: a `users` eligibility item takes `min_days` (FLOSS/fund 90: `youngProject`, item
+  `users:age`, `a project older than three months`, closed by `the project is three months old`), and FLOSS/fund's
+  license is a `check: license` rule. L46-7: the record's traction item is asked only when a program's form reads
+  traction (`Asks.traction`), named `one line on traction`, and once typed `TRACTION_APPROVE` (with earnkit.com/me).
+  L46-1: signed out, a kept builder-sent claim past the claim hours is asked through `ask_sent`. L46-12: the list hash
+  marks ready rows, so a row that moved to ready is never "Nothing new".
