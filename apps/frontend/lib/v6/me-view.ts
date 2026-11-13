@@ -5,7 +5,7 @@
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
-import { amountsOf, ledgerCounts, summary } from '../v5/ledger';
+import { amountsOf, ledgerCounts, projectLabel, projectNames, summary } from '../v5/ledger';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { nameKeyOf, projectKeyOf } from '../v5/project-input';
 import { amountsText, moneyText, usdFull, type Amounts } from '../v5/programs-read';
@@ -324,14 +324,16 @@ export async function agentList(builderId: number, now: Date = new Date()): Prom
 
 /**
  * Projects the owner's sent applications name (`project_id`) that the record does not hold (L21-12, v6.1.16; N1 ruling:
- * a claim is not counted, the count is what was sent): by repo link or name, with the count, read-only. A record project matches by its id or its project key. Pure.
+ * a claim is not counted, the count is what was sent): with the count, read-only. A record project matches by its id or
+ * its project key. L46-16 (v6.1.22): labelled by the name the agent passed (`names`, projectNames), else the key's short
+ * label (a repo's last segment, a name key's name), never the full repo link. Pure.
  */
-export function projectsSeen(record: BuilderRecord, rows: { project_id: string; n: number }[]): MeData['projects_seen'] {
+export function projectsSeen(record: BuilderRecord, rows: { project_id: string; n: number }[], names: Map<string, string> = new Map()): MeData['projects_seen'] {
   const held = new Set(record.projects.flatMap((p) => [p.id, projectKeyOf(p), nameKeyOf(p)].filter(Boolean)));
   return rows
     .filter((r) => r.project_id && !held.has(r.project_id))
     .map((r) => {
-      const label = r.project_id.startsWith('name:') ? r.project_id.slice(5) : r.project_id;
+      const label = projectLabel(r.project_id, names) ?? r.project_id;
       return { key: r.project_id, label, count: r.n, line: ME_PROJECT_SEEN(label, r.n) };
     });
 }
@@ -355,6 +357,13 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   const reviews = await reviewerPrograms(builder.id);
   const titles = reviews.length === 0 ? [] : await sql()<{ id: string; title: string | null }[]>`SELECT id, file->>'title' AS title FROM programs WHERE id = ANY(${reviews})`;
   const titleOf = new Map(titles.map((t) => [t.id, t.title ?? t.id]));
+  const names = await projectNames(owner);
+  // L47-12 (v6.1.22): when the rows name more than one project, each row with a project names it after the title.
+  const many = new Set(ledger.flatMap((r) => (r.project_id ? [r.project_id] : []))).size > 1;
+  const named = (title: string, key: string | null) => {
+    const project = many && key ? projectLabel(key, names) : null;
+    return project ? `${title} (${project})` : title;
+  };
   return {
     login: builder.login,
     name: builder.name,
@@ -372,7 +381,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
       // said sent here.
       const asked = r.status === 'started' && !held && r.submit === 'builder' && started <= now.getTime() - SENT_ASK_AFTER_HOURS * 3_600_000;
       return {
-        title: r.title ?? r.program_id,
+        title: named(r.title ?? r.program_id, r.project_id),
         status: ME_STATUS[status] ?? cap(status.replaceAll('_', ' ')),
         at: dayWords(r.at, now),
         money: r.status === 'won' ? amountsText(amountsOf(r)) || null : null,
@@ -384,7 +393,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     ledger_line: counts.applied > 0 ? ledgerCounts(counts) : null,
     installations: await agentList(builder.id, now),
     reviews: reviews.map((id) => ME_REVIEWS(titleOf.get(id) ?? id)),
-    projects_seen: projectsSeen(record, seen),
+    projects_seen: projectsSeen(record, seen, names),
     link: await linkBanner(link, builder.id, now),
     draft,
     policy_status: mePolicyStatus(

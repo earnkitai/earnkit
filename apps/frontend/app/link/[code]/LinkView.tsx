@@ -1,16 +1,15 @@
 import Link from 'next/link';
 import { CARD_PANEL, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
-import { LINK_ASK_PARTS } from '../../../lib/v5/site-copy';
+import { LINK_SIGN_IN_PARTS } from '../../../lib/v5/site-copy';
 import type { LinkState } from '../../../lib/v6/link-routes';
 
 const LINE = 'text-[16px] leading-[1.6] text-s-muted';
 
 /**
  * A /link page in the site shell (L27-4, L27-26, v6.1.16): one h1 (the state's title), its line, and for the live code
- * the confirm form (one button, a plain POST to /link/<code>/confirm, no script); every other state links home.
- * `host`: where /me is, for the unlink line.
+ * the sign-in form (one button, a plain POST to /link/<code>/confirm, no script); every other state links home.
  */
-export default function LinkView({ s, code, host }: { s: LinkState; code: string; host: string }) {
+export default function LinkView({ s, code }: { s: LinkState; code: string }) {
   return (
     <div className={`${PAGE_COL} pb-6 pt-6 md:pt-12`}>
       <section
@@ -20,10 +19,10 @@ export default function LinkView({ s, code, host }: { s: LinkState; code: string
         <h1 id="link-title" className="ek-serif text-[32px] leading-none [overflow-wrap:anywhere] md:text-[44px]">
           {s.agent ? (
             <>
-              {/* L43-17 (v6.1.19): one question naming the agent, its own name isolated. */}
-              {LINK_ASK_PARTS(s.agent)[0]}
-              <bdi>{LINK_ASK_PARTS(s.agent)[1]}</bdi>
-              {LINK_ASK_PARTS(s.agent)[2]}
+              {/* L46-14 (v6.1.22): no question here, the agent named, its own name isolated. */}
+              {LINK_SIGN_IN_PARTS(s.agent)[0]}
+              <bdi>{LINK_SIGN_IN_PARTS(s.agent)[1]}</bdi>
+              {LINK_SIGN_IN_PARTS(s.agent)[2]}
             </>
           ) : (
             s.title
@@ -31,17 +30,13 @@ export default function LinkView({ s, code, host }: { s: LinkState; code: string
         </h1>
         {s.state === 'live' ? (
           <>
-            <p className={LINE}>
-              First seen {s.seen}. {s.line} You can unlink it any time at {host}/me.
-            </p>
+            {/* L46-14 (v6.1.22): one line and the button; the confirm and the unlink are on /me. */}
+            <p className={LINE}>{s.line}</p>
             <form method="post" action={`/link/${code}/confirm`}>
               <button type="submit" className={PILL_WHITE}>
                 Continue with GitHub
               </button>
             </form>
-            <p className="text-[14px] leading-[1.6] text-s-muted">
-              After you sign in, you confirm the link on your record page. If you did not ask your agent for this just now, close this page.
-            </p>
           </>
         ) : (
           <>

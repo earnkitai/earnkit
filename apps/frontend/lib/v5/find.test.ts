@@ -4744,3 +4744,16 @@ test('v6.1.20 review I5: every find reply in this file keeps the builder contrac
   assert.ok(findReplies.length > 200, String(findReplies.length));
   for (const t of findReplies) builderRules(t, !/^(Everything open|Open now: \d+ programs?, nearest first:)/.test(t) && !t.includes('\nRules:\n'));
 });
+
+test('L46-17: FLOSS/fund ready does not ask name and email before applying', async () => {
+  const { missingFor } = await import('../v6/find-record');
+  const { EMPTY_RECORD } = await import('../v6/record');
+  const row = (id: string) => ({ id, file: openCatalogProgram(id), source: 'file' as const, created_at: NOW, updated_at: NOW, verified_at: NOW, stale_since: null });
+  const floss = missingFor([row('floss-fund-zerodha')], EMPTY_RECORD, false);
+  assert.ok(!floss.includes('your name') && !floss.includes('your email'), floss.join(' / '));
+  const base = missingFor([row('base-builder-grants')], EMPTY_RECORD, false);
+  assert.ok(base.includes('your name') && base.includes('your email'), base.join(' / '));
+  // Either form in the list: the one that reads them asks them.
+  const both = missingFor([row('floss-fund-zerodha'), row('base-builder-grants')], EMPTY_RECORD, false);
+  assert.ok(both.includes('your name') && both.includes('your email'));
+});

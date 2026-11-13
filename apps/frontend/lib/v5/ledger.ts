@@ -1258,7 +1258,7 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     if (!first.has(r.program_id)) first.set(r.program_id, { at: r.started, project: r.project_id });
   }
   const byId = await withOwn([...first.keys()], programs);
-  const names = first.size > 0 ? await recordProjectNames(owner) : new Map<string, string>();
+  const names = first.size > 0 ? await projectNames(owner) : new Map<string, string>();
   return [...first]
     .map(([id, x]) => ({ p: byId.get(id), ...x }))
     .filter((x): x is { p: ProgramRow; at: Date; project: string | null } => x.p?.file.submit === 'builder')
@@ -1271,16 +1271,23 @@ export async function askSent(owner: string, programs: ProgramRow[], now: Date, 
     .map(({ p, at, project }) => ({ program_id: p.id, title: p.file.title, started_at: at.toISOString(), project_id: project, project: projectLabel(project, names) }));
 }
 
-/** L41-7 (v6.1.19): the record's project names by project key, for a builder owner; none else. */
-async function recordProjectNames(owner: string): Promise<Map<string, string>> {
+/**
+ * L41-7 (v6.1.19): the project names by project key: a builder owner's record names first; then (L46-16, L47-12,
+ * v6.1.22) the name the agent passed, from each key's newest report, for a key the record does not name.
+ */
+export async function projectNames(owner: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (!owner.startsWith('b:')) return out;
-  const { getRecord } = await import('../v6/builders');
-  for (const p of (await getRecord(Number(owner.slice(2)))).projects) {
-    if (!p.name?.trim()) continue;
-    const key = projectKeyOf({ name: p.name, repo_url: p.repo_url });
-    if (key && !out.has(key)) out.set(key, p.name.trim());
+  if (owner.startsWith('b:')) {
+    const { getRecord } = await import('../v6/builders');
+    for (const p of (await getRecord(Number(owner.slice(2)))).projects) {
+      if (!p.name?.trim()) continue;
+      const key = projectKeyOf({ name: p.name, repo_url: p.repo_url });
+      if (key && !out.has(key)) out.set(key, p.name.trim());
+    }
   }
+  const reports = await sql()<{ project_key: string; name: string | null }[]>`
+    SELECT project_key, report->>'name' AS name FROM project_reports WHERE owner = ${owner} ORDER BY at DESC`;
+  for (const r of reports) if (r.name?.trim() && !out.has(r.project_key)) out.set(r.project_key, r.name.trim());
   return out;
 }
 /** L41-7 (v6.1.19): a project key as a short label: the record's name, else a name key's name or a repo's last

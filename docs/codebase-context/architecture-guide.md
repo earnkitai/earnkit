@@ -1096,7 +1096,13 @@ ended), and /link/<code> uses the same two dead-code lines. v6.1.19 L43-17: both
 one sentence each: used `Linked.`, not set up `Sign-in is not set up yet.`, denied `Not linked.` with `If it was you,
 ask your agent for a new link.`; the live title is `Link "{name}" to your GitHub account?` (unnamed: `Link your agent
 to your GitHub account?`) and /me's line `First seen {day}. If you did not just ask your agent for this, choose This
-is not me.`. Signed out, `/me?link=<code>` goes to `/link/<code>`. Edits
+is not me.`. v6.1.22 L46-14: /me's banner is the one question (its line `First seen {day}. Once linked, it can read and
+change your record and apply in your name. If you did not just ask your agent for this, choose This is not me.`); the
+live /link page asks none: `Sign in to link "{name}".` (`LINK_SIGN_IN_PARTS`, unnamed `Sign in to link your agent.`),
+one line `First seen {day}. You confirm the link after you sign in.` (`LINK_CONFIRM_LATER`) and `Continue with GitHub`.
+v6.1.22 L47-12, L46-16: when the ledger rows name more than one project, each row with one reads `{title} ({project})`,
+and a project seen outside the record reads by its name; both by `projectNames` (ledger.ts: the record's names, then
+each key's report name), else `projectLabel`, never the full repo link. Signed out, `/me?link=<code>` goes to `/link/<code>`. Edits
 and the standing approval come back with a signed `Saved.` shown beside the control (`at` names it); an unlink says
 `Unlinked {agent}.` (an unnamed agent is "An agent linked Nov 6"; v6.1.19 L43-10: a named one `Unlinked "{name}".`,
 and a second unlink `Already unlinked.`), another builder's agent `That agent is not on your
@@ -1125,7 +1131,7 @@ command block is a focusable region. The share card `public/og.png` is drawn by 
 `linkState` in `link-routes.ts`): every state (live `Connect {agent}?`, from v6.1.19 `Link "{name}" to your GitHub account?`, `Linked.`, `This link has expired.`, `This
 link is not one of ours.`, `Sign-in failed.`, `Too many sign-ins.`, `Sign-in is not set up yet.`) renders in the site
 shell with one h1 and the title `{h1 without its full stop} · EarnKit` (v6.1.19 L43-17: the live title is `Link
-"{name}" to your GitHub account?`, the states read `LINK_STATES`, and a denied code is its own state, `Not linked.`). A page answers 200 for every state (Next sets
+"{name}" to your GitHub account?`, v6.1.22 L46-14 `Sign in to link "{name}".`, the states read `LINK_STATES`, and a denied code is its own state, `Not linked.`). A page answers 200 for every state (Next sets
 no 429 or 503 from a page); the state's own status is data only. The confirm form posts to `/link/<code>/confirm`;
 a POST to `/link/<code>` is 405 (`Allow: GET`, proxy); a refused post or callback is a 303 to `/link/failed` (a dead
 code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive). /link pages send
@@ -1926,6 +1932,8 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
   `users:age`, `a project older than three months`, closed by `the project is three months old`), and FLOSS/fund's
   license is a `check: license` rule. L46-7: the record's traction item is asked only when a program's form reads
   traction (`Asks.traction`), named `one line on traction`, and once typed `TRACTION_APPROVE` (with earnkit.com/me).
+  v6.1.22 L46-17: likewise `your name` and `your email` only when a form has a contact field whose key or label names a
+  name or an email (`Asks.contact`, set by `missingFor`); FLOSS/fund's form is the manifest link alone.
   L46-1: signed out, a kept builder-sent claim past the claim hours is asked through `ask_sent`. L46-12: the list hash
   marks ready rows, so a row that moved to ready is never "Nothing new".
 
