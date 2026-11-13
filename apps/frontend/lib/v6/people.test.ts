@@ -121,6 +121,17 @@ test('owner_people has the tracker columns and one row per installation', async 
   assert.equal(anon.identity_source, null);
   assert.equal(anon.main_repo, 'acme/widget');
   assert.equal(anon.x_proven, false);
+  // Old-only fields are unavailable (NULL), never 0 or false.
+  for (const c of ['wallet', 'wallet_recipient', 'wallet_proven_at', 'wallet_first_tx_at', 'wallet_funder', 'funded_by_slug', 'points_total', 'points_weeks', 'last_points_week', 'referred_installs', 'shipping_score', 'shipping_rank', 'rank_total', 'streak_weeks', 'commit_weeks_12', 'last_commit_week', 'last_approved_week', 'coin_symbol', 'coin_url', 'coin_address', 'coin_backers', 'creator_fees_eth', 'programs_accepted', 'checkin_on', 'email_opted_in'])
+    for (const r of rows) assert.equal((r as Record<string, unknown>)[c], null, c);
+  // Typed NULLs: the columns keep the tracker's types.
+  const types = Object.fromEntries((await sql()<{ column_name: string; data_type: string }[]>`
+    SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'owner_people'`).map((t) => [t.column_name, t.data_type]));
+  for (const c of ['points_total', 'points_weeks', 'referred_installs', 'streak_weeks', 'commit_weeks_12', 'coin_backers', 'programs_accepted', 'shipping_rank', 'rank_total'])
+    assert.equal(types[c], 'integer', c);
+  for (const c of ['wallet_recipient', 'checkin_on', 'email_opted_in', 'repo_private']) assert.equal(types[c], 'boolean', c);
+  for (const c of ['shipping_score', 'creator_fees_eth']) assert.equal(types[c], 'numeric', c);
+  for (const c of ['wallet', 'coin_symbol', 'coin_url']) assert.equal(types[c], 'text', c);
 });
 
 test('an install state is never a link state, and the reverse', () => {

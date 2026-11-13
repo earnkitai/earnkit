@@ -552,7 +552,8 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS person_id int;
 CREATE INDEX IF NOT EXISTS installations_person ON installations (person_id);
 
 -- The tracker reads this view by column name (see the architecture guide): one row per person with an installation or a
--- builder. Owner-only: no token, email or IP. Columns the v5/v6 data cannot fill are typed NULLs or zero.
+-- builder. Owner-only: no token, email or IP. Columns the v5/v6 data cannot fill (wallet, points, referrals, streak,
+-- coin, score, accepted, check-in, email opt-in) are typed NULLs, never 0 or false: unavailable, not none.
 DROP VIEW IF EXISTS owner_people;
 CREATE VIEW owner_people AS
 SELECT
@@ -567,17 +568,17 @@ SELECT
   COALESCE(b.login, p.github_login) AS github_login,
   NULL::timestamptz AS gh_created_at,
   NULL::text AS wallet,
-  false AS wallet_recipient,
+  NULL::boolean AS wallet_recipient,
   NULL::timestamptz AS wallet_proven_at,
   NULL::timestamptz AS wallet_first_tx_at,
   NULL::text AS wallet_funder,
   NULL::text AS funded_by_slug,
-  0 AS points_total,
-  0 AS points_weeks,
+  NULL::int AS points_total,
+  NULL::int AS points_weeks,
   NULL::date AS last_points_week,
   COALESCE(min(i.created_at), p.created_at) AS joined_at,
   max(i.last_seen_at) AS last_seen_at,
-  0 AS referred_installs,
+  NULL::int AS referred_installs,
   p.x_name,
   p.x_avatar_url,
   NULL::text AS main_project_key,
@@ -590,21 +591,21 @@ SELECT
   NULL::numeric AS shipping_score,
   NULL::int AS shipping_rank,
   NULL::int AS rank_total,
-  0 AS streak_weeks,
-  0 AS commit_weeks_12,
+  NULL::int AS streak_weeks,
+  NULL::int AS commit_weeks_12,
   NULL::date AS last_commit_week,
   NULL::date AS last_approved_week,
   max(i.last_seen_at) AS last_activity_at,
   NULL::text AS coin_symbol,
   NULL::text AS coin_url,
   NULL::text AS coin_address,
-  0 AS coin_backers,
+  NULL::int AS coin_backers,
   NULL::numeric AS creator_fees_eth,
   (SELECT count(*)::int FROM applications a WHERE a.owner = ANY(k.keys) AND a.status IN ('applied', 'won', 'rejected', 'no_result')) AS programs_applied,
-  (SELECT count(*)::int FROM applications a WHERE a.owner = ANY(k.keys) AND a.status = 'won') AS programs_accepted,
+  NULL::int AS programs_accepted,
   (SELECT count(*)::int FROM applications a WHERE a.owner = ANY(k.keys) AND a.status = 'won') AS programs_won,
-  false AS checkin_on,
-  false AS email_opted_in,
+  NULL::boolean AS checkin_on,
+  NULL::boolean AS email_opted_in,
   CASE WHEN p.builder_id IS NOT NULL THEN 'b:' || p.builder_id::text ELSE 'i:' || min(i.id)::text END AS person_key,
   p.builder_id AS earnkit_builder_id,
   CASE WHEN b.id IS NOT NULL THEN 'github_signin' WHEN p.x_user_id IS NOT NULL THEN 'x_signin_legacy'
