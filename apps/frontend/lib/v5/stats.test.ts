@@ -292,3 +292,24 @@ test('L47-6b (v6.1.22): an earlier-round win counts once before and once after t
   assert.equal((await record(owner, 'zz-l47-round', 'won', { amount_usd: 2000, now: NOW })).ok, true);
   assert.deepEqual(await delta(), [2, 3000, 1]);
 });
+
+test('L47-6 fix round 1 (Critical 1, Minor 3): a plain win once open counts the earlier win too; two owners\' moved earlier wins on one repo count once', async () => {
+  const mk = async () => (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`stat-l47b-${Math.random()}`}) RETURNING id`)[0].id;
+  const a = await mk();
+  const before = await readStats(NOW);
+  await upsertProgram(programFixture({ id: 'zz-l47-plain', status: 'upcoming', opens_note: 'Soon', max_award_usd: 5000 }), 'file', NOW);
+  await record(`i:${a}`, 'zz-l47-plain', 'won', { amount_usd: 1000, outsideWin: true, now: ago(2) });
+  await upsertProgram(programFixture({ id: 'zz-l47-plain', max_award_usd: 5000 }), 'file', NOW);
+  assert.equal((await record(`i:${a}`, 'zz-l47-plain', 'won', { amount_usd: 2000, outsideWin: true, now: NOW })).ok, true);
+  let s = await readStats(NOW);
+  assert.deepEqual([s.won - before.won, s.won_usd - before.won_usd], [2, 3000]);
+  // Two owners, one repo: their moved earlier wins count once, as their sends would.
+  const b = await mk();
+  const c = await mk();
+  const mid = await readStats(NOW);
+  for (const [i, usd] of [[b, 400], [c, 500]] as const)
+    await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, repo_key, earlier_win)
+      VALUES (${`i:${i}`}, ${i}, 'zz-l47-repo', 'started', ${NOW}, 'https://github.com/l47/shared', ${sql().json({ amount_usd: usd, amounts: { USD: usd }, at: ago(5 - usd / 100).toISOString(), moved: true })})`;
+  s = await readStats(NOW);
+  assert.deepEqual([s.won - mid.won, s.won_usd - mid.won_usd], [1, 400]);
+});

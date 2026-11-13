@@ -310,11 +310,22 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does.
   assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a public repo');
-  // L18-2 (v6.1.18): hackathons no longer exempt: with no repo link the code is the step there too; an empty repo
-  // (the entry itself is the code) stays a step only for a grant for existing code.
+  // L18-2 (v6.1.18): hackathons no longer exempt: with no repo link the code is the step there too. L1m-5 (v6.1.22):
+  // an empty repo is the code step there too.
   const qnx = fromFile('qnx-global-hackathon-2026');
   assert.equal(evaluate(qnx, idea, new Set(), NOW).gaps[0].what, 'code in a public repo');
-  assert.ok(!evaluate(qnx, empty, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  assert.deepEqual(evaluate(qnx, empty, new Set(), NOW).gaps[0], NEEDS_CODE);
+});
+
+test('L1m-5 (v6.1.22): an empty repo on QNX needs the code first and no license step', async () => {
+  const qnx = fromFile('qnx-global-hackathon-2026');
+  const empty = await factsOf('empty-repo');
+  const v = evaluate(qnx, { ...empty, notes: ['empty'], license: null }, new Set(), NOW);
+  // The code first; the demo video and the QNX rule stay; no license file step (it waits for code, as on any repo step).
+  assert.deepEqual(v.gaps.map((g) => g.what), ['code in a repo', 'a demo video link (a short screen recording of it working)', 'runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software']);
+  assert.ok(!v.gaps.some((g) => /license/i.test(`${g.item} ${g.what}`)), JSON.stringify(v.gaps));  // A repo with code and no license does get the license step.
+  const code = evaluate(qnx, { ...empty, notes: [], license: null, first_commit_at: '2026-06-01T00:00:00Z' }, new Set(), NOW);
+  assert.ok(code.gaps.some((g) => /license/i.test(`${g.item} ${g.what}`)), JSON.stringify(code.gaps));
 });
 
 test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {

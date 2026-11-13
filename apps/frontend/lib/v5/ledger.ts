@@ -501,8 +501,12 @@ export async function record(
     // Controller ruling (v6.1.16.1 Task 2): the repo key from this call's own key always, and the picked row's too when
     // it names another; L35-13: a hold too.
     const checkKeys = [...new Set([repoKeyOf(key), repoKeyOf(rk)].filter((x): x is string => x !== null))];
-    // L47-6 (v6.1.22): a send over a win from an earlier round is this round's send: the row is open to it.
-    const newRound = status === 'applied' && row !== undefined && isEarlierRound(row);
+    // L47-6 (v6.1.22): a send over a win from an earlier round is this round's send: the row is open to it. Fix round 1
+    // (Critical 1): so is a plain win once the program is open (no further payment): a new round's win, never a
+    // correction; the earlier win is marked moved with its own amounts kept.
+    const upcomingNow = program !== null && statusAt(program.file, now) === 'upcoming';
+    const wonNewRound = status === 'won' && row !== undefined && isEarlierRound(row) && !upcomingNow && paymentKey === null;
+    const newRound = (status === 'applied' && row !== undefined && isEarlierRound(row)) || wonNewRound;
     let cofounderSent = false;
     let cofounderClaim = false;
     let offHostSeen = false;
@@ -569,7 +573,7 @@ export async function record(
         VALUES (${owner}, ${installationId}, ${programId}, 'held', ${note}, ${now}, ${source}, ${pk})`;
       return { ok: true } as const;
     }
-    const kept = row?.status === 'won' ? amountsOf(row) : null;
+    const kept = row?.status === 'won' && !newRound ? amountsOf(row) : null;
     // L22-2 (v6.1.16): a win with no currency named, over a win held in one other currency, is in that currency.
     const keptCodes = Object.keys(kept ?? {});
     const currency = given?.currency ?? (keptCodes.length === 1 && keptCodes[0] !== 'USD' ? keptCodes[0] : 'USD');
@@ -584,7 +588,7 @@ export async function record(
     if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: underADollarLine(currency) } as const;
     if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
-    const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;
+    const completes = row?.status === 'won' && !newRound && kept === null && status === 'won' && money !== null;
     // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
     // L17-8 (v6.1.16): one key space per application; a key stored with a legacy prefix matches the same key now.
     if (paymentKey !== null && row?.status === 'won'
@@ -752,10 +756,16 @@ export async function record(
             identity = COALESCE(applications.identity, EXCLUDED.identity)`;
     }
     // L47-6 (v6.1.22): a win from outside EarnKit on a program not open yet is an earlier round's: kept on the row so the
-    // new round can still be started and sent.
-    if (outside && statusAt(program!.file, now) === 'upcoming')
+    // new round can still be started and sent. Fix round 1 (Minor 1): a correction of it while still upcoming refreshes
+    // it; (Minor 2) a moved earlier win is never overwritten (a second earlier round is out of scope).
+    if (status === 'won' && upcomingNow && (outside || (row !== undefined && isEarlierRound(row))))
       await tx`UPDATE applications SET earlier_win = jsonb_build_object('amount_usd', amount_usd, 'amounts', amounts, 'at', at)
-        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${pk ?? ''}`;
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}
+          AND (earlier_win IS NULL OR NOT (earlier_win ? 'moved'))`;
+    // Fix round 1 (Critical 1): the new round's win moves the earlier one, its amounts untouched.
+    if (wonNewRound)
+      await tx`UPDATE applications SET earlier_win = earlier_win || '{"moved": true}'::jsonb
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
     // L17-1 (v6.1.16): a history row only when the ledger changed (a repeated gap_done changed nothing).
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source, project_id)

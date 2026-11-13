@@ -703,4 +703,7 @@ test('L47-7 (v6.1.22): the record\'s phone and country fill their fields; with n
   const mobile = rowWith([req({ key: 'mobile', label: 'Mobile', type: 'text', kind: 'contact', from: 'builder' }), req({ key: 'tel', label: 'Telephone', type: 'text', kind: 'contact', from: 'builder' })]);
   const m = prefill(mobile, facts, { record, projectId: null, verifiedUsage: null }).fields;
   assert.deepEqual([pick(m, 'mobile'), pick(m, 'tel')], [{ value: '+31 20 555 0100', from: 'record' }, { value: null, from: 'builder' }]);
+  // Fix round 1 (Minor 6): a company's country is not the person's.
+  const org = rowWith(['Country of incorporation', 'Organisation country', 'Company country', 'Registered country'].map((label, n) => req({ key: `c${n}`, label, type: 'text', kind: 'contact', from: 'builder' })));
+  assert.deepEqual(prefill(org, facts, { record, projectId: null, verifiedUsage: null }).fields.map((f) => f.value), [null, null, null, null]);
 });

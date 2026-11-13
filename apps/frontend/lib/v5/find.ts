@@ -1662,10 +1662,10 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const namedIn = (id: string) => asked && sentAsk.named.includes(id);
   const shownSent = (r.ask_sent ?? []).filter((a) => namedIn(a.program_id));
   const shownRel = r.released.filter((p) => p.ask && namedIn(p.program_id));
-  // L47-4 (v6.1.22): each with its project; a kept claim's release line takes its due ask's project.
+  // L47-4 (v6.1.22): each with its project; a kept claim's release line its own (fix round 1, Minor 4; '' for none).
   await markSentAsked(ctx.installationId, owner, [
     ...shownSent.map((a) => ({ program_id: a.program_id, project_id: a.project_id })),
-    ...shownRel.map((p) => ({ program_id: p.program_id, project_id: sentDue.find((a) => a.program_id === p.program_id)?.project_id ?? null })),
+    ...shownRel.map((p) => ({ program_id: p.program_id, project_id: p.project_id ?? null })),
   ], ctx.now);
   const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
   const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };

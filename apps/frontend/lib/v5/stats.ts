@@ -101,16 +101,19 @@ export const sendCounts = (db: Sql) => db`count(*) AS all, count(*) FILTER (WHER
 /**
  * L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program.
  * L47-6 (v6.1.22): plus each earlier-round win a new round moved off its row (`earlier_win ? 'moved'`), one more win
- * with its own amounts (`earlier`: no send of its own); an unmoved one is the row's own win and counts once.
+ * with its own amounts (`earlier`: no send of its own), once per repo and program among the earlier wins (fix round 1,
+ * Minor 3: the same partition, apart from this round's wins); an unmoved one is the row's own win and counts once.
  */
 const wonOnce = (db: ReturnType<typeof sql>) => db`
   SELECT status, at, amounts, amount_usd,
-         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won') ORDER BY at, owner) = 1) AS counted,
-         false AS earlier
-  FROM applications
-  UNION ALL
-  SELECT 'won', (earlier_win->>'at')::timestamptz, NULLIF(earlier_win->'amounts', 'null'::jsonb), (earlier_win->>'amount_usd')::numeric, true, true
-  FROM applications WHERE earlier_win ? 'moved'`;
+         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won'), earlier ORDER BY at, owner) = 1) AS counted,
+         earlier
+  FROM (
+    SELECT owner, program_id, repo_key, repo_id, status, at, amounts, amount_usd, false AS earlier FROM applications
+    UNION ALL
+    SELECT owner, program_id, repo_key, repo_id, 'won', (earlier_win->>'at')::timestamptz, NULLIF(earlier_win->'amounts', 'null'::jsonb), (earlier_win->>'amount_usd')::numeric, true
+    FROM applications WHERE earlier_win ? 'moved'
+  ) w`;
 
 export async function readStats(now: Date = new Date()): Promise<Stats> {
   const db = sql();

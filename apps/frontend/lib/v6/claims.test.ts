@@ -186,3 +186,12 @@ test('L35-4, L35-3, L35-2 (v6.1.16.1 Task 2): a co-founder\'s live claim on the 
   assert.ok(!fork.ok && 'repo' in fork && fork.repo.login === null, JSON.stringify(fork));
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${b.owner} AND program_id = 'cl-35f'`)[0].n, 0);
 });
+
+test('fix round 1 (v6.1.22, Minor 4): a kept claim of a builder-sent program carries its project, so its ask is marked there', async () => {
+  const a = await installation('Claude Code');
+  const owner = `i:${a}`;
+  await upsertProgram(programFixture({ id: 'cl-l47-kept', title: 'Kept Grant', submit: 'builder' }), 'file', NOW);
+  assert.deepEqual(await claim(owner, 'cl-l47-kept', 'name:sd', a, NOW), { ok: true });
+  const out = await releaseStale(owner, new Date(NOW.getTime() + 25 * H));
+  assert.deepEqual(out.map((x) => [x.program_id, x.ask, x.project_id]), [['cl-l47-kept', true, 'name:sd']]);
+});

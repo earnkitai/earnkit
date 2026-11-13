@@ -4791,18 +4791,21 @@ test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round:
   const { programFixture } = await import('./fixtures/program');
   const id = await installation();
   const P = { name: 'l47 Up Two', description: 'An app.' };
-  await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', status: 'upcoming', opens_note: 'Opens in December', max_award_usd: 5000 }), 'file', NOW);
+  // Fix round 1 (Important 1): a summary with no figure, so the money reads the brief's ($5,000).
+  await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', summary: 'A grant for builders.', status: 'upcoming', opens_note: 'Opens in December', max_award_usd: 5000 }), 'file', NOW);
   try {
     const w = await mcpCall(ctx(id), 'track', { program_id: 'l47-up-two', status: 'won', amount_usd: 1000, outside: true, project: P });
     assert.equal(w.reply!.show_to_builder, 'Recorded: L47 Upcoming Two won, $1,000. Noted: a win outside EarnKit.');
-    await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', max_award_usd: 5000 }), 'file', NOW);
+    await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', summary: 'A grant for builders.', max_award_usd: 5000 }), 'file', NOW);
     const r = (await mcpCall(ctx(id), 'find', { program_id: 'l47-up-two', project: P })).reply!;
     const one = r.show_to_builder as string;
-    assert.match(one, /^L47 Upcoming Two \((?:up to )?\$5,000\) is ready to send\. Won \$1,000 in an earlier round\.$/m, one);
+    assert.equal(one.split('\n')[0], 'L47 Upcoming Two ($5,000) is ready to send. Won $1,000 in an earlier round.', one);
     assert.notEqual(r.agent_note, 'This program already has a result; nothing to send.');
     // The list names the program with its earlier win after the row.
     const list = (await mcpCall(ctx(id), 'find', { project: P, filter: { all: true } })).reply!;
-    assert.match(list.show_to_builder as string, /L47 Upcoming Two \([^)]*\)[^\n]*\. Won \$1,000 in an earlier round\./, list.show_to_builder as string);
+    // Its number depends on the ready programs other tests leave in the shared catalog; the row after it is exact.
+    const listRow = (list.show_to_builder as string).split('\n').find((l) => l.includes('L47 Upcoming Two'));
+    assert.equal(listRow?.replace(/^\d+\. /, ''), 'L47 Upcoming Two ($5,000). Won $1,000 in an earlier round.', list.show_to_builder as string);
     // Task 2 (v6.1.22): the earlier-round win is said once: the applications line leaves it to the program's row.
     const dflt = (await mcpCall(ctx(id), 'find', { project: P })).reply!;
     for (const t of [one, list.show_to_builder as string, dflt.show_to_builder as string]) {
@@ -4816,6 +4819,27 @@ test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round:
     assert.deepEqual([row.status, row.earlier_win.moved], ['started', true]);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'l47-up-two'`;
+  }
+});
+
+test('L47-6 fix round 1 (v6.1.22, Critical 1): a plain win once the program is open is the new round\'s: the program reads that win and leaves the list', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const id = await installation();
+  const P = { name: 'l47 Up Three', description: 'An app.' };
+  await upsertProgram(programFixture({ id: 'l47-up-three', title: 'L47 Upcoming Three', summary: 'A grant for builders.', status: 'upcoming', opens_note: 'Soon', max_award_usd: 5000 }), 'file', NOW);
+  try {
+    await mcpCall(ctx(id), 'track', { program_id: 'l47-up-three', status: 'won', amount_usd: 1000, outside: true, project: P });
+    await upsertProgram(programFixture({ id: 'l47-up-three', title: 'L47 Upcoming Three', summary: 'A grant for builders.', max_award_usd: 5000 }), 'file', NOW);
+    const w = await mcpCall(ctx(id), 'track', { program_id: 'l47-up-three', status: 'won', amount_usd: 2000, project: P });
+    assert.equal(w.reply!.show_to_builder, 'Tracked: $2,000 from L47 Upcoming Three.');
+    const r = (await mcpCall(ctx(id), 'find', { program_id: 'l47-up-three', project: P })).reply!;
+    assert.equal(r.agent_note, 'This program already has a result; nothing to send.');
+    assert.doesNotMatch(r.show_to_builder as string, /earlier round/);
+    const list = (await mcpCall(ctx(id), 'find', { project: P, filter: { all: true } })).reply!;
+    assert.doesNotMatch(list.show_to_builder as string, /L47 Upcoming Three \(/);
+    assert.doesNotMatch(list.show_to_builder as string, /earlier round/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l47-up-three'`;
   }
 });
 

@@ -234,7 +234,10 @@ function contactValue(r: SubmissionRequirement, person: BuilderRecord['person'],
   if (/\b(x|twitter)\b/i.test(label)) return person.x ?? null;
   // L47-7 (v6.1.22): the record's phone (a phone or mobile field, whole word) and its country, by its English name.
   if (/\b(phone|mobile)\b/i.test(label)) return person.phone ?? null;
-  if (/\bcountry\b/i.test(label)) return person.based_country ? countryName(person.based_country) : null;
+  // Fix round 1 (Minor 6): a company's country (organisation, company, incorporation, registered) is not the person's.
+  if (/\bcountry\b/i.test(label) && !/organi[sz]ation|company|incorporat|registered|entity|business/i.test(label))
+    return person.based_country ? countryName(person.based_country) : null;
+  if (/\bcountry\b/i.test(label)) return null;
   if (/name/i.test(label) && person.name) {
     const [first, ...rest] = person.name.trim().split(/\s+/);
     if (/first/i.test(label)) return first;

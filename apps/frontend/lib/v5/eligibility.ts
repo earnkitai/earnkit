@@ -157,7 +157,7 @@ export const forExistingCode = (p: ProgramRow['file']): boolean => p.existing_wo
 /**
  * The repo steps a program asks of these facts, in order (v6.1.18.1: one source for `evaluate` and track's `openRules`).
  * L1e-6 / L16-8 / L18-2: code in a repo (public for an open source program) for a project with no repo link, or a repo
- * the read found empty on a grant for existing code. L1f-1 (v6.1.14): an open source program is never ready for a
+ * the read found empty on any program that needs a repo (L1m-5, v6.1.22: hackathons and events too). L1f-1 (v6.1.14): an open source program is never ready for a
  * private repo (reported private, or a link not read for being private): its step is making the repo public. L1f-3
  * (v6.1.14): an archived repo, for a program that wants the code or its users: the archive is the gap, and the users
  * question waits for the live repo. Pure.
@@ -166,7 +166,7 @@ export function repoGaps(p: ProgramRow['file'], facts: RepoFacts): Gap[] {
   const notes = facts.notes ?? [];
   const out: Gap[] = [];
   if (p.needs_repo && !facts.private && !facts.repo_url) out.push(p.open_source ? NEEDS_PUBLIC_CODE : NEEDS_CODE);
-  else if (p.needs_repo && forExistingCode(p) && !facts.private && notes.includes('empty')) out.push(NEEDS_CODE);
+  else if (p.needs_repo && !facts.private && notes.includes('empty')) out.push(NEEDS_CODE);
   if (p.open_source && (facts.private || notes.includes('private'))) out.push(PUBLIC_REPO);
   if (notes.includes('archived') && (p.needs_repo === true || p.min_tier === 'used' || eligibilityOf(p).some((i) => i.kind === 'users'))) out.push(ARCHIVED_REPO);
   return out;
@@ -201,7 +201,7 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const gaps: Gap[] = [];
   // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
   // an event) is one step from a project with no code to show (no repo link, or a repo the read found
-  // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
+  // empty; L1m-5, v6.1.22: an empty repo is the code step on hackathons and events too): code in a repo, a real change competing in the ordinary step slots. The read settles it.
   // L16-8 (v6.1.16): a live site never clears it; only a repo with code does. A repo reported private is a repo: its
   // step is making it public (L1f-1), and the read settles the code then.
   // L18-2 (v6.1.18): a program that needs a repo (any category) and a project with no repo link: the code is the step,
