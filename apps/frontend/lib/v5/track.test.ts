@@ -412,7 +412,7 @@ test('L41-1 (v6.1.18.1): a license rule the repo read settles is never asked at 
   const file = ProgramFile.parse(JSON.parse(readFileSync(join(findProgramsDir()!, 'github-secure-open-source-fund.json'), 'utf8')));
   await upsertProgram(file, 'file', NOW);
   const REGION = 'maintainer lives in a region supported by GitHub Sponsors';
-  const LICENSE = 'a clear open source license on the repo';
+  const _LICENSE = 'a clear open source license on the repo';
   const cached = (repo: string, license: string | null) => ({
     chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-01-01T00:00:00.000Z', last_commit_at: '2026-11-01T00:00:00.000Z',
     readme_excerpt: 'A tool.', homepage: null, topics: [], html_url: `https://github.com/${repo}`, pushed_at: '2026-11-01T00:00:00.000Z',
@@ -435,15 +435,15 @@ test('L41-1 (v6.1.18.1): a license rule the repo read settles is never asked at 
   const none = await start('lic41/bare-tool', null, NOW, { what: 'a license file', kind: 'feature', item: 'feature:license' });
   assert.equal(none.refused, undefined, none.show_to_builder);
   assert.match(none.agent_note, /^Started GitHub Secure Open Source Fund\. When EarnKit last looked it was still one change away: a license file\./);
-  // Review M1: an MIT read over 7 days old is not trusted: the rule is asked.
+  // Review M1: an MIT read over 7 days old is not trusted. v6.1.20 review I3: a license no trusted read has seen is
+  // unknown, and unknown is no rule to confirm, so started stays silent (find asks nothing either).
   const old = await start('lic41/old-tool', 'MIT', new Date(NOW.getTime() - 8 * 86_400_000));
-  assert.equal(old.show_to_builder, `GitHub Secure Open Source Fund needs one yes from you first: ${LICENSE}. Say yes if that is you.`);
-  assert.equal(old.refused, true);
-  // No read at all: the rule is asked.
+  assert.equal(old.show_to_builder, '');
+  // No read at all (v6.1.20 review I3): unknown, so not asked.
   await sql()`DELETE FROM repo_cache WHERE repo = 'lic41/unread-tool'`;
   const unreadProject = { name: 'Unread', description: 'A tool.', repo_url: 'https://github.com/lic41/unread-tool' };
   await track(me, { program_id: file.id, status: 'gap_done', item: ruleItem(REGION), project: unreadProject });
-  assert.equal((await track(me, { program_id: file.id, status: 'started', project: unreadProject })).show_to_builder, `GitHub Secure Open Source Fund needs one yes from you first: ${LICENSE}. Say yes if that is you.`);
+  assert.equal((await track(me, { program_id: file.id, status: 'started', project: unreadProject })).show_to_builder, '');
   // Review M4: a repo the read found private: the public repo step hides the license rule, so started never asks it.
   await sql()`DELETE FROM repo_cache WHERE repo = 'lic41/hidden-tool'`;
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES ('lic41/hidden-tool', ${sql().json({ miss: 'private' })}, ${NOW}, NULL)`;
@@ -1115,7 +1115,7 @@ test('final fix (v6.1.12, I2), re-pinned by L24-3 (v6.1.16 Task 11): loose names
   assert.equal((await track(c, { program_id: 'kiroween', status: 'no_result' })).show_to_builder, 'Tracked: Kiroween 2026.');
   const thiel = await track(c, { program_id: 'thiel', status: 'skipped' });
   assert.equal(thiel.show_to_builder, 'Skipped Thiel Fellowship for good. Say bring it back and I list it again.');
-  assert.equal((await track(c, { program_id: 'floss', status: 'started' })).show_to_builder, 'FLOSS/fund needs one yes from you first: an open source license on the project. Say yes if that is you.');
+  assert.equal((await track(c, { program_id: 'floss', status: 'started' })).show_to_builder, '');
   // The id itself: the plain line, as before.
   assert.equal((await track(c, { program_id: 'codegeist-2026', status: 'applied', submitted_by: 'builder' })).show_to_builder, 'Sent Codegeist 2026.');
 });

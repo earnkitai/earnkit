@@ -246,6 +246,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         // a rule to confirm: the code step comes first, then the read.
         // v6.1.18.1: the same for any repo step (a public repo, code, a live repo): that step first, then the read.
         if (i.check === 'license' && gaps.some((g) => g.kind === 'repo')) break;
+        // v6.1.20 review I3: a license the read did not see (paused, slow, unread, another host) is unknown, and unknown
+        // is no rule to confirm: the program asks its other steps (the users question) and the next read settles it.
+        if (i.check === 'license' && facts.license === undefined && !(facts.notes ?? []).includes('archived')) break;
         const read = i.check === 'license' && !(facts.notes ?? []).includes('archived') ? licenseRead(facts) : 'unknown';
         if (read === 'osi') break;
         if (read === 'none') {

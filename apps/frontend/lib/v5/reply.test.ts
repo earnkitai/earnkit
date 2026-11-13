@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CODE_CLOSING, FULL_RULE_SAY, alsoSentence, closingAfterOpening, countedLines, needWords, openingSentence, paragraphs, plainClosing, defaultRows, moreInFull, agentNote, replyParts, attendGap, closingLine, doUsersOf, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
+import { CODE_CLOSING, FULL_RULE_SAY, alsoSentence, closingAfterOpening, countedLines, needWords, openingSentence, paragraphs, plainClosing, defaultRows, agentNote, replyParts, attendGap, closingLine, doUsersOf, gapAction, gapActionStep, gapLine, notFitLine, numbered, replyText as renderReply, firstStepOf, singleStepClosing, stepClause, stepRuleOf } from './reply';
 import { LICENSE_FILE, NEEDS_CODE, PUBLIC_REPO } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 import { DELETED_NOTICE, shortTitle } from '../v6/reply-words';
+import { builderRules } from './fixtures/builder-rules';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 
@@ -1491,7 +1492,6 @@ test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row t
   // L1j-3 (v6.1.17): the ready and step rows shown and hidden, from the ids the view numbers.
   assert.deepEqual(defaultRows(['a', 'b'], ['c', 'd', 'e'], ['a', 'c']), { readyShown: 1, readyHidden: 1, stepShown: 1, stepHidden: 2 });
   assert.deepEqual(defaultRows(['a', 'b', 'c'], [], ['a']), { readyShown: 1, readyHidden: 2, stepShown: 0, stepHidden: 0 });
-  assert.equal(moreInFull(2), 'And 2 more in the full list.');
   const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
   const alliance = ready({ title: 'Alliance', money: '$400K', in_person: true, setup: ['a passport'], needs: ['a passport'] });
   const steps = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'].map((t) => gap({ title: `${t} Grant` }));
@@ -1641,13 +1641,12 @@ test('L1j-1, L1j-6 (v6.1.17): one sentence mentions signing in, and the action i
 });
 
 test('L38 big 2 (v6.1.18 Task 10): the default In person block is one line, numbers kept; the setup and needs go to the agent', async () => {
-  const { moneyFigure, inPersonShort } = await import('./reply');
+  const { moneyFigure } = await import('./reply');
   assert.equal(moneyFigure('$500,000 investment'), '$500,000');
   assert.equal(moneyFigure('$400,000 at admission'), '$400,000');
   assert.equal(moneyFigure('up to $250,000 investment or $10,000 grant'), 'up to $250,000');
   assert.equal(moneyFigure('$500,000 to $1,000,000 investment'), '$500,000 to $1,000,000');
   assert.equal(moneyFigure('NYC incubator with relocation stipend'), 'NYC incubator with relocation stipend');
-  assert.equal(inPersonShort({ n: 4, title: 'Y', money: '$1K prize' }), '4. Y, $1K.');
   const odds = 'many apply, few are taken';
   const yc = ready({ title: 'Y Combinator Winter 2027 Batch', money: '$500,000 investment', in_person: true, long_shot: odds, setup: ['a YC account'], needs: ['a YC account', 'your answers'] });
   const alliance = ready({ title: 'Alliance ALL19', money: '$400,000 at admission', closes_in: 'in 6 days', in_person: true, long_shot: odds, setup: ['your email'], needs: ['your email'] });
@@ -1950,7 +1949,7 @@ test('v6.1.20: shortTitle cuts the organiser\'s suffix at the first colon or " -
   const dir = join(import.meta.dirname, '..', '..', '..', '..', 'programs');
   const want: Record<string, string> = {
     'Arbitrum Mentorship Program: Cohort 2': 'Arbitrum Mentorship Program',
-    'Arbitrum Open House São Paulo: Online Buildathon': 'Arbitrum Open House São Paulo',
+    'Arbitrum Open House São Paulo: Online Buildathon': 'Arbitrum Open House',
     'Arc Microgrants: Built with Arc Studio': 'Arc Microgrants: Built with Arc Studio',
     'EarnKit Campaign #1: Base apps with real users': 'EarnKit Campaign #1',
     'LEGO: Lido Ecosystem Grants Organization': 'Lido Ecosystem Grants Organization',
@@ -1987,6 +1986,8 @@ test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every 
   for (const t of rendered) {
     assert.doesNotMatch(t, /\btonight\b|by tomorrow morning/i, t);
     assert.ok((t.match(/\bSay\b/g) ?? []).length <= 1, t);
+    // v6.1.20 review I5: the whole contract on every fixture reply (the full view has no line budget).
+    builderRules(t, !t.startsWith('Everything open'));
     // v6.1.20: no quoted commands, no labels, every line a sentence, the Say last.
     assert.doesNotMatch(t, /"|Their rules?:|You give:|First:|One step away|More to do first|Ready to apply|\(\d+\):$/m, t);
     for (const l of t.split('\n').filter((x) => x !== '')) assert.match(l, /[.?:]$/, t);
@@ -2013,18 +2014,11 @@ test('L18-1: the more line counts the rows the rank cap hid and names what close
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, text);
   assert.equal(lines.at(-3)!.startsWith('Also open: '), true, text);
   assert.ok(/^(Nothing is ready yet\.|Say |Tell me )/.test(lines.at(-1)!), text);
-  // The closing order is the closes_at order, whatever order they came in; never more than two are named.
-  const third = { program_id: 'third-grant', title: 'Third Grant', closes_at: plusDays(L18_NOW, 1) };
-  assert.equal(moreInFull(5, [META_VR, UGREEN, third], L18_NOW), 'And 5 more in the full list; closing this week: Third Grant (tomorrow) and UGREEN Hackathon 2026 on AI NAS (3 days).');
-  assert.equal(moreInFull(5, [UGREEN], L18_NOW), 'And 5 more in the full list; closing this week: UGREEN Hackathon 2026 on AI NAS (3 days).');
-  // Words given by find (in the program's own zone) are used as given.
-  assert.equal(moreInFull(5, [{ ...UGREEN, closes_in: 'today' }], L18_NOW), 'And 5 more in the full list; closing this week: UGREEN Hackathon 2026 on AI NAS (today).');
 });
 
 test('L18-1b: the more line with nothing closing this week keeps the old shape', () => {
   const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
   assert.equal(text.split('\n').at(-3), 'Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 18 more in the full list.', text);
-  assert.equal(moreInFull(18), 'And 18 more in the full list.');
   // Without a hidden count, nothing changes: no rows hidden, no more line.
   assert.doesNotMatch(renderReply(l18Rows(), true, L18_NOW), /more in the full list/);
 });

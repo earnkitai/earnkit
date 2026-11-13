@@ -195,12 +195,16 @@ export function signInFirst(link: string | null, offer: string | null = null, wh
   const head = link ? `Sign in at ${link} ${why}` : `Sign in ${why}`;
   let o = (offer ?? '').trim();
   // An offer that already signs in first (a reply gated twice) keeps only its action.
-  const merged = /^Sign in\b[^,]*, then (.+)$/.exec(o);
-  if (merged) o = merged[1];
+  // v6.1.20 review M7: only EarnKit's own sign-in ("Sign in ... so I ..."); a program's ("Sign in to the Builder Hub
+  // first, then say yes ...") is a step and stays.
+  const merged = /^Sign in( at \S+)? so I\b[^,]*, then (.+)$/.exec(o);
+  if (merged) o = merged[2];
   const step = /^(.+?) first, then (say yes\b.*\bI (also )?apply\b.*)$/i.exec(o);
   if (step) return `${head}, then ${lowerFirst(step[1])}, then ${step[2]}`;
   // Fix round 1 (M5): "Say yes and I add X, then apply to {title}." keeps its change too.
   if (/^say yes\b.*\bI (also )?apply\b|^say yes\b.*, then apply\b/i.test(o)) return `${head}, then ${lowerFirst(o)}`;
+  // v6.1.20 review I1, M6: any other Say the gate holds (go, do, the in-person drafts) is said after the sign-in.
+  if (/^say (go|do \d+|yes and I draft)\b/i.test(o)) return `${head}, then ${lowerFirst(o)}`;
   return `${head}, then say yes and I apply.`;
 }
 /** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".

@@ -438,7 +438,7 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   // L1j-7 (v6.1.17): an in-person program closes on its one action too.
   // L38 big 2 (v6.1.18 Task 10): one with an online form ends on a real yes: EarnKit drafts it for the builder to send.
   if (r.in_person) return hasForm(row) ? { lines: [inPersonState(r), ...o.rules, IN_PERSON_DRAFT], offer: 'draft' } : { lines: [inPersonState(r), ...o.rules, IN_PERSON_ONE], offer: null };
-  if (o.standing) return { lines: [readyState(r, { click: o.draftOnly }), ...o.rules, STANDING_ONE], offer: 'stop' };
+  if (o.standing) return { lines: [readyState(r, { standing: true }), ...o.rules, STANDING_ONE], offer: 'stop' };
   // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you. L1e-3 (v6.1.13): one
   // the builder submits too, in the draft wording. L24-2 (v6.1.16 Task 11): only after an apply offer.
   const said = r.rule_yes && yesStands(o.lastOffer);
@@ -453,7 +453,7 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   const c = closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands: yesStandsFor, draftStands, yesWaits, title: r.title, ...(first.length > 0 ? { setupFirst: first } : {}) });
   const shown = first.length > 0 ? { ...r, needs: r.needs.filter((x) => !first.includes(x)) } : r;
   const needs = yesWaits.length > 0 ? [] : o.linked ? shown.need_you : shown.needs.filter((x) => !shown.setup.includes(x));
-  return { lines: [readyState(shown, { click: o.draftOnly, needs }), ...o.rules, c.text], offer: c.offer };
+  return { lines: [readyState(shown, { click: o.draftOnly, needs, stands: stands.length > 0 || yesWaits.length > 0 }), ...o.rules, c.text], offer: c.offer };
 }
 
 /** L1j-7 (v6.1.17): the one action of an in-person program's own reply. L38 big 2 (v6.1.18 Task 10): only when it has
@@ -670,7 +670,9 @@ export const openLine = (p: Program, now: Date): string => {
 export const ruleAsk = (note: string): string => `It needs one yes from you: ${midSentence(note)}.`;
 /** L46-4 (v6.1.20): a category filter with nothing to show. Pure. */
 export const emptyFilterLine = (name: string, open: number): string =>
-  `Nothing open fits that filter for ${name}. ${open} program${open === 1 ? ' is' : 's are'} open in all; say all and I list them.`;
+  `Nothing open fits that filter for ${name}. ${open} program${open === 1 ? ' is' : 's are'} open in all.`;
+/** Review I4 (v6.1.20): the empty filter's one Say. */
+export const EMPTY_FILTER_SAY = 'Say all and I list them.';
 /** v6.1.20: the open list's ask with no project. */
 export const OPEN_ASK = 'Tell me what you build, or its repo link, and I match it.';
 /** L38-13 (v6.1.18): the agent line that maps the open full list's numbers to programs. Pure. */
@@ -849,7 +851,32 @@ const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
 /** Whether the builder text offers an apply anywhere. Pure. */
 // v6.1.20 polish (3): the users yes that already carries its sign-in ("Say yes, sign in at {link}, and I apply.") is gated.
 const SIGNED_USERS = /Say yes, sign in\b/;
-const offersApply = (text: string): boolean => text.split('\n').some((l) => !SIGNED_USERS.test(l) && (APPLY_OFFER.test(l) || TAIL_OFFER.test(l)));
+/** v6.1.20 review C1, I1, M6: every apply wording EarnKit writes, in a closing, a ready row or the opening (not the
+ *  not-yours sentence "I apply only with repos you commit to"). */
+const APPLY_WORDS = /\bI (also )?apply\b(?! only with)|\bthen apply\b|\bapply to\b|\bI send (it|them) under your standing approval\b|\bApplying now to\b|\bstart the in-person applications\b|^Say do \d+\b|, or say do \d+\b/;
+const offersApply = (text: string): boolean => text.split('\n').some((l) => !SIGNED_USERS.test(l) && (APPLY_OFFER.test(l) || TAIL_OFFER.test(l) || APPLY_WORDS.test(l)));
+/** v6.1.20 review C1: the offer kinds the gate holds back until the repo is shown to be the builder's. */
+const GATED_OFFERS = new Set<OfferKind | null>(['apply', 'do', 'stop']);
+/** v6.1.20 review I1: sentences that apply at once ("Your yes stands for X: I apply now."), dropped by the gate. */
+const APPLY_NOW = /^(Your yes stands for .+: I (apply now|draft (it|them) for you to send)\.|Applying now to .+|Say go and I apply\.)$/;
+/**
+ * v6.1.20 review C1: the builder lines with every apply wording taken out: the closing when its offer is gated (it is
+ * said again after the sign-in, `offer`), every apply line and tail, the sentences that apply at once, and each ready
+ * row and the opening through `gatedRow`. Pure.
+ */
+export function gateLines(text: string, mode: 'strip' | 'draft', gatedOffer: boolean): { kept: string[]; offer: string | null } {
+  const lines = text.split('\n');
+  let last = lines.length - 1;
+  while (last > 0 && lines[last].trim() === '') last--;
+  const closes = gatedOffer && /\b[Ss]ay\b/.test(lines[last] ?? '');
+  const offer = closes ? lines[last] : applyOfferOf(text);
+  const kept = (closes ? lines.filter((_, i) => i !== last) : lines)
+    .filter((l) => !APPLY_OFFER.test(l))
+    .map((l) => l.replace(TAIL_OFFER, ''))
+    .map((l) => l.split(/(?<=[.?!])\s+/).filter((x) => !APPLY_NOW.test(x)).join(' '))
+    .map((l) => gatedRow(l, mode));
+  return { kept: tidy(kept), offer };
+}
 /** L38 big 1 (v6.1.18 Task 10): the last apply offer of the builder text (a whole line, or a line's closing sentence),
  *  which the signed-out gate says again after the sign-in; null when none. Pure. */
 export const applyOfferOf = (text: string): string | null => {
@@ -862,20 +889,24 @@ export const applyOfferOf = (text: string): string | null => {
 };
 /** Fix round 1 (I1): a line without its sentences that start "Sign in" (a proof sign-in, the unlink notice's). Pure. */
 export const withoutSignIn = (line: string): string => line.split(/(?<=[.?!])\s+/).filter((x) => !/^Sign in\b/.test(x)).join(' ');
-/** The builder lines with every apply offer taken out (a whole line, or a line's closing sentence). Pure. */
-const withoutApply = (text: string): string[] =>
-  text.split('\n').filter((l) => !APPLY_OFFER.test(l)).map((l) => l.replace(TAIL_OFFER, ''));
 /** v6.1.20: what a ready row says EarnKit does when it applies; the gate takes it away (`strip`, signed out) or makes it
  *  the draft for the builder to send (`draft`). Pure. */
 export function gatedRow(line: string, mode: 'strip' | 'draft'): string {
-  const acts = '(I apply once you say yes|I add the funding file to your repo, then apply|I send (it|them) under your standing approval)';
-  // v6.1.20 polish (1): the opening carries the rows' shared action after a semicolon.
-  const them = /programs are ready/.test(line) ? 'I draft them for you to send.' : READY_DRAFT;
-  return line
-    .replace(new RegExp(`; ${acts}\\.$`), mode === 'draft' ? `; ${them}` : '.')
-    .replace(new RegExp(`: ${acts}\\.`), mode === 'draft' ? `: ${READY_DRAFT}` : '.')
-    .replace(new RegExp(` (${acts}|Once [^.]*, I apply on your yes)\\.(?= |$)`), mode === 'draft' ? ` ${READY_DRAFT}` : '');
+  const draft = mode === 'draft';
+  // v6.1.20 review C2: built from the row's shape, never from the words of its step (a step may hold a dot).
+  // The opening: "For X, 2 programs are ready to send now; I apply once you say yes." (M5: ready for you to send).
+  const open = /^(.*\bready) to send now(?:; .+|\.)$/.exec(line);
+  if (open) return draft ? `${open[1]} for you to send.` : `${open[1]} to send now.`;
+  // A ready row: "{n}. {title} ({money}). {what EarnKit does}".
+  const row = /^(\d+\. .+?\))\. (.+)$/.exec(line);
+  if (row && APPLY_ROW.test(row[2])) return draft ? `${row[1]}. ${READY_DRAFT}` : `${row[1]}.`;
+  // The one-program reply: "{title} ({money}). It is ready: {what EarnKit does}. {rest}".
+  const one = /^(.+?\)\.) It is ready: (I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval)\.(.*)$/.exec(line);
+  if (one) return draft ? `${one[1]} It is ready: ${READY_DRAFT}${one[3]}` : `${one[1]} It is ready.${one[3]}`;
+  return line;
 }
+/** v6.1.20 review C2: a ready row's sentence that applies (its act, a step before it, a yes that stands). */
+const APPLY_ROW = /\bI apply\b|\bthen apply\b|\bstanding approval\b|^Your yes stands\.$/;
 /** FR-1 (fix round 1): the agent note when sign-in must come before any claim or send with the repo. */
 export const SIGN_IN_FIRST_NOTE = 'Sign-in comes before any claim or send with this repo: show the sign-in link, then call find again once the builder has signed in.';
 /** Fix round 1 (M1): the one action when the repo is not the builder's. */
@@ -896,8 +927,11 @@ export const SIGN_IN_DRAFT = (link: string | null, title: string | null): string
 export function draftTarget(r: FindReply | ProgramReply): { id: string | null; named: string | null } {
   if ('program' in r) return { id: (r.program as { id?: string } | null)?.id ?? null, named: null };
   const rows = [...((r as FindReply).ready ?? [])].sort((a, b) => a.n - b.n);
-  return { id: rows[0]?.program_id ?? null, named: rows.length > 1 ? shortTitle(rows[0].title) : null };
+  return { id: rows[0]?.program_id ?? null, named: rows.length > 1 ? rows[0].title : null };
 }
+/** v6.1.20 review M1: the draft yes names its program by the catalog's short title. */
+const shortTarget = async (t: { id: string | null; named: string | null }) =>
+  t.named && t.id ? { ...t, named: shortTitle(t.named, (await getProgram(t.id))?.file.short_title) } : t;
 /** Fix round 1 (M1): the agent note when the builder's tie to the repo could not be confirmed (no evidence either way). */
 export const CANT_CONFIRM_NOTE = "EarnKit could not read this repo to check it is the builder's: do not apply with it; let the builder send it, then call track applied with submitted_by builder.";
 
@@ -1097,6 +1131,10 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // Final fix (M3): every branch below that takes the apply offer away also takes the agent step and its note away,
   // so no agent writes and pushes a funding file for a send the gate holds back.
   const r = withoutSteps(given);
+  // v6.1.20 review C1: the gate reads the offer this reply made (find keeps it) as well as its words.
+  // A draft for the builder to send and the users question that carries its own sign-in are no apply offer.
+  const closingLine = r.show_to_builder.split('\n').filter((l) => l.trim() !== '').at(-1) ?? '';
+  const gatedOffer = GATED_OFFERS.has(await lastOfferOf(ctx.installationId)) && !SIGNED_USERS.test(closingLine) && !/\bI draft\b[^.]* for you to send\.$/.test(closingLine);
   // Fix round 1: a reply within the 10-line budget (the default view, a one-program reply) stays within it once the gate
   // adds its line; the full list has no budget.
   const fit = (lines: string[]): string[] => (countedLines(r.show_to_builder) <= 10 ? withinLines(lines) : tidy(lines));
@@ -1110,7 +1148,8 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   }
   if (ctx.builderId === null) {
     // FR-1 (fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked.
-    if (!offersApply(r.show_to_builder)) return given;
+    // v6.1.20 review C1: the agent step goes whatever the gate says (`withoutSteps`).
+    if (!gatedOffer && !offersApply(r.show_to_builder)) return r;
     await markOffer(ctx.installationId, null, ctx.now);
     // Fix round 2 (N5): one sign-in line: the reply's own sign-in sentence gives way to this one, its link kept.
     // Fix round 3 (N5a): the closing always carries the sign-in link when one can be made, a proof gap or not.
@@ -1120,14 +1159,17 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     // L38 big 1 (v6.1.18 Task 10): the apply offer is said again after the sign-in, in one sentence.
     // Fix round 1 (I1): every sign-in sentence, wherever it sits in a line, gives way to the one this line carries.
     const offGitHub = !repoKey(project!.repo_url);
-    const kept = withoutApply(r.show_to_builder).map((l) => (l === '' ? l : withoutSignIn(gatedRow(l, offGitHub ? 'draft' : 'strip')))).filter((l, i, xs) => l !== '' || (xs[i - 1] ?? '') !== '');
+    const gated = gateLines(r.show_to_builder, offGitHub ? 'draft' : 'strip', gatedOffer);
+    const kept = gated.kept.map((l) => (l === '' ? l : withoutSignIn(l))).filter((l, i, xs) => l !== '' || (xs[i - 1] ?? '') !== '');
+    // v6.1.20 review C1: another line keeps the Say (a sent, not-sent or started line): no second ask.
+    const said = kept.some((l) => /\bSay\b/.test(l));
     // L1l-6 (v6.1.19): a repo not on GitHub: the sign-in checks users, never that the repo is theirs. Fix round 1 (I1):
     // signing in can never confirm it, so the yes drafts for the builder to send, never "I apply".
-    const target = draftTarget(r);
+    const target = await shortTarget(draftTarget(r));
     if (offGitHub) await markOffer(ctx.installationId, 'draft', ctx.now);
     return {
       ...r,
-      show_to_builder: fit([...kept, '', offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, applyOfferOf(r.show_to_builder))]).join('\n'),
+      show_to_builder: fit([...kept, ...(said ? [] : ['', offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, gated.offer)])]).join('\n'),
       ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, offGitHub ? DRAFT_NOTE(target.id) : SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };
@@ -1140,19 +1182,23 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   if (pre.join && tie !== null) return ask(pre.join, JOIN_NOTE(project!.name));
   if (tie !== null) return sentByAnother(ctx, key, tie, given);
   // Not shown to be theirs: no apply yes. Evidence against them says so; none says it could not confirm, never "not yours".
-  if (!against && !offersApply(r.show_to_builder)) return given;
+  const gate = gatedOffer || offersApply(r.show_to_builder);
+  if (!against && !gate) return r;
   // L41-8 (v6.1.19): EarnKit applies with neither repo, so a ready heading says the builder sends; under "not yours"
   // the apply offer becomes the draft for them to send (never "I apply").
-  const drafts = against && offersApply(r.show_to_builder);
+  const drafts = against && gate;
   await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
-  const kept = withoutApply(r.show_to_builder).filter((l) => !(against && /^Say /.test(l))).map((l) => gatedRow(l, 'draft'));
+  const kept = gateLines(r.show_to_builder, 'draft', gatedOffer).kept.filter((l) => !(against && /^Say /.test(l)));
+  const keptSay = kept.some((l) => /\bSay\b/.test(l));
   // Fix round 1 (I2): the draft yes names its program when several are ready, and the agent hears the way through it.
-  const target = draftTarget(r);
+  const target = await shortTarget(draftTarget(r));
   return {
     ...r,
-    show_to_builder: fit(against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO] : [...kept, '', CANT_CONFIRM_REPO(key)]).join('\n'),
+    // v6.1.20 review C1: a line that keeps the Say stays last; the could-not-confirm sentence goes before it.
+    show_to_builder: fit(against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO]
+      : keptSay ? [...kept.slice(0, -1), CANT_CONFIRM_REPO(key), '', kept.at(-1)!] : [...kept, '', CANT_CONFIRM_REPO(key)]).join('\n'),
     // The could-not-confirm reply asks the builder to send it; the agent may still draft it for them (fix round 1, I1).
-    agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE, ...(drafts || (!against && offersApply(r.show_to_builder)) ? [DRAFT_NOTE(target.id)] : [])].filter(Boolean).join('\n'),
+    agent_note: [r.agent_note, against ? NOT_YOUR_REPO_NOTE : CANT_CONFIRM_NOTE, ...(drafts || (!against && gate) ? [DRAFT_NOTE(target.id)] : [])].filter(Boolean).join('\n'),
   };
 }
 
@@ -1540,8 +1586,11 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // or the line cap left out is not marked, not named to the agent, and comes back on the next find.
   // L41-11 (v6.1.19): one sent line; a program is shown when that line names it (three named, the rest counted).
   // Fix round 1 (M2): the exact question the reply builds, and the programs it names, never a title's substring.
+  // L46-4 (v6.1.20): a category filter with no rows says so and offers the whole list, with no more line; review I4:
+  // it asks no sent question, so none is marked asked.
+  const emptyFilter = !all && i.filter?.category !== undefined && r.ready.length === 0 && r.gaps.length === 0;
   const sentAsk = sentAskOf(shortened(r, repoOpt.shorts));
-  const asked = sentAsk.question !== null && said.text.split('\n').some((l) => l.startsWith(sentAsk.question!));
+  const asked = !emptyFilter && sentAsk.question !== null && said.text.split('\n').some((l) => l.startsWith(sentAsk.question!));
   const namedIn = (id: string) => asked && sentAsk.named.includes(id);
   const shownSent = (r.ask_sent ?? []).filter((a) => namedIn(a.program_id));
   const shownRel = r.released.filter((p) => p.ask && namedIn(p.program_id));
@@ -1550,10 +1599,9 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
   const hiddenOut = said.hidden.filter((l) => !(l.startsWith('Did you send ') && unshown.some((a) => l.includes(shortTitle(a.title, repoOpt.shorts.get(a.program_id))))));
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
-  // L46-4 (v6.1.20): a category filter with no rows says so and offers the whole list, with no more line.
-  const emptyFilter = !all && i.filter?.category !== undefined && r.ready.length === 0 && r.gaps.length === 0;
   const reply = {
-    show_to_builder: emptyFilter ? emptyFilterLine(project.name, open.length) : said.text,
+    // Review I4: the account notice (and its sign-in link) stays; the Say is its own sentence, last.
+    show_to_builder: emptyFilter ? paragraphs(emptyFilterLine(project.name, open.length), r.linked_notice ?? null, EMPTY_FILTER_SAY) : said.text,
     agent_note: [agentNote(rOut, { more: said.more, description, hidden: hiddenOut, all, say: said.say }), said.say.includes(FULL_RULE_SAY) ? FULL_NUMBER_NOTE : '', unreadNote(unread), rOut.ready.some((p) => p.agent_step) ? MANIFEST_NOTE : ''].filter(Boolean).join('\n'),
     ...jsonLists(rOut),
     more: said.more > 0 || said.hidden.length > 0,

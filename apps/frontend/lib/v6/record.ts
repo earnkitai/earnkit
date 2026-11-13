@@ -443,7 +443,7 @@ const NEED_DOCS: { need: string; has: (r: BuilderRecord) => boolean; words: stri
 export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOCS.find((d) => d.need === need)?.has(record) ?? true;
 
 /** L46-7 (v6.1.20): a traction line typed and not yet approved: where to approve it, once. */
-export const TRACTION_APPROVE = 'your traction line approved at earnkit.com/me';
+export const TRACTION_APPROVE = 'your traction line approved';
 /** The record item for a project with a link (lane 8 #10, v6.1.10: never missing on a find that passed a repo). */
 export const PROJECT_ITEM = 'a project with its repo or site';
 

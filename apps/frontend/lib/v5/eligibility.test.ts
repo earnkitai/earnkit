@@ -357,7 +357,6 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
   assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), [
     'real users',
-    'an open source license on the project',
   ]);
   // L1g-6 (v6.1.15): the builder said it has users, so what is missing is something to read.
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs code in a repo or a live link');
@@ -701,7 +700,9 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   assert.deepEqual(items(null, ['feature:license']), []);
   // A license GitHub does not recognize, one not on the list, or no read: the rule question, as before.
   // Fix round 1 (I1): CC0-1.0 is not OSI-approved, so it keeps the question too.
-  for (const id of ['NOASSERTION', 'BUSL-1.1', 'CC0-1.0', undefined]) assert.deepEqual(items(id), [RULE], String(id));
+  for (const id of ['NOASSERTION', 'BUSL-1.1', 'CC0-1.0']) assert.deepEqual(items(id), [RULE], String(id));
+  // v6.1.20 review I3: no read is unknown, and unknown is no rule to confirm.
+  assert.deepEqual(items(undefined), []);
   assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
   // An archived repo: its license is not the live repo's, so its one step is the live repo, then the read (v6.1.18.1:
   // never the rule beside it).
@@ -753,7 +754,9 @@ test('Task 11 fix round 1 (I4, M7): a repo body with no license key is unknown; 
   const facts = await repoFacts(r.project, { gh: noKey.fetch, now: NOW });
   assert.equal(facts.public, true);
   assert.equal('license' in facts, false);
-  assert.deepEqual(evaluate(fromFile('herodevs-sustainability-fund'), facts, new Set(), NOW).gaps.map((g) => g.what), ['a developer tool whose versions are near or past official end of life', 'an OSI-approved open source license']);
+  assert.deepEqual(evaluate(fromFile('herodevs-sustainability-fund'), facts, new Set(), NOW).gaps.map((g) => g.what), [
+    'a developer tool whose versions are near or past official end of life',
+  ]);
   // A truncated tree that does not list funding.json: unknown, so no URL is claimed; one that lists it: the URL.
   await sql()`DELETE FROM repo_cache`;
   const cut = replayFetch('nextjs-dashboard', (u, b) => (/\/git\/trees\//.test(u) ? b.replace(/^\{/, '{"truncated":true,') : b));

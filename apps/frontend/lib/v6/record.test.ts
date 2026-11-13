@@ -353,7 +353,9 @@ test('L46-7 (v6.1.20): the traction line is asked only for a form that reads it;
   assert.ok(recordMissing(EMPTY_RECORD, asks).includes('one line on traction'));
   assert.ok(!recordMissing(EMPTY_RECORD, { ...asks, traction: false }).some((m) => /traction/.test(m)));
   const typed = merge({ traction: { line_pre_launch: 'Pre-launch, 140 on the waitlist.' } }).record;
-  assert.deepEqual(recordMissing(typed, asks).filter((m) => /traction/.test(m)), ['your traction line approved at earnkit.com/me']);
+  assert.deepEqual(recordMissing(typed, asks).filter((m) => /traction/.test(m)), [
+    'your traction line approved',
+  ]);
   assert.ok(!recordMissing(approvePath(typed, 'traction.line_pre_launch', NOW), asks).some((m) => /traction/.test(m)));
 });
 
@@ -361,4 +363,10 @@ test('L46-6 (v6.1.20): record get names two of what the next application needs, 
   const { nextNeedsLine } = await import('./record-tool');
   assert.equal(nextNeedsLine(['a website link', "the company's X link", "the founder's role", 'your deck']), "The next application needs a website link and the company's X link first. Tell me them and I save them.");
   assert.equal(nextNeedsLine(['a website link']), 'The next application needs a website link. Tell me it and I save it.');
+});
+
+test('v6.1.20 review M4: an approval is never told; with nothing else missing it has its own action', async () => {
+  const { nextNeedsLine } = await import('./record-tool');
+  assert.equal(nextNeedsLine(['your traction line approved']), 'The next application needs your traction line approved. Approve it at earnkit.com/me and I use it.');
+  assert.equal(nextNeedsLine(['your traction line approved', 'your email']), 'The next application needs your email. Tell me it and I save it.');
 });

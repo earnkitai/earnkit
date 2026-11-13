@@ -198,14 +198,6 @@ export const attendGap = (g: Pick<GapProgram, 'in_person'>): boolean => g.in_per
 /** L38 big 2 (v6.1.18 Task 10): the figure a money phrase starts with ("$500,000" of "$500,000 investment", "up to
  *  $250,000" of "up to $250,000 investment or $10,000 grant"); a phrase with no figure is kept whole. Pure. */
 export const moneyFigure = (money: string): string => /^((?:up to )?\$[\d,.]+[KMB]?(?: to \$[\d,.]+[KMB]?)?)(?=[\s,.]|$)/i.exec(money)?.[1] ?? money;
-/** L38 big 2 (v6.1.18 Task 10): an in-person row of the default view's one In person line: "4. Y Combinator Winter 2027
- *  Batch, $500,000." with ", closes {when}" when it says one; held by another agent, said so. The setup, the needs and
- *  the rule are the one-program reply's and the JSON's. Pure. */
-export const inPersonShort = (p: Pick<ReadyProgram, 'n' | 'title' | 'money'> & { closes_in?: string | null; claimed_since?: string }): string =>
-  `${p.n}. ${p.title}, ${moneyFigure(p.money)}${p.closes_in ? `, closes ${p.closes_in}` : ''}${p.claimed_since ? ', being handled by your other agent' : ''}.`;
-/** L38 big 2: the one In person line's head: "In person, long odds:" when every row it holds has long odds. Pure. */
-export const inPersonHead = (rows: object[]): string =>
-  rows.length > 0 && rows.every((x) => 'long_shot' in x && !!x.long_shot) ? 'In person, long odds:' : 'In person:';
 
 /** The unlinked tier gap ("proof of real users"); its sign-in is asked once, in the closing (v6.1.14). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
@@ -967,15 +959,6 @@ const CLOSING_NAMED = 2;
 /** L18-1: a closing program's words on the more line: "3 days", "tomorrow", "today", "under an hour". Pure. */
 const closingWords = (c: ClosingHidden, now: Date): string =>
   (c.closes_in ?? closesWords(c.closes_at, now, 'UTC').replace(/^closes /, '')).replace(/^in /, '');
-/**
- * L1i-2 (v6.1.16.1): the line under a block whose rows the default view leaves out. L18-1 (v6.1.18): it names at most
- * two of those closing this week, in closing order. Pure.
- */
-export const moreInFull = (n: number, closing: ClosingHidden[] = [], now: Date = new Date()): string => {
-  const named = [...closing].sort((a, b) => Date.parse(a.closes_at) - Date.parse(b.closes_at)).slice(0, CLOSING_NAMED);
-  if (named.length === 0) return `And ${n} more in the full list.`;
-  return `And ${n} more in the full list; closing this week: ${named.map((c) => `${c.title} (${closingWords(c, now)})`).join(' and ')}.`;
-};
 
 /**
  * L1j-3 (v6.1.17): what the default view shows and hides of the ready rows (every ready program, in person and held
@@ -1562,7 +1545,11 @@ export function gapState(g: GapProgram, closed: string | null = null): string {
 /** v6.1.20: the one-program reply's head: "{title} ({money}, closes ...)." Pure. */
 export const oneHead = (title: string, money: string, when?: string | null): string => `${title} (${[money, ...(when ? [when] : [])].join(', ')}).`;
 /** v6.1.20: the one-program reply for a ready program: head, then "It is ready: {what EarnKit does}". Pure. */
-export function readyState(p: ReadyProgram, o: { click?: boolean; needs?: string[] } = {}): string {
+export function readyState(p: ReadyProgram, o: { click?: boolean; needs?: string[]; standing?: boolean; stands?: boolean } = {}): string {
+  // The builder already said yes: the closing says what follows.
+  if (o.stands) return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready, and your yes stands.`;
+  // Review M2: under the standing approval the closing says what happens; the state is only that it is ready.
+  if (o.standing) return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready.`;
   const act = p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : READY_APPLY;
   const needs = (o.needs ?? []).map(bare);
   const give = needs.length > 0 ? ` You give your ${joinAnd(capped(needs))}.` : '';
@@ -1573,7 +1560,7 @@ export function inPersonState(p: ReadyProgram): string {
   const line = attendLine({ ...p, n: 0 }, true);
   // The attend line's own sentences after its head: the odds and what it needs ("Needs ..." reads "It needs ...").
   const rest = line.slice(`${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.`.length)
-    .replace(/ Attend in person\./, '').replace(/ First: /, ' First, you ').replace(/ Needs /g, ' It needs ');
+    .replace(/ Attend in person\./, '').replace(/ First: (\S+)/, (m, w: string) => (VERB.test(w) ? ` First, you ${w}` : m)).replace(/ Needs /g, ' It needs ');
   return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} You attend in person.${rest}${p.claimed_since ? ` It is ${HELD_BY_OTHER}.` : ''}`;
 }
 

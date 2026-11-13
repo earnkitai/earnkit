@@ -208,15 +208,16 @@ async function licenseRule(owner: string, file: ProgramRowOf['file'], projectKey
   const kept = await reportOf(owner, projectKey);
   // v6.1.19 (v6.1.18.1 minor): a name-only project: find read its kept report alone, so a repo step that stands there
   // hid the rule; started never asks it either.
-  if (!repo) return kept && repoGaps(file, reportOnlyFacts(kept)).length > 0 ? 'skip' : 'ask';
+  // v6.1.20 review I3: a license no read has seen is unknown, never a rule to confirm (as `evaluate`).
+  if (!repo) return 'skip';
   const project: Project = { ...(kept ?? { name: '', description: '' }), repo_url: repo };
   // A repo the read found private merges as private, as find merges it (v6.1.14 fix round 1, M1).
   const hidden = project.private === true || (await cachedRepoMiss(repo, now)) === 'private';
   const facts = hidden ? reportOnlyFacts({ ...project, private: true }) : await cachedRepoFacts(project, { now, ms: LICENSE_READ_MS });
-  if (!facts) return 'ask';
+  if (!facts) return 'skip';
   if (repoGaps(file, facts).length > 0) return 'skip';
   if ((facts.notes ?? []).includes('archived')) return 'ask';
-  return licenseRead(facts) === 'unknown' ? 'ask' : 'skip';
+  return facts.license !== undefined && licenseRead(facts) === 'unknown' ? 'ask' : 'skip';
 }
 
 /** The program's rules the owner has not confirmed yet on this project, by item key with its note. A license rule
