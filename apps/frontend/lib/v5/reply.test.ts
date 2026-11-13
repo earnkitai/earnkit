@@ -589,7 +589,8 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
   // A remote step that names its own action ("do n") and in-person programs: never the bare line.
   const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
   assert.equal(replyText(base({ gaps: [codes] }), true).split('\n').at(-1), 'Say do 1 and I add the codes.');
-  assert.equal(replyText(base({ ready: [yc], gaps: [codes] }), true).split('\n').at(-1), 'Say yes and I start the in-person applications.');
+  // v6.1.20: a change EarnKit makes on a remote program comes before the in-person applications' long odds.
+  assert.equal(replyText(base({ ready: [yc], gaps: [codes] }), true).split('\n').at(-1), 'Say do 1 and I add the codes.');
   // Something remote ready: its yes, never the in-person closing.
   assert.equal(replyText(base({ ready: [ready({ title: 'Grant' }), yc], gaps: [antler] }), true).split('\n').at(-1), 'Say yes and I apply to Grant.');
   assert.match(agentNote(r, { more: 0 }), /closes on starting the in-person applications/);
@@ -790,8 +791,8 @@ test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do
   const codes = gap({ title: 'Base Grant', n: 3, gap: BC });
   assert.equal(gapLine(codes, true), 'Base Grant, $1K: add Base Builder Codes to the app.');
   assert.equal(gapLine(codes), '3. Base Grant, $1K: add Base Builder Codes to the app.');
-  assert.equal(gapAction(codes), 'Say "do" and I add Base Builder Codes to the app first.');
-  assert.equal(gapAction(gap({ title: 'Two', gap: BC, also: [{ ...BC, kind: 'integration', item: 'integration:x', what: 'add X' }] })), 'Say "do" and I make both changes first.');
+  assert.equal(gapAction(codes), 'Say do and I add Base Builder Codes to the app first.');
+  assert.equal(gapAction(gap({ title: 'Two', gap: BC, also: [{ ...BC, kind: 'integration', item: 'integration:x', what: 'add X' }] })), 'Say do and I make both changes first.');
   // A contract deploy is the builder's (keys and gas).
   assert.equal(gapAction(gap({ title: 'Arc Grant' })), 'Tell me when the contract is on Arc and I look again.');
   assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO, also: [ruleGap('a team')] })), 'Send me the demo video link and I fill it in.');
@@ -1282,16 +1283,16 @@ test('L1g-5 fix round 1 (v6.1.16, I1): a below-bar tier gap, a feature and a use
   const list = (first: GapProgram) => replyText(base({ gaps: [first, codes] }), true).split('\n');
   const tier = list(gap({ title: 'Used Grant', gap: TIER_GAP, n: 1 }));
   assert.equal(tier[1], '');
-  assert.equal(tier.at(-1), 'Tell me when people outside the team use it live and I look again. Say do 2 and I add the codes.');
+  assert.equal(tier.at(-1), 'Say do 2 and I add the codes.');
   // L1i-2 (v6.1.16.1): both step rows are shown.
   assert.equal(tier.length, 6);
   const feature = list(gap({ title: 'Kiro Prize', gap: FEATURE, n: 1 }));
   assert.equal(feature[1], '');
-  assert.equal(feature.at(-1), 'Tell me when a Kiro folder in the repo is in and I look again. Say do 2 and I add the codes.');
+  assert.equal(feature.at(-1), 'Say do 2 and I add the codes.');
   const weeks = list(gap({ title: 'Live Grant', gap: USERS_WEEKS, n: 1 }));
-  assert.equal(weeks.at(-1), 'Tell me when it has been live for 4 weeks and I look again. Say do 2 and I add the codes.');
+  assert.equal(weeks.at(-1), 'Say do 2 and I add the codes.');
   // No number of weeks given: the step is still named.
-  assert.equal(list(gap({ title: 'Users Grant', gap: USERS_FIRST, n: 1 })).at(-1), 'Tell me when real people use it and I look again. Say do 2 and I add the codes.');
+  assert.equal(list(gap({ title: 'Users Grant', gap: USERS_FIRST, n: 1 })).at(-1), 'Say do 2 and I add the codes.');
   for (const x of [TIER_GAP, FEATURE, USERS_WEEKS, USERS_FIRST]) assert.notEqual(stepClause(x), null);
   // The one-program action reads the same.
   assert.equal(gapAction(gap({ title: 'Kiro Prize', gap: FEATURE })), 'Tell me when a Kiro folder in the repo is in and I look again.');
@@ -1723,7 +1724,7 @@ test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under Mo
 test('L38-27 (v6.1.18 Task 11): the license file gap reads "a license file" and its do offer adds an MIT license file', () => {
   const hero = gap({ title: 'HeroDevs Open Source Sustainability Fund', money: '$2,500 to $15,000', gap: LICENSE_FILE, n: 1 });
   assert.equal(gapLine(hero, true), 'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a license file.');
-  assert.equal(gapAction(hero), 'Say "do" and I add an MIT license file first.');
+  assert.equal(gapAction(hero), 'Say do and I add an MIT license file first.');
   const list = replyText(base({ gaps: [hero] }), true);
   assert.equal(list, [
     'Nothing is ready to send yet. The closest:',

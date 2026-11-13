@@ -362,7 +362,8 @@ function gapActionOf(g: GapProgram, signIn: string | null, draftOnly = false): {
   }
   const real = all.filter((x) => x.kind !== 'rule');
   if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return { action: null };
-  if (canDo(real)) return { action: `Say "do" and I ${doVerb(real, true)} first.` };
+  // v6.1.20: no quoted commands.
+  if (canDo(real)) return { action: `Say do and I ${doVerb(real, true)} first.` };
   if (real.every(usersQuestion)) return { action: 'Say yes if they do and I draft it.' };
   if (real.every(startedQuestion)) return { action: STARTED_CLOSING };
   // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
@@ -698,7 +699,8 @@ export function closingLine(o: {
     if (doPart) return { text: `${yes}, or ${doPart} first.`, offer: 'apply' };
     return { text: `${yes}.`, offer: 'apply' };
   }
-  const withDo = (c: Closing): Closing => (c.offer === null && doPart ? { text: `${c.text} S${doPart.slice(1)}.`, offer: 'do' } : c);
+  // v6.1.20: one ask: a change EarnKit makes is the closing, and the builder's own step stays that row's sentence.
+  const withDo = (c: Closing): Closing => (c.offer === null && doPart ? { text: `${/^Nothing (remote )?is ready yet\./.test(c.text) ? 'Nothing is ready yet. ' : ''}S${doPart.slice(1)}.`, offer: 'do' } : c);
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
   // v6.1.14: no promise to write first.
   // Task 11 fix round 1 (M1): every ready program is on hold: the reply closes on lifting it.
@@ -724,7 +726,8 @@ export function closingLine(o: {
     // L1g-5 (v6.1.16): one closing shape for every single step, the gap line names the gap.
     if (step && !step.users) return withDo({ text: `Nothing is ready yet. ${step.gap ? singleStepClosing(step.gap) : `Tell me when ${step.what} is done and I look again.`}`, offer: null });
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
-    return o.inPerson > 0 ? { text: IN_PERSON_CLOSING, offer: 'apply' } : withDo({ text: NOTHING_READY, offer: null });
+    // v6.1.20: a change EarnKit makes on a remote program comes before the in-person applications' long odds.
+    return o.inPerson > 0 && !doPart ? { text: IN_PERSON_CLOSING, offer: 'apply' } : withDo({ text: NOTHING_READY, offer: null });
   }
   if (o.inPerson > 0) return { text: IN_PERSON_CLOSING, offer: 'apply' };
   // v6.1.14: nothing is pushed to the builder, so nothing is promised.
@@ -1283,7 +1286,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // v6.1.20: the in-person programs are said in the Also sentence (no numbers), with the count the full list holds.
   const attendRows = [
     ...inPerson.map((p) => ({ ...p })),
-    ...attendRules.map((g) => ({ ...g, long_shot: (g as { long_shot?: string | null }).long_shot ?? null, ...(ruleOnlyGap(g) ? { rule: joinGaps([g.gap, ...g.also].map((x) => midSentence(x.what))) } : {}) })),
+    ...attendRules.map((g) => ({ ...g, long_shot: (g as { long_shot?: string | null }).long_shot ?? null, ...(ruleOnlyGap(g) ? { rule: [g.gap, ...g.also].map((x) => midSentence(x.what)).join('; ') } : {}) })),
   ];
   const attendIds = attendRows.map((x) => x.program_id);
   const readyIds = r.ready.map((p) => p.program_id);
@@ -1446,7 +1449,7 @@ export const nothingFits = (name?: string | null): string =>
   `Nothing fits${name ? ` ${name}` : ''} yet. Tell me more about it, or its repo link, and I look again.`;
 
 /** v6.1.20: words that open a verb phrase: a step the builder takes reads "you to {step}". */
-const VERB = /^(deploy|use|add|make|publish|open|sign|ship|build|move|put|get|run|tell|join|register|apply|submit|start|create|write|record|post|launch|integrate|send|attend|verify|host|list|enable|connect|fill|pick|choose|book|upload|share|link|complete|finish|have|give|be|keep|update|release|request|reach|form|file|pass|meet|show)\b/i;
+const VERB = /^(turn|set|commit|message|finalize|stake|sign|deploy|use|add|make|publish|open|sign|ship|build|move|put|get|run|tell|join|register|apply|submit|start|create|write|record|post|launch|integrate|send|attend|verify|host|list|enable|connect|fill|pick|choose|book|upload|share|link|complete|finish|have|give|be|keep|update|release|request|reach|form|file|pass|meet|show)\b/i;
 /** v6.1.20: first words that read lower-case mid-sentence; a name (Base Builder Codes) keeps its capital. */
 const COMMON = /^(A|An|The|Proof|Code|Real|Your|People|Public|Live|Users|Mainnet|At|One|Some|Applicant|Founders?|Teams?|Projects?|Open|Each|Every|No|Not|Only|Under|Over|Up|Built|New|Existing|Students?|Must|Is|Are|Will|Any|All|This|That|It|Its|Work|Funding|Must)\b/;
 /** v6.1.20: a phrase as it reads mid-sentence: the first letter lowered when the first word is a common word. Pure. */
@@ -1503,7 +1506,7 @@ const afterGap = (g: GapProgram, own: string[]): string => `${own.map((x) => ` $
 export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
   const head = `${g.n}. ${g.title} ${moneyParen(g)}`;
   const { needs, rules, own } = askedOf(g, o.closed ?? null);
-  const yes = rules.length > 0 ? `one yes from you: ${joinGaps(rules)}` : '';
+  const yes = rules.length > 0 ? `one yes from you: ${rules.join('; ')}` : '';
   if (needs.length === 0 && rules.length > 0) return `${head} needs ${yes}.${afterGap(g, own)}`;
   if (needs.length === 0) return `${head}.${afterGap(g, own)}`;
   if (o.whole && rules.length > 0) return `${head} needs ${joinGaps(needs)} first, and ${yes}.${afterGap(g, own)}`;
@@ -1517,10 +1520,10 @@ export function gapState(g: GapProgram, closed: string | null = null): string {
   const tail = afterGap(g, own);
   if (g.in_person) {
     const n = needs.length > 0 ? ` It needs ${joinGaps(needs)}.` : '';
-    const r = rules.length > 0 ? ` It needs one yes from you: ${joinGaps(rules)}.` : '';
+    const r = rules.length > 0 ? ` It needs one yes from you: ${rules.join('; ')}.` : '';
     return `You attend in person.${n}${r}${tail}`;
   }
-  if (needs.length === 0 && rules.length > 0) return `It needs one yes from you: ${joinGaps(rules)}.${tail}`;
+  if (needs.length === 0 && rules.length > 0) return `It needs one yes from you: ${rules.join('; ')}.${tail}`;
   if (needs.length === 0) return tail.trim();
   if (rules.length === 0 && needs.length === 1) return `It needs ${needs[0]} first.${tail}`;
   return `It needs ${joinGaps([...needs, ...rules.map((r) => `your yes that ${r}`)])}.${tail}`;
@@ -1573,7 +1576,7 @@ export const closingAfterOpening = (text: string): string => {
 };
 /** v6.1.20: lines joined with a blank line between groups, empty groups left out. Pure. */
 export const paragraphs = (...groups: (string | null | undefined | string[])[]): string =>
-  groups.map((g) => (Array.isArray(g) ? g.filter(Boolean).join('\n') : g ?? '')).filter((g) => g !== '').join('\n\n');
+  groups.map((g) => (Array.isArray(g) ? g.filter((x) => x != null).join('\n').replace(/^\n+|\n+$/g, '') : g ?? '')).filter((g) => g !== '').join('\n\n');
 /** v6.1.20: the lines a reply counts against its budget: blank lines do not count. Pure. */
 export const countedLines = (text: string): number => text.split('\n').filter((l) => l.trim() !== '').length;
 
