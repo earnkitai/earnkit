@@ -275,3 +275,13 @@ test('L45-17 (v6.1.19): bad params are -32602, a boolean id -32600, and an unkno
     assert.equal(m.result.content[0].text, text, name);
   }
 });
+
+test('fix round 1 (M5): the unknown-tool reply drops replacement marks and cuts a long name on a word', async () => {
+  await saveInstallation(token, null);
+  const long = (await (await post(call(47, 'apply now to the very long program name that keeps going'))).json()) as Msg;
+  assert.equal(long.result.content[0].text, 'No tool apply now to the very long program name... The tools are find, track, record and screen.');
+  const head = Buffer.from('{"jsonrpc":"2.0","id":48,"method":"tools/call","params":{"name":"ap');
+  const body = Buffer.concat([head, Buffer.from([0xff]), Buffer.from('ply","arguments":{}}}')]);
+  const m = (await (await POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }))).json()) as Msg;
+  assert.doesNotMatch(m.result.content[0].text, /�/);
+});

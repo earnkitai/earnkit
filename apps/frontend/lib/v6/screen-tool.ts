@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { PaymentKeyInput, inputDetail, inputError, refuse } from '../v5/tool-input';
 import { cleanText } from '../v5/controls';
 import { FURTHER_PAYMENT_REFUSED, OVER_CAP_FOR, winCapOf } from '../v5/ledger';
-import { AMOUNT_DOT, AMOUNT_UNREAD, UNCAPPED_NOTE, UNDER_A_DOLLAR, UNKNOWN_CURRENCY, isUnknownCurrency, overCap, readAmount, underADollar, usdAt } from '../v5/amount';
+import { AMOUNT_DOT, AMOUNT_UNREAD, SAY_CURRENCY, UNDER_A_DOLLAR, UNKNOWN_CODES, isUnknownCurrency, overCap, readAmount, underADollar } from '../v5/amount';
 import { moneyText } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { SHORT_LINK_NOTE } from '../v5/project-input';
@@ -198,8 +198,6 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const unknownCur: { ref: string; code: string }[] = [];
       /** L45-3 (v6.1.19): refs whose win is under one dollar once converted; none is recorded. */
       const tiny: string[] = [];
-      /** L45-4: refs recorded in a currency with no static rate (uncapped), with the code. */
-      const uncapped: { ref: string; code: string }[] = [];
       const take: Outcome[] = [];
       for (const o of input.outcomes) {
         const a = o.outcome === 'won' ? readAmount(o) : null;
@@ -227,7 +225,6 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
           }
           continue;
         }
-        if (a && usdAt(1, a.currency) === null && !uncapped.some((x) => x.ref === o.ref)) uncapped.push({ ref: o.ref, code: a.currency });
         if (a) out.money = a;
         take.push(out);
       }
@@ -247,13 +244,15 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         counted, ...(own ? [OWN_APPLICATION] : []),
         ...(badAmount.length ? [SCREEN_TEXT.amountUnread] : []),
         ...(dotAmount.length ? [SCREEN_TEXT.amountDot] : []),
-        ...[...new Set(unknownCur.map((x) => x.code))].map(UNKNOWN_CURRENCY),
+        // Fix round 1 (I3, v6.1.19): every unknown code in one sentence; its Say ends the reply.
+        ...(unknownCur.length ? [UNKNOWN_CODES([...new Set(unknownCur.map((x) => x.code))])] : []),
         ...(tiny.length ? [UNDER_A_DOLLAR] : []),
         ...over,
         // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.
         ...[...new Set(paymentRefused.map((x) => x.status))].map(FURTHER_PAYMENT_REFUSED),
         // Fix round 1 (C1): a builder's ledger did not take it; no status, amount or reason reaches the reviewer.
         ...(stands ? [SCREEN_TEXT.builderStands] : []),
+        ...(unknownCur.length ? [SAY_CURRENCY] : []),
       ].join(' ');
       // L16-9, L22-10 (v6.1.16): the outcomes are recorded for the builder only when one reached a ledger.
       const missed = [
@@ -270,7 +269,6 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         ...(overCapRefs.length ? [`Not recorded, over what this program pays: ${listWords(overCapRefs, 10)}.`] : []),
         ...(unknownCur.length ? [`Not recorded, a currency EarnKit does not know: ${listWords(unknownCur.map((x) => `${x.ref} (${x.code})`), 10)}.`] : []),
         ...(tiny.length ? [`Not recorded, under one US dollar: ${listWords(tiny, 10)}.`] : []),
-        ...uncapped.map((x) => `${x.ref}: ${UNCAPPED_NOTE(x.code)}`),
       ];
       // L29-9 (v6.1.16 Task 15): a call that recorded nothing is a refusal.
       const out = { ...line(show, [...(note ? [note] : []), ...notes, ...amountNotes].join(' ')), recorded };

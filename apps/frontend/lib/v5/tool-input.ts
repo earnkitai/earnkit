@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { tooDeep } from './secrets';
 import { cleanText } from './controls';
 import { OLD_TOOLS as OLD_TOOL_NAMES } from './old-tools';
+import { echoName } from './programs';
 
 /**
  * L45-19 (v6.1.19): a further payment's key as compared: hidden and control characters removed and the ends trimmed, so
@@ -198,7 +199,7 @@ export function answerUnreadable(body: unknown, max: number): { answers: unknown
 export const TOOL_NAMES = ['find', 'track', 'record', 'screen'] as const;
 /** L45-17 (v6.1.19): the reply to a tool EarnKit has not. */
 export const NO_TOOL = (name: string): string =>
-  name ? `No tool ${name}. The tools are find, track, record and screen.` : 'No tool by that name. The tools are find, track, record and screen.';
+  name ? `No tool ${name}${name.endsWith('...') ? '' : '.'} The tools are find, track, record and screen.` : 'No tool by that name. The tools are find, track, record and screen.';
 
 /**
  * L45-17 (v6.1.19): JSON-RPC params checked before the library: a `tools/call` with no params object or no text name,
@@ -223,8 +224,9 @@ export function answerParams(body: unknown, old: readonly string[] = OLD_TOOL_NA
     }
     const name = m.method === 'tools/call' && isObj(p) && typeof p.name === 'string' ? p.name : null;
     if (name !== null && !(TOOL_NAMES as readonly string[]).includes(name) && !old.includes(name)) {
-      const shown = cleanText(name, 40);
-      const text = NO_TOOL(shown === name || !(TOOL_NAMES as readonly string[]).includes(shown) ? shown : '');
+      // Fix round 1 (M5): replacement marks dropped too, and a long name cut on a word (`echoName`, its quotes off).
+      const shown = cleanText(name.replace(/\uFFFD/g, ''), Infinity);
+      const text = NO_TOOL(shown && !(TOOL_NAMES as readonly string[]).includes(shown) ? echoName(shown).slice(1, -1) : '');
       if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } });
       continue;
     }

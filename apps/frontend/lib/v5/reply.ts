@@ -1414,7 +1414,7 @@ export const STANDING_ONE = 'Under your standing approval; I apply when your age
 /** L24-29 (v6.1.16 Task 11): the dropped project facts, said the same on the list and the one-program reply; null when none. Pure. */
 export function droppedNote(problems: string[] | undefined): string | null {
   const all = (problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
-  // L45-12 (v6.1.19): a chain kept as given is said apart, with nothing to correct.
+  // L45-12 (v6.1.19): a chain no program asks for is said apart, with nothing to correct.
   const kept = all.filter(isChainKept);
   const dropped = all.filter((p) => !isChainKept(p));
   const lines = [...(dropped.length > 0 ? [`Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.`] : []), ...(kept.length > 0 ? [`${kept.join('; ').replace(/^c/, 'C')}.`] : [])];

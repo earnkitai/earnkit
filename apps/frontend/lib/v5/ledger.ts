@@ -24,7 +24,7 @@ import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '
 import { identityFor, projectKeyOf, type Project } from './project-input';
 import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
-import { amountsOverCap, overCap } from './amount';
+import { UNDER_A_DOLLAR, amountsOverCap, overCap, underADollar } from './amount';
 import { quoteName } from './controls';
 
 /**
@@ -111,6 +111,8 @@ export const OVER_CAP_FOR = (capUsd: number, ref: string, at: string): string =>
 export const FURTHER_PAYMENT_REFUSED = (status: string) =>
   // Fix round 1b: no result yet is said in words, never as the status `none`.
   status === 'none' ? 'Further payment refused: no result yet; post a win first.' : `Further payment refused: the current result is ${status}; post a win first.`;
+/** Fix round 1 (I2, v6.1.19): the history note on a screen's win kept beside the builder's own win. */
+export const BESIDE_NOTE = "a program's win kept beside the builder's own";
 /** L45-2 (v6.1.19): the builder's rejected or no result over a win: nothing is written. */
 export const WIN_KEPT = (title: string, amounts: Amounts | null): string =>
   `${title} already has a win recorded here${amounts ? ` (${amountsText(amounts)})` : ''}. Say won again to change it.`;
@@ -535,6 +537,9 @@ export async function record(
     // L22-4, L22-5 (v6.1.16): the given amount against the cap, before any rounding; another currency converted for the check only.
     // L45-4 (v6.1.19): a currency with no rate is never weighed (recorded uncapped), so an over-cap amount is always comparable.
     const overNote = { ok: false, note: OVER_CAP(cap) } as const;
+    // L45-3 (v6.1.19), fix round 1 (M1): under one dollar in the currency the win is kept in (the win's own when none
+    // was named), so a further 100 over a JPY win is weighed as JPY.
+    if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: UNDER_A_DOLLAR } as const;
     if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;
@@ -562,6 +567,24 @@ export async function record(
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, corrected, source, project_id)
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${note}, ${now}, false, ${source}, ${rk || null})`;
       return { ok: true, beside: true } as const;
+    }
+    // Fix round 1 (I2, v6.1.19): a screen's win never reduces or blanks the builder's own win (the last win written
+    // that is not itself beside came from the builder): the same amount or none is no change; another amount is kept
+    // beside it as a history row, once.
+    if (o.fromScreen && status === 'won' && row?.status === 'won' && kept !== null && paymentKey === null) {
+      if (money === null) return { ok: false, note: CONFIRMED } as const;
+      const [w] = await tx<{ source: string | null }[]>`SELECT source FROM application_history WHERE owner = ${owner} AND program_id = ${programId}
+        AND COALESCE(project_id, '') = ${rk} AND status = 'won' AND payment_key IS NULL AND note IS DISTINCT FROM ${BESIDE_NOTE} ORDER BY id DESC LIMIT 1`;
+      if (w && w.source !== 'screen') {
+        if (money === null || sameAmounts(kept, money)) return { ok: false, note: CONFIRMED } as const;
+        // Once: this screen win, already written (beside, or as a result before the builder's own), is a resend.
+        const seen = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = ${programId}
+          AND COALESCE(project_id, '') = ${rk} AND status = 'won' AND source = 'screen' AND payment_key IS NULL AND currency = ${currency} AND amount = ${value}`;
+        if (seen[0].n > 0) return { ok: false, note: 'Already tracked.' } as const;
+        await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, corrected, source, project_id)
+          VALUES (${owner}, ${installationId}, ${programId}, 'won', ${currency === 'USD' ? value : null}, ${value}, ${currency}, ${BESIDE_NOTE}, ${now}, false, ${source}, ${rk || null})`;
+        return { ok: true, beside: true } as const;
+      }
     }
     // L16-1, L16-2 (v6.1.16): a further payment needs a win to add to; over another result, or over a send with no
     // result yet (fix round 1, M1: `none`, as the screen says), nothing is written.

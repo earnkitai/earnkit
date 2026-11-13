@@ -4,7 +4,7 @@ import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { claim } from '../v6/claims';
-import { CONFIRMED, EARLIER_RESULT, WIN_KEPT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
+import { BESIDE_NOTE, CONFIRMED, EARLIER_RESULT, WIN_KEPT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
 
 after(() => sql().end());
 
@@ -897,4 +897,23 @@ test('L42-6: a result keeps sent_by_installation_id and sent_at', async () => {
     SELECT sent_by_installation_id, sent_at FROM applications WHERE owner = ${owner} AND program_id = 'l42-out'`;
   assert.equal(Number(w.sent_by_installation_id), b);
   assert.equal(w.sent_at, null);
+});
+
+test('fix round 1 (I2, v6.1.19): a screen win never reduces or blanks the builder\'s own win: the same amount or none is no change, another amount is kept beside it once', async () => {
+  const i = await install();
+  await prog('l45-i2', { max_award_usd: 10_000 });
+  await record(o(i), 'l45-i2', 'applied', { now: NOW });
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 5000, now: NOW }), { ok: true });
+  const state = async () => (await sql()`SELECT status, amount_usd, amounts FROM applications WHERE owner = ${o(i)} AND program_id = 'l45-i2'`).map((x) => [x.status, Number(x.amount_usd), x.amounts])[0];
+  const before = await counts(i);
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amountNotGiven: true, now: NOW, fromScreen: true }), { ok: false, note: CONFIRMED });
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 5000, now: NOW, fromScreen: true }), { ok: false, note: CONFIRMED });
+  assert.deepEqual(await counts(i), before);
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 1000, now: NOW, fromScreen: true }), { ok: true, beside: true });
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 1000, now: NOW, fromScreen: true }), { ok: false, note: 'Already tracked.' });
+  assert.deepEqual(await state(), ['won', 5000, { USD: 5000 }]);
+  const [h] = await sql()`SELECT amount_usd, note, source, corrected FROM application_history WHERE owner = ${o(i)} AND program_id = 'l45-i2' ORDER BY id DESC LIMIT 1`;
+  assert.deepEqual([Number(h.amount_usd), h.note, h.source, h.corrected], [1000, BESIDE_NOTE, 'screen', false]);
+  // A further payment from the screen still adds.
+  assert.deepEqual(await record(o(i), 'l45-i2', 'won', { amount_usd: 500, payment: { key: 's1' }, now: NOW, fromScreen: true }), { ok: true, total: { USD: 5500 } });
 });

@@ -80,9 +80,10 @@ const MAX = { name: 80, description: 280 } as const;
 const clean = (s: string) => cleanText(s, Infinity);
 const text = (v: unknown) => (typeof v === 'string' ? clean(v).trim() : '');
 /** L45-12 (v6.1.19): a chain EarnKit knows no program on, noted as the agent gave it (never "send corrected"). */
-export const CHAIN_KEPT = (name: string): string => `chain ${name} kept as given: no program here asks for it`;
+// Fix round 1 (M3): the entry is not kept, so the note says dropped (with nothing for the agent to correct).
+export const CHAIN_KEPT = (name: string): string => `chain ${name} dropped: no program here asks for it`;
 /** L45-12: whether a problem line is a CHAIN_KEPT note. Pure. */
-export const isChainKept = (p: string): boolean => /^chain .+ kept as given: no program here asks for it$/.test(p);
+export const isChainKept = (p: string): boolean => /^chain .+ dropped: no program here asks for it$/.test(p);
 /** The chains read from one report; the rest are named, not read. */
 const MAX_CHAINS = 20;
 /** A commit date this far past now is a mistake, not a clock skew. */

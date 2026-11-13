@@ -2863,7 +2863,7 @@ test('L45-3 (v6.1.19): a win under one dollar, once converted, is refused and wr
   assert.equal((await track(c, { program_id: 'l45-tiny', status: 'won', amount_usd: 1 })).show_to_builder, 'Tracked: $1 from Tiny Grant.');
 });
 
-test('L45-4 (v6.1.19): an unknown currency is refused by name; a known code with no rate is recorded uncapped with a note', async () => {
+test('L45-4 (v6.1.19, fix round 1): an unknown currency is refused by name; a coin is weighed against the cap at its upper bound, never as 0', async () => {
   const c = await ctx();
   for (const id of ['l45-cur', 'l45-btc']) {
     await upsertProgram(programFixture({ id, title: id === 'l45-cur' ? 'Cur Grant' : 'Coin Grant', max_award_usd: 5000 }), 'file', NOW);
@@ -2875,10 +2875,16 @@ test('L45-4 (v6.1.19): an unknown currency is refused by name; a known code with
     assert.match(r.agent_note, /^Nothing was recorded\. The currencies EarnKit reads: USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, BRL, ETH, BTC, SOL, USDC, USDT\.$/);
   }
   assert.equal((await sql()`SELECT status FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l45-cur'`)[0].status, 'applied');
-  // 5,000 BTC is never read as fitting a $5,000 cap by its number: no rate, so recorded as given, uncapped, and said.
-  const btc = await track(c, { program_id: 'l45-btc', status: 'won', amount: '5000 BTC' });
-  assert.equal(btc.show_to_builder, 'Tracked: BTC 5,000 from Coin Grant.');
-  assert.match(btc.agent_note, /Recorded as given in BTC; EarnKit has no rate for BTC, so it was not checked against the program's cap\.$/);
+  // 5,000 BTC never fits a $5,000 cap; a coin amount under the cap at its upper bound is kept in BTC, never converted.
+  assert.equal((await track(c, { program_id: 'l45-btc', status: 'won', amount: '5000 BTC' })).show_to_builder, "Over the program's $5,000 cap; nothing recorded.");
+  const btc = await track(c, { program_id: 'l45-btc', status: 'won', amount: '0.01 BTC' });
+  assert.equal(btc.show_to_builder, 'Tracked: BTC 0.01 from Coin Grant.');
+  assert.doesNotMatch(btc.agent_note, /rate/);
+  // Fix round 1 (M1): a further amount with no currency over a JPY win is weighed as JPY: 100 JPY is under a dollar.
+  await upsertProgram(programFixture({ id: 'l45-jpy', title: 'Yen Grant', max_award_usd: 5000 }), 'file', NOW);
+  await track(c, { program_id: 'l45-jpy', status: 'applied' });
+  await track(c, { program_id: 'l45-jpy', status: 'won', amount: 10_000, currency: 'JPY' });
+  assert.equal((await track(c, { program_id: 'l45-jpy', status: 'won', amount: 100, payment: { key: 'j2' } })).show_to_builder, 'Tell me the amount in whole dollars, 1 or more.');
   // A known rate still converts for the cap.
   assert.equal((await track(c, { program_id: 'l45-cur', status: 'won', amount: '6000 EUR' })).show_to_builder, "Over the program's $5,000 cap; nothing recorded.");
 });

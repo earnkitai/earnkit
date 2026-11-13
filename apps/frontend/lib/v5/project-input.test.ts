@@ -12,12 +12,12 @@ test('a bad live_url is dropped with a problem and the project still parses', ()
   assert.deepEqual(r.problems, ['live_url dropped: not a web link']);
 });
 
-test('an unknown chain is named with a problem (L45-12, v6.1.19: kept as given), a known one kept', () => {
+test('an unknown chain is named with a problem (L45-12, v6.1.19 fix round 1: dropped, nothing to correct), a known one kept', () => {
   const r = parseProject({ ...base, chains: [{ chain: 'foo', mainnet: true }, { chain: 'Base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] });
   assert.ok(r.ok);
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }]);
   assert.equal(r.problems.length, 1);
-  assert.equal(r.problems[0], 'chain foo kept as given: no program here asks for it');
+  assert.equal(r.problems[0], 'chain foo dropped: no program here asks for it');
 });
 
 test('a bad contract and a bad date are dropped; the chain stays', () => {
@@ -60,11 +60,11 @@ test('a clean report parses with no problems and keeps the flags', () => {
   assert.equal(r.project.first_commit_at, '2026-01-02T00:00:00.000Z');
 });
 
-test('a bare string chain is a mainnet chain; an unknown bare string is named (L45-12, v6.1.19: kept as given)', () => {
+test('a bare string chain is a mainnet chain; an unknown bare string is named (L45-12, v6.1.19 fix round 1: dropped, nothing to correct)', () => {
   const r = parseProject({ ...base, chains: ['base', 'Arc', 'nowhere'] });
   assert.ok(r.ok);
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }]);
-  assert.deepEqual(r.problems, ['chain nowhere kept as given: no program here asks for it']);
+  assert.deepEqual(r.problems, ['chain nowhere dropped: no program here asks for it']);
 });
 
 test('C13: chains are deduplicated by chain, mainnet and contract; entries beyond 20 are named, not read', () => {
@@ -470,14 +470,14 @@ test('L45-13 (v6.1.19): a code host link with no scheme is read as https; github
     assert.equal(githubRepoLink(other), other, other);
 });
 
-test('L45-12 (v6.1.19): a real chain EarnKit has no program on is kept as given; a bare chain id reads through the registry; one chain past the cap reads singular', async () => {
+test('L45-12 (v6.1.19): a real chain EarnKit has no program on is dropped with nothing to correct; a bare chain id reads through the registry; one chain past the cap reads singular', async () => {
   const { droppedNote } = await import('./reply');
   const r = parseProject({ ...base, chains: ['celo', 'sui', 8453, 99999] });
   assert.ok(r.ok);
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }]);
-  assert.deepEqual(r.problems, ['chain celo kept as given: no program here asks for it', 'chain sui kept as given: no program here asks for it', 'chain 99999 kept as given: no program here asks for it']);
+  assert.deepEqual(r.problems, ['chain celo dropped: no program here asks for it', 'chain sui dropped: no program here asks for it', 'chain 99999 dropped: no program here asks for it']);
   const note = droppedNote(r.problems)!;
-  assert.equal(note, 'Chain celo kept as given: no program here asks for it; chain sui kept as given: no program here asks for it; chain 99999 kept as given: no program here asks for it.');
+  assert.equal(note, 'Chain celo dropped: no program here asks for it; chain sui dropped: no program here asks for it; chain 99999 dropped: no program here asks for it.');
   assert.doesNotMatch(note, /corrected/);
   const many = parseProject({ ...base, chains: Array.from({ length: 21 }, (_, n) => ({ chain: 'base', mainnet: true, contract: `0x${String(n).padStart(40, '0')}` })) });
   assert.ok(many.ok);

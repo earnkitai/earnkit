@@ -116,11 +116,11 @@ const LOOKALIKES: Record<string, string> = {
 
 /**
  * Whether a client name is EarnKit's own (L13-16, T6-F1): NFKC (widths), NFKD with combining marks dropped (accents),
- * Cyrillic and Greek look-alikes folded to Latin, lower case, then digits and `l` read as letters (L16-10). L45-16
- * (v6.1.19): read as words (split at anything that is not a letter or digit, and where a lower-case letter meets an
- * upper-case one; hidden characters dropped), the name is EarnKit's when `earnkit` starts at a word, the words after
- * it joined (`EarnKit`, `earn-kit`, `Earn Kit`, `EarnKitBot`, a 40-character cut `earnkitxxx`), never inside one
- * (`LearnKit`, `Yearn Kit`, `Learn Kit Pro`). A trailing `(server name)` is dropped first (L25-1). Pure.
+ * Cyrillic and Greek look-alikes folded to Latin, lower case, letters and digits only, then digits and `l` read as
+ * letters and the rest dropped (L16-10), holding `earnkit` anywhere. L45-16 fix round 1 (v6.1.19): the only names let
+ * through are the allow-listed words that hold it (`ALLOWED_WORDS`: learnkit, yearnkit, also split as learn kit and
+ * yearn kit), dropped before the check; AIEarnKit, 1EarnKit, EarnKitBot and Earn Kitchen are still EarnKit's. A trailing
+ * `(server name)` is dropped first (L25-1). Pure.
  */
 export function reservedClientName(v: unknown): boolean {
   if (typeof v !== 'string') return false;
@@ -128,16 +128,30 @@ export function reservedClientName(v: unknown): boolean {
   // `earnkit`, so a trailing parenthetical is the builder's server label, not the agent's name. Drop one before
   // the check, unless fewer than two letters or digits would be left (so `x (EarnKit)` is still refused).
   const stripped = v.replace(/\s*\([^()]*\)\s*$/u, '');
-  const ws = nameWords(fold(stripped).length >= 2 ? stripped : v);
-  return ws.some((_, i) => ws.slice(i).join('').startsWith('earnkit'));
+  return leet(withoutAllowed(fold(stripped).length >= 2 ? stripped : v)).includes('earnkit');
 }
 
-/** L45-16 (v6.1.19): a client name as folded words (see reservedClientName), each read through `leet`. Pure. */
-function nameWords(v: string): string[] {
-  const split = v.replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
-  const bare = split.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '').replace(/\p{Cf}/gu, '');
+/** L45-16 fix round 1 (v6.1.19): whole folded words that hold `earnkit` and are another product's name. */
+const ALLOWED_WORDS: readonly string[] = ['learnkit', 'yearnkit'];
+
+/**
+ * L45-16 fix round 1 (v6.1.19): the name folded as `fold` folds it, but kept as words (hidden characters dropped, any
+ * other mark a break), with every allow-listed word (`learnkit`, or `learn` then `kit`) left out; the rest joined. Pure.
+ */
+function withoutAllowed(v: string): string {
+  const bare = v.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '').replace(/\p{Cf}/gu, '');
   const latin = [...bare].map((ch) => LOOKALIKES[ch] ?? CONFUSABLES.get(ch) ?? ch).join('').toLowerCase();
-  return latin.split(/[^\p{L}\p{N}]+/u).map(leet).filter(Boolean);
+  const words = latin.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const kept: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if (ALLOWED_WORDS.includes(words[i])) continue;
+    if (words[i + 1] === 'kit' && ALLOWED_WORDS.includes(`${words[i]}kit`)) {
+      i++;
+      continue;
+    }
+    kept.push(words[i]);
+  }
+  return kept.join('');
 }
 
 /** L16-10 (v6.1.16): digits and `l` that read as letters (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i), then letters only. */

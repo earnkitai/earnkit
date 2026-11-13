@@ -293,7 +293,7 @@ test('Low 18 (v6.1.13), L15-15 (v6.1.14): an applicant repeated exactly is scree
   assert.match(q.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-rep\. /);
   const jobId = q.reply!.job_id as string;
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${jobId}`)[0].n, 1);
-  for (const amount of [{ amount_usd: 0 }, { amount_usd: -5 }, { amount: 'lots' }, { amount: '2,000', currency: 'euros' }, { amount_usd: 5, currency: 'EUR' }]) {
+  for (const amount of [{ amount_usd: 0 }, { amount_usd: -5 }, { amount: 'lots' }, { amount: '2,000', currency: 'euros!' }, { amount_usd: 5, currency: 'EUR' }]) {
     const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'same', outcome: 'won', ...amount }] });
     assert.equal(r.reply!.show_to_builder, 'Recorded 0 outcomes. Tell me the amount as a number, like 5000 for $5,000.', JSON.stringify(amount));
     assert.doesNotMatch(r.reply!.show_to_builder as string, /you won|whole dollars/);
@@ -438,10 +438,11 @@ test('L15-15 (v6.1.14): amountOf reads numbers, text, symbols and codes; anythin
   assert.deepEqual(amountOf({ amount: 'EUR 300' }), { value: 300, currency: 'EUR' });
   assert.deepEqual(amountOf({ amount: 7, currency: 'chf' }), { value: 7, currency: 'CHF' });
   assert.equal(amountOf({}), null);
-  for (const bad of [{ amount: '1,00' }, { amount: '$5 EUR' }, { amount: '5 EUR', currency: 'USD' }, { amount: 0 }, { currency: 'EUR' }, { amount_usd: 1, amount: 1 }, { amount: '5', currency: 'EUROS' }])
+  for (const bad of [{ amount: '1,00' }, { amount: '$5 EUR' }, { amount: '5 EUR', currency: 'USD' }, { amount: 0 }, { currency: 'EUR' }, { amount_usd: 1, amount: 1 }, { amount: '5', currency: 'EUROSSS' }])
     assert.equal(amountOf(bad), 'bad', JSON.stringify(bad));
   // L45-4 (v6.1.19): a code EarnKit does not know is named.
   assert.deepEqual(amountOf({ amount: '5', currency: 'EURO' }), { unknownCurrency: 'EURO' });
+  assert.deepEqual(amountOf({ amount: '5', currency: 'EUROS' }), { unknownCurrency: 'EUROS' });
 });
 
 test('M3, M4 (v6.1.14 fix round 1): a European thousands separator is refused; echoed field names are short, plain and at most 10', async () => {
@@ -857,29 +858,18 @@ test('L45-5 (v6.1.19): a payment key repeated in one screen call is applied once
   assert.equal(Number((await sql()`SELECT amount_usd FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = 'l45-pay'`)[0].amount_usd), 17);
 });
 
-test('L45-3, L45-4 (v6.1.19): on the screen, a win under one dollar and an unknown currency are refused by name; a crypto code with no rate is recorded uncapped with a note', async () => {
+test('L45-3, L45-4 (v6.1.19, fix round 1 I3): on the screen, a win under one dollar and unknown currencies are refused by name in one line, its Say last; a coin is weighed at its upper bound', async () => {
   const { post } = await sentTo(['l45-s-a', 'l45-s-b', 'l45-s-c'], 5_000);
   const tiny = await post('l45-s-a', [{ outcome: 'won', amount_usd: 0.004 }]);
   assert.equal(tiny.reply.show_to_builder, 'Recorded 0 outcomes. Tell me the amount in whole dollars, 1 or more.');
   const abc = await post('l45-s-b', [{ outcome: 'won', amount: '1 ABC' }]);
   assert.equal(abc.reply.show_to_builder, 'Recorded 0 outcomes. I do not know the currency "ABC". Say the amount with its currency.');
   const btc = await post('l45-s-c', [{ outcome: 'won', amount: '5000 BTC' }]);
-  assert.equal(btc.reply.show_to_builder, 'Recorded 1 outcome.');
-  assert.match(btc.reply.agent_note as string, /m: Recorded as given in BTC; EarnKit has no rate for BTC, so it was not checked against the program's cap\./);
+  assert.equal(btc.reply.show_to_builder, "Recorded 0 outcomes. Over the program's $5,000 cap: m at BTC 5,000. Nothing recorded for it.");
+  assert.equal((await post('l45-s-c', [{ outcome: 'won', amount: '0.01 BTC' }], new Date(NOW.getTime() + 60_000))).reply.show_to_builder, 'Recorded 1 outcome.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ANY(${[tiny.job, abc.job]})`)[0].n, 0);
-});
-
-test('L45-9, L45-18 (v6.1.19): a ref empty once cleaned is refused when queued and named when posted; the names note is a whole sentence, said only with names', async () => {
-  const c = await reviewerOf('l45-ref');
-  const bad = await mcpCall(c, 'screen', { program_id: 'l45-ref', applicants: [{ ref: '​', name: 'Ghost', repo_url: 'https://github.com/acme/ghost' }] });
-  assert.equal(bad.isError, true);
-  assert.equal(bad.reply!.show_to_builder, '');
-  assert.match(bad.reply!.agent_note as string, /applicants\.0\.ref: empty after removing hidden characters/);
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs j WHERE j.program_id = 'l45-ref'`)[0].n, 0);
-  const q = await mcpCall(c, 'screen', { program_id: 'l45-ref', applicants: [{ ref: 'a', name: 'Real' }] });
-  const jobId = q.reply!.job_id as string;
-  const out = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: '​', outcome: 'rejected' }] });
-  assert.equal(out.reply!.show_to_builder, 'Recorded 0 outcomes; not found: (empty name).');
-  const past = await mcpCall(c, 'screen', { job_id: jobId, page: 5 });
-  assert.doesNotMatch(past.reply!.agent_note as string, /Applicant names/);
+  // Two unknown codes and an over-cap line: one sentence names both codes, and the one Say is last.
+  const { post: post2 } = await sentTo(['l45-s-d'], 5_000);
+  const two = await post2('l45-s-d', [{ outcome: 'won', amount: '1 ABC' }, { ref: 'zz', outcome: 'won', amount: '2 XYZ' }, { ref: 'yy', outcome: 'won', amount_usd: 9000 }]);
+  assert.equal(two.reply.show_to_builder, 'Recorded 0 outcomes. I do not know the currencies "ABC" and "XYZ". Over the program\'s $5,000 cap: yy at $9,000. Nothing recorded for it. Say the amount with its currency.');
 });

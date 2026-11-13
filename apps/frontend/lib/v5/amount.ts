@@ -4,15 +4,22 @@
  * foreign amount with a program's US dollar cap and are never shown.
  */
 
-/** A currency code as written: three letters (ISO 4217), or four for USDC and USDT. */
-const CODE = /^[A-Za-z]{3,4}$/;
+/** A currency code as written: two to six letters (fix round 1, M4: a longer or shorter code is named as unknown). */
+const CODE = /^[A-Za-z]{2,6}$/;
 /**
  * L45-4 (v6.1.19): the currencies EarnKit reads: the ISO 4217 majors and the crypto codes the catalog names (BRL kept
  * since v6.1.16 for its cap rate). Any other code is refused (`UNKNOWN_CURRENCY`), never weighed by its bare number.
  */
 export const KNOWN_CURRENCIES: readonly string[] = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'CAD', 'AUD', 'CHF', 'SGD', 'BRL', 'ETH', 'BTC', 'SOL', 'USDC', 'USDT'];
 /** L45-4 (v6.1.19): the builder line for a currency code EarnKit does not know. */
-export const UNKNOWN_CURRENCY = (code: string): string => `I do not know the currency "${code}". Say the amount with its currency.`;
+export const UNKNOWN_CURRENCY = (code: string): string => `${UNKNOWN_CODES([code])} ${SAY_CURRENCY}`;
+/** Fix round 1 (I3, v6.1.19): every unknown code in one sentence, with no Say (the reply ends with SAY_CURRENCY). */
+export const UNKNOWN_CODES = (codes: string[]): string => {
+  const q = codes.map((c) => `"${c}"`);
+  return q.length === 1 ? `I do not know the currency ${q[0]}.` : `I do not know the currencies ${q.slice(0, -1).join(', ')} and ${q.at(-1)}.`;
+};
+/** Fix round 1 (I3): the one Say after unknown currencies, last in the reply. */
+export const SAY_CURRENCY = 'Say the amount with its currency.';
 /** L45-3 (v6.1.19): the builder line for a win under one dollar (after conversion). */
 export const UNDER_A_DOLLAR = 'Tell me the amount in whole dollars, 1 or more.';
 /** L45-15 (v6.1.19): the builder line when the agent's amount arguments were malformed (the fix is in the note). */
@@ -61,12 +68,18 @@ export function readAmount(o: { amount_usd?: number; amount?: number | string; c
     }
     // v6.1.17 final round (Task 2 review N1): a leading `0,` is never a thousands group but a decimal comma: `0,500`
     // reads 0.5, `0,001` reads 0.001.
-    t = t.replace(/^((?:[A-Z]{3,4}\s*)?)0,(\d+)(?=\s*K?\s*(?:[A-Z]{3,4})?$)/, '$10.$2');
+    t = t.replace(/^((?:[A-Z]{2,6}\s*)?)0,(\d+)(?=\s*K?\s*(?:[A-Z]{2,6})?$)/, '$10.$2');
     // M3 (v6.1.14): "2.500" may be 2,500 written with a European separator: ambiguous, so refused. An amount starting
     // with `0.` is never a thousands group, so `0.001` reads as 0.001 (v6.1.16 Task 8 N3, v6.1.17).
-    if (/^(?:[A-Z]{3,4}\s*)?(?!0\.)\d{1,3}(?:\.\d{3})+(?:\s*K)?(?:\s*[A-Z]{3,4})?$/.test(t) && !/^\d{1,3}\.\d{3}\s*K$/.test(t)) return 'ambiguous';
-    const m = /^(?:([A-Z]{3,4})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*(K))?(?:\s*([A-Z]{3,4}))?$/.exec(t);
+    if (/^(?:[A-Z]{2,6}\s*)?(?!0\.)\d{1,3}(?:\.\d{3})+(?:\s*K)?(?:\s*[A-Z]{2,6})?$/.test(t) && !/^\d{1,3}\.\d{3}\s*K$/.test(t)) return 'ambiguous';
+    const m = /^(?:([A-Z]{2,6})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*(K))?(?:\s*([A-Z]{2,6}))?$/.exec(t);
     if (!m || (m[1] && m[5])) return 'bad';
+    // Fix round 1 (M4): a K written against a code that is no currency is the code's first letter (`8999 KRW` is KRW,
+    // never 8,999,000 RW); `5k EUR` and `5KUSD` stay thousands.
+    if (m[4] && m[5] && !KNOWN_CURRENCIES.includes(m[5]) && t.endsWith(`K${m[5]}`)) {
+      m[5] = `K${m[5]}`;
+      m[4] = '';
+    }
     const word = m[1] ?? m[5];
     if (word) {
       if (code && code !== word) return 'bad';
@@ -83,8 +96,15 @@ export function readAmount(o: { amount_usd?: number; amount?: number | string; c
  * the 2025 to mid-2026 range of the published reference rates (Federal Reserve H.10 and ECB, as known in June 2026),
  * so a foreign amount never slips under a cap.
  */
-export const CAP_RATES: Readonly<Record<'EUR' | 'GBP' | 'CHF' | 'CAD' | 'AUD' | 'JPY' | 'INR' | 'SGD' | 'BRL', number>> = {
+export const CAP_RATES: Readonly<Record<'EUR' | 'GBP' | 'CHF' | 'CAD' | 'AUD' | 'JPY' | 'INR' | 'SGD' | 'BRL' | 'USDC' | 'USDT' | 'ETH' | 'BTC' | 'SOL', number>> = {
   EUR: 1.25, GBP: 1.45, CHF: 1.35, CAD: 0.8, AUD: 0.75, JPY: 0.008, INR: 0.013, SGD: 0.85, BRL: 0.22,
+  // Fix round 1 (security, v6.1.19): the dollar stablecoins at their peg.
+  USDC: 1, USDT: 1,
+  // Fix round 1 (security, v6.1.19): cap-only upper bounds, set well above each coin's highest price known as of June
+  // 2026 (ETH under $5,000, BTC under $130,000, SOL under $300), so a coin win is never weighed below its worth against
+  // a program's dollar cap. Used only for the cap and the under-a-dollar check; never shown, never a conversion, and the
+  // win is recorded in its own currency.
+  ETH: 10_000, BTC: 250_000, SOL: 1_000,
 };
 
 
@@ -94,8 +114,11 @@ export const CAP_RATES: Readonly<Record<'EUR' | 'GBP' | 'CHF' | 'CAD' | 'AUD' | 
  */
 export const usdAt = (value: number, currency: string): number | null =>
   currency === 'USD' ? value : Object.hasOwn(CAP_RATES, currency) ? value * CAP_RATES[currency as keyof typeof CAP_RATES] : null;
-/** The amount as the cap check weighs it: `usdAt`, and 0 for a code with no rate (recorded uncapped, L45-4). Pure. */
-const capWeight = (value: number, currency: string): number => usdAt(value, currency) ?? 0;
+/**
+ * The amount as the cap check weighs it: `usdAt`. Fix round 1 (security, v6.1.19): never 0; every known currency has a
+ * cap rate, and a currency with none weighs as infinite, so a win in it is always over the cap (refused). Pure.
+ */
+const capWeight = (value: number, currency: string): number => usdAt(value, currency) ?? Infinity;
 /** L45-3 (v6.1.19): a win under one US dollar once converted; an amount with no rate is not judged. Pure. */
 export const underADollar = (value: number, currency: string): boolean => (usdAt(value, currency) ?? Infinity) < 1;
 
@@ -106,5 +129,4 @@ export const overCap = (value: number, currency: string, capUsd: number): boolea
 export const amountsOverCap = (amounts: Readonly<Record<string, number>>, capUsd: number): boolean =>
   Object.entries(amounts).reduce((s, [c, v]) => s + capWeight(v, c), 0) > capUsd;
 
-/** L45-4 (v6.1.19): the agent note on an amount kept in a currency with no static rate: recorded, not checked against the cap. */
-export const UNCAPPED_NOTE = (code: string): string => `Recorded as given in ${code}; EarnKit has no rate for ${code}, so it was not checked against the program's cap.`;
+

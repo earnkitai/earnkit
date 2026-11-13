@@ -20,7 +20,7 @@ import { codeChecked, evaluate, itemKey, licenseRead, repoGaps } from './eligibi
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { PaymentKeyInput, inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
-import { AMOUNT_DOT, AMOUNT_UNREAD, KNOWN_CURRENCIES, TELL_AMOUNT, UNCAPPED_NOTE, UNDER_A_DOLLAR, UNKNOWN_CURRENCY, isUnknownCurrency, readAmount, usdAt, underADollar, type UnknownCurrency } from './amount';
+import { AMOUNT_DOT, AMOUNT_UNREAD, KNOWN_CURRENCIES, TELL_AMOUNT, UNKNOWN_CURRENCY, isUnknownCurrency, readAmount, type UnknownCurrency } from './amount';
 import { amountsText, moneyAt, moneyOf as tileMoney, moneyText } from './programs-read';
 import { cleanText, quoteName } from './controls';
 
@@ -785,8 +785,6 @@ async function act(
   }
   // L45-4 (v6.1.19): a currency EarnKit does not know is refused, never weighed against the cap by its number.
   if (isUnknownCurrency(amount)) return refuse(UNKNOWN_CURRENCY(amount.unknownCurrency), `Nothing was recorded. The currencies EarnKit reads: ${KNOWN_CURRENCIES.join(', ')}.`);
-  // L45-3 (v6.1.19): a win under one dollar, once converted, is not a win amount.
-  if (amount && underADollar(amount.value, amount.currency ?? 'USD')) return refuse(UNDER_A_DOLLAR, 'Nothing was recorded. A win is 1 US dollar or more; send the amount as given.');
   // L29-3 (v6.1.16 Task 15): a win with no application here is recorded as the builder's own send, then the win.
   // L28-4 (v6.1.16 Task 14): every status names its project key (FR-3: the key, never the record id).
   // Fix round 3 (M4): the builder's tie to the repo key this row is written under, shown by the gate.
@@ -944,10 +942,7 @@ async function act(
   };
   // L36-8 (v6.1.18): the dropped keys are named last.
   const dropped: Result = unknownFields.length > 0 ? { ...done, agent_note: `${done.agent_note} ${droppedFieldsNote(unknownFields)}` } : done;
-  const manifested: Result = noManifest ? { ...dropped, agent_note: `${dropped.agent_note} ${NO_MANIFEST_NOTE}` } : dropped;
-  // L45-4 (v6.1.19): a win in a currency with no static rate is recorded uncapped, and the agent hears it.
-  const code = amount && amount.currency;
-  const base: Result = i.status === 'won' && code && usdAt(1, code) === null ? { ...manifested, agent_note: `${manifested.agent_note} ${UNCAPPED_NOTE(code)}` } : manifested;
+  const base: Result = noManifest ? { ...dropped, agent_note: `${dropped.agent_note} ${NO_MANIFEST_NOTE}` } : dropped;
   // L36-12 (v6.1.18): a plain send names the next ready program and its one ask; its id and fields go to the agent.
   // L38-16 (v6.1.18): a rejection names the next ready program the same way.
   // Final fix (I1): never after a send kept under the project's name only (the repo is not shown to be theirs).
