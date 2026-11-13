@@ -121,7 +121,7 @@ test('first find has no since', async () => {
   assert.doesNotMatch(show, /—|\b(coin|points|score|rank|streak|token)s?\b/i);
   // #10 (v6.1.15): the reply is shown as given, never retold.
   const note = reply.agent_note as string;
-  assert.ok(note.startsWith("Show find's reply as given; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts."), note);
+  assert.ok(note.startsWith("Show find's reply as given, translated into the builder's language when they write in another one; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts."), note);
   assert.ok(!JSON.stringify(reply).includes('in your own words'));
   assert.equal(
     show,

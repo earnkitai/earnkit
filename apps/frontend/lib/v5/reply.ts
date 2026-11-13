@@ -1677,7 +1677,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     return ["Show find's reply as given. Nothing is listed for this project now; pass users, live_url and chains whenever you know them, and call find again when the builder asks.", ...(sentAsked ? [sentAsked] : [])].join('\n');
   const tonightIds = tonightIn(r).list.map((t) => t.program_id);
   const lines = [
-    "Show find's reply as given; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts.",
+    // Task 2 (v6.1.22, from Task 4): the same translate clause as the server instructions.
+    "Show find's reply as given, translated into the builder's language when they write in another one; shorten if you must, keep money first and the last action. No emojis, no em dashes, no invented facts.",
     ...(r.ready.length === 0 ? [] : [r.linked
       ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given, ${CUT_NOTE}; ${AGENT_FIELDS}`
       : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`]),

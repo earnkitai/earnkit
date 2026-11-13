@@ -66,7 +66,11 @@ export const TrackInput = z
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true; next?: NextReady };
 /** L36-12 (v6.1.18): the next ready program after a send, so the next started needs no find. */
 /** L41-3 (v6.1.19): `rules` are the rules still to confirm when the next program is one yes away; empty when ready. */
-type NextReady = { program_id: string; title: string; money: string; draft: boolean; fields: { key: string; from: string; value: string | null; required: boolean }[]; rules: { item: string; what: string }[] };
+type NextReady = {
+  program_id: string; title: string; money: string; draft: boolean; fields: { key: string; from: string; value: string | null; required: boolean }[]; rules: { item: string; what: string }[];
+  /** L47-S1 (v6.1.22): the second one-yes program, for the agent when the builder says no (never on the builder line). */
+  alt?: { program_id: string; title: string; rules: { item: string; what: string }[]; keys: string };
+};
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
 
@@ -1045,11 +1049,16 @@ export const NEXT_LACKS = (l: { title: string; needs: string[] }): string =>
 /** L36-12 (v6.1.18): the agent's way to the next send without a find. L41-3 (v6.1.19): with rules, the gap_done
  *  that confirms them first. Pure. */
 export const NEXT_NOTE = (n: NextReady): string => {
-  const keys = n.fields.map((f) => `${f.key} (${f.from})`).join(', ');
-  return n.rules.length === 0
+  const keys = fieldKeys(n.fields);
+  const main = n.rules.length === 0
     ? `Next ready: program_id ${n.program_id}. On the builder's yes, call track started with that program_id and fill the form from next.fields (keys: ${keys}); no find needed.`
     : `Next is one yes away: program_id ${n.program_id}. On the builder's yes, call track gap_done with item ${n.rules[0].item} (it confirms every rule listed), then track started with that program_id and fill the form from next.fields (keys: ${keys}); no find needed.`;
+  // L47-S1 (v6.1.22): the second one-yes program, so a no needs no find.
+  const a = n.alt;
+  return a ? `${main} If the builder says no: program_id ${a.program_id} (${a.title}) needs one yes: ${a.rules.map((r) => midSentence(r.what)).join('; ')}. On a yes to that, call track gap_done with item ${a.rules[0].item}, then track started with that program_id; no find needed.` : main;
 };
+/** The form keys the agent fills, with where each comes from. Pure. */
+const fieldKeys = (fields: NextReady['fields']): string => fields.map((f) => `${f.key} (${f.from})`).join(', ');
 
 /**
  * L36-12 (v6.1.18): the first program of this installation's last find list for this project, after the one just sent,
@@ -1080,7 +1089,7 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
     if (c && (c.held || (c.by !== ctx.installationId && Date.parse(c.since) > stale))) continue;
     const done = await doneItems(owner, id, projectKey);
     const ready = readyAtSend(row, facts, done, storedSide(rec), ctx.now);
-    if (!ready && oneYes) continue;
+    if (!ready && oneYes?.alt) continue;
     // L41-3: every open item a rule, and ready once they are confirmed.
     const rules = ready ? [] : rulesOnlyGap(row, facts, done, ctx.now);
     if (!ready && (rules.length === 0 || !readyAtSend(row, facts, new Set([...done, ...rules.map((r) => r.item)]), storedSide(rec), ctx.now))) continue;
@@ -1101,10 +1110,13 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
       rules,
     };
     if (ready) return next;
-    oneYes = next;
+    // L47-S1 (v6.1.22): the second one-yes program rides in the note.
+    if (oneYes) oneYes.alt = { program_id: next.program_id, title: next.title, rules: next.rules, keys: fieldKeys(next.fields) };
+    else oneYes = next;
   }
-  // L47-8 (v6.1.22): remembered as the Next line's, so the yes's gap_done covers the send (no find).
+  // L47-8 (v6.1.22): remembered as the Next line's, so the yes's gap_done covers the send (no find); L47-S1: the second's too.
   if (oneYes) await rememberGap(ctx.installationId, oneYes.program_id, { what: oneYes.rules[0].what, kind: 'rule', item: oneYes.rules[0].item, rules: oneYes.rules.map((r) => r.item), next: true });
+  if (oneYes?.alt) await rememberGap(ctx.installationId, oneYes.alt.program_id, { what: oneYes.alt.rules[0].what, kind: 'rule', item: oneYes.alt.rules[0].item, rules: oneYes.alt.rules.map((r) => r.item), next: true });
   return oneYes;
 }
 

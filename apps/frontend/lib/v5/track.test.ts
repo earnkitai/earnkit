@@ -3223,3 +3223,50 @@ test('L47-10 (v6.1.22): signed out, started with a repo off GitHub says "Sign in
   const gh = await track(out, { program_id: 'floss-fund-zerodha', status: 'started', project: { ...gl, repo_url: 'https://github.com/lane47/gh-notes' } });
   assert.equal(gh.show_to_builder, 'Sign in first so I can check the repo is yours.');
 });
+
+test('L47-17 (v6.1.22): an incomplete cached row whose repo is gone is a miss to find and track alike', async () => {
+  const { find } = await import('./find');
+  const key = `lane47/votechain${Math.floor(Math.random() * 1e6)}`;
+  await seedRead(key, ['lane47']);
+  // The row as a pre-v6.1.18.1 cache wrote it: no license key, an hour ago.
+  await sql()`UPDATE repo_cache SET facts = facts - 'license' - 'license_read', fetched_at = ${new Date(NOW.getTime() - 3_600_000)} WHERE repo = ${key}`;
+  const gone = (async () => new Response(JSON.stringify({ message: 'Not Found' }), { status: 404, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  const c = { ...(await signedIn('lane47')), gh: gone };
+  const P = { name: 'VoteChain', description: 'A voting app.', repo_url: `https://github.com/${key}` };
+  const f = await find({ ...c, linkUrl: async () => null }, { program_id: 'futo-microgrants', project: P });
+  assert.doesNotMatch(f.show_to_builder, /I draft it for you to send|I apply\b/, f.show_to_builder);
+  const s = await track(c, { program_id: 'futo-microgrants', status: 'started', project: P });
+  assert.equal(s.refused, true, s.show_to_builder);
+  // Both read the repo as gone: the cached row is now a miss.
+  const [row] = await sql()`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  assert.equal('miss' in row.facts, true);
+});
+
+test('L47-S1 (v6.1.22): the Next note carries a second one-yes program, so a no needs no find', async () => {
+  const c = await signedIn('l47s1');
+  const RULE = 'a developer tool near or past end of life';
+  await upsertProgram(programFixture({ id: 'l47s1-a', title: 'Sent First Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l47s1-b', title: 'Next Rule Grant', eligibility: [{ kind: 'rule', note: RULE }] } as never), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l47s1-c', title: 'Second Rule Grant', eligibility: [{ kind: 'rule', note: 'a tool used by teams' }] } as never), 'file', NOW);
+  try {
+    const { markFind, markList, lastGaps } = await import('./installations');
+    const P = { name: 'Lane Tool', description: 'A tool.' };
+    await markFind(c.installationId, NOW, undefined, 'name:lane tool');
+    await markList(c.installationId, 'h', NOW, ['l47s1-a', 'l47s1-b', 'l47s1-c']);
+    const r = await send(c, 'l47s1-a', P);
+    const next = (r as { next?: { program_id: string; rules: { item: string }[]; alt?: { program_id: string; title: string; rules: { item: string; what: string }[]; keys: string } } }).next!;
+    assert.equal(next.program_id, 'l47s1-b');
+    assert.equal(next.alt?.program_id, 'l47s1-c');
+    // The builder line names one Next; the note carries the second.
+    assert.equal((r.show_to_builder.match(/Next:/g) ?? []).length, 1, r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /Second Rule Grant/);
+    const alt = next.alt!;
+    assert.ok(r.agent_note.includes(`If the builder says no: program_id l47s1-c (Second Rule Grant) needs one yes: ${alt.rules[0].what}. On a yes to that, call track gap_done with item ${alt.rules[0].item}, then track started with that program_id; no find needed.`), r.agent_note);
+    // Its rules are remembered as the Next line's: the yes to it needs no find.
+    assert.equal((await lastGaps(c.installationId))['l47s1-c'].next, true);
+    const gd = await track(c, { program_id: 'l47s1-c', status: 'gap_done', item: alt.rules[0].item, project: P });
+    assert.equal(gd.show_to_builder, 'Noted; I apply now.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('l47s1-a', 'l47s1-b', 'l47s1-c')`;
+  }
+});
