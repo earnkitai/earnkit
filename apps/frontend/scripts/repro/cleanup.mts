@@ -1,10 +1,12 @@
 // Lane 33 pack cleanup: removes every row any lane 33 script made (l33- logins, client names and programs, lane33/ repos,
 // 10.33.x.x rate windows incl. the 10.33.0.0/16 block windows, and since v6.1.18 (L37-2) the l33- OAuth client
-// registrations). Prints one line with what is left.
+// registrations, and since v6.1.21 (M6) the people rows they made). Prints one line with what is left.
 import { db } from './lib.mts';
 import { deleteBuilder } from '../../lib/v6/builders.ts';
 import { sql as appSql } from '../../lib/v5/db.ts';
 const bids = (await db`SELECT id FROM builders WHERE login LIKE 'l33-%'`).map((r: any) => r.id as number);
+// M6 (v6.1.21): the people l33 installations and builders made, read before deleteBuilder clears people.builder_id.
+const pids = (await db`SELECT id FROM people WHERE builder_id = ANY(${bids}) UNION SELECT person_id FROM installations WHERE client_name LIKE 'l33-%' AND person_id IS NOT NULL`).map((r: any) => r.id as number);
 for (const b of bids) await deleteBuilder(b, new Date());
 const inst = (await db`SELECT id FROM installations WHERE client_name LIKE 'l33-%'`).map((r: any) => r.id as number);
 const owners = [...inst.map((i) => `i:${i}`), ...bids.map((b) => `b:${b}`)];
@@ -20,6 +22,7 @@ n.gaps_done = (await db`DELETE FROM gaps_done WHERE owner = ANY(${owners}) OR pr
 n.project_reports = (await db`DELETE FROM project_reports WHERE owner = ANY(${owners})`).count;
 n.link_codes = (await db`DELETE FROM link_codes WHERE installation_id = ANY(${inst})`).count;
 n.installations = (await db`DELETE FROM installations WHERE id = ANY(${inst})`).count;
+n.people = (await db`DELETE FROM people p WHERE p.id = ANY(${pids}) AND p.builder_id IS NULL AND NOT EXISTS (SELECT 1 FROM installations i WHERE i.person_id = p.id)`).count;
 n.oauth_clients = (await db`DELETE FROM oauth_clients WHERE client_name LIKE 'l33-%'`).count;
 n.sessions = (await db`DELETE FROM sessions WHERE builder_id = ANY(${bids})`).count;
 n.program_changes = (await db`DELETE FROM program_changes WHERE program_id LIKE 'l33-%'`).count;

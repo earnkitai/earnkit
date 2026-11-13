@@ -9,7 +9,7 @@ import { listOpenPrograms, type ProgramRow } from './programs';
 
 export const STATS_KEYS = [
   'programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit',
-  'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at',
+  'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at', 'installs_real', 'people', 'people_real',
 ] as const;
 /**
  * L22-1 (v6.1.16): `won_usd` is the US dollar part of the wins only; `won_other` sums each other currency (never
@@ -23,6 +23,11 @@ export const STATS_KEYS = [
  * v6.1.18 Task 5 (L36-3, L36-4): `applications_via_earnkit` counts the sends EarnKit made or drafted (an agent's, plus
  * a builder's that an EarnKit start preceded, `throughEarnkit`), all time; `read_at` is the read's `now` (the clock
  * passed in; the route caches the read for 10 minutes).
+ */
+/**
+ * v6.1.21: `installs_real` counts the installations whose person is not flagged a test (`people.test_reason`, see
+ * lib/v6/people.ts; one with no person yet counts as real); `people` and `people_real` count the people rows with an
+ * installation or a builder, all and not flagged.
  */
 /**
  * v6.1.19 (L44-10): `last_check_ok` is false when the latest run's link check failed (after the last run that finished
@@ -120,8 +125,11 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
   const week = new Date(now.getTime() - WEEK_MS);
   const [open, [i], [a], [v]] = await Promise.all([
     listOpenPrograms(now),
-    db<{ installs: string; active: string; finds: string }[]>`
+    db<{ installs: string; real: string; people: string; people_real: string; active: string; finds: string }[]>`
       SELECT count(*) AS installs,
+             count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM people p WHERE p.id = installations.person_id AND p.test_reason IS NOT NULL)) AS real,
+             (SELECT count(*) FROM people p WHERE p.builder_id IS NOT NULL OR EXISTS (SELECT 1 FROM installations x WHERE x.person_id = p.id)) AS people,
+             (SELECT count(*) FROM people p WHERE p.test_reason IS NULL AND (p.builder_id IS NOT NULL OR EXISTS (SELECT 1 FROM installations x WHERE x.person_id = p.id))) AS people_real,
              count(*) FILTER (WHERE last_seen_at >= ${week}) AS active,
              count(*) FILTER (WHERE last_find_at >= ${week}) AS finds
       FROM installations`,
@@ -163,6 +171,9 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     last_run_at: run?.last_run_at?.toISOString() ?? null,
     last_check_ok: !failedAt || (run?.last_run_at != null && run.last_run_at > failedAt),
     read_at: now.toISOString(),
+    installs_real: Number(i.real),
+    people: Number(i.people),
+    people_real: Number(i.people_real),
   };
 }
 

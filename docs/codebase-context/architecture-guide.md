@@ -14,7 +14,8 @@ bounties. EarnKit is the brain; the builder's AI agent is the hands.
 - The agent holds the builder's memory, drafts the personal parts, fills the form in its own browser when the
   builder says yes, and reports back with `track`.
 - EarnKit never submits a form, never holds or asks for a wallet, never writes prose (no LLM), never asks the
-  builder who they are. Install is one MCP URL and an anonymous OAuth approval.
+  builder who they are. Install is one MCP URL and an anonymous OAuth approval (the v6.1.21 install sign-in switch,
+  `EARNKIT_INSTALL_SIGNIN`, is disabled until it has a consent step).
 
 One Next.js app (`apps/frontend`) on Railway, one Postgres database, one daily job. Nothing else runs.
 
@@ -510,12 +511,12 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications (v6.1.19: `I sent it` posts to `/me/sent`), agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
-| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), and names no one |
+| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), `installs_real`, `people` and `people_real` (v6.1.21: not flagged as tests), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
-| `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
+| `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth (the install sign-in switch is disabled in v6.1.21) |
 
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`.
@@ -610,6 +611,8 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at, `first_failed_at` (v6.1.17: stale at 20 hours of failing); `submit_closed` (v6.1.18), `closed_round`, `closed_on` and `closed_since` (v6.1.19: the closed read, its page and its age) |
+| `people` | v6.1.21: one row per person behind installations (`installations.person_id`); `builder_id` once a builder is known, legacy X fields and `legacy_profile_id` (backfill), an unproven `github_login`, `test_reason` (NULL real; owner, dogfood, persona, repro, test) and its source (`unflagged` after a backfill `--unflag`); the app never deletes a row (the repro cleanups remove their own) |
+| `owner_people` (view) | v6.1.21: the owner's tracker (role `earnkit_ro`) reads it by column name: one row per person with an installation or a builder; `builder_id` is `people.id`, `slug` (builder login, X handle, else `i-<first installation>`), `installation_ids`, X and GitHub identity, `joined_at`, `last_seen_at`, `main_repo` (owner/repo of the last GitHub project key), `programs_applied` and `programs_won` from `applications` for `b:<builder>` and `i:<installation>`; every column v5/v6 cannot fill (wallet, points, referrals, streak, commit weeks, coin, score, `programs_accepted`, check-in, email opt-in) is a typed NULL, never 0 or false, so reports show it as unavailable; appended `person_key`, `earnkit_builder_id`, `identity_source` (`github_signin`, `x_signin_legacy`, `github_claimed` or NULL), `identity_proven`, `is_test`, `test_reason`. No tokens, emails or IPs. Dropped and recreated by `db:migrate`, then granted to `earnkit_ro` when that role exists |
 | `cron_state` | v6.1.17 Task 3: one row, `last_run_at` of the last daily run that answered 200 and (v6.1.19) finished its link check (`/api/stats`, the digest's gap line); `last_check_failed_at` of the last run whose check failed (`last_check_ok`, the digest's opening line) |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
@@ -639,6 +642,8 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: `/link` and the callback answer 503) |
+| `EARNKIT_INSTALL_SIGNIN` | v6.1.21: disabled in this release. The value is read, `github` logs `install sign-in is disabled in this release` once, and authorize stays the anonymous approval whatever it is. The GitHub sign-in at install waits for a consent step (C1 of the PR #153 review); do not set it |
+| `EARNKIT_TEST_INSTALLATIONS`, `EARNKIT_OWNER_LOGINS`, `EARNKIT_DOGFOOD_LOGINS` | v6.1.21, optional comma lists (installation ids; GitHub logins or X handles, case-insensitive) that flag a person as a test (`people.test_reason` `test`, `owner`, `dogfood`); the logins match proven identities only (a builder's login, a legacy X sign-in), never a claimed repo owner. Set in Railway they flag new installs and links; for people that already exist, export them in the shell and run the backfill's `--reflag` (the script never sees Railway's variables). Unset flags nothing but the client-name patterns |
 | `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
 
 `lib/v5/no-v4.test.ts` fails if any code reads a variable outside this list.
@@ -1976,3 +1981,27 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
 - M1 `shortTarget` names the draft by its short title; M2 the standing one-program state is `It is ready.`; M3 `First,
   you` only for a verb setup; M4 `nextNeedsLine` says an approval as `Approve it at earnkit.com/me and I use it.`; M9
   `moreInFull`, `inPersonShort`, `inPersonHead` deleted. I2: Arbitrum Open House carries `short_title`.
+
+## People and install attribution (v6.1.21)
+
+Design: `design-docs-and-implementation-plans/v6.1.21-install-attribution-plan.md`. Every installation has a person
+(`people`, `lib/v6/people.ts`): made in `saveInstallation`'s transaction, joined to the builder's person by
+`linkInstallation` (`linkPerson` locks the builder row first, so two first links make one person). `testReasonFor`
+flags owner, dogfood, persona, repro and test people: the env lists (proven identities only) and the client-name
+patterns (a lane prefix `l<n>-`, or `persona`, `journey`, `dogfood`, `repro`, `test` as a whole word between dashes,
+underscores, spaces or the ends, in a name that has a separator; so `Personal Assistant` and a bare `Journey` are
+real). Only env-list reasons reach a builder's person at link; a client-name reason stays on the installation's old
+person. `/api/stats` `installs_real` leaves flagged people out.
+
+The OAuth approval stays anonymous. The GitHub sign-in at install (`installSignIn`, install-kind state,
+`__Host-ek_install` nonce cookie, `installCallback`; the code carries `b`, and `installOnce` links in its own
+transaction) is kept in the code but disabled (`INSTALL_SIGNIN_ENABLED = false`): it has no EarnKit consent step, so
+a returning GitHub user could be linked to another person's client. `EARNKIT_INSTALL_SIGNIN=github` only logs that it
+is disabled; an install state at the callback gets the plain install failure text (`INSTALL_FAILED`, it does not talk
+about linking) and no code. Turning it on waits for a consent page.
+
+`pnpm tsx apps/frontend/scripts/people-backfill.mts [--apply] [--since YYYY-MM-DD]` backfills people for older
+installations; `--reflag [--apply]` re-evaluates every person's reason from the env lists and client names (never
+clears one; only a stronger one replaces it: owner over dogfood over test, persona and repro); `--unflag <b:id | i:id |
+p:id> [--apply]` clears one person's reason by hand (source `unflagged`; nothing automatic flags it again). All are
+dry runs unless `--apply`. The script reads the env lists from its own shell: export them before running.

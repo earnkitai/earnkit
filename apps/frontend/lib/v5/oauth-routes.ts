@@ -5,6 +5,7 @@
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
 import { codeSpent, installOnce, revokeInstallation } from './installations';
+import { installSignIn, installSignInOn } from '../v6/link-routes';
 import { CIMD_FAILED, CIMD_RESERVED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, clientNameOf, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
@@ -57,7 +58,7 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
     const params = await readParams(request, MAX_OAUTH_BODY);
     if (params === null) return tooLarge();
     // L35-5 (v6.1.16.1 Task 2): a client document fetch counts on its host and the caller's address block.
-    const { token, limitKey, hostedHost, clientName, nonce, audience } = await exchangeCode(params, callerClient(request, deps.client), publicOrigin(request));
+    const { token, limitKey, hostedHost, clientName, nonce, audience, builderId } = await exchangeCode(params, callerClient(request, deps.client), publicOrigin(request));
     // T6-F2 (v6.1.14): a client id signed before the check may carry a reserved name; it never installs (saveInstallation
     // refuses too). Checked before the limits, so a refusal spends none.
     if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
@@ -82,7 +83,10 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
       throw err;
     }
     // The nonce is spent and the installation saved in one transaction; a parallel exchange that spent it first wins.
-    if ((await installOnce(token, nonce, clientName, audience)) === null) return await codeReused(token);
+    // v6.1.21: a code issued after a GitHub sign-in (disabled in this release) names the builder; the installation links
+    // as a /me link does, in installOnce's transaction (M3), so a failed link spends no nonce and saves nothing.
+    const installed = await installOnce(token, nonce, clientName, audience, builderId);
+    if (installed === null) return await codeReused(token);
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof BodyTimeoutError) return bodyTimedOut();
@@ -95,16 +99,21 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
 /** L35-5 (v6.1.16.1 Task 2): the client deps with the caller's address block (an injected block stays). */
 const callerClient = (request: Request, client: ClientDeps | undefined): ClientDeps => ({ block: blockOf(clientIp(request.headers)), ...client });
 
-type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps };
+type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps; installSignIn?: boolean };
 const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
 
-/** Anonymous approval: a valid request is sent straight back to its client with a code. */
+/**
+ * Anonymous approval: a valid request is sent straight back to its client with a code. The GitHub sign-in at install
+ * (`installSignIn`, EARNKIT_INSTALL_SIGNIN=github) is disabled in v6.1.21 until it has a consent step (C1): whatever the
+ * value, authorize stays anonymous. `installSignIn` in deps is for tests of the dormant path only.
+ */
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
     await (deps.limit ?? authorizeLimit)(request);
     const client = callerClient(request, deps.client);
     const checked = await checkAuthorize(new URL(request.url).searchParams, client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
+    if (installSignInOn(process.env, deps.installSignIn)) return installSignIn(request, checked.req);
     return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });
