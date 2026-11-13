@@ -1928,3 +1928,30 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
   traction (`Asks.traction`), named `one line on traction`, and once typed `TRACTION_APPROVE` (with earnkit.com/me).
   L46-1: signed out, a kept builder-sent claim past the claim hours is asked through `ask_sent`. L46-12: the list hash
   marks ready rows, so a row that moved to ready is never "Nothing new".
+
+### v6.1.20 polish and review fixes
+
+- **Polish.** The opening carries the action the ready rows share (`For X, 2 programs are ready to send now; I apply
+  once you say yes.`, `readyAction`, plural `I draft them ...`); a row says its own only when it differs. The Also
+  sentence is two sentences (`..., both in person with long odds. 29 more in the full list; X closes in 6 days.`). The
+  users yes reads `and I apply` when it makes the program ready (`USERS_UNLINKED_APPLY`), `and I check` otherwise. With
+  a step on screen the step stays the action and the in-person draft rides beside it (`Tell me when ... and I look
+  again, or say 2 and I draft Y for you to send.`); `Say {n} and I draft ...` alone only when no step is named. In person
+  only: `Nothing you can send from here is ready for X yet.` and `inPersonDraft` (`Say yes and I draft them for you to
+  send.`). No age rule on users items; FLOSS/fund keeps its license check.
+- **Gate (review C1, C2, I1, M5, M6).** `beforeSend` reads the offer the reply made (`lastOfferOf`, `GATED_OFFERS`:
+  apply, do, stop; not a draft closing nor the users yes that signs in) and every apply wording (`APPLY_WORDS`), and
+  `withoutSteps` always runs. `gateLines` takes the gated closing out (said again after the sign-in), every apply line,
+  tail and at-once sentence (`APPLY_NOW`: a yes that stands, `Say go`, standing), and rebuilds rows by shape
+  (`gatedRow`: the opening, `{n}. {title} ({money}).` rows, the one-program `It is ready:`); a draft path reads `ready for
+  you to send`. When another line keeps the Say (sent, not-sent, started), no sign-in closing is added. `signInFirst`
+  says go, do and draft offers after the sign-in and keeps a program's own sign-in step (M7).
+- **I3.** A license no read has seen (`license` undefined: paused, slow, unread, another host, an untrusted old row) is
+  no rule to confirm, in `evaluate` and track's `licenseRule`; `none` is the license file step, an unknown read license
+  keeps the question.
+- **I4.** An empty category filter marks no sent ask, keeps the account notice and ends `Say all and I list them.`.
+- **I5.** `fixtures/builder-rules.ts` (`builderRules`): the 10-line budget, one sign-in sentence, no em dash, emoji or
+  banned word, one ask sentence; run over every reply.test fixture and every find.test reply (gated or not).
+- M1 `shortTarget` names the draft by its short title; M2 the standing one-program state is `It is ready.`; M3 `First,
+  you` only for a verb setup; M4 `nextNeedsLine` says an approval as `Approve it at earnkit.com/me and I use it.`; M9
+  `moreInFull`, `inPersonShort`, `inPersonHead` deleted. I2: Arbitrum Open House carries `short_title`.
