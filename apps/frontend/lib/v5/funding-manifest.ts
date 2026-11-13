@@ -16,6 +16,8 @@ export const WELL_KNOWN_PATH = '.well-known/funding-manifest-urls';
 export const MANIFEST_SCHEMA = 'https://fundingjson.org/schema/v1.1.0.json';
 /** The ready row's step, said after the money: EarnKit writes the file, then applies. */
 export const MANIFEST_LINE = 'I add the funding file to your repo, then apply.';
+/** L1m-4 (v6.1.22): a manifest row drafted for the builder to send (off GitHub EarnKit adds no file): what they give. */
+export const MANIFEST_GIVE = 'You give your funding manifest link.';
 
 /** Whether a program's form takes a funding manifest's URL. Pure. */
 export const wantsManifest = (p: Pick<Program, 'submission_requirements'>): boolean => p.submission_requirements.some((r) => r.key === MANIFEST_FIELD);

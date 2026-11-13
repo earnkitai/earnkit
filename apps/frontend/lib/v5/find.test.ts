@@ -510,7 +510,8 @@ test('I1 (v6.1.15 fix round 1): a public GitLab repo with users is the builder\'
   assert.equal(show, [
     'FLOSS/fund ($10,000 to $100,000) is ready: I draft it for you to send. You give your funding manifest link.',
     '',
-    'Sign in so I can check your users, then say yes and I draft it for you to send.',
+    // L1m-4 (v6.1.22): users reported, so the sign-in promises no users check.
+    'Sign in and say yes, and I draft it for you to send.',
   ].join('\n'));
   // The project reply: the host said once, and nothing says the code is missing.
   const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
@@ -535,7 +536,8 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   await mcpCall(c, 'track', { program_id: 'floss-fund-zerodha', status: 'gap_done', item: itemKey({ kind: 'rule', note: 'an open source license on the project', check: 'license' }), project });
   const one = (await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project })).reply!;
   const show = one.show_to_builder as string;
-  assert.equal(show.split('\n').at(-1), 'Sign in so I can check your users, then say yes and I draft it for you to send.');
+  // L1m-4 (v6.1.22): users reported, so the sign-in promises no users check.
+  assert.equal(show.split('\n').at(-1), 'Sign in and say yes, and I draft it for you to send.');
   assert.equal(show.split('Sign in').length, 2, show);
   assert.doesNotMatch(show, /repo is yours|I apply\b/);
   assert.match(one.agent_note as string, /On the builder's yes, fill the form of program_id floss-fund-zerodha from its fields for the builder to send; do not call track started with this repo\. Once they say it is sent, call track applied with submitted_by builder\./);
@@ -544,7 +546,7 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   assert.ok(list.split('\n').filter((l) => l.trim() !== '').length <= 10, list);
   assert.doesNotMatch(list, /Ready to apply|I apply\b/, list);
   assert.match(list, /^For Berg, 1 program is ready for you to send\.$/m, list);
-  assert.match(list.split('\n').at(-1)!, /^Sign in so I can check your users, then say yes and I draft .+ for you to send\.$/);
+  assert.match(list.split('\n').at(-1)!, /^Sign in and say yes, and I draft .+ for you to send\.$/);
   // Signed in, then found again: still no apply offer; the reply says to send it, within 10 lines.
   const { id, builderId } = await linkedWith({});
   await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'floss-fund-zerodha', project });
@@ -554,7 +556,9 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   assert.ok(text.split('\n').filter((l) => l.trim() !== '').length <= 10, text);
   assert.doesNotMatch(text, /Ready to apply|Say yes and I apply|then apply\b/, text);
   assert.match(text, /^For Berg, 1 program is ready for you to send\.$/m, text);
-  assert.equal(text.split('\n').at(-1), 'I could not read codeberg.org/acme/berg, so I cannot check it is yours. Send it yourself and tell me when it is in.');
+  // L47-9 (v6.1.22): off GitHub EarnKit still drafts it: the draft yes, never "Send it yourself".
+  assert.match(text.split('\n').at(-1)!, /^Say yes and I draft (it|FLOSS\/fund) for you to send\.$/, text);
+  assert.doesNotMatch(text, /Send it yourself|I could not read/, text);
   assert.match(again.agent_note as string, /do not call track started with this repo/);
 });
 
@@ -4812,5 +4816,77 @@ test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round:
     assert.deepEqual([row.status, row.earlier_win.moved], ['started', true]);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'l47-up-two'`;
+  }
+});
+
+test('L1m-4 (v6.1.22): GitLab with users, signed out: the row names the manifest link and the Say promises no users check', async () => {
+  const link = 'https://earnkit.com/link/l1m4';
+  const project = { name: 'Pad', description: 'A note-taking CLI.', repo_url: 'https://gitlab.com/acme/pad', users: true };
+  const c = { ...ctx(await installation()), linkUrl: async () => link };
+  const r = await mcpCall(c, 'find', { project });
+  const list = r.reply!.show_to_builder as string;
+  // Other tests leave ready fixture programs behind; the row reads the draft and the give when FLOSS/fund is alone.
+  if (allReady(r.reply!).length === 1) {
+    assert.match(list, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\)\. I draft it for you to send\. You give your funding manifest link\.$/m, list);
+    assert.equal(list.split('\n').at(-1), `Sign in at ${link} and say yes, and I draft it for you to send.`, list);
+  } else assert.match(list.split('\n').at(-1)!, new RegExp(`^Sign in at ${link} and say yes, and I draft .+ for you to send\\.$`), list);
+  assert.doesNotMatch(list, /\bI apply\b|check your users/, list);
+  builderRules(list);
+  // The gate on the text lane 1m saw: the one ready row reads the draft and what the builder gives.
+  const { gateLines } = await import('./find');
+  const seen = 'For Pad, 1 program is ready to send now; I apply once you say yes.\n\n1. FLOSS/fund ($10,000 to $100,000).\n2. H ($1) needs one yes from you: a rule.\n\nSay yes and tell me the funding manifest link, and I apply to FLOSS/fund.';
+  assert.deepEqual(gateLines(seen, 'draft', true).kept, ['For Pad, 1 program is ready for you to send.', '', '1. FLOSS/fund ($10,000 to $100,000). I draft it for you to send. You give your funding manifest link.', '2. H ($1) needs one yes from you: a rule.']);
+  // Signed out on GitHub (strip) the row stays bare.
+  assert.equal(gateLines(seen, 'strip', true).kept[2], '1. FLOSS/fund ($10,000 to $100,000).');
+  // The one program: the same Say.
+  const one = (await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project })).reply!.show_to_builder as string;
+  assert.equal(one, [
+    'FLOSS/fund ($10,000 to $100,000) is ready: I draft it for you to send. You give your funding manifest link.',
+    '',
+    `Sign in at ${link} and say yes, and I draft it for you to send.`,
+  ].join('\n'));
+  builderRules(one);
+  // Without users reported the sign-in still checks them.
+  const { users: _u, ...noUsers } = project;
+  const asked = (await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: noUsers })).reply!.show_to_builder as string;
+  assert.doesNotMatch(asked, /\bI apply\b/, asked);
+});
+
+test('L47-9 (v6.1.22): linked on GitLab, the draft offer stays and no "Send it yourself"', async () => {
+  const project = { name: 'GL Notes', description: 'A note-taking CLI.', repo_url: 'https://gitlab.com/lane47/gl-notes', users: true };
+  const { id, builderId } = await linkedWith({ projects: [] });
+  const r = (await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'floss-fund-zerodha', project })).reply!;
+  const text = r.show_to_builder as string;
+  assert.equal(text, [
+    'FLOSS/fund ($10,000 to $100,000) is ready: I draft it for you to send. You give your funding manifest link.',
+    '',
+    'Say yes and I draft it for you to send.',
+  ].join('\n'));
+  assert.doesNotMatch(text, /Send it yourself|I apply\b|I could not read/);
+  assert.match(r.agent_note as string, /do not call track started with this repo/);
+  builderRules(text);
+  // The default list: the same draft yes, the row names what the builder gives.
+  const lr = (await mcpCall({ ...ctx(id), builderId }, 'find', { project })).reply!;
+  const list = lr.show_to_builder as string;
+  assert.doesNotMatch(list, /Send it yourself|I apply\b|I could not read/, list);
+  if (allReady(lr).length === 1) assert.match(list, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\)\. I draft it for you to send\. You give your funding manifest link\.$/m, list);
+  assert.match(list.split('\n').at(-1)!, /^Say yes and I draft .+ for you to send\.$/, list);
+  builderRules(list);
+});
+
+test('L47-11 (v6.1.22): linked on Codeberg with nothing ready, one closing: the users question', async () => {
+  const project = { name: 'CB Tool', description: 'A note-taking CLI.', repo_url: 'https://codeberg.org/lane47/cb-tool' };
+  const { id, builderId } = await linkedWith({ projects: [] });
+  const one = (await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'floss-fund-zerodha', project })).reply!.show_to_builder as string;
+  assert.equal(one, 'FLOSS/fund ($10,000 to $100,000). It needs real users first.\n\nSay yes if they do and I draft it.');
+  const lr = (await mcpCall({ ...ctx(id), builderId }, 'find', { project })).reply!;
+  const list = lr.show_to_builder as string;
+  // Other tests leave ready fixture programs behind; with none ready the users question is the one closing.
+  if (allReady(lr).length === 0) assert.match(list.split('\n').at(-1)!, /^(Nothing is ready yet\. )?Do real people use it\?/, list);
+  else assert.match(list.split('\n').at(-1)!, /^Say yes and I draft .+ for you to send\.$/, list);
+  for (const text of [one, list]) {
+    assert.doesNotMatch(text, /I could not read|Send it yourself|\bI apply\b/, text);
+    assert.equal(text.match(/\bSay\b/g)?.length ?? 0, 1, text);
+    builderRules(text);
   }
 });

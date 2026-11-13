@@ -9,12 +9,12 @@ import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { wantsManifest } from './funding-manifest';
-import { cachedRepoFacts, cachedRepoMiss, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
+import { cachedRepoFacts, cachedRepoMiss, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoKey, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffer, rememberGap, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, programIdOf, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, gapItemOf, isEarlierRound, type EarlierWin, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
+import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, SIGN_IN_USERS, SIGN_IN_USERS_NOTE, claimed, doneItems, gapItemOf, isEarlierRound, type EarlierWin, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, midSentence, unreadNote } from './reply';
 import { codeChecked, evaluate, itemKey, licenseRead, repoGaps, unlikely } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -600,6 +600,8 @@ async function act(
    *  confirm". Unlinked, it carries the sign-in sentence (the builder signs in first). */
   const notYours = async (): Promise<Result> => {
     // FR-1 (fix round 1): signed out, sign-in comes first, never "not yours".
+    // L47-10 (v6.1.22): off GitHub the sign-in checks users only, and the builder sends.
+    if (ctx.builderId === null && !repoKey(appKey)) return refuse(SIGN_IN_USERS, SIGN_IN_USERS_NOTE);
     if (ctx.builderId === null) return refuse(SIGN_IN_FIRST, 'Nothing was recorded. Show the builder the sign-in link from find; once signed in, call find again, then track.');
     const against = (await evidenceOf(ctx, appKey)).against;
     return refuse(against ? NOT_YOUR_REPO : CANT_CONFIRM_REPO(appKey),

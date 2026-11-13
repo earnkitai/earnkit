@@ -196,6 +196,10 @@ export const ALREADY_SENT_UNLINKED = 'Already sent from your account; nothing re
 export const NOT_YOUR_REPO = 'This repo is not yours; I apply only with repos you commit to.';
 /** FR-1 (fix round 1): a signed-out builder's claim or send with a repo: sign-in comes first, never "not yours". */
 export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
+/** L47-10 (v6.1.22): signed out with a repo off GitHub: a sign-in can never show it is theirs, only check their users. */
+export const SIGN_IN_USERS = 'Sign in first so I can check your users.';
+/** L47-10 (v6.1.22): the agent's way after that sign-in: EarnKit drafts, the builder sends. */
+export const SIGN_IN_USERS_NOTE = 'After sign-in, do not call track started with this repo: fill the form for the builder to send, then call track applied with submitted_by builder once they say it is sent.';
 /**
  * FR-1, N5 (fix round 2); L38 big 1 (v6.1.18 Task 10): find's one Say for a signed-out builder with a repo: the apply
  * offer the reply made (`offer`), with the sign-in first in the same sentence, so no apply can be offered before it:

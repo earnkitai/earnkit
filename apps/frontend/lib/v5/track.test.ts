@@ -1914,7 +1914,9 @@ test('M1, FR-1 (Task 14 fix round 1): with no evidence the refusal and find say 
   assert.doesNotMatch(started.agent_note, /ask for (it|the login)/);
   assert.equal(started.refused, true);
   const f = await find({ ...g, linkUrl: async () => null }, { program_id: 'l28-m1', project: lab });
-  assert.equal(f.show_to_builder.split('\n').at(-1), 'I could not read gitlab.com/gl-m1/lab, so I cannot check it is yours. Send it yourself and tell me when it is in.');
+  // L47-9 (v6.1.22): off GitHub EarnKit still drafts it for the builder to send; started stays refused.
+  assert.equal(f.show_to_builder.split('\n').at(-1), 'Say yes and I draft it for you to send.');
+  assert.match(f.agent_note, /do not call track started with this repo/);
   assert.doesNotMatch(f.agent_note, /ask for (it|the login)/);
   assert.doesNotMatch(f.show_to_builder, /not yours|I apply to/);
   // Signed out: the find's one Say is the sign-in, and the yes is answered by sign-in first.
@@ -3207,4 +3209,17 @@ test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round:
   assert.equal(s.show_to_builder, '');
   const [r] = await sql()`SELECT status, earlier_win FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l476'`;
   assert.deepEqual([r.status, r.earlier_win.moved], ['started', true]);
+});
+
+test('L47-10 (v6.1.22): signed out, started with a repo off GitHub says "Sign in first so I can check your users."', async () => {
+  const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l47-10-' + Math.random()}) RETURNING id`;
+  const out = { installationId: u.id as number, builderId: null, now: NOW };
+  const gl = { name: 'GL Notes', description: 'A note-taking CLI.', repo_url: 'https://gitlab.com/lane47/gl-notes', users: true };
+  const r = await track(out, { program_id: 'floss-fund-zerodha', status: 'started', project: gl });
+  assert.equal(r.refused, true);
+  assert.equal(r.show_to_builder, 'Sign in first so I can check your users.');
+  assert.equal(r.agent_note, 'After sign-in, do not call track started with this repo: fill the form for the builder to send, then call track applied with submitted_by builder once they say it is sent.');
+  // A GitHub repo keeps the repo sentence.
+  const gh = await track(out, { program_id: 'floss-fund-zerodha', status: 'started', project: { ...gl, repo_url: 'https://github.com/lane47/gh-notes' } });
+  assert.equal(gh.show_to_builder, 'Sign in first so I can check the repo is yours.');
 });
