@@ -408,7 +408,7 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
 const actionOffer = (action: string | null): OfferKind | null => {
   // L38 big 1 (v6.1.18 Task 10): a sign-in first is read by the action after it.
   const a = action?.replace(/^Sign in\b[^,]*, then s/, 'S') ?? null;
-  return a === null ? null : /^Say "do"/.test(a) ? 'do' : /^Say yes if /.test(a) ? 'draft' : /^Say yes/.test(a) ? 'apply' : null;
+  return a === null ? null : /^Say "?do"?\b/.test(a) ? 'do' : /^Say yes if /.test(a) ? 'draft' : /^Say yes/.test(a) ? 'apply' : null;
 };
 
 /**
@@ -853,7 +853,7 @@ const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
 const SIGNED_USERS = /Say yes, sign in\b/;
 /** v6.1.20 review C1, I1, M6: every apply wording EarnKit writes, in a closing, a ready row or the opening (not the
  *  not-yours sentence "I apply only with repos you commit to"). */
-const APPLY_WORDS = /\bI (also )?apply\b(?! only with)|\bthen apply\b|\bapply to\b|\bI send (it|them) under your standing approval\b|\bApplying now to\b|\bstart the in-person applications\b|^Say do \d+\b|, or say do \d+\b/;
+const APPLY_WORDS = /\bI (also )?apply\b(?! only with)|\bthen apply\b|\bapply to\b|\bI send (it|them) under your standing approval\b|\bApplying now to\b|\bstart the in-person applications\b|^Say do\b|, or say do \d+\b/;
 const offersApply = (text: string): boolean => text.split('\n').some((l) => !SIGNED_USERS.test(l) && (APPLY_OFFER.test(l) || TAIL_OFFER.test(l) || APPLY_WORDS.test(l)));
 /** v6.1.20 review C1: the offer kinds the gate holds back until the repo is shown to be the builder's. */
 const GATED_OFFERS = new Set<OfferKind | null>(['apply', 'do', 'stop']);
@@ -874,8 +874,20 @@ export function gateLines(text: string, mode: 'strip' | 'draft', gatedOffer: boo
     .filter((l) => !APPLY_OFFER.test(l))
     .map((l) => l.replace(TAIL_OFFER, ''))
     .map((l) => l.split(/(?<=[.?!])\s+/).filter((x) => !APPLY_NOW.test(x)).join(' '))
-    .map((l) => gatedRow(l, mode));
+    .map((l) => gatedRow(l, mode))
+    // v6.1.20 re-review O2: what still promises an apply is said without it: a step reads "and I look again", a yes that
+    // waits names only what it waits on, and any other apply sentence goes.
+    .map((l) => l.split(/(?<=[.?!])\s+/).map(unapplied).filter((x) => x !== '').join(' '));
   return { kept: tidy(kept), offer };
+}
+/** v6.1.20 re-review O2: one sentence without its apply promise (see `gateLines`). Pure. */
+function unapplied(x: string): string {
+  if (SIGNED_USERS.test(x) || !APPLY_WORDS.test(x) || /^\d+\. /.test(x)) return x;
+  const step = /^(Tell me when .+) and I apply\.$/.exec(x);
+  if (step) return `${step[1]} and I look again.`;
+  const waits = /^(.+ needs your .+); then I apply\.$/.exec(x);
+  if (waits) return `${waits[1]}.`;
+  return '';
 }
 /** L38 big 1 (v6.1.18 Task 10): the last apply offer of the builder text (a whole line, or a line's closing sentence),
  *  which the signed-out gate says again after the sign-in; null when none. Pure. */
@@ -1130,7 +1142,12 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   if (!repoKeyOf(key)) return given;
   // Final fix (M3): every branch below that takes the apply offer away also takes the agent step and its note away,
   // so no agent writes and pushes a funding file for a send the gate holds back.
-  const r = withoutSteps(given);
+  const offHost = !repoKey(project!.repo_url);
+  // v6.1.20 re-review O3: off GitHub no sign-in confirms the repo, so the users yes drafts for the builder to send.
+  const usersDraft = (t: string) => t.replace(/(Do real people use it\? Say yes(?:, sign in(?: at \S+)?,)? and I) apply\./, '$1 draft it for you to send.');
+  const drafted = offHost && usersDraft(given.show_to_builder) !== given.show_to_builder;
+  if (drafted) await markOffer(ctx.installationId, 'draft', ctx.now);
+  const r = withoutSteps(drafted ? { ...given, show_to_builder: usersDraft(given.show_to_builder) } : given);
   // v6.1.20 review C1: the gate reads the offer this reply made (find keeps it) as well as its words.
   // A draft for the builder to send and the users question that carries its own sign-in are no apply offer.
   const closingLine = r.show_to_builder.split('\n').filter((l) => l.trim() !== '').at(-1) ?? '';
@@ -1158,8 +1175,10 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     // N5b: one sign-in sentence: the unlink notice keeps only its first sentence, and the closing carries the link.
     // L38 big 1 (v6.1.18 Task 10): the apply offer is said again after the sign-in, in one sentence.
     // Fix round 1 (I1): every sign-in sentence, wherever it sits in a line, gives way to the one this line carries.
-    const offGitHub = !repoKey(project!.repo_url);
+    const offGitHub = offHost;
     const gated = gateLines(r.show_to_builder, offGitHub ? 'draft' : 'strip', gatedOffer);
+    // v6.1.20 re-review O2: a sign-in closing only for an offer the reply made or a ready program it lists.
+    const anyReady = /\bready to send now\b/.test(r.show_to_builder);
     const kept = gated.kept.map((l) => (l === '' ? l : withoutSignIn(l))).filter((l, i, xs) => l !== '' || (xs[i - 1] ?? '') !== '');
     // v6.1.20 review C1: another line keeps the Say (a sent, not-sent or started line): no second ask.
     const said = kept.some((l) => /\bSay\b/.test(l));
@@ -1169,7 +1188,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     if (offGitHub) await markOffer(ctx.installationId, 'draft', ctx.now);
     return {
       ...r,
-      show_to_builder: fit([...kept, ...(said ? [] : ['', offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, gated.offer)])]).join('\n'),
+      show_to_builder: fit([...kept, ...(said || (gated.offer === null && !anyReady) ? [] : ['', offGitHub ? SIGN_IN_DRAFT(link, target.named) : signInFirst(link, gated.offer)])]).join('\n'),
       ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, offGitHub ? DRAFT_NOTE(target.id) : SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };

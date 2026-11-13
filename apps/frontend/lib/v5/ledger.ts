@@ -204,7 +204,7 @@ export function signInFirst(link: string | null, offer: string | null = null, wh
   // Fix round 1 (M5): "Say yes and I add X, then apply to {title}." keeps its change too.
   if (/^say yes\b.*\bI (also )?apply\b|^say yes\b.*, then apply\b/i.test(o)) return `${head}, then ${lowerFirst(o)}`;
   // v6.1.20 review I1, M6: any other Say the gate holds (go, do, the in-person drafts) is said after the sign-in.
-  if (/^say (go|do \d+|yes and I draft)\b/i.test(o)) return `${head}, then ${lowerFirst(o)}`;
+  if (/^say (go|do\b|yes and I draft)\b/i.test(o)) return `${head}, then ${lowerFirst(o.replace(/ first\.$/, '.'))}`;
   return `${head}, then say yes and I apply.`;
 }
 /** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".

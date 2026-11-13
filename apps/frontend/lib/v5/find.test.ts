@@ -348,7 +348,7 @@ test('1b (v6.1.8): Base Builder Grants for a web2 SaaS says it is not a fit, as 
   assert.equal(onBase.reply!.show_to_builder, [
     'Base Builder Grant Program (up to $5,000). It needs you to add Base Builder Codes to the app first.',
     '',
-    'Say do and I add Base Builder Codes to the app first.',
+    'Sign in so I know the repo is yours, then say do and I add Base Builder Codes to the app.',
   ].join('\n'));
   assert.match(onBase.reply!.agent_note as string, /^On "do": make the gap's change/m);
   // Asked for the rules: the list sits between the line and the action.
@@ -358,7 +358,7 @@ test('1b (v6.1.8): Base Builder Grants for a web2 SaaS says it is not a fit, as 
   // L26-4 (v6.1.16 Task 12): guide.rules carries two; the builder lines every rule.
   const rules = guideText((await getProgram('base-builder-grants'))!, NOW).rules;
   assert.deepEqual((asked.reply!.guide as { rules: string[] }).rules, rules.slice(0, 2));
-  assert.equal(asked.reply!.show_to_builder, ['Base Builder Grant Program (up to $5,000). It needs you to add Base Builder Codes to the app first.', 'Rules:', ...rules.map((x) => `- ${x}`), '', 'Say do and I add Base Builder Codes to the app first.'].join('\n'));
+  assert.equal(asked.reply!.show_to_builder, ['Base Builder Grant Program (up to $5,000). It needs you to add Base Builder Codes to the app first.', 'Rules:', ...rules.map((x) => `- ${x}`), '', 'Sign in so I know the repo is yours, then say do and I add Base Builder Codes to the app.'].join('\n'));
   assert.doesNotMatch(asked.reply!.agent_note as string, /ask 'rules'/);
 });
 
@@ -1825,7 +1825,7 @@ test('L38-27 (v6.1.18 Task 11): HeroDevs on a repo with no license file asks for
   assert.equal(one.reply!.show_to_builder, [
     'HeroDevs Open Source Sustainability Fund ($2,500 to $15,000). It needs a license file and your yes that a developer tool whose versions are near or past official end of life.',
     '',
-    'Say do and I add an MIT license file first.',
+    'Sign in so I know the repo is yours, then say do and I add an MIT license file.',
   ].join('\n'));
   assert.match(one.reply!.agent_note as string, /^On "do": make the gap's change/m);
   // The agent adds it and says so: the item is the program's own, and the rule asks nothing after.
@@ -1858,7 +1858,7 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   assert.equal(out.reply!.show_to_builder, [
     'FLOSS/fund ($10,000 to $100,000). It needs a license file first.',
     '',
-    'Say do and I add an MIT license file first.',
+    'Sign in so I know the repo is yours, then say do and I add an MIT license file.',
   ].join('\n'));
   assert.doesNotMatch(out.reply!.show_to_builder as string, /You give|funding manifest|First:/);
   assert.equal(out.reply!.agent_step, undefined);
@@ -3197,7 +3197,7 @@ test('L16-7 (v6.1.16, Review Focus 2): a program with a result shows the result 
   const view = async (c: Awaited<ReturnType<typeof dashCtx>>) => mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: { ...SAAS, users: true } });
   const won = await dashCtx();
   const before = (await view(won)).reply!.show_to_builder as string;
-  assert.match(before, /\bSay\b/);
+  assert.match(before, /\b[Ss]ay\b/);
   // L28-3 (v6.1.16 Task 14): unsigned in, the builder's own send is kept by name, off the repo, and still read here.
   await mcpCall(won, 'track', { program_id: 'floss-fund-zerodha', status: 'applied', submitted_by: 'builder' });
   // Sent, no result yet: today's view.
@@ -4677,6 +4677,46 @@ test('L1m-1 (v6.1.19.1): a cache row from before v6.1.18 (no license) is re-read
   assert.deepEqual((r.reply!.verdict as { gaps: { what: string }[] }).gaps.map((g) => g.what), ['a developer tool whose versions are near or past official end of life'], r.reply!.show_to_builder as string);
   assert.doesNotMatch(r.reply!.show_to_builder as string, /licen[cs]e/i);
   assert.equal((await sql()`SELECT facts->>'license' AS license FROM repo_cache`)[0].license, 'MIT');
+});
+
+// ---- v6.1.20 re-review ----
+
+test('v6.1.20 re-review O1: the one-program do offer waits on the sign-in; could-not-confirm carries none', async () => {
+  const project = { ...RIPGREP, users: true };
+  const one = (await mcpCall(await dashCtx(), 'find', { program_id: 'floss-fund-zerodha', project })).reply!;
+  assert.equal(one.show_to_builder, 'FLOSS/fund ($10,000 to $100,000). It needs a license file first.\n\nSign in so I know the repo is yours, then say do and I add an MIT license file.');
+  assert.equal(one.agent_step, undefined);
+  // The could-not-confirm path (pure: the gate with the do offer held): no do offer is left.
+  const { gateLines } = await import('./find');
+  const g = gateLines('FLOSS/fund ($10,000 to $100,000). It needs a license file first.\n\nSay do and I add an MIT license file first.', 'draft', true);
+  assert.deepEqual(g.kept, ['FLOSS/fund ($10,000 to $100,000). It needs a license file first.']);
+});
+
+test('v6.1.20 re-review O2: a program that is not ready never gets an apply promise through the gate; the step stays the one action', async () => {
+  const one = (await mcpCall(await dashCtx(), 'find', { program_id: 'floss-fund-zerodha', project: RIPGREP })).reply!;
+  const show = one.show_to_builder as string;
+  assert.equal(show, 'FLOSS/fund ($10,000 to $100,000). It needs real users and a license file.\n\nTell me when that is done and I look again.');
+  assert.doesNotMatch(show, /\bapply\b|Sign in/);
+  // The could-not-confirm path keeps the step without its apply, and a yes that waits names only what it waits on.
+  const { gateLines } = await import('./find');
+  assert.deepEqual(gateLines('X ($1). It needs a and b.\n\nTell me when that is done and I apply.', 'draft', false).kept, ['X ($1). It needs a and b.', '', 'Tell me when that is done and I look again.']);
+  assert.deepEqual(gateLines('1 program is ready to send now.\n\n1. A ($1).\n\nA needs your email; then I apply.\nDid you send B? Say sent and I note it.', 'strip', false).kept,
+    ['1 program is ready to send now.', '', '1. A ($1).', '', 'A needs your email.', 'Did you send B? Say sent and I note it.']);
+});
+
+test('v6.1.20 re-review O3: off GitHub, the users yes drafts for the builder to send, signed out or not', async () => {
+  const project = { name: 'Berg', description: 'A note-taking CLI.', repo_url: 'https://codeberg.org/acme/berg' };
+  const link = 'https://earnkit.com/link/o3';
+  const out = (await mcpCall({ ...ctx(await installation()), linkUrl: async () => link }, 'find', { project })).reply!.show_to_builder as string;
+  // Other files add ready programs to the shared catalog; whichever closes, it drafts and never applies.
+  assert.match(out.split('\n').at(-1)!, /^(Do real people use it\? Say yes, sign in at \S+, and I draft it for you to send|Sign in at \S+ so I can check your users, then say yes and I draft .+ for you to send)\.$/, out);
+  assert.doesNotMatch(out, /\bI apply\b/, out);
+  // The users closing itself, off GitHub, signed out.
+  const { usersUnlinkedAt } = await import('./reply');
+  assert.equal(usersUnlinkedAt(link, 'apply').replace(/and I apply\.$/, 'and I draft it for you to send.'), `Do real people use it? Say yes, sign in at ${link}, and I draft it for you to send.`);
+  const { id, builderId } = await linkedWith({});
+  const linked = (await mcpCall({ ...ctx(id), builderId }, 'find', { project })).reply!.show_to_builder as string;
+  assert.doesNotMatch(linked, /\bI apply\b(?! only)/, linked);
 });
 
 // Registered last (v6.1.20 review I5): every find reply above, gated or not, keeps the builder contract; a full list

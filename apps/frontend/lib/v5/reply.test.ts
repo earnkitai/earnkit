@@ -1980,20 +1980,6 @@ test('L46-6 (v6.1.20): a Say asks two things by name; the agent note carries the
   assert.ok(agentNote(r, { more: 0 }).split('\n').includes("The yes asks for a website link and the company's X link by name; after it, ask the builder for the rest one message at a time: the founder's role; your deck link."));
 });
 
-// Registered last, so it reads every reply the tests above rendered.
-test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
-  assert.ok(rendered.length >= 100, `${rendered.length}`);
-  for (const t of rendered) {
-    assert.doesNotMatch(t, /\btonight\b|by tomorrow morning/i, t);
-    assert.ok((t.match(/\bSay\b/g) ?? []).length <= 1, t);
-    // v6.1.20 review I5: the whole contract on every fixture reply (the full view has no line budget).
-    builderRules(t, !t.startsWith('Everything open'));
-    // v6.1.20: no quoted commands, no labels, every line a sentence, the Say last.
-    assert.doesNotMatch(t, /"|Their rules?:|You give:|First:|One step away|More to do first|Ready to apply|\(\d+\):$/m, t);
-    for (const l of t.split('\n').filter((x) => x !== '')) assert.match(l, /[.?:]$/, t);
-    if (/\bSay\b/.test(t)) assert.match(t.split('\n').at(-1)!, /\bSay\b/, t);
-  }
-});
 
 // L18-1 (v6.1.18): the rows the rank cap left out of the default view are counted on the more line, which names at
 // most two of them that close this week, in closing order.
@@ -2314,4 +2300,19 @@ test('L36-2: a builder-sent claim past 24 hours asks instead of saying nothing s
   const n = agentNote({ ...one, released: [futo] }, { more: 0 });
   assert.match(n, /The reply asks whether each was sent: FUTO Microgrants\./);
   assert.doesNotMatch(n, /were released/);
+});
+
+// Registered last, so it reads every reply the tests above rendered.
+test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
+  assert.ok(rendered.length >= 100, `${rendered.length}`);
+  for (const t of rendered) {
+    assert.doesNotMatch(t, /\btonight\b|by tomorrow morning/i, t);
+    assert.ok((t.match(/\bSay\b/g) ?? []).length <= 1, t);
+    // v6.1.20 review I5: the whole contract on every fixture reply (the full view has no line budget).
+    builderRules(t, !t.startsWith('Everything open'));
+    // v6.1.20: no quoted commands, no labels, every line a sentence, the Say last.
+    assert.doesNotMatch(t, /"|Their rules?:|You give:|First:|One step away|More to do first|Ready to apply|\(\d+\):$/m, t);
+    for (const l of t.split('\n').filter((x) => x !== '')) assert.match(l, /[.?:]$/, t);
+    if (/\bSay\b/.test(t)) assert.match(t.split('\n').at(-1)!, /\bSay\b/, t);
+  }
 });
