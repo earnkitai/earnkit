@@ -2605,7 +2605,9 @@ test('fix round 1 (v6.1.8, 1b): the one-program line is the list line without it
   const listLine = lineOf(list.show_to_builder as string, r.n);
   const one = await mcpCall(ctx(await installation()), 'find', { program_id: r.program_id, project: PROJECT });
   // v6.1.20: the one-program reply opens with the list row's title and money, then its state sentence.
-  assert.ok((one.reply!.show_to_builder as string).split('\n')[0].startsWith(listLine.replace(/^\d+\. /, '').replace(/\..*$/, '')), listLine);
+  // Fix round 1 (M3): the head, then a space and the state sentence.
+  const head = listLine.replace(/^\d+\. /, '').replace(/\..*$/, '');
+  assert.ok((one.reply!.show_to_builder as string).split('\n')[0].startsWith(`${head} `), listLine);
   const d = replayFetch('nextjs-dashboard');
   const onBase = { name: 'Dashboard', description: 'An admin dashboard.', repo_url: `https://github.com/${d.repo}`, live_url: 'https://dash.example.com', users: true, chains: [{ chain: 'base', mainnet: true }] };
   const c = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: d.fetch });
@@ -4912,5 +4914,45 @@ test('L47-11 (v6.1.22): linked on Codeberg with nothing ready, one closing: the 
     assert.doesNotMatch(text, /I could not read|Send it yourself|\bI apply\b/, text);
     assert.equal(text.match(/\bSay\b/g)?.length ?? 0, 1, text);
     builderRules(text);
+  }
+});
+
+test('Task 2 fix round 1 (M1, M2): off GitHub, a gated do closing removed leaves an action line and no gated offer recorded', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { lastOfferOf } = await import('./installations');
+  await upsertProgram(programFixture({ id: 'fr1-codes', title: 'FR1 Codes Grant', eligibility: [{ kind: 'builder_codes' }] as never }), 'file', NOW);
+  try {
+    const project = { name: 'GL App', description: 'An app.', repo_url: 'https://gitlab.com/fr1/gl-app', live_url: 'https://glapp.example.com', chains: [{ chain: 'base', mainnet: true }] };
+    const { id, builderId } = await linkedWith({ projects: [] });
+    const r = (await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'fr1-codes', project })).reply!;
+    const text = r.show_to_builder as string;
+    assert.equal(text, 'FR1 Codes Grant (up to $5,000). It needs you to add Base Builder Codes to the app first.\n\nI could not read gitlab.com/fr1/gl-app, so I cannot check it is yours. Send it yourself and tell me when it is in.');
+    assert.doesNotMatch(text, /\bI apply\b/, text);
+    assert.ok(!['apply', 'do', 'stop'].includes((await lastOfferOf(id)) ?? ''), String(await lastOfferOf(id)));
+    builderRules(text);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'fr1-codes'`;
+  }
+});
+
+test('Task 2 fix round 1 (M1): off GitHub with a kept sent ask, no gated offer is left recorded (guard: L46-9 makes the closing plain beside a kept Say)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { lastOfferOf } = await import('./installations');
+  await upsertProgram(programFixture({ id: 'fr1-sent', title: 'FR1 Sent Grant', submit: 'builder' } as never), 'file', NOW);
+  try {
+    const project = { name: 'GL Notes', description: 'A note-taking CLI.', repo_url: 'https://gitlab.com/fr1/gl-notes', users: true };
+    const { id, builderId } = await linkedWith({ projects: [] });
+    const { claim } = await import('../v6/claims');
+    const { ownerKey } = await import('../v6/builders');
+    const { projectKeyOf } = await import('./project-input');
+    await claim(ownerKey(id, builderId), 'fr1-sent', projectKeyOf(project), id, NOW);
+    const r = (await mcpCall({ ...ctx(id, new Date(NOW.getTime() + 2 * H)), builderId }, 'find', { project })).reply!;
+    const text = r.show_to_builder as string;
+    assert.match(text.split('\n').at(-1)!, /^Did you send FR1 Sent Grant\? Say sent and I note it\.$/, text);
+    assert.doesNotMatch(text, /\bI apply\b|Send it yourself/, text);
+    assert.ok(!['apply', 'do', 'stop'].includes((await lastOfferOf(id)) ?? ''), String(await lastOfferOf(id)));
+    builderRules(text);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'fr1-sent'`;
   }
 });

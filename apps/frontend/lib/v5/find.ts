@@ -1250,10 +1250,14 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   const readyHere = target.id !== null && !!targetRow && ('program' in r ? (r as { verdict?: { status?: string } }).verdict?.status === 'ready' : ((r as FindReply).ready ?? []).length > 0);
   const offDraftSay = offDraft && !keptSay && readyHere;
   const drafts = (against && gate) || offDraftSay;
-  // A kept Say off GitHub (the users question, a sent ask) keeps the offer the reply made.
-  if (!(offDraft && keptSay)) await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
+  // A kept Say off GitHub (the users question, a sent ask) keeps the offer the reply made; fix round 1 (M1): never a
+  // gated offer (apply, do, stop) whose closing the gate took away.
+  if (!(offDraft && keptSay) || GATED_OFFERS.has(await lastOfferOf(ctx.installationId))) await markOffer(ctx.installationId, drafts ? 'draft' : null, ctx.now);
+  // Fix round 1 (M2): off GitHub with nothing to draft and the gated closing taken away, the reply still ends on an action:
+  // the could-not-confirm line (the users question, when the reply asked it, is a kept Say).
+  const offClosed = offDraft && !keptSay && !offDraftSay && /\bSay\b/.test(closingLine);
   const body = against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO]
-    : offDraft ? (offDraftSay ? [...kept, '', draftToSend(target.named)] : kept)
+    : offDraft ? (offDraftSay ? [...kept, '', draftToSend(target.named)] : offClosed ? [...kept, '', CANT_CONFIRM_REPO(key)] : kept)
     // v6.1.20 review C1: a line that keeps the Say stays last; the could-not-confirm sentence goes before it.
     : keptSay ? [...kept.slice(0, -1), CANT_CONFIRM_REPO(key), '', kept.at(-1)!] : [...kept, '', CANT_CONFIRM_REPO(key)];
   return {

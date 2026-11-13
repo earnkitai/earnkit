@@ -1252,8 +1252,11 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const l = r.ledger;
   // L29-1 (v6.1.16 Task 15): the applications by name; the counts and totals are /me's and the JSON's.
   // Task 2 (v6.1.22): a program whose row says its earlier-round win leaves that win out of this line (said once).
-  const earlierOnRow = new Set([...ready.filter((p) => !p.in_person), ...steps].filter((p) => p.earlier_win !== undefined).map((p) => p.program_id));
-  const apps = applicationsLine((r.applications ?? []).filter((a) => !(a.status === 'won' && earlierOnRow.has(a.program_id))), now);
+  // Fix round 1 (I1): only a row the 10-line cap keeps on screen, so the line is settled after the fit (`appsAfter`).
+  const earlierOnRow = new Set([...ready, ...steps].filter((p) => p.earlier_win !== undefined).map((p) => p.program_id));
+  const apps = applicationsLine(r.applications ?? [], now);
+  const appsAfter = (shownIds: string[]): string | null =>
+    applicationsLine((r.applications ?? []).filter((a) => !(a.status === 'won' && earlierOnRow.has(a.program_id) && shownIds.includes(a.program_id))), now);
   const since = first ? null : sinceLine(r, now);
   // L23-16 (v6.1.16): the same list as the last find, and nothing else moved. L35-21 (v6.1.17): the same day reads "your
   // last look", never today's date.
@@ -1311,7 +1314,11 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const opening = openingSentence({ name: o.name, ready: free.length, held: heldReady.length, onHold: onHold.length, steps: steps.length, inPerson: attendCount, act: readyAct });
   const room = DEFAULT_LINES - (sayLine ? 1 : 0) - 1 - (attendRows.length > 0 ? 1 : 0);
   const once = fit(slots, room);
-  const { kept, hidden, shown, rows } = attendRows.length === 0 && hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
+  const fitted = attendRows.length === 0 && hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
+  const { hidden, shown, rows } = fitted;
+  // Fix round 1 (I1): the applications line drops an earlier-round win only when its row is shown; a line left empty goes.
+  const settled = apps ? appsAfter(shown) : null;
+  const kept = apps && settled !== apps ? fitted.kept.flatMap((l) => (l === apps ? (settled ? [settled] : []) : [l])) : fitted.kept;
   const left = hiddenOf(shown) + capHidden;
   // Task 7 (v6.1.18): by id, never by title (two programs may share one).
   const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shown.includes(c.program_id) && !attendIds.includes(c.program_id)).map((c) => ({ ...c, title: shortTitle(c.title, o.shorts?.get(c.program_id)) }));

@@ -2352,3 +2352,19 @@ test('L47-S2 (v6.1.22): drafted programs are one line', async () => {
   assert.deepEqual(d('A', 'B', 'C'), ['Drafted, waiting for you to send: A, B and C.']);
   assert.deepEqual(d(), []);
 });
+
+test('Task 2 fix round 1 (I1): an earlier-round win whose row the 10-line cap hides stays on the applications line', () => {
+  const steps = Array.from({ length: 9 }, (_, k) => gap({ title: `Step Grant ${k + 1}` }));
+  const last = { ...steps[8], earlier_win: '$1,000' };
+  const apps = [{ program_id: last.program_id, title: last.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000' }];
+  const hidden = v20(base({ gaps: [...steps.slice(0, 8), last], applications: apps } as never));
+  assert.match(hidden, /^Also: \d+ more in the full list\./m, hidden);
+  assert.doesNotMatch(hidden, /^\d+\. Step Grant 9 /m, hidden);
+  // Said once: on the applications line, since the row is not on screen.
+  assert.match(hidden, /Your applications: Step Grant 9 \(won \$1,000\)\./, hidden);
+  v20Rules(hidden);
+  // On screen, the row says it and the line does not.
+  const shown = v20(base({ gaps: [last], applications: apps } as never));
+  assert.equal(shown.match(/Won \$1,000 in an earlier round\./g)?.length, 1, shown);
+  assert.doesNotMatch(shown, /\(won \$1,000\)|Your applications/, shown);
+});
