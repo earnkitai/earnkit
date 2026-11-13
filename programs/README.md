@@ -142,7 +142,9 @@ read or reported, whose name, description, README excerpt and topics name none o
 `smart contract`, `solidity`, `vyper`, `hook` or `protocol` (whole words): with no chain at all it is a hard no,
 `needs smart contracts to audit`; on a chain it is one step away, `a contract address` (the rule and the program's
 setup wait for it). With contracts the rule stays a question. So an off-chain tool gets no audit program, an app on a
-chain is asked its contract address, and a Solidity protocol before deploy keeps the rule.
+chain is asked its contract address, and a Solidity protocol before deploy keeps the rule. When the project still has
+the program's `chain` or `contract_on` step, that step is asked alone and the address is not asked as well; the item
+order in the file does not matter (v6.1.22: the address is decided after every item).
 
 ```json
 { "kind": "rule", "note": "a defined audit scope: lines of code and contract count", "check": "contracts" }

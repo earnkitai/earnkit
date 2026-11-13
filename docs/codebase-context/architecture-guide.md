@@ -618,11 +618,11 @@ keys from tool-call bodies before anything sees them.
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; the daily run sweeps rows read over 180 days |
-| `applications`, `application_history`, `gaps_done` | The ledger; `applications.sent_at` is the send time (set on `applied`, never by a result) and (v6.1.19 Task 1) `sent_by_installation_id` the installation that recorded the send, both backfilled once at the end of `schema.sql` from the newest `applied` history row (an outside win keeps a null `sent_at`) |
+| `applications`, `application_history`, `gaps_done` | The ledger; `applications.sent_at` is the send time (set on `applied`, never by a result) and (v6.1.19 Task 1) `sent_by_installation_id` the installation that recorded the send, both backfilled once at the end of `schema.sql` from the newest `applied` history row (an outside win keeps a null `sent_at`) ; v6.1.22 L47-6: `applications.earlier_win` (jsonb `{ amount_usd, amounts, at, moved? }`, a win kept from an earlier round, with a one-time idempotent backfill of outside wins dated before the program's `starts_at`) |
 | `sessions` | /me browser sessions (hash only, 30 days); v6.1.19 L43-4: `draft` and `draft_at`, what a refused /me form carried, kept `DRAFT_MS` (15 minutes) |
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered, with the last body's hash (`body_hash`) |
-| `outcome_asks`, `sent_asks` | When each installation was last asked about a program: the results question (daily) and, v6.1.18 Task 4, the "did you send it" question for a builder-sent program (`asked_on`, weekly; key installation and program) |
+| `outcome_asks`, `sent_asks` | When each installation was last asked about a program: the results question (daily) and, v6.1.18 Task 4, the "did you send it" question for a builder-sent program (`asked_on`, weekly; key installation and program; v6.1.22 L47-4: `sent_asks.project_id`, `''` by default, the old primary key dropped for the unique index `sent_asks_installation_program_project` on installation, program and project; a `''` row counts for every project of its program) |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (180 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
@@ -705,7 +705,11 @@ the true state, the reply's Next one rule away and one sent question, cleanup (t
 `sent_asks` sweep), the daily run round 3, tool inputs and the ledger's money; see that section), 6.1.19.1
 (`v6.1.19.1-patch-plan.md`: a coin win keeps up to 8 places and the whole-dollar line is for US dollars only (L47-1), a
 builder send EarnKit filled or tracked counts as drafted (L47-3), a count or score field is never the traction line (L47-5), a
-win lands on its own project's row (L47-2), and the first find re-reads a pre-v6.1.18 row when reads are allowed (L1m-1)).
+win lands on its own project's row (L47-2), and the first find re-reads a pre-v6.1.18 row when reads are allowed (L1m-1)), 6.1.20 (`v6.1.20-reply-plan.md`: the reply reads like a person; see that section), 6.1.21
+(`v6.1.21-install-attribution-plan.md`: people and install attribution; see that section), 6.1.22
+(`v6.1.22-journeys-14-plan.md`: journey campaign round 14, lanes 47, 1m and 46; sent asks per project, earlier-round
+wins, phone and country, the Next yes, the ready line, the rule Say, the draft offer off GitHub, the contract-address
+step, /me project names, the link page, `Asks.contact`; see that section).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -959,7 +963,7 @@ Fund) needs contracts: when `hasContracts(facts)` is false (no contract read or 
 name, description, README excerpt, topics, name none of contract, contracts, smart contract, solidity, vyper, hook,
 protocol as whole words) it is a hard no, `needs smart contracts to audit`, with no chain at all; on a chain it is one
 step, `CONTRACT_ADDRESS` (`repo:contract`, `a contract address`, setup `tell me the contract address`), unless a
-chain step on the program's chain already stands. The rule waits, find's `gapOf` empties the program's setup while the
+chain or `contract_on` step already stands (decided after the item loop, so the item order in the file never matters). The rule waits, find's `gapOf` empties the program's setup while the
 address is the step, `askedOf` never counts its own setup as a second step, and the agent note
 `CONTRACT_ADDRESS_NOTE` says to pass it in project.chains[].contract. Checked before the rule's done, so an earlier yes
 changes nothing; with contracts the rule stays its question (ruling 2, after review).
@@ -1258,7 +1262,7 @@ not keep, and every open or closed decision is read from the clock at request ti
   only claims and skips.
 - **Did you send it (v6.1.18 Task 4, L18-4, L36-1, L36-2).** For a program the builder submits themselves
   (`submit: 'builder'`), `askSent` (ledger.ts) lists every unheld `started` row at least `SENT_ASK_AFTER_HOURS` (1) old;
-  `sentAsksDue` (table `sent_asks`, one row per installation and program) asks each once per installation every
+  `sentAsksDue` (table `sent_asks`, one row per installation and program; v6.1.22 L47-4: and project) asks each once per installation every
   `SENT_ASK_EVERY_DAYS` (7): `Did you send {title}? Say sent and I note it.` (`ask_sent`, `sentLines`, ONE_SAY_ORDER
   after the started lines). v6.1.19 L41-11: one question per reply naming each program once (`Did you send A and B?
   Say which you sent and I note them.`, three named then `and {k} more`; `sentAskOf` in reply.ts builds it and the ids it
@@ -1341,7 +1345,7 @@ means what the last `Say` offered.
   standing list, listed under `On hold until you say go (n):` with `held: true`; `started` from any installation lifts
   it; an `applied` on it is recorded with `The builder held this one; tell them it went out.`
 - **Track.** The lookup is strict (`programByName(..., { strict: true })`): an exact id or title, or title words with one
-  outside `COMMON_WORDS`; else `Which program do you mean?` (`WHICH_PROGRAM`) and nothing is written. Started has no builder text (its agent note opens `Started {title}.` and carries the 24 hours), `Skipped {title} for good. Say bring it back and I list it again.`, and gap_done with no item on a rules-only
+  outside `COMMON_WORDS`; else `Which program do you mean?` (`WHICH_PROGRAM`) and nothing is written. Started has no builder text (its agent note opens `Started {title}.` and carries the 24 hours), `Skipped {title} for good. Say bring it back and I list it again.` (v6.1.22 L47-15: `Skipped {title} for good. Say unskip and I bring it back.`), and gap_done with no item on a rules-only
   program asks `Which rule fits you? Say the program.` (v6.1.19 L45-15: on any named program `Which change did you
   finish on {title}?`, `WHICH_RULE` gone; `WHICH_CHANGE` only for an unknown program)
 - **Record.** Own keys only (`allowedKey`): `"__proto__" is not something I keep`; every policy spelling is one
@@ -1385,8 +1389,9 @@ means what the last `Say` offered.
   if that is you." (`openRules`, `ruleFirst`); an agent's applied on an in-person program "{title} is applied for in
   person; nothing to send." A win with no application writes the builder's own send then the win in one transaction
   (`record`'s `outsideWin`, answers `outside`): "Recorded: {title} won, {money}. Noted as sent by you outside
-  EarnKit." Started has no builder text (its note opens "Started {title}."); applied says "Sent {title}."; skips say
-  "Say bring it back and I list it again." with the note's "On \"bring it back\", call track with unskip."
+  EarnKit." (v6.1.22 L47-14: "Recorded: {title} won, {money}. Noted: a win outside EarnKit.") Started has no builder text (its note opens "Started {title}."); applied says "Sent {title}."; skips say
+  "Say bring it back and I list it again." with the note's "On \"bring it back\", call track with unskip." (v6.1.22
+  L47-15: "Say unskip and I bring it back.", note "On \"unskip\", call track with unskip.")
 - **Record (L29-4, L29-5, L29-11, L29-20, L29-24).** A policy set (linked) answers "Standing approval is yours to turn
   off at earnkit.com/me. Until then say stop for a program and I hold it." with no missing list, the note "On stop,
   call track with status held for each program named."; unlinked "There is no standing approval on this agent."; an
@@ -1628,7 +1633,9 @@ means what the last `Say` offered.
     (v6.1.19 L1l-6: for a repo not on GitHub, which a GitHub sign-in cannot tie to the builder, `signInFirst(link,
     offer, why)` says `so I can check your users`, and the yes drafts: `Sign in at {link} so I can check your users,
     then say yes and I draft it for you to send.`, `SIGN_IN_DRAFT`, heading `Ready for you to send (n):`, offer `draft`,
-    note `DRAFT_NOTE`; signed in, the could-not-confirm reply keeps its words and carries `DRAFT_NOTE`)
+    note `DRAFT_NOTE`; signed in, the could-not-confirm reply keeps its words and carries `DRAFT_NOTE`; v6.1.22 L1m-4: with
+    users reported, `Sign in at {link} and say yes, and I draft it for you to send.`; L47-9: linked off GitHub, a
+    program with a form keeps the draft offer and no could-not-confirm line, see the v6.1.22 section)
     (`signInFirst` in ledger.ts; a builder setup step stays between: `..., then publish X, then say yes and I apply.`;
     no link: `Sign in so I know the repo is yours, ...`). `APPLY_OFFER` already reads the merged form (`, then say yes
     ... I apply`), so a reply gated twice keeps one sign-in, and no apply is ever offered before it.
@@ -1804,7 +1811,8 @@ The /me rules are in the v6.1 section (`/me keeps what was typed`, the answers, 
   builder`; else `Say which repo is yours.` as before (L41-8). `withinLines` keeps the reply within 10 lines (the more
   line, then the Before line, then body lines from the end go first).
 - The caller's own fresh draft of a builder-submitted program reads `{title}: drafted, waiting for you to send.`
-  (`draftedLines`, JSON `drafted`) and leaves the Ready rows and the need line (L41-2).
+  (`draftedLines`, JSON `drafted`) and leaves the Ready rows and the need line (L41-2). v6.1.22 L47-S2: several drafts
+  are one line, `Drafted, waiting for you to send: {a} and {b}.` (three named, then `and {k} more`).
 - A demo link given once is kept: `saveReport` keeps the stored `demo_url` when a new report has none, and find takes
   `demo_url` from the call, else the kept report, else the record project's (`withDemo`; L41-4, M3). A `demo_url` sent
   empty or as a word that says none (`none`, `no`, `n/a`, `remove`, `clear`, `delete`; `demoCleared`) clears the kept
@@ -1827,7 +1835,7 @@ See the freshness pipeline (the closed read, landing pages) and the daily job (n
 
 ### Task 7: tool inputs and the ledger's money (lane 45)
 
-- A result never erases a win (`WIN_KEPT` in `ledger.record`): the builder's rejected or no result over a win writes nothing; a screen's rejection is a history row beside the win (`beside`), and `screen_outcomes` never replaces a kept win with a non-win (`OUTCOME_NOTES.beside`).
+- A result never erases a win (`WIN_KEPT` in `ledger.record`): the builder's rejected or no result over a win writes nothing; a screen's rejection is a history row beside the win (`beside`), and `screen_outcomes` never replaces a kept win with a non-win (`OUTCOME_NOTES.beside`). v6.1.22 L47-16: `WIN_KEPT` reads `{title} already has a win here ({money}); say won again with the new amount to change it.` (no amount: `... say won again with the amount to change it.`).
 - Money: only `KNOWN_CURRENCIES` (USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, BRL, ETH, BTC, SOL, USDC, USDT; a code is 2 to 6 letters, any other well-formed one is `{ unknownCurrency }`, one sentence naming every unknown code, then `Say the amount with its currency.`). Every known code has a `CAP_RATES` rate used for the cap (and, but for the coins, the under-a-dollar check) only, never shown: the fiat rates, USDC and USDT at 1, and cap-only upper bounds ETH 10,000, BTC 250,000, SOL 1,000 (fix round 1, security: `capWeight` is `usdAt ?? Infinity`, so a coin never weighs 0 and the uncapped path and `UNCAPPED_NOTE` are gone); the win is recorded in its own currency. A win under $1 after conversion is refused (`UNDER_A_DOLLAR`, checked in `ledger.record` once the currency resolves); final fix round M3: a coin is weighed for this floor at its `FLOOR_RATES` low bound (ETH 1,000, BTC 20,000, SOL 20), so a coin win passes only when worth a dollar even at a low price (0.00005 ETH refused, 0.001 ETH passes); the cap keeps the high bounds. Money arguments on any status but won are an input error; payment keys are cleaned before compare; a key repeated in one screen call counts once.
 - Next needs (`installations.next_needs`) keep each need's form field (`{ w, k, p, j }`), so record drops a need as soon as the record fills it (`recordValue`, `heldWords`); get then says `Saved. The next application needs nothing more.`
 - Inputs: gap items match loosely (`gapItemOf`), a wrong one is an input error; any number off the last list reads `LIST_GONE`; `earnkit.com/programs/<id>` is the id (`programIdOf`); echoes cut on a word (`echoName`); unknown chain words are dropped and said apart from the corrections (`CHAIN_KEPT`: `chain celo dropped: no program here asks for it`, fix round 1 M3), a bare chain id reads through the registry; repo links with no scheme, SSH or `/tree/` read alike in find and record (`withScheme`, `githubRepoLink`); empty-after-cleaning record values and screen refs are refused; ISO country codes and post-1970 commit dates only; `/me` policy numbers take digits only.
@@ -1841,7 +1849,7 @@ See the freshness pipeline (the closed read, landing pages) and the daily job (n
 Plan `v6.1.19.1-patch-plan.md`.
 - Money places (L47-1): `placesOf` (8 for ETH, BTC, SOL; 2 else) and `roundIn` in `amount.ts`; the ledger, a further
   payment (`addMoney` by currency) and the screen store a win at its places (`{"ETH":0.001}`); `moneyText` shows a coin's
-  places with no trailing zeros (`ETH 0.001`). `UNDER_A_DOLLAR` is for US dollars only; another currency under the
+  places with no trailing zeros (`ETH 0.001`). `UNDER_A_DOLLAR` (v6.1.22 L47-13: `Tell me the amount, 1 dollar or more.`) is for US dollars only; another currency under the
   floor reads `UNDER_A_DOLLAR_OTHER` (`underADollarLine`). The floor still weighs a coin at FLOOR_RATES.
 - Drafted (L47-3, review I1, M1): `throughEarnkit` also holds for a dated builder send recorded by an installation when
   the send carries the fields EarnKit filled (`fields_used` not empty), or that installation confirmed a rule or brought
@@ -1935,7 +1943,8 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
 - **Full list.** `Everything open for {name}, nearest first:` then runs `Ready:` (held rows say so on the row), `Not
   ready yet:`, `In person:`, no counts; rows `{n}. {title} ({money}, closes ...).`; the closing as the default's.
 - **One program.** `{title} ({money}{, closes}). {state}`, a blank line, the action: `It is ready: {what EarnKit does}.`
-  (`readyState`), `It needs {gap} first.` / `It needs one yes from you: {rule}.` / `It needs {a}, {b} and your yes that
+  (`readyState`; v6.1.22 replaces it: `{title} ({money}) is ready to send.` or `{title} ({money}) is ready: {action}`,
+  see the v6.1.22 section), `It needs {gap} first.` / `It needs one yes from you: {rule}.` / `It needs {a}, {b} and your yes that
   {rule}.` (`gapState`), in person `You attend in person.` then the odds and needs (`inPersonState`); no-project rule
   lines `It needs one yes from you: {rule}.` (`ruleAsk`); `Say do and I ... first.`.
 - **Open list.** `Open now: {k} programs. The five nearest:` (or `..., nearest first:` for the full or a short list),
@@ -1969,7 +1978,7 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
   apply, do, stop; not a draft closing nor the users yes that signs in) and every apply wording (`APPLY_WORDS`), and
   `withoutSteps` always runs. `gateLines` takes the gated closing out (said again after the sign-in), every apply line,
   tail and at-once sentence (`APPLY_NOW`: a yes that stands, `Say go`, standing), and rebuilds rows by shape
-  (`gatedRow`: the opening, `{n}. {title} ({money}).` rows, the one-program `It is ready:`); a draft path reads `ready for
+  (`gatedRow`: the opening, `{n}. {title} ({money}).` rows, the one-program `It is ready:`, v6.1.22 `is ready to send.` / `is ready: {action}`); a draft path reads `ready for
   you to send`. When another line keeps the Say (sent, not-sent, started), no sign-in closing is added. `signInFirst`
   says go, do and draft offers after the sign-in and keeps a program's own sign-in step (M7).
 - **I3.** A license no read has seen (`license` undefined: paused, slow, unread, another host, an untrusted old row) is
@@ -1978,7 +1987,7 @@ JSON and every agent note are as before (the agent's hidden lines keep their old
 - **I4.** An empty category filter marks no sent ask, keeps the account notice and ends `Say all and I list them.`.
 - **I5.** `fixtures/builder-rules.ts` (`builderRules`): the 10-line budget, one sign-in sentence, no em dash, emoji or
   banned word, one ask sentence; run over every reply.test fixture and every find.test reply (gated or not).
-- M1 `shortTarget` names the draft by its short title; M2 the standing one-program state is `It is ready.`; M3 `First,
+- M1 `shortTarget` names the draft by its short title; M2 the standing one-program state is `It is ready.` (v6.1.22: `{title} ({money}) is ready to send.`); M3 `First,
   you` only for a verb setup; M4 `nextNeedsLine` says an approval as `Approve it at earnkit.com/me and I use it.`; M9
   `moreInFull`, `inPersonShort`, `inPersonHead` deleted. I2: Arbitrum Open House carries `short_title`.
 
@@ -1988,7 +1997,7 @@ Design: `design-docs-and-implementation-plans/v6.1.21-install-attribution-plan.m
 (`people`, `lib/v6/people.ts`): made in `saveInstallation`'s transaction, joined to the builder's person by
 `linkInstallation` (`linkPerson` locks the builder row first, so two first links make one person). `testReasonFor`
 flags owner, dogfood, persona, repro and test people: the env lists (proven identities only) and the client-name
-patterns (a lane prefix `l<n>-`, or `persona`, `journey`, `dogfood`, `repro`, `test` as a whole word between dashes,
+patterns (a lane prefix `l<n>-`, or `persona`, `journey`, `dogfood`, `repro`, `test` (v6.1.22: also `firstrun`, `audit`, and a `lane` then a space or digit prefix) as a whole word between dashes,
 underscores, spaces or the ends, in a name that has a separator; so `Personal Assistant` and a bare `Journey` are
 real). Only env-list reasons reach a builder's person at link; a client-name reason stays on the installation's old
 person. `/api/stats` `installs_real` leaves flagged people out.
@@ -2005,3 +2014,102 @@ installations; `--reflag [--apply]` re-evaluates every person's reason from the 
 clears one; only a stronger one replaces it: owner over dogfood over test, persona and repro); `--unflag <b:id | i:id |
 p:id> [--apply]` clears one person's reason by hand (source `unflagged`; nothing automatic flags it again). All are
 dry runs unless `--apply`. The script reads the env lists from its own shell: export them before running.
+
+## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
+
+Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the
+v6.1.18 sent-ask key, the v6.1.20 `It is ready:` lines, the older skip, outside-win and win-kept wordings).
+
+### Task 1: the ledger and sends (lane 47)
+
+- **Sent asks per project (L47-4).** `sent_asks.project_id` (`''` by default; unique index on installation, program
+  and project). `markSentAsked(installationId, owner, asks: { program_id, project_id }[], now)`; `sentAsksOpen` matches
+  a due ask by program and project, and a `''` row (from before this release, or a started row with no project)
+  counts for every project of its program, so nothing is asked twice in its 7 days. `askSent` keeps one ask per program
+  and project (earliest start), so a no-project find names each project. A kept claim's release line takes the
+  project of its due ask (`Released.project_id`).
+- **Earlier-round wins (L47-6).** `applications.earlier_win` (jsonb `{ amount_usd, amounts, at, moved? }`) holds a win
+  from an earlier round on the row: `record`'s outside path writes it when the program is upcoming at `now`, and the
+  schema backfills once (an outside win dated before `starts_at`). `isEarlierRound(row)` (ledger.ts): `won`, an
+  `earlier_win`, not `moved`. Such a row never blocks the new round: `excluded`, `resultOf`, `sentForRepo`,
+  `formerSentAt` and track's `sentHere` skip it; `claim` takes it (`status` started, amounts cleared, `moved` set); an
+  `applied` straight over it, or a plain `won` once the program is open, is the new round's and moves it the same way;
+  a moved win is never overwritten. The builder reads `Won {money} in an earlier round.` (`EARLIER_WIN`, money by
+  `earlierAmounts` and `amountsText`) after the program's sentence, in the one-program reply and after a list row
+  (`earlierWins`, `earlierWinOf`), and the applications line leaves that win out while its row is on screen. Stats:
+  `wonOnce` adds each moved earlier win as one more counted win; an unmoved one is the row's own win and counts once.
+- **Phone and country (L47-7).** `contactValue` (prefill.ts) fills a field naming `phone` or `mobile` (whole word)
+  from `person.phone`, and one naming `country` from `person.based_country` as its English name (`countryName`); a
+  country label naming a company or entity stays the builder's. The missing list and `You give` agree.
+- **The Next yes (L47-8).** `RememberedGap.next`; a `gap_done` that confirms the rules the Next line named answers
+  `Noted; I apply now.` (`NEXT_NOTED`; a program the builder sends `Noted; I draft it for you to send.`,
+  `NEXT_NOTED_DRAFT`) with `NEXT_GAP_NOTE(id)`: call track started and fill the form from next.fields, no find. Any
+  other rule gap_done keeps `Tracked: that rule fits you.`
+- **Wordings (L47-14 to L47-16).** `OUTSIDE_WIN` `Recorded: {title} won, {money}. Noted: a win outside EarnKit.`;
+  `WIN_KEPT` `{title} already has a win here ({money}); say won again with the new amount to change it.`; skips
+  `Skipped {title} for good. Say unskip and I bring it back.` with `BRING_BACK_NOTE` `On "unskip", call track with
+  unskip.`
+- **Empty repo (L1m-5).** `repoGaps` gives an empty repo `NEEDS_CODE` on every `needs_repo` program, hackathons and
+  events included; the license rule waits behind it as behind any repo step.
+
+### Task 2: the reply (lane 1m, lane 47, the live check)
+
+- **The one-program ready line.** `readyState`: `{title} ({money}) is ready to send.` (plain apply, standing
+  approval); `{title} ({money}) is ready: I add the funding file to your repo, then apply.` / `... is ready: I draft
+  it for you to send.`; `{title} ({money}) is ready, and your yes stands.`. `gatedRow` reads these shapes (strip to
+  `is ready to send.`, draft to `is ready: I draft it for you to send.`). No `It is ready` remains.
+- **The rule Say only on One step away rows (L1m-2).** `askable` keeps a step row only when its one item is its rule
+  and neither the row nor any item carries a setup, so a setup-plus-rule row under More to do is never the closing's
+  yes (Chainlink closes on the users question).
+- **Off GitHub (L1m-4, L47-9 to L47-11).** A ready manifest row drafted off GitHub reads `{n}. FLOSS/fund ($10,000 to
+  $100,000). I draft it for you to send. You give your funding manifest link.` (`MANIFEST_GIVE`). Signed out with
+  users reported, `SIGN_IN_DRAFT` reads `Sign in at {link} and say yes, and I draft it for you to send.` Linked, a repo
+  off GitHub and a program with a form: no `CANT_CONFIRM_REPO`; the draft lines stay, a kept Say stays (a gated stored
+  offer is reset), and with a ready row and no Say the closing is the draft offer (`DRAFT_NOTE`). `CANT_CONFIRM_REPO`
+  stays only where EarnKit cannot draft, and it closes the reply when nothing else does (fix round M2). Nothing ready
+  off GitHub: one closing, the users question. Track `started` signed out on a repo off GitHub: `Sign in first so I can
+  check your users.` (`SIGN_IN_USERS`, note `SIGN_IN_USERS_NOTE`).
+- **Smaller.** L47-13 `UNDER_A_DOLLAR` `Tell me the amount, 1 dollar or more.`; L47-S2 several drafts in one line
+  (`Drafted, waiting for you to send: {a} and {b}.`); L47-S1 `NextReady.alt`, a second one-yes program in
+  `NEXT_NOTE` only (the builder line is one Next); L47-17 an incomplete cached row whose re-read answers not found or
+  private is a miss to find and track alike (already so in `cachedCodeFacts`, now pinned).
+- **The agent may translate.** The find agent note opens `Show find's reply as given, translated into the builder's
+  language when they write in another one; ...`; the server instructions carry the same rule (`SHOW_REPLY`, Task 4).
+
+### Task 3: /me and the link (lane 47, lane 46)
+
+- **/me project names (L47-12, L46-16).** When the ledger rows name more than one project, each row with one carries
+  `project` (by `projectNames`, else `projectLabel`, cut at 60, shown in `<bdi>`); one project keeps the bare title.
+  Projects seen outside the record read by the name the agent passed (`Invoicely: 1 application.`), never the repo
+  link; a key with no label is left out.
+- **/me earlier-round wins (L47-6).** A row with an unmoved `earlier_win` reads `Won {money} in an earlier round.`;
+  once the new round started the row reads as itself and that sentence follows. It reads `a.earlier_win` and ledger.ts's
+  `EARLIER_WIN`, `earlierAmounts` and `EarlierWin`.
+- **The link page (L46-14).** /link asks nothing: `Sign in to link "{name}".` (`LINK_SIGN_IN_PARTS`, unnamed `Sign in
+  to link your agent.`), `First seen {day}. You confirm the link after you sign in.` (`LINK_CONFIRM_LATER`) and
+  `Continue with GitHub`. /me's banner keeps the one question, `Link "{name}" to your GitHub account?`, its line
+  `First seen {day}. Once linked, it can read and change your record and apply in your name. If you did not just ask
+  your agent for this, choose This is not me.`
+- **Asks.contact (L46-17).** `itemsOf` names `your name` and `your email` only when `Asks.contact` is not false;
+  `missingFor` sets it when a form of those rows has a contact field whose key or label names a name or an email, so
+  FLOSS/fund (the manifest link alone) asks neither.
+
+### Task 4: eligibility and agent rules (lane 46)
+
+- **The contract-address step for audit programs (L46-10).** A rule with `"check": "contracts"` (ESSP, Arbitrum
+  Security, Uniswap Security Fund): with no contracts read, reported or named (`hasContracts`), no chain at all is a
+  no, `needs smart contracts to audit`; on a chain the one step is `CONTRACT_ADDRESS` (`needs a contract address
+  first.`, closing `Tell me the contract address and I look again.`, agent note `CONTRACT_ADDRESS_NOTE`). It is
+  decided after the item loop: a `chain` or `contract_on` step on the program's chain is asked alone, whatever the item
+  order. While the address is the step, find empties the program's setup and `askedOf` never counts it as a second step
+  (both compare on `CONTRACT_ADDRESS.item`). With contracts the rule stays a question.
+- **Translate (L46-11).** `SHOW_REPLY` is the server instructions' second sentence, quoted by llms.txt.
+- **Form changes (L46-15).** `since` says `form changed` only for a program this owner started and has not sent or held.
+
+### Merge and finish
+
+- Persona client names (people.ts): `lane` followed by a space or a digit (`Lane 1h`, `lane1k`) is a persona tag, and
+  `firstrun` and `audit` join the whole-word list (with a separator: `firstrun-audit`, `ek audit`); `Lane`, `Lanely`,
+  `lane-1`, `Auditor Pro` and a bare `Audit` stay real.
+- Go-live: run `db/schema.sql` on deploy (the `sent_asks` key and `applications.earlier_win` with its backfill, after
+  v6.1.21's people lines). Nothing new in the environment.
