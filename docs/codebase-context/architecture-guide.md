@@ -179,16 +179,18 @@ The pipeline, in order:
    failing check and cleared by a clean one, so two runs a minute apart across midnight are not stale; a parked page
    for sale or a soft 404 counts as down, L30-8), closes an active or upcoming program whose deadline passed and opens an upcoming one
    at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is named in the
-   digest's could-not-read list (v6.1.17 Task 3) until its file has them; a closed program may have none). A redirect to another host counts as alive
-   (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
+   digest's could-not-read list (v6.1.17 Task 3) until its file has them; a closed program may have none). A redirect to another host counted as alive
+   (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`) until v6.1.19, which judges it on its
+   landing page (L44-4, below). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
    listed in the owner's digest and never marks the program stale. v6.1.18 (L39-5): a submission page that answers but
    whose text says it is closed (`is now closed`, `applications are closed`, `no longer accepting`, `closed for
    submissions`, any case; `formSaysClosed` in `health.ts`) is stored as `submit_closed` and, for an active program
-   only (an upcoming program's form is closed until it opens; v6.1.18 final fix, M1), listed in the digest's
-   failing block as `{title}: the form says it is closed ({url})`; it never marks the program stale and never changes
-   `submit_ok`. A redirect to another host is followed only for this read (`landingPage` in safe-fetch: https, public
-   addresses, at most `LANDING_MAX_REDIRECTS` (3) hops), so forms.gle reaches the Google form; the link check itself still never follows. A program unverified or stale for `STALE_DAYS`
+   only (an upcoming program's form is closed until it opens; v6.1.18 final fix, M1), listed in the digest (v6.1.18:
+   in the failing block; v6.1.19: its own block, `Forms that say they are closed`, below); it never marks the program
+   stale and never changes `submit_ok`. A redirect to another host is followed only for this read (`landingPage` in safe-fetch: https, public
+   addresses, at most `LANDING_MAX_REDIRECTS` (3) hops), so forms.gle reaches the Google form; in v6.1.18 the link check
+   itself never followed (v6.1.19 judges the link on that landing, below). A program unverified or stale for `STALE_DAYS`
    (12, v6.1.17 Task 3) leaves the open list, so a page that stays down leaves within 14 days of its first failure.
    v6.1.19 (lane 44): the closed read (`closedRead` in `health.ts`) covers the usual wordings (`applications are (now)
    closed`, `this form is closed`, `submissions are closed`, `applications closed`, `registration is closed`, `the call
@@ -198,7 +200,10 @@ The pipeline, in order:
    program's own description and rules sentences taken out (L44-7); a page whose every closed sentence names a round or
    a region while it also says something is open (`is open`, `now open`, `apply now`) reads `round` (`closed_round`).
    The source page is read the same way when it is another link (L44-19; `closed_on` says `form` or `source`, the
-   form's own read first), and `closed_since` keeps the day it first said the same. A link that redirects to another
+   form's own read first), and `closed_since` keeps the day it first said the same. A run that could not read the form
+   or the other source page, and read nothing saying closed, keeps the stored closed state and its `closed_since`
+   (`Health.closed_unread`, Task 6 fix round 1 M1); `dropHiddenElements` reads a `>` inside a quoted attribute as part
+   of the value (M2). A link that redirects to another
    host is judged on its landing page (L44-4): `probeLink` returns the Location and the redirects it took, and
    `landingPage` starts there (L44-15: no hop fetched twice), every hop guarded as before; a landing that is a 4xx, 5xx,
    an error page or a name that does not resolve makes the link fail (stale after 20 hours, as a direct link), a 401,
@@ -322,7 +327,8 @@ claim taken before a co-founder's send is recorded (`COFOUNDER_SENT_NOTE`). A ho
 `off_repo` link never blocks another builder (controller ruling), it only adds `OFF_HOST_SENT_NOTE` (`offHostSent`).
 List references: `listRef` (programs.ts) reads `#N`, `N.`, `No. N`, `no N` and number words one to twenty against the
 last list's stable numbers, in track and find's `program_id`; in track a token shaped like a list number
-(`looksLikeListRef`) that is none matches only an exact id, never a title.
+(`looksLikeListRef`) that is none matches only an exact id, never a title; v6.1.19: a list-shaped number the last list
+does not hold reads `LIST_GONE` (`listMiss`, see List holes).
 
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
@@ -378,7 +384,7 @@ the default and `filter.all` replies name the same list; when it names programs 
 says to call find with program_id for their fields. L13-10: a program outside the approval only by its award (its
 blocker's `over_limit_usd`) reads "you say yes yourself to {titles}, over your {limit} limit". L13-18: the line reads
 "Your applications: {n} sent, {n} won ({$}), {n} rejected, {n} waiting{, n closing soon}." with each zero count left
-out. L13-17: the since line leaves out a close that a listed line already says.
+out (v6.1.19 L43-8: `{n} no result` before waiting, which counts applied rows only). L13-17: the since line leaves out a close that a listed line already says.
 
 v6.1.16 Task 4 (lane 17 races): every skip and gap_done decision runs inside `record` under the per-program lock, so
 30 parallel skips write one row: a repeat answers "Already skipped." with no history row, a sent program "That one was
@@ -424,8 +430,8 @@ the run's UTC day) (`id` a program's, or null for a whole step; `error` a code b
 goes only to the `[cron]`/`[health]` server log line), 200 with the list, 500 only when every step failed. v6.1.17
 Task 3 (L30-18, L35-18): a stored row that no longer parses and an upcoming program at its start with no form are not
 failures (the `parse` code is gone) but `health.unreadable`, each named in the digest as `{id}: {fix}`
-(`UNREADABLE_FIX`), so they no longer turn every run red. A run that answers 200 stores its time in the one-row
-`cron_state` (`last_run_at`, never moved back; step `last_run`, listed in `failed` if the write fails); `/api/stats`
+(`UNREADABLE_FIX`), so they no longer turn every run red. A run that answers 200 (from v6.1.19, and finished its link
+check) stores its time in the one-row `cron_state` (`last_run_at`, never moved back; step `last_run`, listed in `failed` if the write fails); `/api/stats`
 shows it as `last_run_at` (within its 10-minute cache) and the next digest names a gap over `GAP_HOURS` (26): `No daily run finished for {n} hours
 before this one; the last was {day time} UTC.` (L30-14; fix round 1, M2: the gap belongs to the UTC day, from the last run
 before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a new day) to the day's first run
@@ -439,7 +445,8 @@ before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a
 change to live programs since the last digest, with revert links; nothing happened, nothing sent; v6.1.18 Task 5,
 L18-5, v6.1.19 L42-7: when the previous UTC day had sends, a `{n} sent yesterday: {a} by agents, {d} drafted here,
 {r} from outside. {total} to date.` line (`total` the dated sends through the end of yesterday) with one
-`- {title} ({id}): {k}` line per program, most first; a day with none adds nothing; a send is dated by `sendTime` in
+`- {title}: {k} sent` line per program (L44-18; `- {title} ({id}): {k}` before v6.1.19), most first; a day with none
+adds nothing (v6.1.19 L44-9 carries in missed days, below); a send is dated by `sendTime` in
 `stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) answers `sent`,
 `none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
@@ -467,13 +474,22 @@ could not read`; an upcoming program at its start with no form, by title, under 
 - `Programs the run could not read`, `Programs to fix`, the deadline closes and the openings as before;
 - `Links that did not load`: `- {title}: down {since today | 1 day | 4 days} ({url})`, from `first_failed_at`;
 - `Forms that say they are closed` (L44-6, active programs only): `- {title}: the form says it is closed, {age} ({url})`
-  (`the page says` and the source link when the source page said it), and `- {title}: the form says one round is closed
-  ({url}); check it.` on the day `closed_since` began only (L44-7);
+  (`the page says` and the source link when the source page said it; a kept closed state, M1, is listed only while
+  the link it names loads, `submit_ok` for the form, `source_ok` for the page), and `- {title}: the form says one
+  round is closed ({url}); check it.` once: in the first digest whose cutoff it passed, `closed_since` after the
+  `sent_at` of the last digest of an earlier UTC day (`roundFrom`, the epoch when there is none; fix round 2), so a
+  round that began on a day no digest covered is named once in the next one and a same-day rerun builds the same body
+  (L44-7; fix round 1 I1: never again on a later day, even when a down link pulls the program in);
+- ages (`down {n} days`, the closed form's age) count UTC calendar days from each day's start (`daysSince`: the day's
+  start minus the UTC day of `first_failed_at` or `closed_since`, as `fail_days`; fix round 1 I2), so a run 5 seconds
+  earlier the next day reads `1 day`;
 - a program no longer on the builders' list (`listListedPrograms`: stale over `STALE_DAYS`, unverified) reads
   `{title} (not listed)` in both blocks (L44-8);
 - the changed pages and the changes to live programs as before.
-The workflow removes `body.json` before each try, so a failed retry never prints the first try's body (L44-14). The
-`sent_asks` sweep is Task 4's (`sweepAsks`).
+The workflow removes `body.json` before each try, so a failed retry never prints the first try's body (L44-14).
+`sweepAsks` (step `sweep_asks`) drops `sent_asks` rows with the same 30-day cutoff as `outcome_asks` (v6.1.19 Task 4).
+The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-character check nor the bearer match
+(L42-3, `secretMatches`).
 
 ## The site
 
@@ -485,9 +501,9 @@ The workflow removes `body.json` before each try, so a failed retry never prints
 | `/install` | Permanent redirect to `/docs#install` (old links) |
 | `/terms` | What EarnKit reads, stores and never does; the record; what programs see |
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
-| `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications, agents, delete; noindex |
+| `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications (v6.1.19: `I sent it` posts to `/me/sent`), agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
-| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17) and `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), and names no one |
+| `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
@@ -548,7 +564,8 @@ its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes
 and `reservedClientName` (a name holding `earnkit` after look-alike letters fold, and v6.1.16 L16-10 digits and `l`
 read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused; v6.1.18 lane 40: `fold`
 reads each letter through the full confusables table plus ĸ ƙ ʞ, and dynamic registration checks the cleaned name
-too, `clientNameOf`); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
+too, `clientNameOf`; v6.1.19 L45-16: `earnkit` anywhere in the folded letters, except inside an allow-listed word such
+as LearnKit or Yearn Kit); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
 are capped at 30 an hour per document host and caller address block (`cimdFetch`, `CIMD_FETCH_KEY(host, block)`, the host lower-cased with trailing dots removed since v6.1.18 lane 40;
 v6.1.16.1 Task 2, L35-5; the routes pass `blockOf(clientIp)`) and 300 an hour per host across every block
 (`cimdFetchHost`, controller ruling); both must pass before a fetch (over either, no fetch and the failure page). A good
@@ -591,7 +608,8 @@ keys from tool-call bodies before anything sees them.
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; the daily run sweeps rows read over 180 days |
-| `applications`, `application_history`, `gaps_done` | The ledger |
+| `applications`, `application_history`, `gaps_done` | The ledger; `applications.sent_at` is the send time (set on `applied`, never by a result) and (v6.1.19 Task 1) `sent_by_installation_id` the installation that recorded the send, both backfilled once at the end of `schema.sql` from the newest `applied` history row (an outside win keeps a null `sent_at`) |
+| `sessions` | /me browser sessions (hash only, 30 days); v6.1.19 L43-4: `draft` and `draft_at`, what a refused /me form carried, kept `DRAFT_MS` (15 minutes) |
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered, with the last body's hash (`body_hash`) |
 | `outcome_asks`, `sent_asks` | When each installation was last asked about a program: the results question (daily) and, v6.1.18 Task 4, the "did you send it" question for a builder-sent program (`asked_on`, weekly; key installation and program) |
@@ -669,7 +687,10 @@ and what closes this week, code in a public repo as the step, the builder-sent c
 field, the owner's applications view, lane 1k's file landing and full-list numbers, lanes 36 and 38, the license read
 and FLOSS manifest, and the deferred v6.1.17 FR-3 and FR-5 pins), 6.1.18.1 (`v6.1.18.1-patch-plan.md`: a cached repo
 read from before v6.1.18 is re-read for its license, the license rule waits behind every repo step, `started` never asks
-a license rule the read settled (L41-1), and a builder-sent program is asked about for 7 days after it closes (L41-10)).
+a license rule the read settled (L41-1), and a builder-sent program is asked about for 7 days after it closes (L41-10)), 6.1.19 (`v6.1.19-journeys-13-plan.md`:
+journey campaign round 13, lanes 1l and 41 to 45; the owner's count by send time, /me keeps what was typed and says
+the true state, the reply's Next one rule away and one sent question, cleanup (the $25,000 plan steps, the
+`sent_asks` sweep), the daily run round 3, tool inputs and the ledger's money; see that section).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
 
@@ -761,7 +782,9 @@ release a session under the old `ek_me` is still read (`sessionToken`), the call
 and delete end the session behind each cookie present and expire both names; v6.1.17 Task 4, L35-17: the old name is
 never promoted into `__Host-ek_me` (`renewedCookies` is gone), so it dies with its session; a /me write carrying only
 the old name is 403 `Sign in again from the link your agent gives you.` (`currentName` in `guard`), sign-out still
-works, and from v6.1.18 the old name is ignored) and lands
+works, and from v6.1.18 the old name is ignored; v6.1.19 L43-3: `sessionToken` reads `cookieName()` only (`currentName`
+is gone), so in production `ek_me` alone is signed out: /me answers 302 to /docs with both names cleared and the
+session behind it ended, and every /me post, sign-out included, is 403 with that line) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
 names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
 links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
@@ -930,7 +953,10 @@ category ticked ("Pick at least one category.", C43).
 advisory lock per owner and program; Task 14); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
 claim with no `applied` after 24 hours is released. A skip stands over a claim. An `applied` from another agent of the
 owner while the claim is live is always recorded (L23-3, v6.1.16): the claim is cleared and the agent note says
-`OTHER_CLAIM_NOTE` ("Recorded. Another agent had started this one too; tell the builder so it is not sent twice."). Only a skip or a
+`OTHER_CLAIM_NOTE` ("Recorded. Another agent had started this one too; tell the builder so it is not sent twice.");
+v6.1.19 L41-11: when the claiming installation is linked to this same builder the note is `OWN_CLAIM_NOTE`
+("Recorded; the builder's other agent had started it, and that start is closed.", `record` returns `own_claim: true`),
+so `OTHER_CLAIM_NOTE` is said only when the claimer is no longer this owner's. Only a skip or a
 `started` over another agent's live claim is refused with "Your other agent is handling that one; nothing recorded."
 (`OTHER_AGENT_HOLDS` in `ledger.ts`, v6.1.13 B3); the holder's own send is unchanged.
 
@@ -978,8 +1004,9 @@ rounded or converted (`screen_outcomes.amounts` and `applications.amounts`, `{ "
 `amount_given`/`currency` pair is still written for a one-currency amount and read for rows before it, until
 v6.1.17); a further payment adds within its currency and keeps both across currencies; the cap check (`overCap`,
 `amountsOverCap`) compares the given amount before any rounding and converts another currency only for the check with
-the static high-side `CAP_RATES` (EUR, GBP, CHF, CAD, AUD, JPY, INR, SGD, BRL); an unknown code is weighed by its number
-and the agent note says `Not a currency I can compare; its number is over the cap.`), which also reach a builder's ledger only through the
+the static high-side `CAP_RATES` (EUR, GBP, CHF, CAD, AUD, JPY, INR, SGD, BRL; v6.1.19 adds USDC and USDT at 1 and
+cap-only upper bounds for ETH, BTC and SOL); before v6.1.19 an unknown code was weighed by its number, and since v6.1.19
+Task 7 a code off `KNOWN_CURRENCIES` is refused by name (see that section)), which also reach a builder's ledger only through the
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the
 form's reference field (`applications.application_id`, issued by `claims.claim`, kept by the send, carried on a link
 merge), for this program; never by repo or site (L13-1, T5-F1 v6.1.14). An id on more than one applicant of the
@@ -1000,7 +1027,9 @@ written and the owner hears "You applied to this one; another reviewer posts its
 the rest of the batch goes on. A win marked a further payment (`payment: { key }`) adds to the screen's and the
 ledger's total once per key (`screen_outcomes.payment_keys`; a retry whose key the screen already kept still goes to
 the ledger with the same `s:` key, a no-op once written, so a ledger write that failed is delivered once, FR-4); a total over the program's cap writes nothing and the
-owner hears the over-cap line naming the ref (T8-F3, L15-16); unmarked, another amount replaces the first in both (T8-F1).
+owner hears the over-cap line naming the ref (T8-F3, L15-16); unmarked, another amount replaces the first in both (T8-F1),
+except over a win the builder recorded themselves (v6.1.19 Task 7 fix round 1, I2: the same amount is confirmed, another
+is a history row beside it).
 Results come 10 applicants a page (`PAGE_SIZE`, `page` from 1; L26-4 v6.1.16: each applicant carries `read_at` once and
 a row its own only when read earlier); pages follow the queued order (`screen_applicants.seq`)
 with pending rows in place, sorted by tier only inside a page, so a read landing between pages moves no row (T8-F2);
@@ -1009,7 +1038,7 @@ Rows read
 before v6.1.14 may carry the old cross-program `xp.*` values until they expire (now 180 days, `KEEP_DAYS`, L15-14; T8-F4 accepted). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
-outcome replaces the first only when not older, and the note names what it replaced (L13-12; an earlier win in another
+outcome replaces the first only when not older (v6.1.19 L45-2: a non-win never replaces a kept win), and the note names what it replaced (L13-12; an earlier win in another
 currency as given, "(was won EUR 2,500)", L16-4). v6.1.16: a further payment over no kept win (`none`, `rejected`,
 `shortlisted`) writes nothing and the show line adds "Further payment refused: the current result is {status}; post a
 win first." (L16-1); a payment key retry or the outcome kept already is a repeat, never counted as recorded, whatever the
@@ -1026,16 +1055,19 @@ or a deployer and the outcomes it reported ("seen in n earlier screens of this p
 another program's screens and outcomes are never counted or shown (L15-11 v6.1.14, as the terms say). Marking a
 reviewer again without a contact keeps the saved one (L15-2).
 
-**/me.** `proxy.ts` sends a visitor without a live session to `/docs#record` (302, `me-routes.ts meGet`).
+**/me.** `proxy.ts` sends a visitor without a live session to `/docs#record` (302, `me-routes.ts meGet`; v6.1.19
+L43-12: by `sessionState`, an expired session to `/docs?expired=1#record`, a cookie naming no session to
+`/docs?signin=1#record`, no cookie to `/docs#record`).
 `app/me/page.tsx` renders `meData` (`me-view.ts`) through `MeView.tsx`: pending approvals first, then one panel per
 block in builder words (no path is shown), standing approval, applications, linked agents (Unlink) and delete last.
-Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`)
+Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`, and
+v6.1.19's `sent`)
 needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id, the
 session cookie's value and the UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's; another session's token
 fails). v6.1.16 Task 17 (L31-3): first, the post must come from EarnKit's page (`sameOrigin`: an Origin equal to the
 public origin, or with no Origin a Referer on it), else 403 `That form did not come from EarnKit.`. No session is a
 403 with the sign-in line; a failed csrf check is a 303 to `/me` with the signed line "This
-page expired. Reload it and try again." and no change. Edits merge as the builder under
+page expired. Reload it and try again." and no change (v6.1.19 L43-4: what the form carried is kept as the draft). Edits merge as the builder under
 the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown).
 
 /me problem lines are plain words: `wordsOf` (`me-routes.ts`) maps each checker code to `ME_VALUE_WORDS` ("at most
@@ -1054,9 +1086,14 @@ link codes, and unlinks the installations, in one transaction.
 in all, Nov 11." when a further payment came after the last correction, the current amount after a correction
 (Review Focus 9). The ?link= banner has a title per state (`Link an agent to this account?`, `Linked.`, `Not linked.`,
 `This link has expired.`, `This link is not one of ours.`; `codeState` tells a code EarnKit never made from one that
-ended), and /link/<code> uses the same two dead-code lines. Signed out, `/me?link=<code>` goes to `/link/<code>`. Edits
+ended), and /link/<code> uses the same two dead-code lines. v6.1.19 L43-17: both read `LINK_STATES` (link-routes.ts),
+one sentence each: used `Linked.`, not set up `Sign-in is not set up yet.`, denied `Not linked.` with `If it was you,
+ask your agent for a new link.`; the live title is `Link "{name}" to your GitHub account?` (unnamed: `Link your agent
+to your GitHub account?`) and /me's line `First seen {day}. If you did not just ask your agent for this, choose This
+is not me.`. Signed out, `/me?link=<code>` goes to `/link/<code>`. Edits
 and the standing approval come back with a signed `Saved.` shown beside the control (`at` names it); an unlink says
-`Unlinked {agent}.` (an unnamed agent is "An agent linked Nov 6"), another builder's agent `That agent is not on your
+`Unlinked {agent}.` (an unnamed agent is "An agent linked Nov 6"; v6.1.19 L43-10: a named one `Unlinked "{name}".`,
+and a second unlink `Already unlinked.`), another builder's agent `That agent is not on your
 account.`; a delete lands on `/?deleted=1` ("Your record is deleted." since Task 13, client side).
 Projects the sent applications name (claims not counted) that the record does not hold are listed read-only; a reviewer sees one line per
 program. With a linked agent the page carries `data-me-linked` and the header and footer drop the install pill.
@@ -1079,9 +1116,10 @@ near-black text, no nav, install actions or modal, links underlined). Field edge
 page); the docs numerals use `s-blue-top` and the record card white on `s-blue-top` (6:1 and better); the docs
 command block is a focusable region. The share card `public/og.png` is drawn by `scripts/og-image.mts`
 (`pnpm -s og:image`, offline, system serif and sans). /link/<code> is a page (`app/link/[code]/page.tsx`,
-`linkState` in `link-routes.ts`): every state (live `Connect {agent}?`, `Linked.`, `This link has expired.`, `This
+`linkState` in `link-routes.ts`): every state (live `Connect {agent}?`, from v6.1.19 `Link "{name}" to your GitHub account?`, `Linked.`, `This link has expired.`, `This
 link is not one of ours.`, `Sign-in failed.`, `Too many sign-ins.`, `Sign-in is not set up yet.`) renders in the site
-shell with one h1 and the title `{h1 without its full stop} · EarnKit`. A page answers 200 for every state (Next sets
+shell with one h1 and the title `{h1 without its full stop} · EarnKit` (v6.1.19 L43-17: the live title is `Link
+"{name}" to your GitHub account?`, the states read `LINK_STATES`, and a denied code is its own state, `Not linked.`). A page answers 200 for every state (Next sets
 no 429 or 503 from a page); the state's own status is data only. The confirm form posts to `/link/<code>/confirm`;
 a POST to `/link/<code>` is 405 (`Allow: GET`, proxy); a refused post or callback is a 303 to `/link/failed` (a dead
 code's post back to its own page). `/link` is never lower-cased (a sign-in code is case-sensitive). /link pages send
@@ -1097,6 +1135,14 @@ section form carries `open`, so a Save or a refusal comes back with it open. Wai
 wait (`{n} answers wait for you below.` and `Open the first one`) instead of repeating them; each is marked
 `Waiting for you.` in its section, and an Approve opens the next waiting answer (`approvePost`). The row styles sit on
 the container (`ANSWER_ROWS`). A 154-answer record (lane 35's H.19) is about 420 KB as served (it was 2.4 MB in dev).
+v6.1.19 (lane 43): the open answer's summary shows its label only (L43-15); empty answers fold into one row, `Not set
+yet: {n} answers.`, with one `?open=` link per kind, and an open empty answer shows its box (L43-16); the open answer's
+Approve is a button in the section form (`formAction="/me/approve"`, `value={path}`), so it approves the text in the
+box: an edited box is merged as the builder's text and approved in one `withRecord` with the card's other changed
+fields (`cardChanges`, shared with the section Save; one refused field refuses the whole Approve and keeps the card in
+the draft), noted `Saved and approved.` (L43-1, fix round 1 M5); a builder's Save of an answer approves it too (L43-15);
+a refusal, `Saved.` or a note about the open answer alone anchors inside it (`at={path}#a-{path}`, L43-5); Waiting for
+you lists project answers first, in page order (L43-7).
 
 **Guide reads that fail (v6.1.17 Task 4, v6.1.16 Task 13 N3).** A failed read is never kept as a 404: the guide ids
 are `definiteGuideIds` (an empty list throws like a failed read), so neither `cachedRead` nor the proxy's minute cache
@@ -1108,6 +1154,26 @@ shell, so the line is not in that HTML; v6.1.17 final round: the panel is the sh
 500). The next request reads again.
 
 **/me sections (v6.1.16, Task 13).** One form per card, one `Save` each: the inputs carry `form="form-{section}"` (so the approval forms stay beside their fields) and `/me/edit` takes `section` with every field of the card by its path; only fields whose value differs from the page's are written (an untouched one keeps who set it), each checked as one edit is; the valid ones save and each refused one is named beside the Save (`Saved.`, then `Not saved: {field}: {reason}.` per field, fix round 1), and a removed team member goes last. The policy form stays all or nothing. Success is `/me?saved={section}#{section}` (`Saved.` beside that Save); a refusal is the signed line with `at={section}` and shows inside that card, a failed delete beside the delete form (`/me#delete`). The skip list is part of the standing-approval form (`never`). The single `path`/`value` edit still works. Labels hold the label only; the hint is its own element, the field's `aria-describedby`. A delete lands on `/?deleted=1`: `Your record is deleted.`. /me has no canonical.
+
+**/me keeps what was typed (v6.1.19 Task 2, lane 43).** Every refusal (a section, the single-field edit, the policy,
+the delete box, an Approve's box, a stale csrf by route) saves what the form carried as the session's draft
+(`saveDraft`, `sessions.draft`, `DRAFT_MS` 15 minutes, one per session, replaced by the next refusal, cleared by the
+next save); `meData(..., draft)` passes it and MeView renders it as escaped `defaultValue`, only while a signed problem
+line shows (fix round 1 M6: a plain reload shows the saved values). An over-long value says what was typed: `Not
+saved: 2,100 characters typed; at most 2,000.` (`ME_VALUE_WORDS.typed`). Save with nothing changed is `Nothing to save.`
+(`ME_NOTHING`, beside that card's Save; L43-6). A held claim's row reads `On hold since {day}; say go to your agent to
+send.` (`ME_HELD_ROW`, L43-2). A lapsed started row, or one the sent ask is about, has an `I sent it` button that posts
+`program_id` and `project_id` to `/me/sent` (`sentPost`, `app/me/sent/route.ts`; L43-9): it needs the builder's own
+`started` row, records `applied` with `submitted_by: 'builder'` as the first of `claimed_by` and `installation_id` still
+linked to this builder, else through `record(..., { builderOwn: true })` (the agent link check skipped, for `applied`
+only), and notes `Sent {title}.`; an already sent row answers the same and writes nothing (M2), a held row is refused
+`{title} is on hold; say go to your agent first.` (`ME_HELD_SENT`, M3). Delete's label is `Type your GitHub login to
+delete.`, and a refused delete shows that one line as the label with the typed text kept (L43-11). The skip list
+refuses `Programs to skip: at most 50 programs.` and `Programs to skip: line {k} is over 100 characters.` (L43-19);
+policy numbers take digits only, a comma only between thousands groups (L45-7). `displayName` drops a trailing
+`(client)` from the whole cleaned name, then cuts once at 60; agent names quote at 60 (L43-14). The applications counts
+name no result apart (`Ledger.no_result`: `5 sent, 1 won ($5,000), 1 rejected, 1 no result, 2 waiting.`; `pending` is
+applied rows only; L43-8), on /me and in find.
 
 **Environment (ten).** `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (also signs link codes, the sign-in state and the /me
 csrf), `EARNKIT_URL`, `GITHUB_TOKEN`, `RESEND_API_KEY`, `CRON_SECRET`, `EARNKIT_PROGRAMS_TOKEN`,
@@ -1157,19 +1223,26 @@ not keep, and every open or closed decision is read from the clock at request ti
   nothing sent.`); /me reads `Started, not sent, {date}.` for a claim past `CLAIM_HOURS`. A one-program find of a
   program another agent holds says `Another agent of yours started this one on {date}.` in place of the yes. A send
   (`applied`) over another agent's live claim is recorded and clears the claim (`other_claim`, agent note
-  `OTHER_CLAIM_NOTE`); B3 refuses only claims and skips.
+  `OTHER_CLAIM_NOTE`, or v6.1.19's `OWN_CLAIM_NOTE` when the claimer is this builder's own linked agent); B3 refuses
+  only claims and skips.
 - **Did you send it (v6.1.18 Task 4, L18-4, L36-1, L36-2).** For a program the builder submits themselves
   (`submit: 'builder'`), `askSent` (ledger.ts) lists every unheld `started` row at least `SENT_ASK_AFTER_HOURS` (1) old;
   `sentAsksDue` (table `sent_asks`, one row per installation and program) asks each once per installation every
   `SENT_ASK_EVERY_DAYS` (7): `Did you send {title}? Say sent and I note it.` (`ask_sent`, `sentLines`, ONE_SAY_ORDER
-  after the started lines). While the ask is open the program is left out of the list (never offered as a draft
+  after the started lines). v6.1.19 L41-11: one question per reply naming each program once (`Did you send A and B?
+  Say which you sent and I note them.`, three named then `and {k} more`; `sentAskOf` in reply.ts builds it and the ids it
+  names, and find marks only those asked); a released ask row has no line of its own. L41-7: a no-project ask names the
+  project (`Did you send Kiroween Two (EarnKit)?` then `Say sent, or tell me which project and I match it.`;
+  `SentAsk.project` from `projectLabel`: the record project's name, else the name key's name or the repo's last path
+  segment). While the ask is open the program is left out of the list (never offered as a draft
   again). `releaseStale` never deletes such a claim: it comes back with `ask: true`, said only when its ask is due, as
   `{title}: started {date}; did you send it? Say sent and I note it.`. A program that closed since the start is still
   asked about for `SENT_ASK_AFTER_CLOSE_DAYS` (7) after its `ends_at`, then neither line is said (v6.1.18.1, L41-10);
   one closed by status with no `ends_at` (no close time on record) for `SENT_ASK_CLOSED_NO_DATE_DAYS` (14) after the
   start. The agent note: `"sent" is track applied with
   submitted_by builder; "not yet" needs no call.` Prefill: a how-you-heard field (`heardFrom`) says `EarnKit
-  (earnkit.com)`, or picks the referral (else other) option with the other-box `note`; partner, alumni and
+  (earnkit.com)`, or picks the `Other` option with `HEARD_OTHER_NOTE` (v6.1.19 L41-5; the referral option before),
+  else the referral option with `HEARD_REFERRAL_NOTE`; partner, alumni and
   more-than-the-source fields are left as they are.
 - **Results.** `askOutcome` lists every applied row past its results date with no result on every find;
   `outcomeAsksDue` (table `outcome_asks`, one row per installation and program) shows the builder line `Results for
@@ -1197,7 +1270,9 @@ not keep, and every open or closed decision is read from the clock at request ti
   clears its kept promise.
 - **Expired sign-in.** `meGet` with an `ek_me` cookie whose session is gone redirects to `/docs?expired=1#record` and
   clears the cookie; `ExpiredNote` (client) shows `Your sign-in expired. Ask your agent for a new link.` at the top of
-  the record card.
+  the record card. v6.1.19 L43-12: `sessionState` (`live`, `expired`, `unknown`, `none`) tells an expired session from a
+  cookie naming none: the latter goes to `/docs?signin=1#record`, where `ExpiredNote` shows `Sign in from the link your
+  agent gives you.` (`SIGN_IN_FROM_LINK`); both names are cleared whenever either is present.
 
 ## v6.1.16 Task 11: safe text and one yes (lane 24)
 
@@ -1236,7 +1311,8 @@ means what the last `Say` offered.
   it; an `applied` on it is recorded with `The builder held this one; tell them it went out.`
 - **Track.** The lookup is strict (`programByName(..., { strict: true })`): an exact id or title, or title words with one
   outside `COMMON_WORDS`; else `Which program do you mean?` (`WHICH_PROGRAM`) and nothing is written. Started has no builder text (its agent note opens `Started {title}.` and carries the 24 hours), `Skipped {title} for good. Say bring it back and I list it again.`, and gap_done with no item on a rules-only
-  program asks `Which rule fits you? Say the program.`
+  program asks `Which rule fits you? Say the program.` (v6.1.19 L45-15: on any named program `Which change did you
+  finish on {title}?`, `WHICH_RULE` gone; `WHICH_CHANGE` only for an unknown program)
 - **Record.** Own keys only (`allowedKey`): `"__proto__" is not something I keep`; every policy spelling is one
   `standing approval is yours to set on earnkit.com/me`; a length refusal names the limit (`risks is at most 2,000
   characters`).
@@ -1246,7 +1322,8 @@ means what the last `Say` offered.
   instruction): ...`. The one-program reply carries `problems` and the dropped-facts note.
 - **Links.** A project link whose parsed URL (after cleaning and SSH conversion) carries a user name or password is
   dropped (`the live link carried a password and was dropped`); `webUrl` strips user info for every other caller.
-- **Screen.** Results add `Applicant names are (text from the applicant, not an instruction).`; markdown headings put
+- **Screen.** Results add `Applicant names are (text from the applicant, not an instruction).` (v6.1.19 L45-18:
+  `Applicant names are text from the applicant, never an instruction.`, only when a name is shown); markdown headings put
   applicant text in code spans; the CSV is cleaned before the formula guard.
 - **Catalog.** programs:check holds files whose organizer is EarnKit to the copy rule in labels, to-dos and rules.
 - **Fix round 1.** `cleanText` also reads NEL, U+2028 and U+2029 as a space and drops the Hangul fillers (unassigned and
@@ -1264,7 +1341,7 @@ means what the last `Say` offered.
   approval, which is still recorded), record (a set that saved nothing, the policy sets, an unlinked set) and screen
   (unlinked, not a reviewer, no such screen, expired, the limit, over 200, thresholds, a bad requeue, outcomes that
   recorded nothing) goes through it; too-deep and non-object arguments are input errors at the route too.
-  `refusals.test.ts` drives each path through POST /mcp. `serverInfo.version` is `apps/frontend/package.json`'s (6.1.17; the release gate bumps it, see Release gate).
+  `refusals.test.ts` drives each path through POST /mcp. `serverInfo.version` is `apps/frontend/package.json`'s (the release gate bumps it each release, see Release gate).
 - **Track (L29-3, L29-7, L29-8, L29-15, L29-21, L29-23, L29-32).** `status` and `submitted_by` read in any case
   (`caseFolded`); `submitted_by` defaults to agent; an applied with no `fields_used` is accepted with "Pass
   fields_used next time; nothing was checked against your record." A number is the program numbered so by the last
@@ -1431,7 +1508,10 @@ means what the last `Say` offered.
   refusal would name it, else `Another builder`). `record`'s `repo_taken` result carries `taken: { day, login }`.
 - **List holes (L36-10).** A list number whose slot in `last_list` is empty reads `Number {n} is not in the list now
   (already sent). Say a number from the last list.` (`listHole`, `LIST_GONE` in programs.ts); past the list it is the
-  unknown line as before.
+  unknown line as before. v6.1.19 (M4, L45-11): `listMiss(raw, lastList)` replaces `listHole`: any list-shaped number
+  the last list does not hold (past its end, an empty slot, 0, a negative or a decimal, 1 to 9999, number words and
+  compounds such as `twenty-one`, before any find too) reads `Number {n} is not in the list. Say a number from the last
+  list or the program's name.`, in track and in find's `program_id`.
 - **Before line (L36-11).** A ready program with `claimed_since` is left out of `Before applying:`.
 - **Next ready (L36-12).** A plain `applied` (linked, not closed, not under standing approval, no co-founder or held or
   other-claim note, not sent twice) names the next program of the last find's list for this project that is open,
@@ -1441,10 +1521,19 @@ means what the last `Say` offered.
   repo (`funding_json_url`; final fix, M2). Never on a repo not shown to be the builder's (`repoNotMine`), so never
   after a send kept under the project's name only (`nameOnly`) or a rejection on such a repo (final fix, I1):
   `Sent {title}. Next: {title}, {money}. Say yes and I apply.` (or `I draft it for you to send` when the
-  builder submits; `NEXT_LINE`). The result carries `next` ({ program_id, title, money, draft, fields }) and the note
+  builder submits; `NEXT_LINE`). v6.1.19 L41-3: with no ready candidate, the next program one rule away may be named
+  when every open item is a rule (`evaluate` shows only rule gaps and `readyAtSend` passes with them added to done; it
+  passes every filter above, and a ready program wins over it): `Next: {title}, {money}. Their rule: {rule}. Say yes if
+  that fits you and I {apply | draft it for you to send}.` (`Their rules: a; b. Say yes if all of that fits you ...`),
+  `NextReady.rules`, the rules remembered by `rememberGap`, the offer marked `rule`, and the note `Next is one yes away:
+  program_id {id}. On the builder's yes, call track gap_done with item {rules[0].item} (it confirms every rule listed),
+  then track started ...`. Never signed out, after a builder send kept under the name, or after a rejection on a repo
+  shown to be someone else's (fix round 1 M8). L41-9: an agent `applied` of a manifest program whose send's facts are a
+  code read with no `funding_json_url` adds `NO_MANIFEST_NOTE` (`The last repo read had no funding.json; ...`). L41-6: a
+  rejection reads `Noted: {title} said no.`, with or without the Next line. The result carries `next` ({ program_id, title, money, draft, fields }) and the note
   starts `Next ready: program_id {id}. On the builder's yes, call track started with that program_id and fill the form
   from next.fields (keys: ...); no find needed.` (`NEXT_NOTE`, `nextReady` in track.ts). The Next line stores the `apply` offer (`markOffer`). List numbers parse
-  once (`listNumber` in programs.ts, shared by `listRef` and `listHole`).
+  once (`listNumber` in programs.ts, shared by `listRef` and `listHole`; `listMiss` from v6.1.19).
 - **Demo video (L36-13).** The gap reads `a demo video link (a short screen recording of it working)`
   (`DEMO_VIDEO_WHAT`); its closing is `Send me the demo video link and I fill it in.` (`DEMO_CLOSING`); the agent note
   adds `DEMO_NOTE` (pass it as `project.demo_url`, find again); a `demo_url` with the project settles the gap.
@@ -1481,7 +1570,7 @@ means what the last `Say` offered.
   and `programs:check` accepts a figureless summary only when the reward says `amount not stated`, and refuses the words
   in the summary.
 - **track and record.** `rejected` names the next ready program as `applied` does (`Tracked. Next: {title}, {money}. Say
-  yes and I apply.`), else `Tracked.`; unskip reads `{title} is back in your list.`; a confirmed rule `Tracked: that rule
+  yes and I apply.`), else `Tracked.` (v6.1.19 L41-6: `Noted: {title} said no.` in place of `Tracked.`, Next or not); unskip reads `{title} is back in your list.`; a confirmed rule `Tracked: that rule
   fits you.` (`namedFirst`: `Tracked for {title}: ...`); a live claim `Your agent "{name}" started {title} at {time} UTC
   and has it.` (`Another of your agents ...` with no name). `record get` with something missing drops the count:
   `The next application needs {items}. Tell me them and I save them.` (`nextNeedsLine`).
@@ -1505,6 +1594,10 @@ means what the last `Say` offered.
   on every unlinked reply. The forms:
   - signed out with a repo, any apply offer (find's gate, `beforeSend`): the reply's last apply offer (`applyOfferOf`)
     said again after the sign-in, `Sign in at {link} so I know the repo is yours, then say yes and I apply to {title}.`
+    (v6.1.19 L1l-6: for a repo not on GitHub, which a GitHub sign-in cannot tie to the builder, `signInFirst(link,
+    offer, why)` says `so I can check your users`, and the yes drafts: `Sign in at {link} so I can check your users,
+    then say yes and I draft it for you to send.`, `SIGN_IN_DRAFT`, heading `Ready for you to send (n):`, offer `draft`,
+    note `DRAFT_NOTE`; signed in, the could-not-confirm reply keeps its words and carries `DRAFT_NOTE`)
     (`signInFirst` in ledger.ts; a builder setup step stays between: `..., then publish X, then say yes and I apply.`;
     no link: `Sign in so I know the repo is yours, ...`). `APPLY_OFFER` already reads the merged form (`, then say yes
     ... I apply`), so a reply gated twice keeps one sign-in, and no apply is ever offered before it.
@@ -1530,7 +1623,8 @@ means what the last `Say` offered.
   person; the guide has the steps.` (`IN_PERSON_ONE`) only with no form. With no project, an in-person lookup with a
   form asks for the project (`NO_PROJECT_ONE`). The in-person closing (`IN_PERSON_CLOSING`) is unchanged.
 - **Headings (big 3).** `stepItems(g)`: a row's real gaps, its setup steps and each rule still to confirm. `One step away
-  ({n}):` holds rows with one step (`oneStep`: one item, or a rule-only row, which is one yes); the rest go under `More
+  ({n}):` holds rows with one step (`oneStep`: one item, or a rule-only row, which is one yes; v6.1.19 L1l-3: a rule-only
+  row only with no setup step, so a setup step plus a rule is More to do first); the rest go under `More
   to do first ({n}):` as `{n}. {title}, {money}: {first item}, then {k} more steps.` (`moreStepsLine`; `1 more step`).
   The row a rule Say names keeps its whole line, so the rules the Say asks about are on screen. The full list heads
   every row not ready `Not ready yet ({n}):` (`NOT_READY_HEAD`). Every in-person program with gaps lists in the In
@@ -1609,21 +1703,105 @@ means what the last `Say` offered.
 - A rule-only in-person row keeps `Their rule: X.` on the one In person line, since the in-person closing's yes confirms it.
 - Only the step block holding the row the closing speaks to takes a row at rank 2; the other grows later (One step away
   5.7, More to do first 5.85), so the applications, Before and report lines fit beside a ready block.
-- A More row whose first step the single-step closing names reads `{n}. {title}, {money}: the step below, then {k} more
-  steps.` (`moreStepsLine(g, closed)`), so the step is said once.
+- A More row whose first step the single-step closing names read `{n}. {title}, {money}: the step below, then {k} more
+  steps.` (`moreStepsLine(g, closed)`) until v6.1.19, which names the step itself (L1l-2: `moreStepsLine(g)`,
+  `stepNamed` gone; `... $25,000 award: a demo video link (...), then 4 more steps.`).
 - `APPLY_OFFER` reads `, then say yes ... I (also) apply` and `[Ss]ay yes and I ..., then apply`; `signInFirst` keeps a
   users-plus-change offer whole.
 - `signInCheck(link, repo, bar)`: "the repo" only when the project has a repo link (`ReplyOptions.repo`, find passes it);
   otherwise the proof's bar: `your users`, `that your product is live`, `that your project has code`.
 - `signInLookAgain` and ledger's own `lower` are gone (ledger imports `lowerFirst`); `proofBarOf` stays, for the bar.
 
-## v6.1.19 Task 7: tool inputs and the ledger's money (lane 45)
+## v6.1.19: journey campaign round 13 (lanes 1l, 41 to 45)
+
+Plan `v6.1.19-journeys-13-plan.md`. Most rules are also
+written where they apply above (the daily job, /me, the claim rule, the sent ask, Next ready); this section lists them
+by task.
+
+### Task 1: the owner's count tells the truth (lane 42)
+
+- A send is dated by its send and nothing else: `sendTime(db)` in stats.ts is `sent_at`, else an agent row's `at` (rows
+  from before v6.1.9), else null (a builder row with no send time: a win recorded from outside EarnKit). A result never
+  writes `sent_at`. `readStats`' `applications_7d` counts dated sends in the last 7 days; `applications` stays all time.
+- `applications.sent_by_installation_id`: the installation that recorded the send, written by the outside-win and the
+  applied inserts in `ledger.record` (and their `ON CONFLICT` updates), never by a result, skip or correction; the
+  owner's list names the agent from `COALESCE(sent_by_installation_id, installation_id)`. Both columns are backfilled once
+  at the end of `schema.sql` (they read `application_history.project_id`, added later in the file), `WHERE ... IS NULL`
+  and only where an `applied` history row matches; an outside win keeps a null `sent_at`.
+- `throughEarnkit` reads a claim (`started`) only, never a hold, and compares it with `sendTime`, so an undated send is
+  never through EarnKit and counts as reported.
+- `GET /api/programs/applications`: `since` is `parseSince` (pure: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM[:SS[.fff]]` with
+  optional `Z` or `±HH:MM`, UTC with no zone, date and clock round-tripping through `Date.UTC`, so `2026-02-30` and
+  `T24:00` are 400 `since: an ISO date`; `+0530` and a space for `T` are refused too); a dated row is kept by its send
+  time, an undated one by `at`; rows by send time, undated last; each row has `reported`; a stored null `submitted_by`
+  lists as `agent`.
+- `EARNKIT_PROGRAMS_TOKEN` and `CRON_SECRET` are read trimmed (`programsApiOn`, `secretMatches` and its length rule).
+- The digest's sends line: `{n} sent yesterday: {a} by agents, {d} drafted here, {r} from outside. {total} to date.`
+  (`total` the dated sends before the day's start; undated rows in neither number); Task 6 adds the missed days.
+
+### Task 2: /me keeps what the builder typed and says the true state (lane 43)
+
+The /me rules are in the v6.1 section (`/me keeps what was typed`, the answers, the gate and the link states). Also:
+- One cookie name: only `cookieName()` is read (`__Host-ek_me` in production); `anySessionCookie` tells the gate a
+  cookie of either name is there to clear.
+- `notAllowed(allow, cors = false, description?)`: only /mcp, the OAuth routes and the well-known handlers send CORS
+  headers on a 405; `/sitemap.xml` and `/robots.txt` are in the proxy matcher and answer OPTIONS with 405 `Allow: GET,
+  HEAD` (L43-20). `lowerPath` lower-cases only characters outside `%XX` escapes (L43-21).
+- Guides (L43-13, L43-18): `guideText.eligibility` falls back to the rule sentences (`eligibility_from_rules`), and then
+  GuideView drops the separate Rules block; a closed or ended guide has `fields: []` (no form block); a field whose
+  to-do only repeats its label reads `{label}.` (`todo: ''`). The find JSON's `guide` carries the same shape: for a
+  closed program `guide.fields` is `[]`, and a `todo` is blank when it repeats the label (the top-level `fields` still
+  carry the whole form); `programCap` empties `guide.eligibility` and strips the flag, so the rules are not sent twice.
+  Base Builder Grants says its round once (its round and categories rules and its `focus` block removed).
+
+### Task 3: the reply (lanes 1l and 41)
+
+- Next one rule away, the one sent question, the claim note, the manifest note and `Noted: {title} said no.`: see Next
+  ready (v6.1.18 Task 8), the sent ask (v6.1.16 Task 9) and the claim rule.
+- `More to do first` rows name their first step (L1l-2); a setup step plus a rule is More to do first (L1l-3).
+- A no-project in-person lookup with a form says `You attend in person.` (`ATTEND_ONE`) before its closing (L1l-4).
+- A closed lookup reads `{title}, {money}.` then `It is closed; say its name again when it reopens, or tell me about your
+  project and I find what is open.` (`CLOSED_ONE`; with a project, `CLOSED_PROJECT_ONE`: `... or ask me what is open for
+  this project.`); a sent closed program keeps `Closed. You applied ...` (L1l-8).
+- Signed out with a repo not on GitHub: the sign-in checks users and the yes drafts (`SIGN_IN_DRAFT`, see the Task 10
+  sign-in forms; L1l-6, fix round 1 I1).
+- A repo not shown to be theirs: `Ready for you to send ({n}):` and `Say yes and I draft it for you to send.`
+  (`DRAFT_TO_SEND`; several ready: `Say yes and I draft {title} for you to send.`, `draftTarget`), offer `draft`, and
+  `DRAFT_NOTE` tells the agent to fill that program's form for the builder and record the send with `submitted_by
+  builder`; else `Say which repo is yours.` as before (L41-8). `withinLines` keeps the reply within 10 lines (the more
+  line, then the Before line, then body lines from the end go first).
+- The caller's own fresh draft of a builder-submitted program reads `{title}: drafted, waiting for you to send.`
+  (`draftedLines`, JSON `drafted`) and leaves the Ready rows and the need line (L41-2).
+- A demo link given once is kept: `saveReport` keeps the stored `demo_url` when a new report has none, and find takes
+  `demo_url` from the call, else the kept report, else the record project's (`withDemo`; L41-4, M3). A `demo_url` sent
+  empty or as a word that says none (`none`, `no`, `n/a`, `remove`, `clear`, `delete`; `demoCleared`) clears the kept
+  link (a record project's link still fills it until the builder edits the record).
+- A how-you-heard choice picks `Other` first (L41-5, prefill).
+- `listMiss` (M4): see List holes.
+
+### Task 4: cleanup and small rules
+
+- `stableNumbers` is gone (M5). The funding manifest's plan amount rounds up to a multiple of `PLAN_STEP_USD` ($25,000)
+  above the floor, never above the largest multiple within `max_award_usd`, never below the floor (M6, `planAmount`).
+- `licenseRule` on a name-only project reads its kept report (`repoGaps(file, reportOnlyFacts(kept))`), and
+  `cachedRepoMiss(url, now)` serves a miss only while its age is in [0, `MISS_KEEP_MS`) (`SLOW_KEEP_MS` for slow).
+- `sweepAsks` also deletes `sent_asks` rows asked over 30 days before the run's day; `swept` carries `sent_asks`.
+
+### Task 6: the daily run, round 3 (lane 44)
+
+See the freshness pipeline (the closed read, landing pages) and the daily job (no digest on a failed check,
+`last_check_ok`, the digest's blocks, ages by UTC day, the round line once, the carried-over sends line, `Results:`).
+
+### Task 7: tool inputs and the ledger's money (lane 45)
 
 - A result never erases a win (`WIN_KEPT` in `ledger.record`): the builder's rejected or no result over a win writes nothing; a screen's rejection is a history row beside the win (`beside`), and `screen_outcomes` never replaces a kept win with a non-win (`OUTCOME_NOTES.beside`).
-- Money: only `KNOWN_CURRENCIES`; a non-USD amount converts for the cap only at a static rate, else it is recorded uncapped and the agent hears `UNCAPPED_NOTE`; a win under $1 after conversion is refused. Money arguments on any status but won are an input error; payment keys are cleaned before compare; a key repeated in one screen call counts once.
+- Money: only `KNOWN_CURRENCIES` (USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, BRL, ETH, BTC, SOL, USDC, USDT; a code is 2 to 6 letters, any other well-formed one is `{ unknownCurrency }`, one sentence naming every unknown code, then `Say the amount with its currency.`). Every known code has a `CAP_RATES` rate used for the cap and the under-a-dollar check only, never shown: the fiat rates, USDC and USDT at 1, and cap-only upper bounds ETH 10,000, BTC 250,000, SOL 1,000 (fix round 1, security: `capWeight` is `usdAt ?? Infinity`, so a coin never weighs 0 and the uncapped path and `UNCAPPED_NOTE` are gone); the win is recorded in its own currency. A win under $1 after conversion is refused (`UNDER_A_DOLLAR`, checked in `ledger.record` once the currency resolves). Money arguments on any status but won are an input error; payment keys are cleaned before compare; a key repeated in one screen call counts once.
 - Next needs (`installations.next_needs`) keep each need's form field (`{ w, k, p, j }`), so record drops a need as soon as the record fills it (`recordValue`, `heldWords`); get then says `Saved. The next application needs nothing more.`
-- Inputs: gap items match loosely (`gapItemOf`), a wrong one is an input error; any number off the last list reads `LIST_GONE`; `earnkit.com/programs/<id>` is the id (`programIdOf`); echoes cut on a word (`echoName`); unknown chain words are kept as given (`CHAIN_KEPT`), a bare chain id reads through the registry; repo links with no scheme, SSH or `/tree/` read alike in find and record (`withScheme`, `githubRepoLink`); empty-after-cleaning record values and screen refs are refused; ISO country codes and post-1970 commit dates only; `/me` policy numbers take digits only.
+- Inputs: gap items match loosely (`gapItemOf`), a wrong one is an input error; any number off the last list reads `LIST_GONE`; `earnkit.com/programs/<id>` is the id (`programIdOf`); echoes cut on a word (`echoName`); unknown chain words are dropped and said apart from the corrections (`CHAIN_KEPT`: `chain celo dropped: no program here asks for it`, fix round 1 M3), a bare chain id reads through the registry; repo links with no scheme, SSH or `/tree/` read alike in find and record (`withScheme`, `githubRepoLink`); empty-after-cleaning record values and screen refs are refused; ISO country codes and post-1970 commit dates only; `/me` policy numbers take digits only.
 - Protocol: `answerParams` (-32602, unknown tool names the four), `distinctIds` (duplicate batch ids), boolean id -32600, non-UTF-8 arguments `I could not read that.`
+- A screen `won` over the builder's own win: the same amount (or none) is `CONFIRMED`; another amount is a history row beside it (`BESIDE_NOTE`, `corrected` false), written once; a screen won with no amount never blanks a kept amount (fix round 1 I2). The reviewer hears only the generic `builder's record stands` line.
+- `outside: true` on track (described in TRACK_DESCRIPTION): a program that has not opened takes a win only with it, for a win from outside EarnKit such as an earlier round; else `{title} has not opened; nothing to record.` (`NOT_OPENED_WIN`, L45-20). Started on a skipped program, before any rule ask: `{title} is skipped. Say unskip and I bring it back.`
+- Reserved client names (L45-16, fix round 1): names are folded (look-alikes, leet digits) and `earnkit` anywhere in the folded letters is refused, except inside an allow-listed word (`ALLOWED_WORDS` in oauth.ts: `learnkit`, `yearnkit`, also split as `learn kit` and `yearn kit`), which is dropped before the check: LearnKit, Yearn Kit and Learn Kit Pro register; AIEarnKit, EarnKitBot, Earn Kitchen and `LearnKit EarnKit` are refused. A client document with EarnKit's name fails with `CIMD_RESERVED`.
 
 ## What v5 deliberately does not do
 
