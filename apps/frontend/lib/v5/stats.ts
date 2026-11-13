@@ -25,7 +25,7 @@ export const STATS_KEYS = [
  * passed in; the route caches the read for 10 minutes).
  */
 /**
- * v6.1.20: `installs_real` counts the installations whose person is not flagged a test (`people.test_reason`, see
+ * v6.1.21: `installs_real` counts the installations whose person is not flagged a test (`people.test_reason`, see
  * lib/v6/people.ts; one with no person yet counts as real); `people` and `people_real` count the people rows with an
  * installation or a builder, all and not flagged.
  */

@@ -34,7 +34,7 @@ export function signState(payload: { code: string; nonce: string; exp: number },
   return `${body}.${mac(body, secret)}`;
 }
 
-/** The authorize request an install sign-in carries through GitHub (v6.1.20): what `issueCode` needs. */
+/** The authorize request an install sign-in carries through GitHub (v6.1.21): what `issueCode` needs. */
 export type PendingInstall = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string; resource?: string };
 
 /**

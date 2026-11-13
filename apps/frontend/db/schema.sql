@@ -528,11 +528,11 @@ WHERE a.sent_at IS NULL AND a.status IN ('applied', 'won', 'rejected', 'no_resul
     WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
     ORDER BY h.at DESC, h.id DESC LIMIT 1), '') <> 'sent by the builder outside EarnKit';
 
--- v6.1.20: people. One row per person behind one or more installations, so the owner's tracker (the `owner_people`
+-- v6.1.21: people. One row per person behind one or more installations, so the owner's tracker (the `owner_people`
 -- view, read as role earnkit_ro) counts installs that never linked a GitHub account. `builder_id` is the v6 builder once
 -- known; `x_*` and `legacy_profile_id` come from the v4 builder_profiles table (backfill only); `github_login` is an
 -- unproven claim (a repo owner), kept only while there is no builder. `test_reason` NULL is a real person; else one of
--- owner, dogfood, persona, repro, test (lib/v6/people.ts). Rows are never deleted.
+-- owner, dogfood, persona, repro, test (lib/v6/people.ts). The app never deletes a row (repro cleanups remove theirs).
 CREATE TABLE IF NOT EXISTS people (
   id                serial PRIMARY KEY,
   builder_id        int UNIQUE,

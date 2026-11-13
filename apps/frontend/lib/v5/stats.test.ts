@@ -13,7 +13,7 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at; v6.1.20: installs_real, people, people_real appended)', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at; v6.1.21: installs_real, people, people_real appended)', async () => {
   const s = await readStats(NOW);
   assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at', 'installs_real', 'people', 'people_real']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
@@ -230,7 +230,7 @@ test('L44-5: applications_7d counts by send time: two sends 8 days ago with resu
   assert.equal(after_.applications - before.applications, 2);
 });
 
-test('installs_real, people and people_real leave out people flagged as tests (v6.1.20)', async () => {
+test('installs_real, people and people_real leave out people flagged as tests (v6.1.21)', async () => {
   const before = await readStats(NOW);
   const mk = async (reason: string | null) => {
     const [p] = await sql()<{ id: number }[]>`INSERT INTO people (test_reason) VALUES (${reason}) RETURNING id`;

@@ -5,7 +5,6 @@
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
 import { codeSpent, installOnce, revokeInstallation } from './installations';
-import { linkInstallation } from '../v6/builders';
 import { installSignIn, installSignInOn } from '../v6/link-routes';
 import { CIMD_FAILED, CIMD_RESERVED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, clientNameOf, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
@@ -84,10 +83,10 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
       throw err;
     }
     // The nonce is spent and the installation saved in one transaction; a parallel exchange that spent it first wins.
-    const installed = await installOnce(token, nonce, clientName, audience);
+    // v6.1.21: a code issued after a GitHub sign-in (disabled in this release) names the builder; the installation links
+    // as a /me link does, in installOnce's transaction (M3), so a failed link spends no nonce and saves nothing.
+    const installed = await installOnce(token, nonce, clientName, audience, builderId);
     if (installed === null) return await codeReused(token);
-    // v6.1.20: a code issued after a GitHub sign-in names the builder; the installation links as a /me link does.
-    if (builderId !== null) await linkInstallation(installed, builderId, new Date());
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof BodyTimeoutError) return bodyTimedOut();
@@ -100,12 +99,13 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
 /** L35-5 (v6.1.16.1 Task 2): the client deps with the caller's address block (an injected block stays). */
 const callerClient = (request: Request, client: ClientDeps | undefined): ClientDeps => ({ block: blockOf(clientIp(request.headers)), ...client });
 
-type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps };
+type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps; installSignIn?: boolean };
 const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
 
 /**
- * Anonymous approval: a valid request is sent straight back to its client with a code. With EARNKIT_INSTALL_SIGNIN=github
- * (v6.1.20) it goes through a GitHub sign-in first (`installSignIn`; the callback issues the code).
+ * Anonymous approval: a valid request is sent straight back to its client with a code. The GitHub sign-in at install
+ * (`installSignIn`, EARNKIT_INSTALL_SIGNIN=github) is disabled in v6.1.21 until it has a consent step (C1): whatever the
+ * value, authorize stays anonymous. `installSignIn` in deps is for tests of the dormant path only.
  */
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
@@ -113,7 +113,7 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     const client = callerClient(request, deps.client);
     const checked = await checkAuthorize(new URL(request.url).searchParams, client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
-    if (installSignInOn()) return installSignIn(request, checked.req);
+    if (installSignInOn(process.env, deps.installSignIn)) return installSignIn(request, checked.req);
     return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });

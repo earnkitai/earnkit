@@ -157,6 +157,9 @@ export const line = (sb: string, re: RegExp) => sb.split('\n').find((l) => re.te
 export async function cleanup(c: Ctx) {
   const like = `${c.tag}-%`;
   const bids = (await db`SELECT id FROM builders WHERE login LIKE ${like} OR login = ${c.tag}`).map((r: any) => r.id as number);
+  const instBefore = (await db`SELECT id FROM installations WHERE client_name LIKE ${like} OR client_name = ${c.tag}`).map((r: any) => r.id as number);
+  // M6 (v6.1.21): the people these installations and builders made, read before deleteBuilder clears people.builder_id.
+  const pids = (await db`SELECT id FROM people WHERE builder_id = ANY(${bids}) UNION SELECT person_id FROM installations WHERE id = ANY(${instBefore}) AND person_id IS NOT NULL`).map((r: any) => r.id as number);
   for (const b of bids) await deleteBuilder(b, new Date());
   const inst = (await db`SELECT id FROM installations WHERE client_name LIKE ${like} OR client_name = ${c.tag}`).map((r: any) => r.id as number);
   const owners = [...inst.map((i) => `i:${i}`), ...bids.map((b) => `b:${b}`)];
@@ -171,6 +174,8 @@ export async function cleanup(c: Ctx) {
   await db`DELETE FROM project_reports WHERE owner = ANY(${owners})`;
   await db`DELETE FROM link_codes WHERE installation_id = ANY(${inst})`;
   await db`DELETE FROM installations WHERE id = ANY(${inst})`;
+  // M6: their people, once no installation or builder holds them.
+  await db`DELETE FROM people p WHERE p.id = ANY(${pids}) AND p.builder_id IS NULL AND NOT EXISTS (SELECT 1 FROM installations i WHERE i.person_id = p.id)`;
   // L37-2 (v6.1.18): the agents' registrations too.
   await db`DELETE FROM oauth_clients WHERE client_name LIKE ${like} OR client_name = ${c.tag}`;
   await db`DELETE FROM sessions WHERE builder_id = ANY(${bids})`;

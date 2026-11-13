@@ -96,7 +96,7 @@ export async function linkInstallation(installationId: number, builderId: number
     if (inst?.builder_id == null)
       // Task 9 fix round 1 (N5): a promise kept before the link was never this builder's.
       await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL, promised = NULL, promised_at = NULL, former_builder_id = NULL WHERE id = ${installationId}`;
-    // v6.1.20: the installation's person joins the builder's (carrying a test reason); never undone by an unlink.
+    // v6.1.21: the installation's person joins the builder's (carrying a test reason); never undone by an unlink.
     await linkPerson(tx, installationId, builderId);
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
@@ -211,7 +211,7 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted', promised = NULL, promised_at = NULL WHERE builder_id = ${id}`;
     // L28-10: a deleted record is nothing to read back.
     await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;
-    // v6.1.20: people rows are never deleted; the person just loses its builder.
+    // v6.1.21: people rows are never deleted; the person just loses its builder.
     await tx`UPDATE people SET builder_id = NULL WHERE builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });

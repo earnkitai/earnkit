@@ -335,7 +335,7 @@ test('/llms.txt is plain text', async () => {
   assert.match(await res.text(), /https:\/\/earnkit\.com\/mcp/);
 });
 
-test('/api/stats answers the eighteen keys (L22-1, v6.1.16: won_other and won_without_amount; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit, read_at; v6.1.19: last_check_ok; v6.1.20: installs_real, people, people_real)', async () => {
+test('/api/stats answers the eighteen keys (L22-1, v6.1.16: won_other and won_without_amount; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit, read_at; v6.1.19: last_check_ok; v6.1.21: installs_real, people, people_real)', async () => {
   const res = await statsGet();
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, number>;

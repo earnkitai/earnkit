@@ -75,7 +75,7 @@ export function isAllowedRedirectUri(uri: string) {
 /** `r`: the redirect URIs; `n`: the registration nonce; `cn`: the registered name, cleaned. */
 export type ClientPayload = { r: string[]; n?: string; cn?: string };
 /** `a`: the resource (audience) the code was issued for; absent in codes from before v6.1.16. */
-/** `b`: the builder who signed in with GitHub at the install (v6.1.20, EARNKIT_INSTALL_SIGNIN=github); absent for an anonymous approval. */
+/** `b`: the builder who signed in with GitHub at the install (v6.1.21, EARNKIT_INSTALL_SIGNIN=github, disabled in this release); absent for an anonymous approval. */
 type CodePayload = { c: string; r: string; ch: string; e: number; n: string; a?: string; b?: number };
 
 /** The MCP resource URL for an origin (RFC 8707): what a token is issued for. Pure. */
@@ -535,7 +535,7 @@ export async function checkAuthorize(params: URLSearchParams, deps: ClientDeps =
   };
 }
 
-/** The redirect with a code (and RFC 9207's iss). `who` is null for the anonymous approval, else the builder who signed in at the install (v6.1.20). */
+/** The redirect with a code (and RFC 9207's iss). `who` is null for the anonymous approval, else the builder who signed in at the install (v6.1.21). */
 export async function issueCode(req: PendingAuthorize, who: { builderId: number } | null, issuer?: string, deps: ClientDeps = {}): Promise<URL> {
   const client = await clientOf(req.client_id, deps);
   if (!client || !client.r.includes(req.redirect_uri)) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
