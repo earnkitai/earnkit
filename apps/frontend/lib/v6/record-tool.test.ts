@@ -545,3 +545,23 @@ test('L45-13 (v6.1.19): record keeps a project repo given with no scheme, as SSH
   assert.equal(r.isError, false, r.text);
   assert.deepEqual((await getRecord(c.builderId)).projects.map((p) => p.repo_url), ['https://github.com/acme/one', 'https://github.com/acme/two', 'https://github.com/acme/three']);
 });
+
+test('L47-7 (v6.1.22): phone and country facts fill their fields and leave the missing list', async () => {
+  const c = await linked();
+  await upsertProgram(programFixture({ id: 'l47-nl', submission_requirements: [
+    { key: 'phone', label: 'Phone number', type: 'text', required: false, from: 'builder', kind: 'contact', todo: 'your phone number' },
+    { key: 'country', label: 'Country', type: 'text', required: true, from: 'builder', kind: 'contact', todo: 'your country' },
+  ] }), 'file', NOW);
+  await markNextNeeds(c.installationId, [
+    { words: 'your phone number', key: 'phone', program_id: 'l47-nl', project_id: null },
+    { words: 'your country', key: 'country', program_id: 'l47-nl', project_id: null },
+  ]);
+  assert.deepEqual((await mcpCall(c, 'record', { get: true })).reply!.missing, ['your phone number', 'your country']);
+  const s = await mcpCall(c, 'record', { set: { person: { phone: '+31 20 555 0100' } } });
+  assert.equal(s.reply!.show_to_builder, 'Saved 1 fact. Still missing: your country.');
+  assert.deepEqual(s.reply!.missing, ['your country']);
+  await mcpCall(c, 'record', { set: { person: { based_country: 'NL' } } });
+  const g = await mcpCall(c, 'record', { get: true });
+  assert.equal(g.reply!.show_to_builder, 'Saved. The next application needs nothing more.');
+  assert.deepEqual(g.reply!.missing, []);
+});

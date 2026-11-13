@@ -137,7 +137,7 @@ test('L13-1 (v6.1.14): recordOutcomes writes a ledger only through the applicati
   assert.equal((await summary(`b:${noAmount.id}`, [], NOW)).won_usd, 700);
   assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 800, now: NOW }), { ok: true, corrected: true, replaced: { USD: 700 } });
   // L16-2 (v6.1.16): no_result over a result is refused (a rejection would be a correction).
-  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'no_result', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'jobs-c title already has a win recorded here ($800). Say won again to change it.' });
+  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'no_result', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'jobs-c title already has a win here ($800); say won again with the new amount to change it.' });
   const [e] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${elsewhere.id}`} AND program_id = 'jobs-c-other'`;
   assert.equal(e.status, 'applied');
   const other = await reviewer('jobs-c2');

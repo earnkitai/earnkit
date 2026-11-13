@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { Db } from '../v5/db';
 import { displayName } from '../v5/installations';
 import { programsById } from '../v5/programs';
-import { claimedForRepo, formerSentAt, pickRow, repoKeyOf, repoLock, sentForRepo, type ParentRepo } from '../v5/ledger';
+import { claimedForRepo, formerSentAt, isEarlierRound, pickRow, repoKeyOf, repoLock, sentForRepo, type EarlierWin, type ParentRepo } from '../v5/ledger';
 import { identityFor } from '../v5/project-input';
 
 export const CLAIM_HOURS = 24;
@@ -42,7 +42,7 @@ export async function stillLinked(tx: Db, owner: string, installationId: number)
   const [r] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR SHARE`;
   return r !== undefined && r.builder_id !== null && r.builder_id === Number(owner.slice(2));
 }
-type Row = { project_id: string | null; status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date; held_at: Date | null; identity: string | null };
+type Row = { project_id: string | null; status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date; held_at: Date | null; identity: string | null; earlier_win: EarlierWin | null };
 
 const clientOf = async (installationId: number | null): Promise<string | null> => {
   if (installationId === null) return null;
@@ -72,7 +72,7 @@ export async function claim(owner: string, programId: string, projectId: string 
     if (!(await stillLinked(tx, owner, installationId))) return { unlinked: true as const };
     // Fix round 2 (C3): a claim keyed by a repo takes only that key's own row, never a keyless one.
     const read = async () => {
-      const rows = await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at, identity FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
+      const rows = await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at, identity, earlier_win FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
       // Controller ruling: an identity match only when that row's key gives the same repo key as this call's.
       const same = identity ? rows.find((r) => r.identity === identity && repoKeyOf(r.project_id) === repoKeyOf(key)) : undefined;
       if (same) return same;
@@ -88,7 +88,9 @@ export async function claim(owner: string, programId: string, projectId: string 
     // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, under the repo's lock.
     // Controller ruling (v6.1.16.1 Task 2): the repo key from this call's own key always, and the row's when it names another.
     const checkKeys = [...new Set([repoKeyOf(key), repoKeyOf(rk)].filter((x): x is string => x !== null))];
-    if (repoKey && (!row || row.status === 'started')) {
+    // L47-6 (v6.1.22): a win from an earlier round never blocks this round's start; the start moves it.
+    const newRound = row !== undefined && isEarlierRound(row);
+    if (repoKey && (!row || newRound || row.status === 'started')) {
       for (const k of checkKeys) {
         const id = k === repoKeyOf(key) ? o.repoId ?? null : null;
         const parent = k === repoKeyOf(key) ? o.parentRepo ?? null : null;
@@ -109,14 +111,14 @@ export async function claim(owner: string, programId: string, projectId: string 
     const takeOver = Boolean(row && rk === '' && repoKeyOf(key) && o.tied
       && !(await repoLock(tx, repoKeyOf(key)!, programId, o.repoId ?? null).then(() => sentForRepo(tx, programId, key, owner, o.repoId ?? null))));
     // L28-10: an unlinked agent never claims what the builder it was linked to sent.
-    if (!row) {
+    if (!row || newRound) {
       const before = await formerSentAt(tx, owner, programId, key);
       if (before) return { former: { at: before } };
     }
     if (row?.status === 'skipped') return { skipped: true as const };
     const lifts = row?.status === 'started' && row.held_at !== null;
     const renews = row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId;
-    if (row && !lifts && !renews && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row), sent: row.status !== 'started' };
+    if (row && !newRound && !lifts && !renews && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row), sent: row.status !== 'started' };
     if (takeOver) {
       await tx`UPDATE applications SET project_id = ${key}, repo_key = ${repoKeyOf(key)}, repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id), identity = COALESCE(identity, ${ident})
         WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
@@ -141,11 +143,13 @@ export async function claim(owner: string, programId: string, projectId: string 
     const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by, application_id, repo_key, repo_id, identity)
       VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, ${rk || null}, ${now}, ${installationId}, ${newApplicationId()}, ${repoKeyOf(rk || key)}, ${o.repoId ?? null}, ${row ? null : ident})
       ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
-        SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
+        SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
             application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
             repo_key = EXCLUDED.repo_key, repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id), claimed_at = EXCLUDED.claimed_at, claimed_by = EXCLUDED.claimed_by,
-            submitted_by = NULL, fields_used = NULL, auto_applied = false, identity = COALESCE(applications.identity, EXCLUDED.identity)
-        WHERE applications.status = 'started' AND applications.claimed_at <= ${stale}
+            submitted_by = NULL, fields_used = NULL, auto_applied = false, identity = COALESCE(applications.identity, EXCLUDED.identity),
+            earlier_win = CASE WHEN applications.status = 'won' THEN applications.earlier_win || '{"moved": true}'::jsonb ELSE applications.earlier_win END
+        WHERE (applications.status = 'started' AND applications.claimed_at <= ${stale})
+          OR (applications.status = 'won' AND applications.earlier_win IS NOT NULL AND NOT (applications.earlier_win ? 'moved'))
       RETURNING program_id`;
     if (won.length === 0) {
       const now2 = await read();

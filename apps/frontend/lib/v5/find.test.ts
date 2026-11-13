@@ -4744,3 +4744,65 @@ test('v6.1.20 review I5: every find reply in this file keeps the builder contrac
   assert.ok(findReplies.length > 200, String(findReplies.length));
   for (const t of findReplies) builderRules(t, !/^(Everything open|Open now: \d+ programs?, nearest first:)/.test(t) && !t.includes('\nRules:\n'));
 });
+
+// ---- v6.1.22 (lane 47) ----
+
+test('L47-4 (v6.1.22): the same builder-sent program on two projects is asked once on each', async () => {
+  const { claim } = await import('../v6/claims');
+  const id = await installation();
+  const owner = `i:${id}`;
+  const SC = { name: 'SC', description: 'A small open source tool.' };
+  const SD = { name: 'SD', description: 'Another small open source tool.' };
+  const back = new Date(NOW.getTime() - 2 * H);
+  assert.deepEqual(await claim(owner, 'futo-microgrants', 'name:sc', id, back), { ok: true });
+  assert.deepEqual(await claim(owner, 'futo-microgrants', 'name:sd', id, back), { ok: true });
+  const lastLine = (r: Record<string, unknown>) => (r.show_to_builder as string).split('\n').filter((l) => l.trim() !== '').at(-1);
+  const sd = (await mcpCall(ctx(id), 'find', { project: SD })).reply!;
+  assert.equal(lastLine(sd), 'Did you send FUTO Microgrants? Say sent and I note it.');
+  const sc = (await mcpCall(ctx(id), 'find', { project: SC })).reply!;
+  assert.equal(lastLine(sc), 'Did you send FUTO Microgrants? Say sent and I note it.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM sent_asks WHERE installation_id = ${id} AND program_id = 'futo-microgrants'`)[0].n, 2);
+  // A third find on SD the same day asks nothing.
+  const again = (await mcpCall(ctx(id), 'find', { project: SD })).reply!;
+  assert.doesNotMatch(again.show_to_builder as string, /Did you send FUTO Microgrants/);
+});
+
+test('L47-4b (v6.1.22): a program-only sent_asks row from before the release still counts for every project', async () => {
+  const { claim } = await import('../v6/claims');
+  const id = await installation();
+  const owner = `i:${id}`;
+  const back = new Date(NOW.getTime() - 2 * H);
+  await claim(owner, 'futo-microgrants', 'name:sc', id, back);
+  await claim(owner, 'futo-microgrants', 'name:sd', id, back);
+  await sql()`INSERT INTO sent_asks (installation_id, owner, program_id, asked_on) VALUES (${id}, ${owner}, 'futo-microgrants', ${NOW.toISOString().slice(0, 10)})`;
+  for (const name of ['SC', 'SD']) {
+    const r = (await mcpCall(ctx(id), 'find', { project: { name, description: 'A small open source tool.' } })).reply!;
+    assert.doesNotMatch(r.show_to_builder as string, /Did you send FUTO Microgrants/, name);
+  }
+});
+
+test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round: the program reads its state, then the earlier win', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const id = await installation();
+  const P = { name: 'l47 Up Two', description: 'An app.' };
+  await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', status: 'upcoming', opens_note: 'Opens in December', max_award_usd: 5000 }), 'file', NOW);
+  try {
+    const w = await mcpCall(ctx(id), 'track', { program_id: 'l47-up-two', status: 'won', amount_usd: 1000, outside: true, project: P });
+    assert.equal(w.reply!.show_to_builder, 'Recorded: L47 Upcoming Two won, $1,000. Noted: a win outside EarnKit.');
+    await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', max_award_usd: 5000 }), 'file', NOW);
+    const r = (await mcpCall(ctx(id), 'find', { program_id: 'l47-up-two', project: P })).reply!;
+    const one = r.show_to_builder as string;
+    assert.match(one, /^L47 Upcoming Two \((?:up to )?\$5,000\)\. .+ Won \$1,000 in an earlier round\.$/m, one);
+    assert.notEqual(r.agent_note, 'This program already has a result; nothing to send.');
+    // The list names the program with its earlier win after the row.
+    const list = (await mcpCall(ctx(id), 'find', { project: P, filter: { all: true } })).reply!;
+    assert.match(list.show_to_builder as string, /L47 Upcoming Two \([^)]*\)[^\n]*\. Won \$1,000 in an earlier round\./, list.show_to_builder as string);
+    const s = await mcpCall(ctx(id), 'track', { program_id: 'l47-up-two', status: 'started', project: P });
+    assert.equal(s.isError, false, s.text);
+    assert.doesNotMatch(s.reply!.show_to_builder as string, /already sent/);
+    const [row] = await sql()`SELECT status, earlier_win FROM applications WHERE installation_id = ${id} AND program_id = 'l47-up-two'`;
+    assert.deepEqual([row.status, row.earlier_win.moved], ['started', true]);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l47-up-two'`;
+  }
+});

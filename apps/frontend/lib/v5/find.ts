@@ -16,11 +16,11 @@ import { closeDay, closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, earlierWinOf, earlierWins, EARLIER_WIN, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, unvouchedRequired, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, getProgram, isOpenAt, statusAt, listOpenPrograms, LIST_GONE, listMiss, listRef, programByName, programIdOf, unknownProgramLine, type ProgramRow } from './programs';
-import { moneyAt, moneyOf as tileMoney } from './programs-read';
+import { amountsText, moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
@@ -149,6 +149,8 @@ export type ReadyProgram = {
   rule_yes?: true;
   /** L38-1 (v6.1.18 Task 11): what the agent writes into the repo on yes before it applies (the funding manifest). */
   agent_step?: ManifestStep;
+  /** L47-6 (v6.1.22): the money of a win from an earlier round of it (null when none was given), said after its row. */
+  earlier_win?: string | null;
 };
 export type GapProgram = {
   program_id: string;
@@ -177,6 +179,8 @@ export type GapProgram = {
   public_first?: true;
   /** L1g-8b (v6.1.16): its keyword rule is named nowhere in the project (full list only), so its rule is asked only when no step is shown. */
   unlikely?: true;
+  /** L47-6 (v6.1.22): as on ReadyProgram. */
+  earlier_win?: string | null;
 };
 export type FindReply = {
   show_to_builder: string;
@@ -616,6 +620,14 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   // L38-1 (v6.1.18 Task 11): a ready program whose form takes a manifest not yet in the repo: what the agent writes.
   const step = open && verdict?.status === 'ready' && !heldSince ? manifestStep(p, facts, rec) : null;
+  // L47-6 (v6.1.22): a win from an earlier round is its own sentence after the program's state, never the reply's Say.
+  const earlier = project ? await earlierWinOf(ownerOf(ctx), id, key) : undefined;
+  if (earlier !== undefined) {
+    const at = Math.min(closed ? 1 : 0, show.length - 1);
+    const line = EARLIER_WIN(earlier ? amountsText(earlier) || null : null);
+    if (at === show.length - 1 && show.length > 1) show.splice(at, 0, line);
+    else show[at] = `${show[at]} ${line}`;
+  }
   if (renamed && !show[0]?.includes(short)) show.unshift(`${short}.`);
   await markOffer(ctx.installationId, offer, ctx.now);
   const dropped = droppedNote(problems);
@@ -716,7 +728,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const sentAll = await sentAsksOpen(ctx.installationId, await askSent(ownerOf(ctx), programs, ctx.now), ctx.now);
   // L41-11 (v6.1.19): one line for them all, three named; L41-7: each with its project.
   const sentShown = OPEN_LINES - 1 - before.length > 0 ? sentAll.slice(0, 3) : [];
-  await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => a.program_id), ctx.now);
+  // L47-4 (v6.1.22): each ask is marked with its project.
+  await markSentAsked(ctx.installationId, ownerOf(ctx), sentShown.map((a) => ({ program_id: a.program_id, project_id: a.project_id })), ctx.now);
   const sentAsk = sentQuestion(sentShown.map((a) => (a.project ? `${a.title} (${a.project})` : a.title)));
   const sentNoteOpen = sentNote({ ask_sent: sentShown, released: [] });
   const reply = {
@@ -1503,9 +1516,15 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     }
     return builderHeld.has(id) ? { ...r, held: true } : r;
   };
+  // L47-6 (v6.1.22): a program won in an earlier round says so after its row.
+  const earlierHere = await earlierWins(owner, (p) => p === key || p === i.project_id || p === side?.projectId);
+  const withEarlier = <T extends { program_id: string }>(r: T): T => {
+    const w = earlierHere.get(r.program_id);
+    return w === undefined ? r : { ...r, earlier_win: w ? amountsText(w) || null : null };
+  };
   const { ready, gaps } = numbered(
-    shownReady.map((v) => marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)))),
-    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v))),
+    shownReady.map((v) => withEarlier(marked(v.program_id, readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id))))),
+    shownGaps.map((v) => withEarlier(gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v)))),
     // L38 big 3 (v6.1.18 Task 10): every in-person gap shown is numbered in the In person block.
     (g) => g.in_person,
   );
@@ -1619,7 +1638,11 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const namedIn = (id: string) => asked && sentAsk.named.includes(id);
   const shownSent = (r.ask_sent ?? []).filter((a) => namedIn(a.program_id));
   const shownRel = r.released.filter((p) => p.ask && namedIn(p.program_id));
-  await markSentAsked(ctx.installationId, owner, [...shownSent, ...shownRel].map((x) => x.program_id), ctx.now);
+  // L47-4 (v6.1.22): each with its project; a kept claim's release line takes its due ask's project.
+  await markSentAsked(ctx.installationId, owner, [
+    ...shownSent.map((a) => ({ program_id: a.program_id, project_id: a.project_id })),
+    ...shownRel.map((p) => ({ program_id: p.program_id, project_id: sentDue.find((a) => a.program_id === p.program_id)?.project_id ?? null })),
+  ], ctx.now);
   const unshown = [...(r.ask_sent ?? []).filter((a) => !shownSent.includes(a)), ...r.released.filter((p) => p.ask && !shownRel.includes(p))];
   const rOut = { ...r, ask_sent: shownSent, released: r.released.filter((p) => !p.ask || shownRel.includes(p)) };
   const hiddenOut = said.hidden.filter((l) => !(l.startsWith('Did you send ') && unshown.some((a) => l.includes(shortTitle(a.title, repoOpt.shorts.get(a.program_id))))));

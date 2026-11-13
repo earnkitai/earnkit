@@ -273,3 +273,22 @@ test('L47-3 (v6.1.19.1, review I1, M1): a builder send made the draft way counts
   assert.equal((await record(`i:${q}`, 'l47-skip', 'applied', { installationId: q, submitted_by: 'builder', now: NOW })).ok, true);
   assert.deepEqual(await counts('l47-skip'), reported);
 });
+
+test('L47-6b (v6.1.22): an earlier-round win counts once before and once after the new round starts, twice when the new round is won', async () => {
+  const [r] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`stat-l47-${Math.random()}`}) RETURNING id`;
+  const owner = `i:${r.id}`;
+  const before = await readStats(NOW);
+  await upsertProgram(programFixture({ id: 'zz-l47-round', status: 'upcoming', opens_note: 'Soon', max_award_usd: 5000 }), 'file', NOW);
+  assert.equal((await record(owner, 'zz-l47-round', 'won', { amount_usd: 1000, outsideWin: true, now: ago(2) })).ok, true);
+  const delta = async () => {
+    const s = await readStats(NOW);
+    return [s.won - before.won, s.won_usd - before.won_usd, s.applications - before.applications];
+  };
+  assert.deepEqual(await delta(), [1, 1000, 1]);
+  await upsertProgram(programFixture({ id: 'zz-l47-round', max_award_usd: 5000 }), 'file', NOW);
+  assert.deepEqual(await claim(owner, 'zz-l47-round', null, r.id, ago(1)), { ok: true });
+  assert.deepEqual(await delta(), [1, 1000, 0]);
+  assert.equal((await record(owner, 'zz-l47-round', 'applied', { now: ago(1) })).ok, true);
+  assert.equal((await record(owner, 'zz-l47-round', 'won', { amount_usd: 2000, now: NOW })).ok, true);
+  assert.deepEqual(await delta(), [2, 3000, 1]);
+});

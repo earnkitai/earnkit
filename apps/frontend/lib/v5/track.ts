@@ -14,7 +14,7 @@ import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, markOffe
 import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, projectKeyOf, unknownProjectKeys, type Project } from './project-input';
 import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, programIdOf, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, gapItemOf, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
+import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, gapItemOf, isEarlierRound, type EarlierWin, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, midSentence, unreadNote } from './reply';
 import { codeChecked, evaluate, itemKey, licenseRead, repoGaps, unlikely } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -77,17 +77,18 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
 
 /** The owner's row for the program and project key (L28-4, v6.1.16 Task 14: `pickRow`; `anyProject` for a result). */
 async function rowsHere(owner: string, programId: string) {
-  return sql()<{ project_id: string | null; off_repo: string | null; status: string; application_id: string | null; claimed_by: number | null; claimed_at: Date | null }[]>`
-    SELECT project_id, off_repo, status, application_id, claimed_by, claimed_at FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+  return sql()<{ project_id: string | null; off_repo: string | null; status: string; application_id: string | null; claimed_by: number | null; claimed_at: Date | null; earlier_win: EarlierWin | null }[]>`
+    SELECT project_id, off_repo, status, application_id, claimed_by, claimed_at, earlier_win FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
 }
 async function rowHere(owner: string, programId: string, key: string, anyProject = false) {
   return pickRow(await rowsHere(owner, programId), key, anyProject);
 }
 
-/** True when the owner's row for the program and project is an application already sent (applied or with a result). */
+/** True when the owner's row for the program and project is an application already sent (applied or with a result).
+ *  L47-6 (v6.1.22): a win from an earlier round (`isEarlierRound`) is no send of this round. */
 async function sentHere(owner: string, programId: string, key: string, anyProject = false): Promise<boolean> {
   const r = await rowHere(owner, programId, key, anyProject);
-  return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
+  return r !== undefined && r.status !== 'started' && r.status !== 'skipped' && !isEarlierRound(r);
 }
 
 /** L28-3 (v6.1.16 Task 14): the linked builder's GitHub login, or null. */
@@ -273,10 +274,18 @@ export const CONFIRM_RULES = (rules: string[], title = 'It') =>
   rules.length === 1 ? CONFIRM_RULE(rules[0], title) : `${title} needs one yes from you first: ${rules.map(midSentence).join('; ')}. Say yes if all of that is you.`;
 /** L36-5 (v6.1.18): a gap_done on a row's first rule item confirmed every rule that row listed. */
 export const RULES_CONFIRMED = 'Tracked: those rules fit you.';
-/** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. */
-export const OUTSIDE_WIN = (title: string, money: string) => `Recorded: ${title} won, ${money}. Noted as sent by you outside EarnKit.`;
-/** L29-27 (v6.1.16 Task 15): the agent note wherever the builder hears "Say bring it back". */
-export const BRING_BACK_NOTE = 'On "bring it back", call track with unskip.';
+/** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. L47-14
+ *  (v6.1.22): a win outside EarnKit, never said as a send. */
+export const OUTSIDE_WIN = (title: string, money: string) => `Recorded: ${title} won, ${money}. Noted: a win outside EarnKit.`;
+/** L29-27 (v6.1.16 Task 15): the agent note wherever the builder hears "Say unskip" (L47-15, v6.1.22: one phrase). */
+export const BRING_BACK_NOTE = 'On "unskip", call track with unskip.';
+/** L47-8 (v6.1.22): gap_done on the rules a Next line named, after the builder's yes: the yes covers the send. */
+export const NEXT_NOTED = 'Noted; I apply now.';
+/** L47-8 (v6.1.22, controller ruling): the same for a program the builder sends themselves. */
+export const NEXT_NOTED_DRAFT = 'Noted; I draft it for you to send.';
+/** L47-8 (v6.1.22): the agent note after it: no find. */
+export const NEXT_GAP_NOTE = (id: string) =>
+  `The builder's yes to the Next line covers the send: call track started with program_id ${id} and fill the form from next.fields; no find needed.`;
 /** L45-20 (v6.1.19): started on a program the builder skipped. */
 export const SKIPPED_START = (title: string) => `${title} is skipped. Say unskip and I bring it back.`;
 export const SKIPPED_START_NOTE = 'Do not submit this one. When the builder says unskip, call track with unskip.';
@@ -827,7 +836,8 @@ async function act(
       : refuse(res.note);
   if (i.status === 'applied') await rememberName();
   // Fix round 1 (I1, v6.1.18 Task 8): the rule items the program's row (or rule ask) listed, read before they are forgotten.
-  const shownRules = i.status === 'gap_done' && sameAsLast ? (await lastGaps(ctx.installationId))[i.program_id]?.rules ?? [] : [];
+  const remembered = i.status === 'gap_done' && sameAsLast ? (await lastGaps(ctx.installationId))[i.program_id] : undefined;
+  const shownRules = remembered?.rules ?? [];
   if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
@@ -843,6 +853,13 @@ async function act(
         if (more.ok) also++;
       }
     const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key, ctx.now) : 0;
+    // L47-8 (v6.1.22): the yes to a Next line's rules is the yes to send it: one sentence, and the agent goes on to
+    // started with no find. A program the builder sends is drafted (controller ruling).
+    if (remembered?.next && i.item!.startsWith('rule:') && !('repeated' in res) && shownRules.includes(i.item!) && left === 0) {
+      const p = await getProgram(i.program_id);
+      const draft = p?.file.submit === 'builder' || (ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.agent_may_submit === false);
+      return { show_to_builder: draft ? NEXT_NOTED_DRAFT : NEXT_NOTED, agent_note: NEXT_GAP_NOTE(i.program_id), ledger: await summary(owner, programs, ctx.now) };
+    }
     const [show, note] = 'repeated' in res
       ? ['Already tracked.', 'Call find again for the updated applications.']
       : i.item!.startsWith('rule:')
@@ -887,7 +904,8 @@ async function act(
     no_result: 'Tracked.',
     // L24-4 (v6.1.16 Task 11): a skip is for good, and says so.
     // L29-27 (v6.1.16 Task 15): the builder's words, never the status name.
-    skipped: `Skipped ${title} for good. Say bring it back and I list it again.`,
+    // L47-15 (v6.1.22): one phrase, unskip, as SKIPPED_START says it.
+    skipped: `Skipped ${title} for good. Say unskip and I bring it back.`,
     // L38-17 (v6.1.18): it is back, said as a fact.
     unskip: `${title} is back in your list.`,
   };
@@ -1083,7 +1101,8 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
     if (ready) return next;
     oneYes = next;
   }
-  if (oneYes) await rememberGap(ctx.installationId, oneYes.program_id, { what: oneYes.rules[0].what, kind: 'rule', item: oneYes.rules[0].item, rules: oneYes.rules.map((r) => r.item) });
+  // L47-8 (v6.1.22): remembered as the Next line's, so the yes's gap_done covers the send (no find).
+  if (oneYes) await rememberGap(ctx.installationId, oneYes.program_id, { what: oneYes.rules[0].what, kind: 'rule', item: oneYes.rules[0].item, rules: oneYes.rules.map((r) => r.item), next: true });
   return oneYes;
 }
 

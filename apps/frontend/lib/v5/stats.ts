@@ -98,11 +98,19 @@ export const sendCounts = (db: Sql) => db`count(*) AS all, count(*) FILTER (WHER
   count(*) FILTER (WHERE submitted_by = 'builder' AND NOT through) AS reported,
   count(*) FILTER (WHERE auto_applied) AS auto`;
 
-/** L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program. */
+/**
+ * L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program.
+ * L47-6 (v6.1.22): plus each earlier-round win a new round moved off its row (`earlier_win ? 'moved'`), one more win
+ * with its own amounts (`earlier`: no send of its own); an unmoved one is the row's own win and counts once.
+ */
 const wonOnce = (db: ReturnType<typeof sql>) => db`
   SELECT status, at, amounts, amount_usd,
-         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won') ORDER BY at, owner) = 1) AS counted
-  FROM applications`;
+         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won') ORDER BY at, owner) = 1) AS counted,
+         false AS earlier
+  FROM applications
+  UNION ALL
+  SELECT 'won', (earlier_win->>'at')::timestamptz, NULLIF(earlier_win->'amounts', 'null'::jsonb), (earlier_win->>'amount_usd')::numeric, true, true
+  FROM applications WHERE earlier_win ? 'moved'`;
 
 export async function readStats(now: Date = new Date()): Promise<Stats> {
   const db = sql();
@@ -118,7 +126,7 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     // with no repo key; `counted` marks those rows.
     db<{ sent: string; won: string; won_usd: string | null; won_none: string }[]>`
       WITH a AS (${wonOnce(db)})
-      SELECT count(*) FILTER (WHERE status = ANY(${SENT})) AS sent,
+      SELECT count(*) FILTER (WHERE status = ANY(${SENT}) AND NOT earlier) AS sent,
              count(*) FILTER (WHERE status = 'won' AND counted) AS won,
              sum(COALESCE((amounts->>'USD')::numeric, CASE WHEN amounts IS NULL THEN amount_usd END)) FILTER (WHERE status = 'won' AND counted) AS won_usd,
              count(*) FILTER (WHERE status = 'won' AND counted AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none

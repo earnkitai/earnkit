@@ -98,7 +98,8 @@ export async function builderOf(installationId: number): Promise<number | null> 
 /** A remembered gap: the first gap's what, its kind ('rule' for a rule to confirm) and its item (none in rows before v6.1.7). */
 /** Fix round 1 (I1, v6.1.18 Task 8): `rules`, the rule items the program's row (or its rule ask) listed, so one rule
  *  yes confirms those and no other. */
-export type RememberedGap = { what: string; kind: string; item?: string; rules?: string[] };
+/** `next` (L47-8, v6.1.22): remembered by track's Next line (its one-yes program), so the yes's gap_done covers the send. */
+export type RememberedGap = { what: string; kind: string; item?: string; rules?: string[]; next?: true };
 
 /**
  * Stamps a find: last_find_at and last_seen_at; with `gaps` (a find without a category filter, v6.1.7 C24a) also its gaps
@@ -179,8 +180,10 @@ export async function lastGaps(id: number): Promise<Record<string, RememberedGap
  * reply listed its rules: the one-program look, or track's rule ask. The caller checks the project is the last find's.
  */
 export async function rememberGap(id: number, programId: string, gap: RememberedGap): Promise<void> {
+  // L47-8 (v6.1.22): `next` is the Next line's alone: any other reply that lists the rules drops it.
+  const merge = gap.next ? { rules: gap.rules ?? [], next: true } : { rules: gap.rules ?? [] };
   await sql()`UPDATE installations SET last_gaps = COALESCE(last_gaps, '{}'::jsonb) || jsonb_build_object(${programId}::text,
-    COALESCE(last_gaps -> ${programId}::text, ${sql().json(gap)}::jsonb) || jsonb_build_object('rules', ${sql().json(gap.rules ?? [])}::jsonb))
+    (COALESCE(last_gaps -> ${programId}::text, ${sql().json(gap)}::jsonb) - 'next') || ${sql().json(merge)}::jsonb)
     WHERE id = ${id}`;
 }
 

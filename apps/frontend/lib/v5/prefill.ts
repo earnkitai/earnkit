@@ -216,7 +216,8 @@ type FromRecord = { value: string; prose: boolean } | null;
 const isProse = (kind: string) => kind === 'how_it_works' || (ANSWER_KINDS as readonly string[]).includes(kind);
 
 /**
- * A contact field from the record's person: name (first, last or whole), email and X; other handles stay the builder's.
+ * A contact field from the record's person: name (first, last or whole), email, X, phone and country (L47-7, v6.1.22);
+ * other handles stay the builder's.
  * L28-9 (v6.1.16 Task 14): a username or handle is never a name (a GitHub one is the builder's own team entry's, any
  * other is the builder's to give), and a second or co-founder's email is that member's from the team, never the
  * builder's own.
@@ -231,6 +232,9 @@ function contactValue(r: SubmissionRequirement, person: BuilderRecord['person'],
   }
   if (r.type === 'email' || /email/i.test(label)) return person.email ?? null;
   if (/\b(x|twitter)\b/i.test(label)) return person.x ?? null;
+  // L47-7 (v6.1.22): the record's phone (a phone or mobile field, whole word) and its country, by its English name.
+  if (/\b(phone|mobile)\b/i.test(label)) return person.phone ?? null;
+  if (/\bcountry\b/i.test(label)) return person.based_country ? countryName(person.based_country) : null;
   if (/name/i.test(label) && person.name) {
     const [first, ...rest] = person.name.trim().split(/\s+/);
     if (/first/i.test(label)) return first;
@@ -238,6 +242,15 @@ function contactValue(r: SubmissionRequirement, person: BuilderRecord['person'],
     return person.name;
   }
   return null;
+}
+
+/** L47-7 (v6.1.22): a two-letter country code as its English name, the code itself when it has none. Pure. */
+export function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 /** The builder's own team entry: the member with the person's name (any case), else none. Pure. */

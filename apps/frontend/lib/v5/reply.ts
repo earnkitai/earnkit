@@ -9,7 +9,7 @@ import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { MANIFEST_LINE } from './funding-manifest';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
-import { applicationsLine } from './ledger';
+import { EARLIER_WIN, applicationsLine } from './ledger';
 import { closesWords, dayWords } from './deadline';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
 import { isChainKept } from './project-input';
@@ -1404,7 +1404,7 @@ export function fullView(blocks: [string, (ReadyProgram | GapProgram)[]][], afte
   const line = (p: ReadyProgram | GapProgram, head: string) => {
     const when = closes?.get(p.program_id) || p.closes_in;
     const inPerson = p.in_person && head !== IN_PERSON_HEAD;
-    return `${p.n}. ${p.title} (${[p.money, ...(when ? [`closes ${when}`] : []), ...(inPerson ? ['in person'] : [])].join(', ')})${clause[head] ? `, ${clause[head]}` : ''}.`;
+    return `${p.n}. ${p.title} (${[p.money, ...(when ? [`closes ${when}`] : []), ...(inPerson ? ['in person'] : [])].join(', ')})${clause[head] ? `, ${clause[head]}` : ''}.${earlierTail(p)}`;
   };
   const lead: Record<string, string> = { [NOT_READY_HEAD]: 'Not ready yet:', [IN_PERSON_HEAD]: 'In person:' };
   const runs = new Map<string, string[]>();
@@ -1485,7 +1485,12 @@ export function readyAction(p: ReadyProgram, o: ReadyOpts = {}): string {
 /** v6.1.20 polish (1): the opening's action for `n` ready rows ("I draft them for you to send."). Pure. */
 const actFor = (act: string, n: number): string =>
   n === 1 ? act : act.replace('I draft it for you to send.', 'I draft them for you to send.').replace('I send it under', 'I send them under');
+/** L47-6 (v6.1.22): a row's earlier-round win as its own sentence after the row, or nothing. Pure. */
+const earlierTail = (p: { earlier_win?: string | null }): string => (p.earlier_win === undefined ? '' : ` ${EARLIER_WIN(p.earlier_win)}`);
 export function readySentence(p: ReadyProgram, o: ReadyOpts = {}): string {
+  return `${readyRow(p, o)}${earlierTail(p)}`;
+}
+function readyRow(p: ReadyProgram, o: ReadyOpts = {}): string {
   const head = `${o.alone ? '' : `${p.n}. `}${p.title} ${moneyParen(p)}`;
   if (p.claimed_since) return `${head}, ${HELD_BY_OTHER}.`;
   if (p.held) return `${head}, ${ON_HOLD}.`;
@@ -1518,6 +1523,9 @@ const afterGap = (g: GapProgram, own: string[]): string => `${own.map((x) => ` $
  * the rule on screen. Pure.
  */
 export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
+  return `${gapRow(g, o)}${earlierTail(g)}`;
+}
+function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
   const head = `${g.n}. ${g.title} ${moneyParen(g)}`;
   const { needs, rules, own } = askedOf(g, o.closed ?? null);
   const yes = rules.length > 0 ? `one yes from you: ${rules.join('; ')}` : '';
