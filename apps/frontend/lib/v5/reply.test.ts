@@ -1971,12 +1971,26 @@ test('v6.1.20: shortTitle cuts the organiser\'s suffix at the first colon or " -
   assert.equal(shortTitle('Some Hackathon - a very long organiser suffix'), 'Some Hackathon');
 });
 
+test('L46-6 (v6.1.20): a Say asks two things by name; the agent note carries the rest, one at a time; the Before line names two', () => {
+  const p = ready({ title: 'Base Ecosystem Fund', need_you: ['a website link', "the company's X link", "the founder's role", 'your deck link'], needs: [] });
+  const r = base({ linked: true, ready: [p], record_missing: ['your name', 'your email', 'one line on traction', 'your resume link'] });
+  const t = replyText(r, true);
+  assert.equal(t.split('\n').at(-1), "Say yes and tell me a website link and the company's X link, and I apply to Base Ecosystem Fund.");
+  assert.doesNotMatch(t, /\band \d+ more\b/);
+  assert.match(t, /^Before applying: your name and your email\.$/m);
+  assert.ok(agentNote(r, { more: 0 }).split('\n').includes("The yes asks for a website link and the company's X link by name; after it, ask the builder for the rest one message at a time: the founder's role; your deck link."));
+});
+
 // Registered last, so it reads every reply the tests above rendered.
 test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
   assert.ok(rendered.length >= 100, `${rendered.length}`);
   for (const t of rendered) {
     assert.doesNotMatch(t, /\btonight\b|by tomorrow morning/i, t);
     assert.ok((t.match(/\bSay\b/g) ?? []).length <= 1, t);
+    // v6.1.20: no quoted commands, no labels, every line a sentence, the Say last.
+    assert.doesNotMatch(t, /"|Their rules?:|You give:|First:|One step away|More to do first|Ready to apply|\(\d+\):$/m, t);
+    for (const l of t.split('\n').filter((x) => x !== '')) assert.match(l, /[.?:]$/, t);
+    if (/\bSay\b/.test(t)) assert.match(t.split('\n').at(-1)!, /\bSay\b/, t);
   }
 });
 

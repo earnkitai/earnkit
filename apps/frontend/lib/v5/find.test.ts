@@ -4539,3 +4539,42 @@ test('Task 10 fix round 1 (I1, M5): the gate drops every sign-in sentence wherev
   assert.equal(change, `Sign in at ${link} so I know the repo is yours, then say yes and I add Base Builder Codes, then apply to Base Builder Grant Program.`);
   assert.match(change, APPLY_OFFER);
 });
+
+// ---- v6.1.20 (lane 46) ----
+
+test('L46-1 (v6.1.20): a builder-sent draft past 24 hours is asked about on the next find, signed out too', async () => {
+  const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
+  const id = await installation();
+  const started = await mcpCall(ctx(id), 'track', { program_id: 'y-combinator', status: 'started', project: IDEA });
+  assert.equal(started.isError, false, started.text);
+  const later = await mcpCall({ ...ctx(id), now: new Date(NOW.getTime() + 25 * H) }, 'find', { project: IDEA });
+  const show = later.reply!.show_to_builder as string;
+  assert.equal(show.split('\n').at(-1), 'Did you send Y Combinator Winter 2027 Batch? Say sent and I note it.', show);
+  assert.equal(show.match(/\bSay\b/g)?.length, 1, show);
+});
+
+test('L46-4 (v6.1.20): a category filter with no rows says so and offers the whole list, with no more line', async () => {
+  const { listOpenPrograms } = await import('./programs');
+  const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
+  const r = await mcpCall(ctx(await installation()), 'find', { project: IDEA, filter: { category: 'bounty' } });
+  const open = (await listOpenPrograms(NOW)).length;
+  assert.equal(r.reply!.show_to_builder, `Nothing open fits that filter for Rent Split. ${open} programs are open in all; say all and I list them.`);
+});
+
+test('L46-12 (v6.1.20): "Nothing new since your last look." never shows when a program moved to ready', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { itemKey } = await import('./eligibility');
+  await upsertProgram(programFixture({ id: 'l4612-rule', title: 'Moves Grant', eligibility: [{ kind: 'rule', note: 'a team of two or more' }] } as never), 'file', NOW);
+  try {
+    const P = { name: 'Mover', description: 'Moves.' };
+    const c = ctx(await installation());
+    await mcpCall(c, 'find', { project: P });
+    await mcpCall(c, 'track', { program_id: 'l4612-rule', status: 'gap_done', item: itemKey({ kind: 'rule', note: 'a team of two or more' }), project: P });
+    const again = await mcpCall({ ...c, now: new Date(NOW.getTime() + 60_000) }, 'find', { project: P });
+    const show = again.reply!.show_to_builder as string;
+    assert.ok((again.reply!.ready as { program_id: string }[]).some((p) => p.program_id === 'l4612-rule'), show);
+    assert.doesNotMatch(show, /Nothing new since/, show);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'l4612-rule'`;
+  }
+});

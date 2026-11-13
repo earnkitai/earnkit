@@ -347,3 +347,18 @@ test('L35-15 (v6.1.17): lengths count code points, so 1,996 emoji save and 2,001
   const over = merge({ answers: { risks: { text: '\u{1F680}'.repeat(2_001) } } });
   assert.deepEqual(over.problems, ['answers.risks.text: Too big: expected string to have <=2000 characters']);
 });
+
+test('L46-7 (v6.1.20): the traction line is asked only for a form that reads it; once typed, only its approval is named, with /me', () => {
+  const asks = { needs: [], kinds: [] };
+  assert.ok(recordMissing(EMPTY_RECORD, asks).includes('one line on traction'));
+  assert.ok(!recordMissing(EMPTY_RECORD, { ...asks, traction: false }).some((m) => /traction/.test(m)));
+  const typed = merge({ traction: { line_pre_launch: 'Pre-launch, 140 on the waitlist.' } }).record;
+  assert.deepEqual(recordMissing(typed, asks).filter((m) => /traction/.test(m)), ['your traction line approved at earnkit.com/me']);
+  assert.ok(!recordMissing(approvePath(typed, 'traction.line_pre_launch', NOW), asks).some((m) => /traction/.test(m)));
+});
+
+test('L46-6 (v6.1.20): record get names two of what the next application needs, never "and N more"', async () => {
+  const { nextNeedsLine } = await import('./record-tool');
+  assert.equal(nextNeedsLine(['a website link', "the company's X link", "the founder's role", 'your deck']), "The next application needs a website link and the company's X link first. Tell me them and I save them.");
+  assert.equal(nextNeedsLine(['a website link']), 'The next application needs a website link. Tell me it and I save it.');
+});

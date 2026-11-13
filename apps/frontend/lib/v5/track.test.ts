@@ -2994,3 +2994,53 @@ test('L45-11, L45-14 (v6.1.19): a number no list holds reads the list line, befo
   await upsertProgram(programFixture({ id: 'l45-page', title: 'Page Grant' }), 'file', NOW);
   assert.equal((await track(c, { program_id: 'https://earnkit.com/programs/l45-page', status: 'skipped' })).show_to_builder, 'Skipped Page Grant for good. Say bring it back and I list it again.');
 });
+
+// ---- v6.1.20 (lane 46) ----
+
+test('L46-8 (v6.1.20): the one-rule Next offers a rule only when its keywords hit the project or it has none', async () => {
+  const c = await signedIn('l468');
+  await upsertProgram(programFixture({ id: 'l468-a', title: 'Sent Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l468-eol', title: 'EOL Grant', eligibility: [{ kind: 'rule', note: 'a developer tool whose versions are near or past official end of life', keywords: ['end of life', 'eol'] }] } as never), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l468-plain', title: 'Plain Rule Grant', eligibility: [{ kind: 'rule', note: 'a team of two or more' }] } as never), 'file', NOW);
+  try {
+    const { markFind, markList } = await import('./installations');
+    const nextAfter = async (P: { name: string; description: string }, list: string[]) => {
+      await markFind(c.installationId, NOW, undefined, `name:${P.name.toLowerCase()}`);
+      await markList(c.installationId, 'h', NOW, ['l468-a', ...list]);
+      await sql()`DELETE FROM applications WHERE owner = ${c.owner} AND program_id = 'l468-a'`;
+      return (await send(c, 'l468-a', P, 'builder')).show_to_builder;
+    };
+    // An invoicing app names no end of life: the EOL rule is never offered.
+    const app = { name: 'Invoicely', description: 'Invoices for small shops.' };
+    assert.equal(await nextAfter(app, ['l468-eol']), 'Sent Sent Grant.');
+    // A rule with no keywords is offered as before.
+    assert.equal(await nextAfter(app, ['l468-eol', 'l468-plain']), 'Sent Sent Grant. Next: Plain Rule Grant (up to $5,000) needs one yes: a team of two or more. Say yes if that fits and I apply.');
+    // A project that names end of life sees the EOL rule.
+    const tool = { name: 'Oldlib', description: 'Security patches for an end of life library.' };
+    assert.equal(await nextAfter(tool, ['l468-eol']), 'Sent Sent Grant. Next: EOL Grant (up to $5,000) needs one yes: a developer tool whose versions are near or past official end of life. Say yes if that fits and I apply.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('l468-a', 'l468-eol', 'l468-plain')`;
+  }
+});
+
+test('L46-13 (v6.1.20): no Next is ready, but the next ready program waits on the record: the send names what it lacks, two at most', async () => {
+  const c = await signedIn('l4613');
+  const fields = [
+    { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'project', kind: 'name', todo: 'a project name' },
+    { key: 'linkedin', label: 'LinkedIn', type: 'url', required: true, from: 'builder', kind: 'links', todo: 'your LinkedIn' },
+  ];
+  await upsertProgram(programFixture({ id: 'l4613-a', title: 'Sent Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l4613-b', title: 'Needs Grant', submission_requirements: fields as never }), 'file', NOW);
+  try {
+    const { markFind, markList } = await import('./installations');
+    const P = { name: 'Lacker', description: 'Lacks.' };
+    await markFind(c.installationId, NOW, undefined, 'name:lacker');
+    await markList(c.installationId, 'h', NOW, ['l4613-a', 'l4613-b']);
+    const r = await send(c, 'l4613-a', P, 'builder');
+    assert.equal(r.show_to_builder, 'Sent Sent Grant. Needs Grant is next; it needs your LinkedIn first.');
+    const { NEXT_LACKS } = await import('./track');
+    assert.equal(NEXT_LACKS({ title: 'X', needs: ['a', 'b', 'c'] }), 'X is next; it needs a and b first.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('l4613-a', 'l4613-b')`;
+  }
+});
