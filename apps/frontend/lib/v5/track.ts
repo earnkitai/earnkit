@@ -265,10 +265,11 @@ export const NO_FIELDS_NOTE = 'Pass fields_used next time; nothing was checked a
 /** L29-7 (v6.1.16 Task 15): an agent's applied on an in-person program. */
 export const IN_PERSON_SEND = (title: string) => `${title} is applied for in person; nothing to send.`;
 /** L29-8 (v6.1.16 Task 15): a started or an agent's applied on a program whose rule is not confirmed for this project. */
-export const CONFIRM_RULE = (rule: string) => `Confirm the rule first: ${rule}. Say yes if that is you.`;
+// v6.1.20: the rule as one yes, in the reply's voice (no "Confirm the rule" label).
+export const CONFIRM_RULE = (rule: string, title = 'It') => `${title} needs one yes from you first: ${midSentence(rule)}. Say yes if that is you.`;
 /** L36-5 (v6.1.18): several rules still to confirm are one ask. */
-export const CONFIRM_RULES = (rules: string[]) =>
-  rules.length === 1 ? CONFIRM_RULE(rules[0]) : `Confirm the rules first: ${rules.join('; ')}. Say yes if all of that is you.`;
+export const CONFIRM_RULES = (rules: string[], title = 'It') =>
+  rules.length === 1 ? CONFIRM_RULE(rules[0], title) : `${title} needs one yes from you first: ${rules.map(midSentence).join('; ')}. Say yes if all of that is you.`;
 /** L36-5 (v6.1.18): a gap_done on a row's first rule item confirmed every rule that row listed. */
 export const RULES_CONFIRMED = 'Tracked: those rules fit you.';
 /** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. */
@@ -456,7 +457,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
-    ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
+    ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, shortTitle(row.file.title, row.file.short_title)), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
     : listed ? { ...acted, agent_note: `Matched list number ${parsed.data.program_id.trim()} to ${listed}. ${acted.agent_note}` } : acted;
   const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
   // L31-4 (v6.1.16 Task 17): an id with any non-ASCII character was matched after NFKC folding; the problems line names it.
@@ -478,6 +479,7 @@ export function namedFirst(show: string, title: string): string {
   const named = show
     // L38-18 (v6.1.18): "Tracked: that rule fits you." names the program before its colon.
     .replace(/^Tracked: /, `Tracked for ${title}: `)
+    .replace(/^It needs one yes/, `${title} needs one yes`)
     .replace(/^(Started|Tracked)\./, `$1: ${title}.`)
     .replace(/^Already (skipped|tracked)\./, `Already $1: ${title}.`)
     .replace(/^You skipped that one\./, `You skipped ${title}.`)
@@ -636,7 +638,8 @@ async function act(
       const g = (await lastGaps(ctx.installationId))[i.program_id];
       await rememberGap(ctx.installationId, i.program_id, { what: g?.what ?? rules[0].note, kind: g?.kind ?? 'rule', item: g?.item ?? rules[0].item, rules: rules.map((r) => r.item) });
     }
-    return refuse(CONFIRM_RULES(rules.map((r) => r.note)),
+    const named = await getProgram(i.program_id);
+    return refuse(CONFIRM_RULES(rules.map((r) => r.note), named ? shortTitle(named.file.title, named.file.short_title) : 'It'),
       `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules[0].item}${rules.length > 1 && sameAsLast ? ' (it confirms every rule named)' : rules.length > 1 ? ' and each other item' : ''}, then track ${i.status} again.`);
   };
   if (i.status === 'started') {

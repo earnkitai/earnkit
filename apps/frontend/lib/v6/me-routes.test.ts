@@ -452,7 +452,7 @@ test('B10: /me/unlink sets unlinked_at, and that agent\'s next find says it was 
   const line = `This agent was unlinked from your account. Sign in once at ${link} to link it again.`;
   assert.equal(first.linked_notice, line);
   // v6.1.17 Task 1 fix round 1 (I3): the ask stays last, the notice before it.
-  assert.ok(first.show_to_builder.endsWith(`${line}\nTell me which project and I match it.`), first.show_to_builder);
+  assert.ok(first.show_to_builder.endsWith(`${line}\n\nTell me what you build, or its repo link, and I match it.`), first.show_to_builder);
   assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${inst}`)[0].unlinked_at, null);
   const second = (await find({ ...ctx, now: new Date(NOW.getTime() + 120_000) }, {})) as { linked_notice: string | null };
   assert.equal(second.linked_notice, null);

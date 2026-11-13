@@ -1341,20 +1341,15 @@ const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and 
 /** The in-person block numbered from `n`. L1e-3 (v6.1.13): YC's application answers are the builder's, repo or not
  *  (its file says so), so its line names them for every project; `_noRepo` is kept for the callers. */
 // L38 big 2 (v6.1.18 Task 10): one line, the numbers kept; the setup and the needs are the one-program reply's.
-const inPersonBlock = (n: number, _noRepo = false) => [
-  `In person, long odds: ${n}. Y Combinator Winter 2027 Batch, $500,000. ${n + 1}. Alliance ALL19, $400,000, closes in 14 days.`,
-];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
 // L38 big 3 (v6.1.18 Task 10): the whole line, as the one-program reply and a row the rule Say names keep it.
 /** L38 big 3 (v6.1.18 Task 10): Meta VR under More to do first: the demo video, then the setup steps and the rule. */
 const META_VR_MORE = (n: number) => `${n}. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.`;
-const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video link (a short screen recording of it working). First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices.`;
 /** L1c-2 (v6.1.10): with the VR rule unlikely (no keyword named), the rule slot goes to a rule with no keywords.
  *  L1d-2 (v6.1.11): Colosseum's crypto-product rule is unlikely for a project naming no crypto word. */
 /** L1e-2 (v6.1.13): Thiel's age rule names who it is for (student, college), so a project naming none of those never
  *  sees it; FUTO, a rule with no keywords, takes the one no-hit slot where the project has code to show (L1e-6: an
  *  idea or an empty repo has none, and is left the in-person block alone). */
-const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000. Their rule: open source software from a small or early-stage project.'];
 /** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person.
  *  L18-2 (v6.1.18): FUTO is open source, so with no repo link the code goes in a public repo; an empty repo read is
  *  public already, so its step stays code in a repo. */
@@ -1365,7 +1360,6 @@ const OPEN_STEPS = (name: string) => `Nothing is ready to send for ${name} yet. 
 const ALSO_IP = (more: number) => `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and ${more} more in the full list.`;
 const YC_DRAFT = (n: number) => `Say ${n} and I draft Y Combinator Winter 2027 Batch for you to send.`;
 /** L38 big 3 (v6.1.18 Task 10): the More to do first heading for one row. */
-const MORE_ONE = 'More to do first (1):';
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
 // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): on the line after the rows, the repo
 // notes after it.
@@ -1374,7 +1368,6 @@ const MORE_ONE = 'More to do first (1):';
 // v6.1.20: the opening, the row, the Also sentence, the notes, then the draft the builder can have now (L46-2).
 const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false, name = empty ? 'LibreDesktop project list' : 'Rent Split') => paragraphs(OPEN_STEPS(name), [FUTO_CODE(empty)], ALSO_IP(more), notes, YC_DRAFT(2));
 /** The closing on a rule-only program the reply lists first. */
-const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft FUTO Microgrants.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
 // L18-2 (v6.1.18): an idea has no repo, so Colosseum's code in a repo comes before the demo video.
 // L38 big 3 (v6.1.18 Task 10): six steps: the first, then the count (the one-program reply keeps the whole line).
@@ -1384,14 +1377,10 @@ const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal ($25,000 award) n
 const COLOSSEUM_AGENT = (n: number) => `${n}. Colosseum Eternal, $25,000 award: code in a repo and a demo video link (a short screen recording of it working). First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product, new in the sprint; the team has not raised venture capital for the startup it submits.`;
 const COLOSSEUM_FULL = (n: number) => `${n}. Colosseum Eternal ($25,000 award) needs the code in a repo, a demo video link (a short screen recording of it working), you to sign up for a Colosseum account and you to start the four-week sprint in the Eternal dashboard first, and one yes from you: a crypto product, new in the sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
-const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you and I draft Meta VR Start Developer Competition 2026.';
 /** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
-const codeFirst = (empty = false) => `Nothing is ready yet. Tell me when the code is in a${empty ? '' : ' public'} repo and I look again.`;
 // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
-const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes, sign in once, and I check.';
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
 // L38 big 3 (v6.1.18 Task 10): five steps, under More to do first; the rule the closing asks keeps the whole line.
-const META_VR_ONLY = [MORE_ONE, META_VR_LINE(1)];
 
 test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets the rule-only program on its first reported chain, Base (v6.1.6, v6.1.7)', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
@@ -1592,7 +1581,6 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   // L18-2 (v6.1.18): with no repo link FUTO's code goes in a public repo; the empty repo (15) is public already.
   const futo = FUTO_CODE();
   // v6.1.18 merge (Task 11, L38-1): FLOSS/fund has no setup step now, so its one gap is one step.
-  const floss = (gap: string) => `1. FLOSS/fund, $10,000 to $100,000: ${gap}.`;
   // L18-1 (v6.1.18): each persona's more count is the rows the rank cap left out. v6.1.20 (L46-2): with YC on the
   // screen the closing is its draft; the step is said once, in the row.
   const want: [number, string, string, number][] = [
@@ -1738,7 +1726,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   // L29-8 (v6.1.16 Task 15): a claim waits on the rule; the refusal says so and nothing is written.
   const started = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started' });
   assert.equal(started.isError, true, started.text);
-  assert.match(started.reply!.show_to_builder as string, /^Confirm the rule first: a hands-first experience for Meta VR devices\. Say yes if that is you\.$/);
+  assert.match(started.reply!.show_to_builder as string, /^Meta VR Start Developer Competition 2026 needs one yes from you first: a hands-first experience for Meta VR devices\. Say yes if that is you\.$/);
   const { claim } = await import('../v6/claims');
   await claim(`i:${c.installationId}`, 'meta-vr-start-competition-2026', `https://github.com/${dash.repo}`.toLowerCase(), c.installationId, NOW);
   // A live claim (another path) pins it: it heads the step list with its demo video and rule.

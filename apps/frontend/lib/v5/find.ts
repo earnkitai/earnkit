@@ -1478,7 +1478,6 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const notSent = promiseDue ? promise.programs.filter((p) => !sentSince.has(p.program_id)) : [];
   if (promiseDue) await clearPromised(ctx.installationId);
   // L23-16 (v6.1.16): the shown list's hash against the last project find's.
-  const shownIds = [...ready.map((p) => p.program_id), ...gaps.map((g) => g.program_id)];
   // L46-12 (v6.1.20): a program that moved from a step to ready is news, so the hash keeps each row's state.
   const hash = listHash([...ready.map((p) => `ready:${p.program_id}`), ...gaps.map((g) => g.program_id)]);
   const prevList = await lastList(ctx.installationId);

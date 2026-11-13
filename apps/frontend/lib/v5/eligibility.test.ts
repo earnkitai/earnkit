@@ -334,7 +334,10 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   }
   // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
-  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
+  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), [
+    'real users',
+    'a license file',
+  ]);
   // L16-8 (v6.1.16): a live link alone keeps the question, and the grant for existing code asks for the code too.
   const live = { ...idea, live_url: 'https://rentsplit.app' };
   assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a public repo', 'real users']);
@@ -352,7 +355,10 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
   // failed read) does not exist for the question.
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
-  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['real users']);
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), [
+    'real users',
+    'an open source license on the project',
+  ]);
   // L1g-6 (v6.1.15): the builder said it has users, so what is missing is something to read.
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs code in a repo or a live link');
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'] }, new Set(), NOW).reason, 'needs a product people use');
@@ -541,7 +547,8 @@ test('L1f-1 (v6.1.14, Review Focus 6): a private repo is never ready for an open
   assert.ok(noLink.ok);
   assert.deepEqual(evaluate(floss, await repoFacts(noLink.project, { now: NOW }), new Set(), NOW).gaps.map(gapRow), [PUBLIC_GAP]);
   // Public: no such gap; a program with no open source rule never asks it.
-  const open = { ...hidden, private: undefined, notes: [], public: true, as_reported: false };
+  // L46-3 (v6.1.20): with an OSI license read, FLOSS/fund's license rule is settled.
+  const open = { ...hidden, private: undefined, notes: [], public: true, as_reported: false, license: 'MIT' };
   assert.equal(evaluate(floss, open, new Set(), NOW).status, 'ready');
   assert.ok(!evaluate(toRow(programFixture({ id: 'p-closed', tag: undefined })), hidden, new Set(), NOW).gaps.some((g) => g.item === 'repo:public'));
 });
@@ -554,7 +561,10 @@ test('L1f-3 (v6.1.14): an archived repo is never asked the users question: its o
   assert.ok(!v.gaps.some((g) => g.kind === 'users'));
   // A live repo gets the users question as before.
   const live = evaluate(fromFile('floss-fund-zerodha'), { ...facts, notes: [] }, new Set(), NOW);
-  assert.deepEqual(live.gaps.map((g) => g.item), ['users']);
+  assert.deepEqual(live.gaps.map((g) => g.item), [
+    'users',
+    'feature:license',
+  ]);
 });
 
 test('M1 (v6.1.14 fix round 1): a repo the read finds private is private, never gone: FLOSS/fund is never ready for it, fresh or cached', async () => {
@@ -573,7 +583,8 @@ test('M1 (v6.1.14 fix round 1): a repo the read finds private is private, never 
   // A cached public row the re-check (two hours on) finds private.
   await sql()`DELETE FROM repo_cache`;
   const pub = replayFetch('nextjs-dashboard');
-  assert.equal(evaluate(floss, await repoFacts(pp(pub.repo), { gh: pub.fetch, now: NOW }), new Set(), NOW).status, 'ready');
+  // L46-3 (v6.1.20): the read has no license file; EarnKit's license file (done) settles it.
+  assert.equal(evaluate(floss, await repoFacts(pp(pub.repo), { gh: pub.fetch, now: NOW }), new Set(['feature:license']), NOW).status, 'ready');
   const later = new Date(NOW.getTime() + 2 * 3_600_000);
   const c = await repoFacts(pp(pub.repo), { gh: turned('nextjs-dashboard').fetch, now: later });
   assert.deepEqual([c.private, c.notes], [true, ['private']]);
@@ -697,9 +708,10 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo']);
   // The rules marked as license checks; the ones that ask more than a license are not.
   const checked = (slug: string) => eligibilityOf(fromFile(slug).file).filter((i) => i.check === 'license').map((i) => i.note);
-  for (const slug of ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund'])
+  // L46-3 (v6.1.20): FLOSS/fund funds open source, so its license is checked too.
+  for (const slug of ['herodevs-sustainability-fund', 'github-secure-open-source-fund', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund', 'floss-fund-zerodha'])
     assert.equal(checked(slug).length, 1, slug);
-  for (const slug of ['neon-open-source-program', 'nlnet-open-call', 'floss-fund-zerodha']) assert.deepEqual(checked(slug), [], slug);
+  for (const slug of ['neon-open-source-program', 'nlnet-open-call']) assert.deepEqual(checked(slug), [], slug);
   // Only a rule takes check.
   assert.throws(() => ProgramFile.parse({ ...hero.file, eligibility: [{ kind: 'feature', value: 'x', check: 'license' }] }));
 });

@@ -482,7 +482,7 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       '1 program is ready to send now.',
       '',
       '1. Base Ecosystem Fund (pre-seed and seed investment). I apply once you say yes.',
-      '2. Goose Grants ($10K) needs one yes from you: a project built with or for goose and work not already funded by an employer or client.',
+      '2. Goose Grants ($10K) needs one yes from you: a project built with or for goose; work not already funded by an employer or client.',
       '3. Colosseum ($25K) needs a demo video link (a short screen recording of it working), then 1 more step.',
       '',
       'Also open: Meetup ($5K), in person.',
@@ -1701,7 +1701,7 @@ test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under Mo
   assert.deepEqual(p.text.split('\n'), [
     'Nothing is ready to send yet. The closest:',
     '',
-    '1. Solana Foundation Grants (milestone grants) needs one yes from you: a public good and open source.',
+    '1. Solana Foundation Grants (milestone grants) needs one yes from you: a public good; open source.',
     '2. Colosseum Eternal ($25,000 award) needs a demo video, then 4 more steps.',
     '3. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
     '',

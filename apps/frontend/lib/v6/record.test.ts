@@ -149,9 +149,16 @@ test('recordMissing names "your founder video link" when needs has founder_video
 test('recordMissing in builder words: name and email, a project, the traction line, unapproved answers, docs', () => {
   const m = recordMissing(EMPTY_RECORD, { needs: ['resume', 'deck', 'pitch_pdf', 'demo_video'], kinds: ['problem', 'how_it_works'] });
   assert.deepEqual(m, [
-    'your name', 'your email', 'a project with its repo or site', 'one approved line on traction',
-    'an approved answer on the problem', 'an approved answer on the solution',
-    'your demo video link', 'your resume link', 'your deck link', 'your pitch PDF link',
+    'your name',
+    'your email',
+    'a project with its repo or site',
+    'one line on traction',
+    'an approved answer on the problem',
+    'an approved answer on the solution',
+    'your demo video link',
+    'your resume link',
+    'your deck link',
+    'your pitch PDF link',
   ]);
   let r = merge({ person: { name: 'Ada', email: 'ada@example.com' }, projects: [{ id: 'p1', live_url: 'https://ada.app' }], traction: { line_pre_launch: 'Pre-launch, 140 on the waitlist.' }, answers: { problem: { text: 'Fees.' } } }).record;
   r = approvePath(approvePath(r, 'traction.line_pre_launch', NOW), 'answers.problem', NOW);
@@ -274,7 +281,9 @@ test('C48: an agent change that drops an approval stamps when; approving again c
 
 test('C49: traction is one item in the missing list (the line), never also an answer', () => {
   const m = recordMissing(EMPTY_RECORD, { needs: [], kinds: ['traction', 'problem'] });
-  assert.deepEqual(m.filter((x) => /traction/.test(x)), ['one approved line on traction']);
+  assert.deepEqual(m.filter((x) => /traction/.test(x)), [
+    'one line on traction',
+  ]);
 });
 
 test('C50: recordItems counts the items the open programs ask, and the ones missing', () => {
