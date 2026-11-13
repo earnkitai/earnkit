@@ -763,22 +763,16 @@ test('Task 11 fix round 1 (I4, M7): a repo body with no license key is unknown; 
   assert.equal((await repoFacts(r.project, { gh: listed.fetch, now: NOW })).funding_json_url, `https://raw.githubusercontent.com/${noKey.repo}/HEAD/funding.json`);
 });
 
-test('L46-3 (v6.1.20): the users yes never makes FLOSS/fund ready for a repo under three months old or with no license file', async () => {
+test('L46-3 (v6.1.20): the users yes never makes FLOSS/fund ready for a repo with no license file; an OSI license settles it', async () => {
   const floss = fromFile('floss-fund-zerodha');
   const facts = await factsOf('nextjs-dashboard', { users: true });
-  const young = { ...facts, license: 'MIT', first_commit_at: new Date(NOW.getTime() - 3 * 86_400_000).toISOString() };
-  const v = evaluate(floss, young, new Set(), NOW);
-  assert.deepEqual([v.status, v.gaps.map((g) => [g.item, g.what])], ['gap', [['users:age', 'a project older than three months']]]);
-  // The builder's yes to the users question never settles it.
-  assert.equal(evaluate(floss, young, new Set(['users']), NOW).status, 'gap');
-  // No license file: the license file step, which EarnKit adds.
-  const unlicensed = { ...facts, license: null, first_commit_at: '2024-01-01T00:00:00Z' };
-  assert.deepEqual(evaluate(floss, unlicensed, new Set(), NOW).gaps.map((g) => g.what), ['a license file']);
-  // Old enough, an OSI license and real users: ready.
-  assert.equal(evaluate(floss, { ...unlicensed, license: 'MIT' }, new Set(), NOW).status, 'ready');
-  // The row and the closing say why, in the reply's words.
-  const { gapSentence, stepClause } = await import('./reply');
+  // No license file: the license file step, which EarnKit adds; the users yes never settles it.
+  const unlicensed = { ...facts, license: null };
+  assert.deepEqual(evaluate(floss, unlicensed, new Set(['users']), NOW).gaps.map((g) => g.what), ['a license file']);
+  // An OSI license and real users: ready. Polish (6): no age rule (the source gives no number).
+  assert.equal(evaluate(floss, { ...unlicensed, license: 'MIT', first_commit_at: new Date(NOW.getTime() - 3 * 86_400_000).toISOString() }, new Set(), NOW).status, 'ready');
+  const { gapSentence } = await import('./reply');
+  const v = evaluate(floss, unlicensed, new Set(), NOW);
   const g = { program_id: 'floss-fund-zerodha', title: 'FLOSS/fund', money: '$10,000 to $100,000', max_award_usd: 100000, category: 'grant', closes_at: null, gap: v.gaps[0], also: [], rules: [], in_person: false, setup: [], n: 1 };
-  assert.equal(gapSentence(g as never), '1. FLOSS/fund ($10,000 to $100,000) needs a project older than three months first.');
-  assert.equal(stepClause(v.gaps[0]), 'the project is three months old');
+  assert.equal(gapSentence(g as never), '1. FLOSS/fund ($10,000 to $100,000) needs a license file first.');
 });

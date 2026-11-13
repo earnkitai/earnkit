@@ -847,7 +847,9 @@ export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I
 // Fix round 1 (I1): and the users-plus-change closing ("Say yes and I add ..., then apply to {title}.").
 const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
 /** Whether the builder text offers an apply anywhere. Pure. */
-const offersApply = (text: string): boolean => text.split('\n').some((l) => APPLY_OFFER.test(l) || TAIL_OFFER.test(l));
+// v6.1.20 polish (3): the users yes that already carries its sign-in ("Say yes, sign in at {link}, and I apply.") is gated.
+const SIGNED_USERS = /Say yes, sign in\b/;
+const offersApply = (text: string): boolean => text.split('\n').some((l) => !SIGNED_USERS.test(l) && (APPLY_OFFER.test(l) || TAIL_OFFER.test(l)));
 /** L38 big 1 (v6.1.18 Task 10): the last apply offer of the builder text (a whole line, or a line's closing sentence),
  *  which the signed-out gate says again after the sign-in; null when none. Pure. */
 export const applyOfferOf = (text: string): string | null => {
@@ -866,8 +868,11 @@ const withoutApply = (text: string): string[] =>
 /** v6.1.20: what a ready row says EarnKit does when it applies; the gate takes it away (`strip`, signed out) or makes it
  *  the draft for the builder to send (`draft`). Pure. */
 export function gatedRow(line: string, mode: 'strip' | 'draft'): string {
-  const acts = '(I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval)';
+  const acts = '(I apply once you say yes|I add the funding file to your repo, then apply|I send (it|them) under your standing approval)';
+  // v6.1.20 polish (1): the opening carries the rows' shared action after a semicolon.
+  const them = /programs are ready/.test(line) ? 'I draft them for you to send.' : READY_DRAFT;
   return line
+    .replace(new RegExp(`; ${acts}\\.$`), mode === 'draft' ? `; ${them}` : '.')
     .replace(new RegExp(`: ${acts}\\.`), mode === 'draft' ? `: ${READY_DRAFT}` : '.')
     .replace(new RegExp(` (${acts}|Once [^.]*, I apply on your yes)\\.(?= |$)`), mode === 'draft' ? ` ${READY_DRAFT}` : '');
 }

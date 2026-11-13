@@ -21,7 +21,7 @@
   "any_chain": true,
   "min_tier": "used",
   "eligibility": [
-    { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered", "min_days": 90 },
+    { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" },
     { "kind": "rule", "note": "an open source license on the project", "check": "license" }
   ],
   "setup": [],

@@ -300,8 +300,6 @@ export function stepClause(x: Gap): string | null {
   if (x.kind === 'tier' && !ownSentenceGap(x)) return 'people outside the team use it live';
   // L1h-3 (v6.1.16): a note that opens with its verb ("use ...") gives way to the feature's own name (its value).
   if (x.kind === 'feature') return `${/^(use|add) /.test(x.what) && x.item.startsWith('feature:') ? x.item.slice(8) : x.what} is in`;
-  // L46-3 (v6.1.20): the age step closes when the project is old enough.
-  if (x.item === 'users:age') return `the project is ${x.what.replace(/^a project older than /, '')} old`;
   if (x.kind === 'users' && x.effort === 'weeks') {
     const n = weeksOf(x);
     // Fix round 1 (M3, Task 1's nit): one week is singular.
@@ -600,6 +598,8 @@ export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show wha
 export const NOTHING_READY = 'Nothing is ready yet.';
 /** O2 (v6.1.10): the closing when in-person programs are listed and nothing remote is ready. */
 export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I start the in-person applications.';
+/** v6.1.20 polish (5): with only in-person programs listed, the yes drafts them for the builder to send. Pure. */
+export const inPersonDraft = (n: number): string => `Nothing remote is ready yet. Say yes and I draft ${n === 1 ? 'it' : 'them'} for you to send.`;
 
 /** L29-28 (v6.1.16 Task 15): the rule question's Say. L38-2 (v6.1.18): it names the program the yes drafts. Pure. */
 export const ruleSay = (n: number, many = false, title?: string): string =>
@@ -607,8 +607,10 @@ export const ruleSay = (n: number, many = false, title?: string): string =>
   `Say ${n} if ${title ? `the ${title} rule${many ? 's fit' : ' fits'} you` : many ? 'all of that is you' : 'that rule fits you'} and I draft it.`;
 /** L29-34 (v6.1.16 Task 15): the users question, unlinked. */
 export const USERS_UNLINKED = 'Do real people use it? Say yes, sign in, and I check.';
+/** v6.1.20 polish (3): the same when the yes makes the program ready. */
+export const USERS_UNLINKED_APPLY = 'Do real people use it? Say yes, sign in, and I apply.';
 /** L1i-3 (v6.1.16.1): the users question with the sign-in link in it, the reply's one sign-in sentence. Pure. */
-export const usersUnlinkedAt = (link: string): string => `Do real people use it? Say yes, sign in at ${link}, and I check.`;
+export const usersUnlinkedAt = (link: string, then: 'check' | 'apply' = 'check'): string => `Do real people use it? Say yes, sign in at ${link}, and I ${then}.`;
 /** L29-19 (v6.1.16 Task 15): one way to pass the users yes. */
 export const USERS_NOTE = 'On yes, call find again with users: true.';
 /** L29-27 (v6.1.16 Task 15): how a number skips, for the agent only. */
@@ -717,9 +719,9 @@ export function closingLine(o: {
     if (o.stepRule != null) return { text: `Nothing is ready yet. ${ruleSay(o.stepRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
     const step = o.firstStep ?? null;
     // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
-    if (step?.users && o.linked === false) return { text: `Nothing is ready yet. ${USERS_UNLINKED}`, offer: 'look_again' };
-    // v6.1.20: the users yes is a check, never a send.
-    if (step?.users) return { text: 'Nothing is ready yet. Do real people use it? Say yes and I check.', offer: 'look_again' };
+    // v6.1.20 polish (3): "and I apply" when the yes makes the program ready; "and I check" only when a check follows.
+    if (step?.users && o.linked === false) return step.more ? { text: `Nothing is ready yet. ${USERS_UNLINKED}`, offer: 'look_again' } : { text: `Nothing is ready yet. ${USERS_UNLINKED_APPLY}`, offer: 'apply' };
+    if (step?.users) return step.more ? { text: 'Nothing is ready yet. Do real people use it? Say yes and I check.', offer: 'look_again' } : { text: 'Nothing is ready yet. Do real people use it? Say yes and I apply.', offer: 'apply' };
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
     if (step && !step.users && step.started) return withDo({ text: `Nothing is ready yet. ${STARTED_CLOSING}`, offer: null });
@@ -727,9 +729,9 @@ export function closingLine(o: {
     if (step && !step.users) return withDo({ text: `Nothing is ready yet. ${step.gap ? singleStepClosing(step.gap) : `Tell me when ${step.what} is done and I look again.`}`, offer: null });
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
     // v6.1.20: a change EarnKit makes on a remote program comes before the in-person applications' long odds.
-    return o.inPerson > 0 && !doPart ? { text: IN_PERSON_CLOSING, offer: 'apply' } : withDo({ text: NOTHING_READY, offer: null });
+    return o.inPerson > 0 && !doPart ? { text: inPersonDraft(o.inPerson), offer: 'draft' } : withDo({ text: NOTHING_READY, offer: null });
   }
-  if (o.inPerson > 0) return { text: IN_PERSON_CLOSING, offer: 'apply' };
+  if (o.inPerson > 0) return { text: inPersonDraft(o.inPerson), offer: 'draft' };
   // v6.1.14: nothing is pushed to the builder, so nothing is promised.
   return withDo({ text: NOTHING_FITS, offer: null });
 }
@@ -1164,7 +1166,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   else if (proofAlone) closingOf.text = `${NOTHING_READY} ${signInThen(proofCheck, 'I look again.')}`;
   // Task 2 (v6.1.16.1, Task 1 leftover): with the unlinked notice too, the closing still carries the link and the
   // notice keeps only its first sentence, so the reply has one sign-in sentence.
-  if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(USERS_UNLINKED, usersUnlinkedAt(r.sign_in));
+  if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(/Say yes, sign in, and I (check|apply)\./, (_m, v: string) => usersUnlinkedAt(r.sign_in!, v as 'check' | 'apply').replace(/^Do real people use it\? /, ''));
   // L46-5 (v6.1.20): signed out, a rule yes carries the sign-in in one sentence, never a second sign-in line.
   const ruleSignIn = !r.linked && !proofRow && !asksSignIn && !sayFirst && tonight === 0 && closingOf.offer === 'rule' && !!r.sign_in;
   if (ruleSignIn) closingOf.text = `${NOTHING_READY} ${signInThen(`Sign in at ${r.sign_in}`, closingOf.text.replace(/^Nothing is ready yet\. /, ''))}`;
@@ -1172,8 +1174,14 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L46-2 (v6.1.20): with nothing ready, a closing that only names a step (or nothing) never dead-ends while an in-person
   // program with a form is on the screen: its draft is the one Say; the step stays that row's sentence.
   const draftable = inPerson.filter((p) => !p.claimed_since);
-  if (!signsIn && ready.length === 0 && tonight === 0 && closingOf.offer === null && draftable.length > 0 && !o.all)
-    Object.assign(closingOf, { text: draftSay(draftable[0].n, draftable[0].title), offer: 'draft' as const });
+  // v6.1.20 polish (4): a step program on the screen keeps its step as the action; the draft is offered beside it.
+  if (!signsIn && ready.length === 0 && tonight === 0 && closingOf.offer === null && draftable.length > 0 && !o.all) {
+    const step = closingOf.text.replace(/^Nothing is ready yet\.\s*/, '');
+    const draft = draftSay(draftable[0].n, draftable[0].title);
+    Object.assign(closingOf, step === '' || carriesSay(step)
+      ? { text: draft, offer: 'draft' as const }
+      : { text: `${step.replace(/\.$/, '')}, or s${draft.slice(1)}`, offer: 'draft' as const });
+  }
   // v6.1.20: the opening says nothing is ready, so the closing does not say it again.
   closingOf.text = closingAfterOpening(closingOf.text);
   const nothingAtAll = r.ready.length === 0 && r.gaps.length === 0;
@@ -1207,10 +1215,19 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L38-30 (v6.1.18): a setup step the closing names is said there only.
   const unstep = (p: ReadyProgram): ReadyProgram => (stepsFirst.length > 0 && p.program_id === unsaid[0]?.program_id ? { ...p, needs: p.needs.filter((x) => !stepsFirst.includes(x)) } : p);
   const readyLines = (ps: ReadyProgram[], strip = false) => ps.map((p) => readyLine(unstep(strip ? { ...p, claimed_since: undefined } : p), r.linked, now, false, named, namedInClosing.has(p.program_id)));
-  const readySentences = (ps: ReadyProgram[]) => ps.map((p0) => {
+  const sentenceOpts = (p0: ReadyProgram) => {
     const p = unstep(p0);
     const own = namedInClosing.has(p.program_id) ? [] : r.linked ? p.need_you.filter((x) => !named(x)) : p.needs.filter((x) => !p.setup.includes(x));
-    return readySentence(p, { click: click.has(p.program_id), needs: own, steps: p.needs.filter((x) => p.setup.includes(x)), standing: tonightList.some((t) => t.program_id === p.program_id), stands: yesd.includes(p0) });
+    return { p, o: { click: click.has(p.program_id), needs: own, steps: p.needs.filter((x) => p.setup.includes(x)), standing: tonightList.some((t) => t.program_id === p.program_id), stands: yesd.includes(p0) } };
+  };
+  // v6.1.20 polish (1): the opening says the action once, the one most ready rows share; a row says its own only when
+  // it differs.
+  const sayable = [READY_APPLY, READY_DRAFT, MANIFEST_LINE, READY_STANDING];
+  const acts = free.map((p) => { const x = sentenceOpts(p); return readyAction(x.p, x.o); }).filter((a) => sayable.includes(a));
+  const readyAct = acts.length === 0 ? null : acts.every((a) => a === acts[0]) ? acts[0] : acts.includes(READY_APPLY) ? READY_APPLY : null;
+  const readySentences = (ps: ReadyProgram[]) => ps.map((p0) => {
+    const { p, o: opts } = sentenceOpts(p0);
+    return readySentence(p, { ...opts, quiet: readyAct });
   });
   const inPersonLines = [...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))];
   const readyOf = (ps: ReadyProgram[], strip = false): Block => {
@@ -1297,7 +1314,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   };
   // L18-1 (v6.1.18): the rows the rank cap left out are added once; the Also sentence names two closing this week.
   const capHidden = Math.max(0, o.hidden?.count ?? 0);
-  const opening = openingSentence({ name: o.name, ready: free.length, held: heldReady.length, onHold: onHold.length, steps: steps.length, inPerson: attendCount });
+  const opening = openingSentence({ name: o.name, ready: free.length, held: heldReady.length, onHold: onHold.length, steps: steps.length, inPerson: attendCount, act: readyAct });
   const room = DEFAULT_LINES - (sayLine ? 1 : 0) - 1 - (attendRows.length > 0 ? 1 : 0);
   const once = fit(slots, room);
   const { kept, hidden, shown, rows } = attendRows.length === 0 && hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
@@ -1434,14 +1451,16 @@ export const READY_STANDING = 'I send it under your standing approval.';
 export const HELD_BY_OTHER = 'started by your other agent';
 export const ON_HOLD = 'on hold until you say go';
 /** v6.1.20: the opening of the default find reply: the state, naming the project when a name was given. Pure. */
-export function openingSentence(o: { name?: string | null; ready: number; held?: number; onHold?: number; steps: number; inPerson: number }): string {
+export function openingSentence(o: { name?: string | null; ready: number; held?: number; onHold?: number; steps: number; inPerson: number; act?: string | null }): string {
   const name = o.name?.trim() || null;
   const lead = (s: string) => (name ? `For ${name}, ${s}` : `${s.charAt(0).toUpperCase()}${s.slice(1)}`);
-  if (o.ready > 0) return lead(`${programsAre(o.ready)} ready to send now.`);
+  // v6.1.20 polish (1): the action the rows share is said once, here.
+  if (o.ready > 0) return lead(`${programsAre(o.ready)} ready to send now${o.act ? `; ${actFor(o.act, o.ready)}` : '.'}`);
   if ((o.held ?? 0) > 0) return lead(`${programsAre(o.held!)} ready, ${HELD_BY_OTHER}.`);
   if ((o.onHold ?? 0) > 0) return lead(`${programsAre(o.onHold!)} ready, ${ON_HOLD}.`);
   if (o.steps > 0) return `Nothing is ready to send${name ? ` for ${name}` : ''} yet. The closest:`;
-  if (o.inPerson > 0) return `Nothing remote is ready${name ? ` for ${name}` : ''} yet.`;
+  // v6.1.20 polish (5).
+  if (o.inPerson > 0) return `Nothing you can send from here is ready${name ? ` for ${name}` : ''} yet.`;
   return nothingFits(name);
 }
 /** v6.1.20: the whole reply when nothing fits (no Say: EarnKit never writes first). Pure. */
@@ -1472,13 +1491,25 @@ export const moneyParen = (p: { money: string; closes_in?: string | null }, extr
 
 /** v6.1.20: a ready program's sentence: "1. FLOSS/fund ($10,000 to $100,000). I apply once you say yes.". `click`: the
  *  builder presses submit; `needs`: answers the closing does not name; `steps`: setup steps the closing does not name. Pure. */
-export function readySentence(p: ReadyProgram, o: { click?: boolean; needs?: string[]; steps?: string[]; alone?: boolean; standing?: boolean; stands?: boolean } = {}): string {
+type ReadyOpts = { click?: boolean; needs?: string[]; steps?: string[]; alone?: boolean; standing?: boolean; stands?: boolean; quiet?: string | null };
+/** v6.1.20: what EarnKit does for a ready row (the second sentence), as `readySentence` would say it. Pure. */
+export function readyAction(p: ReadyProgram, o: ReadyOpts = {}): string {
+  if (p.claimed_since || p.held) return '';
+  if (o.stands) return YES_STANDS;
+  if ((o.needs ?? []).length > 0 || (o.steps ?? []).length > 0) return 'once';
+  return o.standing ? READY_STANDING : p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : READY_APPLY;
+}
+/** v6.1.20 polish (1): the opening's action for `n` ready rows ("I draft them for you to send."). Pure. */
+const actFor = (act: string, n: number): string =>
+  n === 1 ? act : act.replace('I draft it for you to send.', 'I draft them for you to send.').replace('I send it under', 'I send them under');
+export function readySentence(p: ReadyProgram, o: ReadyOpts = {}): string {
   const head = `${o.alone ? '' : `${p.n}. `}${p.title} ${moneyParen(p)}`;
   if (p.claimed_since) return `${head}, ${HELD_BY_OTHER}.`;
   if (p.held) return `${head}, ${ON_HOLD}.`;
   // The builder already said yes to it: the closing says what follows.
-  if (o.stands) return `${head}. ${YES_STANDS}`;
+  if (o.stands) return o.quiet === YES_STANDS ? `${head}.` : `${head}. ${YES_STANDS}`;
   const act = o.standing ? READY_STANDING : p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : READY_APPLY;
+  if (o.quiet && o.quiet === act && (o.needs ?? []).length === 0 && (o.steps ?? []).length === 0) return `${head}.`;
   const needs = o.needs ?? [];
   const steps = o.steps ?? [];
   // L46-6 (v6.1.20): two answers named at most; the rest are asked after the yes.
@@ -1555,13 +1586,13 @@ const alsoRow = (p: { title: string; money: string; closes_in?: string | null; c
  * there is nothing to add. Pure.
  */
 export function alsoSentence(attend: { title: string; money: string; closes_in?: string | null; claimed_since?: string; long_shot?: string | null; rule?: string }[], more: number, closing: ClosingHidden[] = [], now: Date = new Date()): string | null {
-  const parts: string[] = [];
-  if (attend.length > 0) parts.push(`${joinAnd(attend.map((x) => alsoRow(x, x.rule)))}, in person${attend.every((x) => !!x.long_shot) ? ' with long odds' : ''}`);
-  if (more > 0) parts.push(`${parts.length > 0 ? 'and ' : ''}${more} more in the full list`);
+  // v6.1.20 polish (2): two short sentences: the in-person programs, then the tail and what of it closes this week.
   const named = [...closing].sort((a, b) => Date.parse(a.closes_at) - Date.parse(b.closes_at)).slice(0, CLOSING_NAMED);
-  if (more > 0) for (const c of named) parts.push(`${c.title} closes ${closingIn(c, now)}`);
-  if (parts.length === 0) return null;
-  return `${attend.length > 0 ? 'Also open' : 'Also'}: ${parts.join('; ')}.`;
+  const tail = more > 0 ? [`${more} more in the full list`, ...named.map((c) => `${c.title} closes ${closingIn(c, now)}`)].join('; ') : '';
+  if (attend.length === 0) return tail ? `Also: ${tail}.` : null;
+  const odds = attend.every((x) => !!x.long_shot) ? ' with long odds' : '';
+  const head = `Also open: ${joinAnd(attend.map((x) => alsoRow(x, x.rule)))}, ${attend.length === 2 ? 'both ' : ''}in person${odds}.`;
+  return tail ? `${head} ${tail.charAt(0).toUpperCase()}${tail.slice(1)}.` : head;
 }
 /** v6.1.20: "in 6 days", "tomorrow", "today", "in under an hour". Pure. */
 const closingIn = (c: ClosingHidden, now: Date): string => {

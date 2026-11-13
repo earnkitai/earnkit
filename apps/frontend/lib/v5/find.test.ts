@@ -123,7 +123,7 @@ test('first find has no since', async () => {
       '3. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
       '4. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 30 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
       '',
       'Sign in so I know the repo is yours, then say yes and tell me the number of founders and your top 3 successes, and I apply to Arbitrum Mentorship Program.',
     ].join('\n'),
@@ -529,7 +529,7 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   const list = (await mcpCall(c, 'find', { project })).reply!.show_to_builder as string;
   assert.ok(list.split('\n').filter((l) => l.trim() !== '').length <= 10, list);
   assert.doesNotMatch(list, /Ready to apply|I apply\b/, list);
-  assert.match(list, /^For Berg, 1 program is ready to send now\.$/m, list);
+  assert.match(list, /^For Berg, 1 program is ready to send now; I draft it for you to send\.$/m, list);
   assert.match(list.split('\n').at(-1)!, /^Sign in so I can check your users, then say yes and I draft .+ for you to send\.$/);
   // Signed in, then found again: still no apply offer; the reply says to send it, within 10 lines.
   const { id, builderId } = await linkedWith({});
@@ -539,7 +539,7 @@ test('L1l-6 (v6.1.19): a GitLab repo hears "Sign in at {link} so I can check you
   const text = again.show_to_builder as string;
   assert.ok(text.split('\n').filter((l) => l.trim() !== '').length <= 10, text);
   assert.doesNotMatch(text, /Ready to apply|Say yes and I apply|then apply\b/, text);
-  assert.match(text, /^\d+\. FLOSS\/fund \(\$10,000 to \$100,000\)\. I draft it for you to send\.$/m, text);
+  assert.match(text, /^For Berg, 1 program is ready to send now; I draft it for you to send\.$/m, text);
   assert.equal(text.split('\n').at(-1), 'I could not read codeberg.org/acme/berg, so I cannot check it is yours. Send it yourself and tell me when it is in.');
   assert.match(again.agent_note as string, /do not call track started with this repo/);
 });
@@ -1357,8 +1357,10 @@ const META_VR_MORE = (n: number) => `${n}. Meta VR Start Developer Competition 2
 const FUTO_CODE = (empty = false) => `1. FUTO Microgrants ($1,000 to $5,000) needs the code in a${empty ? '' : ' public'} repo, then 1 more step.`;
 /** v6.1.20: the opening when steps are shown, the in-person Also sentence, and the L46-2 draft closing. */
 const OPEN_STEPS = (name: string) => `Nothing is ready to send for ${name} yet. The closest:`;
-const ALSO_IP = (more: number) => `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and ${more} more in the full list.`;
-const YC_DRAFT = (n: number) => `Say ${n} and I draft Y Combinator Winter 2027 Batch for you to send.`;
+const ALSO_IP = (more: number) => `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. ${more} more in the full list.`;
+/** v6.1.20 polish (4): the step stays the action, the in-person draft offered beside it. */
+const STEP_OR_YC = (step: string, n = 2) => `${step.replace(/\.$/, '')}, or say ${n} and I draft Y Combinator Winter 2027 Batch for you to send.`;
+const CODE_STEP = (empty = false) => `Tell me when the code is in a${empty ? '' : ' public'} repo and I look again.`;
 /** L38 big 3 (v6.1.18 Task 10): the More to do first heading for one row. */
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
 // L18-1 (v6.1.18): the rows the rank cap left out are counted. L1k-5 (v6.1.18): on the line after the rows, the repo
@@ -1366,7 +1368,7 @@ const YC_DRAFT = (n: number) => `Say ${n} and I draft Y Combinator Winter 2027 B
 // The And-more counts (`more`, here and in every pinned reply) cover the whole fixture catalog, so every program added
 // to it changes them.
 // v6.1.20: the opening, the row, the Also sentence, the notes, then the draft the builder can have now (L46-2).
-const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false, name = empty ? 'LibreDesktop project list' : 'Rent Split') => paragraphs(OPEN_STEPS(name), [FUTO_CODE(empty)], ALSO_IP(more), notes, YC_DRAFT(2));
+const IDEA_REPLY = (notes: string[] = [], more = 19, empty = false, name = empty ? 'LibreDesktop project list' : 'Rent Split') => paragraphs(OPEN_STEPS(name), [FUTO_CODE(empty)], ALSO_IP(more), notes, STEP_OR_YC(CODE_STEP(empty)));
 /** The closing on a rule-only program the reply lists first. */
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
 // L18-2 (v6.1.18): an idea has no repo, so Colosseum's code in a repo comes before the demo video.
@@ -1395,7 +1397,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '3. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
       '4. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 30 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
       '',
       'Sign in so I know the repo is yours, then say yes and tell me the number of founders and your top 3 successes, and I apply to Arbitrum Mentorship Program.',
     ].join('\n'),
@@ -1421,7 +1423,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
       '',
       '1. FUTO Microgrants ($1,000 to $5,000) needs one yes from you: open source software from a small or early-stage project.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 19 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 19 more in the full list.',
       '',
       'I could not read the repo, so this is from what you told me.',
       '',
@@ -1443,7 +1445,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
       '',
       '1. FLOSS/fund ($10,000 to $100,000) needs real users first, and one yes from you: an open source license on the project.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 24 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 24 more in the full list.',
       '',
       'Repo reads are paused until tomorrow, so this is from what you told me.',
       '',
@@ -1490,7 +1492,7 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
     '',
     '1. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 22 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 22 more in the full list.',
     '',
     'Do real people use it? Say yes, sign in at https://earnkit.com/link/abc, and I check.',
   ].join('\n'));
@@ -1583,20 +1585,20 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
   // v6.1.18 merge (Task 11, L38-1): FLOSS/fund has no setup step now, so its one gap is one step.
   // L18-1 (v6.1.18): each persona's more count is the rows the rank cap left out. v6.1.20 (L46-2): with YC on the
   // screen the closing is its draft; the step is said once, in the row.
-  const want: [number, string, string, number][] = [
-    [8, 'the code in a public repo', futo, 19],
+  const want: [number, string, string, number, string][] = [
+    [8, 'the code in a public repo', futo, 19, CODE_STEP()],
     // L38-6 (v6.1.18): the gap names the private repo, so its note is left out (persona 9); so is the empty one (15).
-    [9, 'a public repo', '1. FLOSS/fund ($10,000 to $100,000) needs a public repo first.', 23],
-    [12, 'a live repo', '1. FLOSS/fund ($10,000 to $100,000) needs a live repo first.', 22],
-    [15, 'the code in a repo', FUTO_CODE(true), 17],
-    [30, 'the code in a public repo', futo, 19],
-    [31, 'the code in a repo', '1. Solana Foundation Grants (milestone grants) needs the code in a repo, then 1 more step.', 10],
+    [9, 'a public repo', '1. FLOSS/fund ($10,000 to $100,000) needs a public repo first.', 23, 'Tell me when the repo is public and I look again.'],
+    [12, 'a live repo', '1. FLOSS/fund ($10,000 to $100,000) needs a live repo first.', 22, 'Tell me the live repo and I look again.'],
+    [15, 'the code in a repo', FUTO_CODE(true), 17, CODE_STEP(true)],
+    [30, 'the code in a public repo', futo, 19, CODE_STEP()],
+    [31, 'the code in a repo', '1. Solana Foundation Grants (milestone grants) needs the code in a repo, then 1 more step.', 10, CODE_STEP(true)],
   ];
-  for (const [id, gap, row, more] of want) {
+  for (const [id, gap, row, more, step] of want) {
     const show = await lane1h(id);
     const lines = show.split('\n');
     assert.match(lines[0], /^Nothing is ready to send for .+ yet\. The closest:$/, `persona ${id}`);
-    assert.equal(show, paragraphs(lines[0], [row], ALSO_IP(more), YC_DRAFT(2)), `persona ${id}`);
+    assert.equal(show, paragraphs(lines[0], [row], ALSO_IP(more), STEP_OR_YC(step)), `persona ${id}`);
     // The gap words once, in the row.
     assert.equal(show.split(gap).length, 2, `persona ${id}`);
     assert.equal(show.split(LANE_1H_LINK).length, 1, `persona ${id}`);
@@ -1627,7 +1629,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
       '',
       '1. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 22 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 22 more in the full list.',
       '',
       'Do real people use it? Say yes, sign in, and I check.',
     ].join('\n'),
@@ -1664,7 +1666,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '2. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
       '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs a license file, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 20 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 20 more in the full list.',
       '',
       'Say do 1 and I add an MIT license file.',
     ].join('\n'),
@@ -1693,18 +1695,18 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '2. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
       '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs a public repo, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 21 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list.',
       '',
-      'Say 4 and I draft Y Combinator Winter 2027 Batch for you to send.',
+      'Tell me when the repo is public and I look again, or say 4 and I draft Y Combinator Winter 2027 Batch for you to send.',
     ].join('\n'),
   );
-  assert.equal((hidden.reply!.show_to_builder as string).match(/make the repo public|the repo is public|a public repo first/g)!.length, 1);
+  assert.equal((hidden.reply!.show_to_builder as string).match(/make the repo public|the repo is public|a public repo first/g)!.length, 2);
   // L1g-8b (v6.1.16, Review Focus 1): the full list never asks an open source program's rule, nor an unlikely one, while
   // the public repo is a step: one shape with the default list.
   const full = await mcpCall(ctx(await installation()), 'find', { project: { ...VR, private: true }, filter: { all: true } });
   const fullShow = listText(full.reply!);
   // L46-2 (v6.1.20): the step stays its row's sentence; the closing drafts the in-person program the builder can send now.
-  assert.equal(fullShow.split('\n').at(-1), 'Say 21 and I draft Y Combinator Winter 2027 Batch for you to send.');
+  assert.equal(fullShow.split('\n').at(-1), 'Tell me when the repo is public and I look again, or say 21 and I draft Y Combinator Winter 2027 Batch for you to send.');
   assert.doesNotMatch(fullShow, /Say "yes/);
   assert.ok((full.reply!.gaps as { public_first?: true }[]).some((g) => g.public_first), fullShow);
   const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss', project: { ...VR, private: true } });
@@ -1886,7 +1888,7 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   const d = await dashCtx();
   await linkInstallation(d.installationId, owner.id, NOW);
   const list = await mcpCall({ ...d, builderId: owner.id as number | null }, 'find', { project });
-  assert.match(list.reply!.show_to_builder as string, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\)\. I add the funding file to your repo, then apply\.$/m);
+  assert.match(list.reply!.show_to_builder as string, /^For ripgrep, 1 program is ready to send now; I add the funding file to your repo, then apply\.\n\n1\. FLOSS\/fund \(\$10,000 to \$100,000\)\.$/m);
   assert.equal(((list.reply!.ready as ReadyProgram[]).find((p) => p.program_id === 'floss-fund-zerodha')!.agent_step as ManifestStep).url, RAW);
   assert.ok((list.reply!.agent_note as string).split('\n').includes(MANIFEST_NOTE));
   // The agent writes and pushes the file, then starts the program: the next find reads the push and fills the field.
@@ -1979,9 +1981,9 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
       '',
       '1. Solana Foundation Grants (milestone grants) needs the code in a repo, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 10 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 10 more in the full list.',
       '',
-      'Say 2 and I draft Y Combinator Winter 2027 Batch for you to send.',
+      'Tell me when the code is in a repo and I look again, or say 2 and I draft Y Combinator Winter 2027 Batch for you to send.',
     ].join('\n'),
   );
   assert.doesNotMatch(show, /deploy the contract on|—|\b(coin|points|score|rank|grade|streak|token)s?\b/i);
@@ -2026,7 +2028,7 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
       'Nothing is ready to send for Hookswap yet. The closest:',
     ].join('\n'),
   );
-  assert.ok(eth.endsWith('\n\nSay 4 and I draft Y Combinator Winter 2027 Batch for you to send.'), eth);
+  assert.ok(eth.endsWith('\n\nTell me when the code is in a repo and I look again, or say 4 and I draft Y Combinator Winter 2027 Batch for you to send.'), eth);
   const plain = await mcpCall(ctx(await installation()), 'find', { project: HOOK });
   assert.ok(ids(plain.reply!.gaps).includes('uniswap-foundation-open-grants'));
   // A student on Base or Solana still sees Thiel by default.
@@ -2117,9 +2119,9 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
     '',
     '1. FLOSS/fund ($10,000 to $100,000) needs a live repo first.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 22 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 22 more in the full list.',
     '',
-    'Say 2 and I draft Y Combinator Winter 2027 Batch for you to send.',
+    'Tell me the live repo and I look again, or say 2 and I draft Y Combinator Winter 2027 Batch for you to send.',
   ].join('\n'));
   assert.doesNotMatch(show, /This repo is archived/);
   // v6.1.20 (L46-2): the live repo is the row's step; the closing drafts what the builder can send now.
@@ -2207,7 +2209,7 @@ test('L1c-2 (v6.1.10, Review Focus 3): an idea that names no VR word never opens
     '',
     '1. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), you to join the Meta VR Start program, you to turn on Developer Access for your Meta account and you to join the competition with a Devpost account first, and one yes from you: a hands-first experience for Meta VR devices.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 19 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 19 more in the full list.',
     '',
     'Say 1 if the Meta VR Start Developer Competition 2026 rule fits you and I draft it.',
   ].join('\n'));
@@ -2232,9 +2234,9 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       '2. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
       '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs real users, then 2 more steps.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 20 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 20 more in the full list.',
       '',
-      'Say 4 and I draft Y Combinator Winter 2027 Batch for you to send.',
+      'Send me the demo video link and I fill it in, or say 4 and I draft Y Combinator Winter 2027 Batch for you to send.',
     ].join('\n'),
   );
   // An Atlassian Forge app sees Codegeist the same way.
@@ -3439,7 +3441,7 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
     '5. Berg Grant (up to $5,000) needs a demo video link (a short screen recording of it working) first.',
     '6. Demo Grant (up to $5,000) needs a demo video link (a short screen recording of it working) first.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), in person with long odds; and 40 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 40 more in the full list.',
     '',
     'Since Nov 4: Alliance ALL19: deadline moved to Nov 18.',
     '',
@@ -3911,7 +3913,7 @@ test('L41-8 (v6.1.19): a repo not shown to be theirs heads "Ready for you to sen
   const readyRows = [...(reply.ready as { program_id: string; n: number; title: string }[])].sort((a, b) => a.n - b.n);
   const first = readyRows[0];
   assert.equal(lines[0], 'This repo is not yours; I apply only with repos you commit to.');
-  assert.match(told, /^\d+\. .+ I draft it for you to send\.$/m, told);
+  assert.match(told, /^For EarnKit, \d+ programs are ready to send now; I draft them for you to send\.$/m, told);
   assert.doesNotMatch(told, /Ready to apply|I apply\b(?! only)/, told);
   // Fix round 1 (I2): one ready reads "it"; several name the first.
   assert.equal(lines.at(-1), readyRows.length > 1 ? `Say yes and I draft ${first.title} for you to send.` : 'Say yes and I draft it for you to send.');
@@ -4060,7 +4062,7 @@ test('L35-9 (v6.1.17, lane 35 C.5 and C.6, Review Focus 3): after one claim and 
     const said = /I apply to all (\d+)\b/.exec(show);
     assert.ok(said, show);
     assert.doesNotMatch(show, /not shown/);
-    const head = Number(/^For EarnKit, (\d+) programs are ready to send now\.$/m.exec(show)![1]);
+    const head = Number(/^For EarnKit, (\d+) programs are ready to send now; I apply once you say yes\.$/m.exec(show)![1]);
     assert.equal(head, Number(said[1]), show);
     // v6.1.20: the Also sentence is the block after the rows.
     const rowsEnd = show.split('\n').reduce((a, l, i) => (/^\d+\. /.test(l) ? i : a), -1);
@@ -4156,7 +4158,7 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   const n = def.reply!.more_count as number;
   assert.ok(n > 0, show);
   // v6.1.20: the in-person programs are named in the Also sentence, unnumbered.
-  const inAlso = (/^Also open: (.+), in person/m.exec(show)?.[1].match(/ \(\$/g) ?? []).length;
+  const inAlso = (/^Also open: (.+?), (both )?in person/m.exec(show)?.[1].match(/ \(\$/g) ?? []).length;
   assert.equal(n, fullRows - shownRows - inAlso, show);
   assert.match(show, new RegExp(`^Also( open)?: .*\\b${n} more in the full list(\\.|; .+\\.)$`, 'm'));
   assert.ok(show.split('\n').filter((l) => l.trim() !== '').length <= 10, show);
@@ -4169,10 +4171,10 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   const nov12 = await mcpCall(ctx(await installation(), day), 'find', { project });
   const lines = (nov12.reply!.show_to_builder as string).split('\n');
   const nov12All = await mcpCall(ctx(await installation(), day), 'find', { project, filter: { all: true } });
-  const named = (/^Also open: (.+), in person/m.exec(lines.join('\n'))?.[1].match(/ \(\$/g) ?? []).length;
+  const named = (/^Also open: (.+?), (both )?in person/m.exec(lines.join('\n'))?.[1].match(/ \(\$/g) ?? []).length;
   const left = (allReady(nov12All.reply!) as unknown[]).length + (nov12All.reply!.gaps as unknown[]).length - lines.filter((l) => /^\d+\. /.test(l)).length - named;
   assert.equal(nov12.reply!.more_count, left);
-  assert.equal(lines.at(-3), `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 6 days), in person with long odds; and ${left} more in the full list; PayPal AI Hackathon closes today; UGREEN Hackathon 2026 on AI NAS closes in 3 days.`, lines.join('\n'));
+  assert.equal(lines.at(-3), `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 6 days), both in person with long odds. ${left} more in the full list; PayPal AI Hackathon closes today; UGREEN Hackathon 2026 on AI NAS closes in 3 days.`, lines.join('\n'));
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10);
 });
 
