@@ -405,6 +405,8 @@ export async function record(
     /** applied only (v6.1.19 fix round 1, M1): the builder said on /me they sent it and no agent of theirs that
      *  claimed it is still linked; the agent's link check is skipped (the builder is the one acting). */
     builderOwn?: true;
+    /** won only (v6.1.19.1 review I2): the win names no project, so it takes the owner's one row of the program, as before. */
+    anyRow?: true;
   } = {},
 ): Promise<RecordResult> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -462,8 +464,8 @@ export async function record(
     const row = (identity ? rows.find((r) => r.identity === identity && repoKeyOf(r.project_id) === repoKeyOf(key)) : undefined) ?? (exactOnly
       ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined)
       // v6.1.19.1 (L47-2): a win with a project is that project's, as a send is: its own key (or a keyless row), never
-      // another project's row of the same program.
-      : pickRow(rows, key, (RESULTS.includes(status) && status !== 'won') || status === 'held' || status === 'unskip'));
+      // another project's row of the same program; a win that names no project (`anyRow`, review I2) takes the one row.
+      : pickRow(rows, key, (RESULTS.includes(status) && (status !== 'won' || o.anyRow === true)) || status === 'held' || status === 'unskip'));
     if (!program && !row) return unknown;
     // An identity another of the owner's rows of this program holds (under another repo key) is never written twice.
     const ident = identity && rows.some((r) => r.identity === identity && r !== row) ? null : identity;

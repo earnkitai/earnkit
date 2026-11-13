@@ -230,29 +230,46 @@ test('L44-5: applications_7d counts by send time: two sends 8 days ago with resu
   assert.equal(after_.applications - before.applications, 2);
 });
 
-test('L47-3 (v6.1.19.1): a builder send made the draft way counts as drafted when that installation found the program for the project', async () => {
+test('L47-3 (v6.1.19.1, review I1, M1): a builder send made the draft way counts as drafted only on EarnKit\'s draft (fields filled) or its own track of the program for the project', async () => {
   const db = sql();
-  for (const id of ['l47-draft', 'l47-plain']) await upsertProgram(programFixture({ id, max_award_usd: 5000 }), 'file', NOW);
-  await upsertProgram(programFixture({ id: 'l47-gap', max_award_usd: 5000, eligibility: [{ kind: 'rule', note: 'a student' }] }), 'file', NOW);
+  const ids = ['l47-draft', 'l47-plain', 'l47-later', 'l47-gap', 'l47-gap-b', 'l47-skip'];
+  for (const id of ids) await upsertProgram(programFixture({ id, max_award_usd: 5000, eligibility: [{ kind: 'rule', note: 'a student' }] }), 'file', NOW);
   const counts = async (id: string) => {
     const [c] = await db<{ all: string; drafted: string; reported: string }[]>`
       WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s WHERE program_id = ${id}`;
     return { all: Number(c.all), drafted: Number(c.drafted), reported: Number(c.reported) };
   };
-  // A find saved the project report, then the agent recorded the builder's send with no start: drafted.
+  const drafted = { all: 1, drafted: 1, reported: 0 };
+  const reported = { all: 1, drafted: 0, reported: 1 };
+  // EarnKit filled the form: the send carries the fields it used.
   const i = await statInstall();
-  await saveReport(`i:${i}`, 'name:gl notes', { name: 'gl notes' } as never, ago(1));
-  assert.equal((await record(`i:${i}`, 'l47-draft', 'applied', { installationId: i, submitted_by: 'builder', project_id: 'name:gl notes', now: NOW })).ok, true);
-  assert.deepEqual(await counts('l47-draft'), { all: 1, drafted: 1, reported: 0 });
-  // No find and no track by the installation: reported.
+  assert.equal((await record(`i:${i}`, 'l47-draft', 'applied', { installationId: i, submitted_by: 'builder', fields_used: ['project_name'], project_id: 'name:gl notes', now: NOW })).ok, true);
+  assert.deepEqual(await counts('l47-draft'), drafted);
+  // A find report on the project (for another program), then the builder's own send with no fields: reported.
   const j = await statInstall();
-  assert.equal((await record(`i:${j}`, 'l47-plain', 'applied', { installationId: j, submitted_by: 'builder', project_id: 'name:other', now: NOW })).ok, true);
-  assert.deepEqual(await counts('l47-plain'), { all: 1, drafted: 0, reported: 1 });
-  // A rule the installation confirmed on the program before the send: drafted.
+  await saveReport(`i:${j}`, 'name:app a', { name: 'app a' } as never, ago(1));
+  assert.equal((await record(`i:${j}`, 'l47-plain', 'applied', { installationId: j, submitted_by: 'builder', project_id: 'name:app a', now: NOW })).ok, true);
+  assert.deepEqual(await counts('l47-plain'), reported);
+  // A find after the send leaves it reported.
   const k = await statInstall();
+  assert.equal((await record(`i:${k}`, 'l47-later', 'applied', { installationId: k, submitted_by: 'builder', project_id: 'name:app c', now: ago(2) })).ok, true);
+  await saveReport(`i:${k}`, 'name:app c', { name: 'app c' } as never, NOW);
+  assert.deepEqual(await counts('l47-later'), reported);
+  // A rule the installation confirmed on the program for this owner, before the send: drafted.
   const { ruleItem } = await import('./eligibility');
   const item = ruleItem('a student');
-  assert.equal((await record(`i:${k}`, 'l47-gap', 'gap_done', { installationId: k, item, projectKey: '', now: ago(1) })).ok, true);
-  assert.equal((await record(`i:${k}`, 'l47-gap', 'applied', { installationId: k, submitted_by: 'builder', now: NOW })).ok, true);
-  assert.deepEqual(await counts('l47-gap'), { all: 1, drafted: 1, reported: 0 });
+  const m = await statInstall();
+  assert.equal((await record(`i:${m}`, 'l47-gap', 'gap_done', { installationId: m, item, projectKey: '', now: ago(1) })).ok, true);
+  assert.equal((await record(`i:${m}`, 'l47-gap', 'applied', { installationId: m, submitted_by: 'builder', now: NOW })).ok, true);
+  assert.deepEqual(await counts('l47-gap'), drafted);
+  // M1: the same installation's history under another owner does not count.
+  const n = await statInstall();
+  await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES ('b:999999', ${n}, 'l47-gap-b', 'gap_done', ${ago(1)})`;
+  assert.equal((await record(`i:${n}`, 'l47-gap-b', 'applied', { installationId: n, submitted_by: 'builder', now: NOW })).ok, true);
+  assert.deepEqual(await counts('l47-gap-b'), reported);
+  // M1: a skip is no draft.
+  const q = await statInstall();
+  await db`INSERT INTO application_history (owner, installation_id, program_id, status, at) VALUES (${`i:${q}`}, ${q}, 'l47-skip', 'skipped', ${ago(1)})`;
+  assert.equal((await record(`i:${q}`, 'l47-skip', 'applied', { installationId: q, submitted_by: 'builder', now: NOW })).ok, true);
+  assert.deepEqual(await counts('l47-skip'), reported);
 });

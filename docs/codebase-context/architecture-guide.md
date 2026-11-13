@@ -695,7 +695,7 @@ journey campaign round 13, lanes 1l and 41 to 45; the owner's count by send time
 the true state, the reply's Next one rule away and one sent question, cleanup (the $25,000 plan steps, the
 `sent_asks` sweep), the daily run round 3, tool inputs and the ledger's money; see that section), 6.1.19.1
 (`v6.1.19.1-patch-plan.md`: a coin win keeps up to 8 places and the whole-dollar line is for US dollars only (L47-1), a
-builder send made the draft way counts as drafted (L47-3), a count or score field is never the traction line (L47-5), a
+builder send EarnKit filled or tracked counts as drafted (L47-3), a count or score field is never the traction line (L47-5), a
 win lands on its own project's row (L47-2), and the first find re-reads a pre-v6.1.18 row when reads are allowed (L1m-1)).
 
 ## v6.0: the filter (evidence, tiers, the screening pilot)
@@ -1819,11 +1819,14 @@ Plan `v6.1.19.1-patch-plan.md`.
   payment (`addMoney` by currency) and the screen store a win at its places (`{"ETH":0.001}`); `moneyText` shows a coin's
   places with no trailing zeros (`ETH 0.001`). `UNDER_A_DOLLAR` is for US dollars only; another currency under the
   floor reads `UNDER_A_DOLLAR_OTHER` (`underADollarLine`). The floor still weighs a coin at FLOOR_RATES.
-- Drafted (L47-3): `throughEarnkit` also holds for a dated builder send recorded by an installation when a find report
-  exists for the owner and project, or that installation tracked the program (gap_done, skipped, unskip) before the send.
+- Drafted (L47-3, review I1, M1): `throughEarnkit` also holds for a dated builder send recorded by an installation when
+  the send carries the fields EarnKit filled (`fields_used` not empty), or that installation confirmed a rule or brought
+  the program back (gap_done, unskip) for the same owner and project (or none) before the send; a find report alone,
+  a hold and a skip never count.
 - Count fields (L47-5): `isCountField` in `prefill.ts`; never a record value; stars on a read GitHub repo are the
   agent's (`the star count on {repo}`), any other count the builder's.
-- A win's row (L47-2): `record` picks a win's row as a send's (`pickRow(rows, key, false)`), never another project's.
+- A win's row (L47-2): `record` picks a win's row as a send's (`pickRow(rows, key, false)`), never another project's; a
+  win that names no project (`anyRow`, review I2) takes the owner's one row of the program, as before.
 - L1m-1: an incomplete usable cache row is already re-read before the answer when reads are allowed (pinned in
   find.test.ts); the row answers only when reads are paused or GitHub is slow.
 

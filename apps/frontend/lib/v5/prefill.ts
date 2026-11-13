@@ -83,14 +83,15 @@ const isPersonal = (r: SubmissionRequirement) => PERSONAL_KINDS.has(r.kind) || f
 
 /**
  * v6.1.19.1 (L47-5): a field that asks for a number (a count or a score: `# of Stars`, `Criticality Score`, `Estimated
- * number of ... users / downloads`), by its type or its key and label. The traction sentence never fills it. Pure.
+ * number of ... users / downloads`), by its key and label. The traction sentence never fills it. Pure.
  */
 export function isCountField(r: Pick<SubmissionRequirement, 'key' | 'label' | 'type'>): boolean {
-  if ((r.type as string) === 'number') return true;
+  // The program schema has no number type, so only a text field's words decide (review M6).
   if (r.type !== 'text') return false;
   const w = [...words(r.key), ...words(r.label)];
   const numeric = r.label.includes('#') || /\bnumber of\b|\bhow many\b/i.test(r.label);
-  return w.some((x) => ['star', 'stars', 'score', 'count', 'downloads'].includes(x)) || (numeric && w.some((x) => ['users', 'downloads', 'installs'].includes(x)));
+  // Review M3: downloads, users and installs only with a number word (`#`, `number of`, `how many`).
+  return w.some((x) => ['star', 'stars', 'score', 'count'].includes(x)) || (numeric && w.some((x) => ['users', 'downloads', 'installs'].includes(x)));
 }
 /** v6.1.19.1 (L47-5): a stars field asks for the repo's star count, read on its GitHub page. Pure. */
 const asksStars = (r: Pick<SubmissionRequirement, 'key' | 'label'>): boolean => [...words(r.key), ...words(r.label)].some((x) => x === 'star' || x === 'stars');

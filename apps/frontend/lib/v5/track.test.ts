@@ -3028,7 +3028,7 @@ test('L47-1 (v6.1.19.1): a coin win keeps its places (up to 8), fiat keeps 2; st
   // An outside win in a coin reads its places too.
   await upsertProgram(programFixture({ id: 'l471-out', title: 'Out Grant', max_award_usd: 5000 }), 'file', NOW);
   const out = await track(c, { program_id: 'l471-out', status: 'won', amount: '0.001 ETH', outside: true });
-  assert.match(out.show_to_builder, /^Recorded: Out Grant won, ETH 0\.001\. /);
+  assert.equal(out.show_to_builder, 'Recorded: Out Grant won, ETH 0.001. Noted as sent by you outside EarnKit.');
   const [o] = await sql()`SELECT amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l471-out'`;
   assert.deepEqual(o.amounts, { ETH: 0.001 });
 });
@@ -3049,4 +3049,14 @@ test('L47-2 (v6.1.19.1): a win on a second name-only project of the same program
   await track(c, { program_id: 'l472-one', status: 'applied', project: { name: 'Solo' } });
   assert.equal((await track(c, { program_id: 'l472-one', status: 'won', amount_usd: 50 })).show_to_builder, 'Tracked: $50 from One Grant.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-one'`)[0].n, 1);
+});
+
+test('L47-2 review I2 (v6.1.19.1): a win that names no project, after a find on another project, lands on the one sent row', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l472-i2', title: 'Pee Grant', max_award_usd: 5000 }), 'file', NOW);
+  await track(c, { program_id: 'l472-i2', status: 'applied', project: { name: 'Proj A' } });
+  await markFind(c.installationId, NOW, undefined, 'name:proj b');
+  assert.equal((await track(c, { program_id: 'l472-i2', status: 'won', amount_usd: 500 })).show_to_builder, 'Tracked: $500 from Pee Grant.');
+  const rows = await sql()`SELECT project_id, status, amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-i2'`;
+  assert.deepEqual(rows.map((r) => [r.project_id, r.status, r.amounts]), [['name:proj a', 'won', { USD: 500 }]]);
 });
