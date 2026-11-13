@@ -557,8 +557,6 @@ test('L46-16: a project outside the record shows the name the agent passed', asy
 });
 
 test('L47-6 (v6.1.22, Task 1): a win kept as an earlier round reads so on /me; after the new round starts it follows the row', async () => {
-  // The column lands with Task 1's schema; added here so this branch's database has it before the merge.
-  await sql()`ALTER TABLE applications ADD COLUMN IF NOT EXISTS earlier_win jsonb`;
   const b = await upsertBuilder({ github_id: 822_124, login: 'l47-earlier', name: null, avatar_url: null }, NOW);
   const owner = `b:${b.id}`;
   await sql()`DELETE FROM applications WHERE owner = ${owner}`;

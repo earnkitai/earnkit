@@ -212,6 +212,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   gaps.push(...repoGaps(p, facts));
   const archived = gaps.includes(ARCHIVED_REPO);
   let inPerson = false;
+  // L46-10 (v6.1.22): an audit program on a chain with no smart contracts read; the address step is decided after the
+  // items, so their order in the file never matters (Task 4 review minor 2).
+  let needsAddress = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
   if (chainItems.length > 0 && !chainItems.some((i) => mainnets.has(i.value ?? ''))) {
@@ -245,8 +248,7 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         // was confirmed; on a chain, the contract address is the one step and the rule waits for it (ruling 2).
         if (i.check === 'contracts' && !hasContracts(facts)) {
           if (facts.chains.length === 0) return out('no', [], 'needs smart contracts to audit');
-          // A contract still to deploy on the program's chain gives the address: that step alone is asked.
-          if (!gaps.includes(CONTRACT_ADDRESS) && !gaps.some((g) => g.kind === 'chain' || g.kind === 'contract_on')) gaps.push(CONTRACT_ADDRESS);
+          needsAddress = true;
           break;
         }
         if (done.has(itemKey(i))) break;
@@ -275,6 +277,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     }
   }
 
+  // A contract still to deploy on the program's chain gives the address: that step alone is asked.
+  if (needsAddress && !gaps.some((g) => g.kind === 'chain' || g.kind === 'contract_on')) gaps.push(CONTRACT_ADDRESS);
   const reason = inPerson ? 'in person' : null;
   if (gaps.length === 0) return out('ready', [], reason);
   // Real gaps first, then the rules to confirm; only the real ones count toward the limits.

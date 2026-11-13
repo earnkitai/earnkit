@@ -843,6 +843,19 @@ test('L46-10b (v6.1.22): a contract read or a Solidity README keeps the audit ru
   assert.deepEqual(evaluate(essp, facts({ description: 'Charts.' }), new Set(), NOW).gaps.map((g) => g.kind), ['chain']);
 });
 
+test('L46-10 (v6.1.22, Task 4 review minor 2): the address step is decided after the items, so their order never matters', async () => {
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts: RepoFacts = { ...base, name: 'Chainlens', description: 'Charts.', repo_url: 'https://github.com/l46/chainlens', public: true, contracts: [], chains: [{ chain: 'arbitrum', mainnet: true, basis: 'reported' }] };
+  const file = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', 'arbitrum-security-program.json'), 'utf8'));
+  const rule = file.eligibility.find((i: { kind: string }) => i.kind === 'rule');
+  const contractOn = { kind: 'contract_on', value: 'arbitrum' };
+  // A contract still to deploy on the chain is the one step either way; the address is never asked as well.
+  for (const eligibility of [[rule, contractOn], [contractOn, rule]]) {
+    const v = evaluate(toRow(ProgramFile.parse({ ...file, eligibility })), facts, new Set(), NOW);
+    assert.deepEqual(v.gaps.map((g) => g.kind), ['contract_on'], JSON.stringify(eligibility));
+  }
+});
+
 test('L46-10 (v6.1.22): only a rule takes check contracts', () => {
   const essp = fromFile('ethereum-security-subsidy-program');
   assert.ok(eligibilityOf(essp.file).some((i) => i.kind === 'rule' && i.check === 'contracts'));

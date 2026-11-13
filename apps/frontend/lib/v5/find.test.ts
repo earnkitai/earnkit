@@ -4974,12 +4974,23 @@ test('L46-10 (v6.1.22, ruling 2): on a chain with no contract address, an audit 
   const dash = replayFetch('nextjs-dashboard');
   const c = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch });
   const CHAINLENS = { name: 'Chainlens', description: 'Dashboards and charts on Ethereum data for analysts.', repo_url: `https://github.com/${dash.repo}`, chains: [{ chain: 'ethereum', mainnet: true }] };
-  const r = await mcpCall(await c(), 'find', { project: CHAINLENS });
+  // Task 4 review minor 1: other tests' ready fixtures would lead the list; closed for this find, the closing is
+  // pinned every time: the address first.
+  const { readdirSync } = await import('node:fs');
+  const catalog = readdirSync(new URL('../../../../programs', import.meta.url)).flatMap((f) => (f.endsWith('.json') ? [f.slice(0, -5)] : []));
+  const kept = await sql()<{ id: string; file: unknown }[]>`SELECT id, file FROM programs WHERE id <> ALL(${catalog})`;
+  await sql()`UPDATE programs SET file = jsonb_set(file, '{status}', '"closed"') WHERE id <> ALL(${catalog})`;
+  let r: Awaited<ReturnType<typeof mcpCall>>;
+  try {
+    r = await mcpCall(await c(), 'find', { project: CHAINLENS });
+  } finally {
+    for (const k of kept) await sql()`UPDATE programs SET file = ${sql().json(k.file as never)} WHERE id = ${k.id}`;
+  }
   const show = r.reply!.show_to_builder as string;
   assert.match(show, /^\d+\. Ethereum Security Subsidy Program \(up to 30% of audit cost\) needs a contract address first\.$/m, show);
   assert.match(show, /^\d+\. Uniswap Foundation Security Fund \(UFSF\) Audit Subsidies \(up to 100% of the audit cost\) needs a contract address first\.$/m, show);
-  // The closing names the address when nothing is ready (other files' ready fixtures may lead it here).
-  if (/^Nothing is ready/.test(show)) assert.match(show, /\n\nTell me the contract address and I look again(, or [^\n]+)?\.$/, show);
+  assert.match(show, /^Nothing is ready to send for Chainlens yet\./, show);
+  assert.ok(show.endsWith('\n\nTell me the contract address and I look again, or say 4 and I draft Y Combinator Winter 2027 Batch for you to send.'), show);
   assert.ok((r.reply!.agent_note as string).includes('When the builder gives the contract address, pass it in project.chains[].contract and call find again.'));
   const one = await mcpCall(await c(), 'find', { project: CHAINLENS, program_id: 'ethereum-security-subsidy-program' });
   assert.equal(one.reply!.show_to_builder, 'Ethereum Security Subsidy Program (up to 30% of audit cost). It needs a contract address first.\n\nTell me the contract address and I look again.');

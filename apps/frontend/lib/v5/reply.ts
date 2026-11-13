@@ -5,7 +5,7 @@
  */
 import { EARNKIT_CUT_NOTE } from './prefill';
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, lowerFirst, shortTitle, signInCheck, signInThen, type ProofBar } from '../v6/reply-words';
-import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
+import { CONTRACT_ADDRESS, NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { MANIFEST_LINE } from './funding-manifest';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
@@ -1531,7 +1531,7 @@ function askedOf(g: GapProgram, closed: string | null = null): { needs: string[]
   const own = real.filter(readingGap).map((x) => x.what);
   const gaps = real.filter((x) => !readingGap(x)).map((x) => needWords(x.what));
   // L46-10 (v6.1.22, ruling 2): the contract address's own "tell me" step is the gap itself, never a second step.
-  const setup = [...all.flatMap((x) => (x.setup && x.item !== 'repo:contract' ? [x.setup] : [])).filter((x) => x !== closed), ...g.setup].map(needWords);
+  const setup = [...all.flatMap((x) => (x.setup && x.item !== CONTRACT_ADDRESS.item ? [x.setup] : [])).filter((x) => x !== closed), ...g.setup].map(needWords);
   return { needs: [...gaps, ...setup], rules: all.filter((x) => x.kind === 'rule').map((x) => midSentence(x.what)), own };
 }
 /** v6.1.20: the own sentences after a gap row: the proof still being read, a step looked for again. Pure. */
@@ -1727,7 +1727,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     lines.push(REPO_STEP_NOTE);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
   // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
-  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:contract'))) lines.push(CONTRACT_ADDRESS_NOTE);
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === CONTRACT_ADDRESS.item))) lines.push(CONTRACT_ADDRESS_NOTE);
   // L36-13 (v6.1.18): the demo video link goes in the project.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(DEMO_NOTE);
   // L29-19 (v6.1.16 Task 15): one way.
