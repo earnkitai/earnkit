@@ -149,9 +149,16 @@ test('recordMissing names "your founder video link" when needs has founder_video
 test('recordMissing in builder words: name and email, a project, the traction line, unapproved answers, docs', () => {
   const m = recordMissing(EMPTY_RECORD, { needs: ['resume', 'deck', 'pitch_pdf', 'demo_video'], kinds: ['problem', 'how_it_works'] });
   assert.deepEqual(m, [
-    'your name', 'your email', 'a project with its repo or site', 'one approved line on traction',
-    'an approved answer on the problem', 'an approved answer on the solution',
-    'your demo video link', 'your resume link', 'your deck link', 'your pitch PDF link',
+    'your name',
+    'your email',
+    'a project with its repo or site',
+    'one line on traction',
+    'an approved answer on the problem',
+    'an approved answer on the solution',
+    'your demo video link',
+    'your resume link',
+    'your deck link',
+    'your pitch PDF link',
   ]);
   let r = merge({ person: { name: 'Ada', email: 'ada@example.com' }, projects: [{ id: 'p1', live_url: 'https://ada.app' }], traction: { line_pre_launch: 'Pre-launch, 140 on the waitlist.' }, answers: { problem: { text: 'Fees.' } } }).record;
   r = approvePath(approvePath(r, 'traction.line_pre_launch', NOW), 'answers.problem', NOW);
@@ -274,7 +281,9 @@ test('C48: an agent change that drops an approval stamps when; approving again c
 
 test('C49: traction is one item in the missing list (the line), never also an answer', () => {
   const m = recordMissing(EMPTY_RECORD, { needs: [], kinds: ['traction', 'problem'] });
-  assert.deepEqual(m.filter((x) => /traction/.test(x)), ['one approved line on traction']);
+  assert.deepEqual(m.filter((x) => /traction/.test(x)), [
+    'one line on traction',
+  ]);
 });
 
 test('C50: recordItems counts the items the open programs ask, and the ones missing', () => {
@@ -337,4 +346,27 @@ test('L35-15 (v6.1.17): lengths count code points, so 1,996 emoji save and 2,001
   assert.equal(record.answers.one_liner?.text, emoji);
   const over = merge({ answers: { risks: { text: '\u{1F680}'.repeat(2_001) } } });
   assert.deepEqual(over.problems, ['answers.risks.text: Too big: expected string to have <=2000 characters']);
+});
+
+test('L46-7 (v6.1.20): the traction line is asked only for a form that reads it; once typed, only its approval is named, with /me', () => {
+  const asks = { needs: [], kinds: [] };
+  assert.ok(recordMissing(EMPTY_RECORD, asks).includes('one line on traction'));
+  assert.ok(!recordMissing(EMPTY_RECORD, { ...asks, traction: false }).some((m) => /traction/.test(m)));
+  const typed = merge({ traction: { line_pre_launch: 'Pre-launch, 140 on the waitlist.' } }).record;
+  assert.deepEqual(recordMissing(typed, asks).filter((m) => /traction/.test(m)), [
+    'your traction line approved',
+  ]);
+  assert.ok(!recordMissing(approvePath(typed, 'traction.line_pre_launch', NOW), asks).some((m) => /traction/.test(m)));
+});
+
+test('L46-6 (v6.1.20): record get names two of what the next application needs, never "and N more"', async () => {
+  const { nextNeedsLine } = await import('./record-tool');
+  assert.equal(nextNeedsLine(['a website link', "the company's X link", "the founder's role", 'your deck']), "The next application needs a website link and the company's X link first. Tell me them and I save them.");
+  assert.equal(nextNeedsLine(['a website link']), 'The next application needs a website link. Tell me it and I save it.');
+});
+
+test('v6.1.20 review M4: an approval is never told; with nothing else missing it has its own action', async () => {
+  const { nextNeedsLine } = await import('./record-tool');
+  assert.equal(nextNeedsLine(['your traction line approved']), 'The next application needs your traction line approved. Approve it at earnkit.com/me and I use it.');
+  assert.equal(nextNeedsLine(['your traction line approved', 'your email']), 'The next application needs your email. Tell me it and I save it.');
 });

@@ -26,33 +26,32 @@ before(() => upsertProgram(openCatalogProgram('base-builder-grants'), 'file', ne
 
 const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;
+// v6.1.20: the closings in the new grammar, each the reply's last line.
 const CLOSINGS = [
-  // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked. L38
-  // big 1 (v6.1.18 Task 10): in the same sentence as the apply offer it gates.
+  // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked.
   /^Sign in( at \S+)? so I know the repo is yours, then [^\n]*\bI apply\b[^\n]*\.$/,
   // L38 big 1: the proof the action waits on, signed in first in the Say.
-  /^Nothing is ready yet\. Sign in( at \S+)? so I can check the repo, then [^\n]+\.$/,
-  // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
-  // L24-9 (v6.1.16 Task 11): "ready" when other blocks are listed.
-  // L29-17, L29-27 (v6.1.16 Task 15): no second action; a yes that needs answers names them.
-  /Say yes and (?:tell me [^\n]+, and )?I apply to all \d+( ready)?\.$/,
-  /Say yes and tell me [^\n]+, and I (?:apply to|draft) [^\n]+\.$/,
-  /Nothing is ready yet\. Do real people use it\? Say yes, sign in once( at \S+)?, and I check\.$/,
-  // L16-11 (v6.1.16): one ready program is named.
-  // L24-8, L24-10 (v6.1.16 Task 11): the do offer and the drafts fold into this one.
-  /Say yes and I apply to (?!all \d+( ready)?\. )[^\n]+\.$/,
-  // L24-28 (v6.1.16 Task 11): the one ready program over the limit.
-  /[^\n]+ is over your limit\. Say yes and I apply\.$/,
-  /Say yes and I draft all \d+ for you to send\.$/,
-  /Say yes and I draft it for you to send\.$/,
-  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you and I draft [^\n]+\.| Say "do \d+" and I [^\n]+\.)?$/,
-  // Final fix (v6.1.12, I1): the users yes on a program with a setup step or a rule left.
-  /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
-  // O2 (v6.1.10): in-person programs listed and nothing remote ready.
-  /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
-  /Nothing fits yet\. Ask again any time and I show what is new\.$/,
+  /^Sign in( at \S+)? so I can check (the repo|your users|that [^,]+), then [^\n]+\.$/,
+  // L46-5 (v6.1.20): signed out, a rule yes carries the sign-in.
+  /^Sign in at \S+, then say \d+ if the [^\n]+ rules? fits? you and I draft it\.$/,
+  /^Say yes and (?:tell me [^\n]+, and )?I apply to all \d+(, or say do \d+ and I [^\n]+ first)?\.$/,
+  /^Say yes and tell me [^\n]+, and I (?:apply to (?!all \d+)|draft )[^\n]+\.$/,
+  /^Do real people use it\? Say yes(, sign in( at \S+)?,)? and I check\.$/,
+  /^Do real people use it\? Say yes and I [^\n]+, then apply to [^\n]+\.$/,
+  /^Say yes and I apply to (?!all \d+\b)[^\n]+\.$/,
+  /^[^\n]+ is over your limit\. Say yes and I apply\.$/,
+  /^Say yes and I draft (all \d+|it|[^\n]+) for you to send\.$/,
+  /^Say \d+ if the [^\n]+ rules? fits? you and I draft it\.$/,
+  /^Say do \d+ and I [^\n]+\.$/,
+  // L46-2 (v6.1.20): a draft the builder can have now.
+  /^Say \d+ and I draft [^\n]+ for you to send\.$/,
+  /^Say yes and I start the in-person applications\.$/,
+  /^Nothing fits [^\n]*yet\. Tell me more about it, or its repo link, and I look again\.$/,
+  /^(Tell me when [^\n]+|Tell me the live repo) and I look again\.$/,
+  /^Send me the demo video link and I fill it in\.$/,
+  /^Say a number and I show what that program asks\.$/,
   // L24-11 (v6.1.16 Task 11): the one standing-approval line.
-  /Applying now to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
+  /^Applying now to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
 ];
 const seen: string[] = [];
 
@@ -96,7 +95,7 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   // its hub", v6.1.3 R4) are the program's, not EarnKit asking who they are.
   // L29-34 (v6.1.16 Task 15): the users question's ruled sign-in checks the product, it never asks who they are.
   const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person \(\d+\):\n(\d+\. [^\n]*\n?)+/m, '')
-    .replace('Do real people use it? Say yes, sign in once, and I check.', '');
+    .replace(/Do real people use it\? Say yes, sign in( at \S+)?, and I check\./, '');
   assert.doesNotMatch(ours, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
   assert.equal(reply.as_reported, false);
 });
@@ -189,7 +188,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   assert.deepEqual((await zFields(t1)).find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
   assert.ok(z.from_record >= 2);
   // L29-26 (v6.1.16 Task 15): the full view is names and money; the counts are in the JSON. L1i-6 (v6.1.16.1): and the close.
-  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 3 days.');
+  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program (up to $100,000, closes in 3 days).');
 
   const topReady = (allReady(first) as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
   const top = topReady.program_id;
@@ -220,26 +219,16 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /—/, show);
     assert.doesNotMatch(show, /\b(coin|points|score|rank|streak|token)s?\b/i, show);
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
-    const isReply = /Ready to apply|One step away|More to do first|Not ready yet \(|In person[,:( ]|Nothing fits yet/.test(show);
+    const isReply = /ready to send|The closest:|Nothing remote is ready|Nothing fits|Everything open/.test(show);
     // O2 (v6.1.10, Review Focus 5, fix round 1): a reply that lists in-person programs never ends on the bare "Nothing is
-    // ready yet."; with no remote step shown it ends on starting the in-person applications.
-    // L38 big 2 (v6.1.18 Task 10): the default view's In person block is one line ("In person, long odds: 4. ...").
-    if (/^In person[,:( ]/m.test(show)) {
-      assert.notEqual(show.split('\n').at(-1), 'Nothing is ready yet.', show);
-      if (!/^(Ready to apply|One step away|More to do first) \(/m.test(show)) assert.match(show, /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/, show);
-    }
+    // ready yet.". v6.1.20: they are named in the Also sentence.
+    if (/^Also open: [^\n]+, in person/m.test(show)) assert.notEqual(show.split('\n').at(-1), 'Nothing is ready yet.', show);
     if (!isReply) continue;
-    // The first find after a link adds the linked notice to the closing line (security M2).
-    // Fix round 1 (v6.1.14, F2): a proof gap with no link to give adds the linkless sign-in to the closing line.
-    // L29-33 (v6.1.16 Task 15): the closing is its own line; the sign-in and the linked notice are their own lines.
-    const CLOSING_START = /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes|Sign in( at \S+)? so I know the repo is yours)/;
-    const last = show.split('\n').find((l) => CLOSING_START.test(l)) ?? '';
-    // L38 big 1 (v6.1.18 Task 10): no sign-in sentence promises to remember, and at most one is said.
-    assert.doesNotMatch(show, /remember you/, show);
+    // v6.1.20: the closing is the last line, one Say, no quoted commands.
+    const last = show.split('\n').at(-1) ?? '';
+    assert.doesNotMatch(show, /remember you|"/, show);
     assert.ok(show.split(/(?<=[.?!])\s+/).filter((x) => /\bsign in\b/i.test(x) && !/^\d+\. /.test(x)).length <= 1, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying now to |.+ is over your limit\. Say yes|Sign in( at \S+)? so I know the repo is yours)/.test(l)).length, 1, show);
-    // Each "yes n" and "do n" is said once (v6.1.8, 1a).
-    for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
+    assert.ok(show.split('\n').filter((l) => /\bSay\b/.test(l)).length <= 1, show);
   }
 });

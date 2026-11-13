@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
-import { DELETED_NOTICE } from '../v6/reply-words';
+import { DELETED_NOTICE, shortTitle } from '../v6/reply-words';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
@@ -15,8 +15,8 @@ import { PROJECT_DESCRIPTION, ProjectArg, identityOf, nameKeyOf, parseProject, p
 import { closedAt, isOpenAt, statusAt, getProgram, listOpenPrograms, LIST_GONE, listMiss, listRef, looksLikeListRef, programByName, programIdOf, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, claimed, doneItems, gapItemOf, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
-import { clock, unreadNote } from './reply';
-import { codeChecked, evaluate, itemKey, licenseRead, repoGaps } from './eligibility';
+import { clock, midSentence, unreadNote } from './reply';
+import { codeChecked, evaluate, itemKey, licenseRead, repoGaps, unlikely } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { PaymentKeyInput, inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
@@ -208,15 +208,16 @@ async function licenseRule(owner: string, file: ProgramRowOf['file'], projectKey
   const kept = await reportOf(owner, projectKey);
   // v6.1.19 (v6.1.18.1 minor): a name-only project: find read its kept report alone, so a repo step that stands there
   // hid the rule; started never asks it either.
-  if (!repo) return kept && repoGaps(file, reportOnlyFacts(kept)).length > 0 ? 'skip' : 'ask';
+  // v6.1.20 review I3: a license no read has seen is unknown, never a rule to confirm (as `evaluate`).
+  if (!repo) return 'skip';
   const project: Project = { ...(kept ?? { name: '', description: '' }), repo_url: repo };
   // A repo the read found private merges as private, as find merges it (v6.1.14 fix round 1, M1).
   const hidden = project.private === true || (await cachedRepoMiss(repo, now)) === 'private';
   const facts = hidden ? reportOnlyFacts({ ...project, private: true }) : await cachedRepoFacts(project, { now, ms: LICENSE_READ_MS });
-  if (!facts) return 'ask';
+  if (!facts) return 'skip';
   if (repoGaps(file, facts).length > 0) return 'skip';
   if ((facts.notes ?? []).includes('archived')) return 'ask';
-  return licenseRead(facts) === 'unknown' ? 'ask' : 'skip';
+  return facts.license !== undefined && licenseRead(facts) === 'unknown' ? 'ask' : 'skip';
 }
 
 /** The program's rules the owner has not confirmed yet on this project, by item key with its note. A license rule
@@ -265,10 +266,11 @@ export const NO_FIELDS_NOTE = 'Pass fields_used next time; nothing was checked a
 /** L29-7 (v6.1.16 Task 15): an agent's applied on an in-person program. */
 export const IN_PERSON_SEND = (title: string) => `${title} is applied for in person; nothing to send.`;
 /** L29-8 (v6.1.16 Task 15): a started or an agent's applied on a program whose rule is not confirmed for this project. */
-export const CONFIRM_RULE = (rule: string) => `Confirm the rule first: ${rule}. Say yes if that is you.`;
+// v6.1.20: the rule as one yes, in the reply's voice (no "Confirm the rule" label).
+export const CONFIRM_RULE = (rule: string, title = 'It') => `${title} needs one yes from you first: ${midSentence(rule)}. Say yes if that is you.`;
 /** L36-5 (v6.1.18): several rules still to confirm are one ask. */
-export const CONFIRM_RULES = (rules: string[]) =>
-  rules.length === 1 ? CONFIRM_RULE(rules[0]) : `Confirm the rules first: ${rules.join('; ')}. Say yes if all of that is you.`;
+export const CONFIRM_RULES = (rules: string[], title = 'It') =>
+  rules.length === 1 ? CONFIRM_RULE(rules[0], title) : `${title} needs one yes from you first: ${rules.map(midSentence).join('; ')}. Say yes if all of that is you.`;
 /** L36-5 (v6.1.18): a gap_done on a row's first rule item confirmed every rule that row listed. */
 export const RULES_CONFIRMED = 'Tracked: those rules fit you.';
 /** L29-3 (v6.1.16 Task 15): a win on a program with no application here, recorded as the builder's own send. */
@@ -456,7 +458,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
-    ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
+    ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, shortTitle(row.file.title, row.file.short_title)), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
     : listed ? { ...acted, agent_note: `Matched list number ${parsed.data.program_id.trim()} to ${listed}. ${acted.agent_note}` } : acted;
   const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
   // L31-4 (v6.1.16 Task 17): an id with any non-ASCII character was matched after NFKC folding; the problems line names it.
@@ -478,6 +480,7 @@ export function namedFirst(show: string, title: string): string {
   const named = show
     // L38-18 (v6.1.18): "Tracked: that rule fits you." names the program before its colon.
     .replace(/^Tracked: /, `Tracked for ${title}: `)
+    .replace(/^It needs one yes/, `${title} needs one yes`)
     .replace(/^(Started|Tracked)\./, `$1: ${title}.`)
     .replace(/^Already (skipped|tracked)\./, `Already $1: ${title}.`)
     .replace(/^You skipped that one\./, `You skipped ${title}.`)
@@ -636,7 +639,8 @@ async function act(
       const g = (await lastGaps(ctx.installationId))[i.program_id];
       await rememberGap(ctx.installationId, i.program_id, { what: g?.what ?? rules[0].note, kind: g?.kind ?? 'rule', item: g?.item ?? rules[0].item, rules: rules.map((r) => r.item) });
     }
-    return refuse(CONFIRM_RULES(rules.map((r) => r.note)),
+    const named = await getProgram(i.program_id);
+    return refuse(CONFIRM_RULES(rules.map((r) => r.note), named ? shortTitle(named.file.title, named.file.short_title) : 'It'),
       `Nothing was recorded. If the builder says yes, call track gap_done with item ${rules[0].item}${rules.length > 1 && sameAsLast ? ' (it confirms every rule named)' : rules.length > 1 ? ' and each other item' : ''}, then track ${i.status} again.`);
   };
   if (i.status === 'started') {
@@ -852,7 +856,8 @@ async function act(
           : ['Tracked.', 'Call find again; that step counts as done.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
-  const title = await titleOf(owner, i.program_id);
+  // v6.1.20: the builder reads the short title (the catalog's `short_title`, else the title cut at its colon).
+  const title = shortTitle(await titleOf(owner, i.program_id), (await getProgram(i.program_id))?.file.short_title);
   // The win as the ledger now holds it (its currency resolved there); a further payment names its own currency.
   // L28-4 (v6.1.16 Task 14): the row just written, read back by its own project key.
   // v6.1.19.1 (L47-2): a win is read back by its own project, as ledger.record wrote it (review I2: one named none, any row).
@@ -952,7 +957,8 @@ async function act(
   // Final fix (I1): never after a send kept under the project's name only (the repo is not shown to be theirs).
   const plain = (i.status === 'applied' && !closed && !cofounder && !otherClaim && !heldSent && !(standing && outside === null) && !sentTwice && !nameOnly)
     || (i.status === 'rejected' && res.ok && !('repeated' in res));
-  const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id, factsOnce) : null;
+  const lacking: NextLacks = {};
+  const next = plain ? await nextReady(ctx, owner, i, project.key, i.program_id, factsOnce, lacking) : null;
   // Fix round 1 (M1): the Next line is an apply offer; L41-3 (v6.1.19): one rule away, a rule offer first.
   if (next) await markOffer(ctx.installationId, next.rules.length > 0 ? 'rule' : 'apply', ctx.now);
   const withNext: Result = next
@@ -962,7 +968,8 @@ async function act(
       agent_note: [NEXT_NOTE(next), base.agent_note.replace(/^Call find again for the updated applications\.\s*/, '')].filter(Boolean).join(' '),
       next,
     }
-    : base;
+    // L46-13 (v6.1.20): no Next is ready, but the next ready program waits on facts the record lacks: one sentence.
+    : lacking.lacks ? { ...base, show_to_builder: `${base.show_to_builder} ${NEXT_LACKS(lacking.lacks)}` } : base;
   // L28-1, L28-3 (v6.1.16 Task 14): a send kept under the project's name only says so to the agent first.
   return nameOnly ? { ...withNext, agent_note: `${nameOnly} ${withNext.agent_note}` } : withNext;
 }
@@ -1004,12 +1011,17 @@ export const NO_MANIFEST_NOTE = 'The last repo read had no funding.json; if it i
  *  yes that confirms them. Pure. */
 export const NEXT_LINE = (n: Pick<NextReady, 'title' | 'money' | 'draft'> & { rules?: NextReady['rules'] }): string => {
   const act = n.draft ? 'draft it for you to send' : 'apply';
-  // Fix round 1 (M9): a rule's own full stop is not doubled.
-  const rules = (n.rules ?? []).map((r) => r.what.trim().replace(/\.+$/, ''));
-  if (rules.length === 0) return `Next: ${n.title}, ${n.money}. Say yes and I ${act}.`;
-  if (rules.length === 1) return `Next: ${n.title}, ${n.money}. Their rule: ${rules[0]}. Say yes if that fits you and I ${act}.`;
-  return `Next: ${n.title}, ${n.money}. Their rules: ${rules.join('; ')}. Say yes if all of that fits you and I ${act}.`;
+  // Fix round 1 (M9): a rule's own full stop is not doubled. v6.1.20: the money in parentheses, the rule as one yes.
+  const rules = (n.rules ?? []).map((r) => midSentence(r.what));
+  if (rules.length === 0) return `Next: ${n.title} (${n.money}). Say yes and I ${act}.`;
+  if (rules.length === 1) return `Next: ${n.title} (${n.money}) needs one yes: ${rules[0]}. Say yes if that fits and I ${act}.`;
+  return `Next: ${n.title} (${n.money}) needs one yes: ${rules.join('; ')}. Say yes if all of that fits and I ${act}.`;
 };
+/** L46-13 (v6.1.20): what the next ready program still needs from the record, filled by `nextReady`. */
+type NextLacks = { lacks?: { title: string; needs: string[] } };
+/** L46-13 (v6.1.20): "Base Builder Grants is next; it needs a website link and your X link." (two named at most). Pure. */
+export const NEXT_LACKS = (l: { title: string; needs: string[] }): string =>
+  `${l.title} is next; it needs ${l.needs.slice(0, 2).join(' and ')} first.`;
 /** L36-12 (v6.1.18): the agent's way to the next send without a find. L41-3 (v6.1.19): with rules, the gap_done
  *  that confirms them first. Pure. */
 export const NEXT_NOTE = (n: NextReady): string => {
@@ -1026,7 +1038,7 @@ export const NEXT_NOTE = (n: NextReady): string => {
  * and whose open items are all rules not yet confirmed (ready once they are), with those rules; they are remembered as
  * its row's, so one gap_done confirms them all. Linked only. Null when none.
  */
-async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKey: string, sentId: string, read: () => ReturnType<typeof sendFacts> = () => sendFacts(ctx, i, projectKey)): Promise<NextReady | null> {
+async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKey: string, sentId: string, read: () => ReturnType<typeof sendFacts> = () => sendFacts(ctx, i, projectKey), out: NextLacks = {}): Promise<NextReady | null> {
   if (ctx.builderId === null || !projectKey || (await lastProjectKey(ctx.installationId)) !== projectKey) return null;
   // Final fix (I1): no apply offer on a repo that is not shown to be the builder's (a rejection never checks the tie).
   if (await repoNotMine(ctx, projectKey)) return null;
@@ -1057,9 +1069,13 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
     const block = blockersOf([row], rec.record)[0];
     if (block && (block.sign_in || block.needs.length > 0 || block.outside_approval)) continue;
     const filled = prefill(row, facts, rec);
-    if (filled.need_you.length > 0) continue;
+    if (filled.need_you.length > 0) {
+      // L46-13 (v6.1.20): the first ready one that waits on the record is named, with what it lacks.
+      if (ready && !out.lacks) out.lacks = { title: shortTitle(row.file.title, row.file.short_title), needs: filled.need_you };
+      continue;
+    }
     const next: NextReady = {
-      program_id: id, title: row.file.title, money: moneyAt(tileMoney(row.file), 'mid'),
+      program_id: id, title: shortTitle(row.file.title, row.file.short_title), money: moneyAt(tileMoney(row.file), 'mid'),
       draft: row.file.submit === 'builder' || rec.record.policy.agent_may_submit === false,
       fields: filled.fields.map((f) => ({ key: f.key, from: f.from, value: f.value, required: f.required })),
       rules,
@@ -1075,5 +1091,7 @@ async function nextReady(ctx: TrackContext, owner: string, i: TrackIn, projectKe
 function rulesOnlyGap(row: ProgramRowOf, facts: Parameters<typeof evaluate>[1], done: Set<string>, now: Date): { item: string; what: string }[] {
   const v = evaluate(row, facts, done, now);
   if (v.status !== 'gap' || v.gaps.length === 0 || !v.gaps.every((g) => g.kind === 'rule')) return [];
+  // L46-8 (v6.1.20): a rule is offered only when its keywords hit the project or it has none.
+  if (unlikely(row, facts, v.gaps)) return [];
   return v.gaps.map((g) => ({ item: g.item, what: g.what }));
 }

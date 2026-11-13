@@ -17,7 +17,7 @@ import { createLinkCode } from './link-routes';
 import { DELETED_NOTICE, listWords } from './reply-words';
 
 export { listWords };
-import { APPROVABLE, type Answer, type BuilderRecord, EMPTY, KIND_WORDS, allowedKey, heldWords, isApproved, mergeRecord, recordItems } from './record';
+import { APPROVABLE, type Answer, type BuilderRecord, EMPTY, KIND_WORDS, allowedKey, heldWords, isApproved, mergeRecord, recordItems, TRACTION_APPROVE } from './record';
 import { cleanText, quoteName } from '../v5/controls';
 import { ME_VALUE_WORDS } from '../v5/site-copy';
 
@@ -138,8 +138,13 @@ export const waitingAnswers = (record: BuilderRecord): number => answersOf(recor
 /** L26-7: `{n} answers wait for your approval.`; null at none. Pure. */
 export const waitingLine = (n: number): string | null => (n === 0 ? null : n === 1 ? '1 answer waits for your approval.' : `${n} answers wait for your approval.`);
 /** L38-15 (v6.1.18): what the next application needs (at most two named) and the one action. Pure. */
-export const nextNeedsLine = (missing: string[]): string =>
-  `The next application needs ${listWords(missing, 2)}. Tell me ${missing.length === 1 ? 'it and I save it' : 'them and I save them'}.`;
+export const nextNeedsLine = (all: string[]): string => {
+  // v6.1.20 review M4: an approval cannot be told; with nothing else missing it has its own action.
+  const missing = all.filter((m) => m !== TRACTION_APPROVE);
+  if (missing.length === 0) return `The next application needs ${TRACTION_APPROVE}. Approve it at earnkit.com/me and I use it.`;
+  // L46-6 (v6.1.20): two named, never "and 5 more"; the rest are asked after these, one at a time.
+  return `The next application needs ${listWords(missing.slice(0, 2), 2)}${missing.length > 2 ? ' first' : ''}. Tell me ${missing.length === 1 ? 'it and I save it' : 'them and I save them'}.`;
+};
 
 const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
 
