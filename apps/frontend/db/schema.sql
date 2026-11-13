@@ -527,3 +527,101 @@ WHERE a.sent_at IS NULL AND a.status IN ('applied', 'won', 'rejected', 'no_resul
     SELECT h.note FROM application_history h
     WHERE h.owner = a.owner AND h.program_id = a.program_id AND COALESCE(h.project_id, '') = COALESCE(a.project_id, '') AND h.status = 'applied'
     ORDER BY h.at DESC, h.id DESC LIMIT 1), '') <> 'sent by the builder outside EarnKit';
+
+-- v6.1.21: people. One row per person behind one or more installations, so the owner's tracker (the `owner_people`
+-- view, read as role earnkit_ro) counts installs that never linked a GitHub account. `builder_id` is the v6 builder once
+-- known; `x_*` and `legacy_profile_id` come from the v4 builder_profiles table (backfill only); `github_login` is an
+-- unproven claim (a repo owner), kept only while there is no builder. `test_reason` NULL is a real person; else one of
+-- owner, dogfood, persona, repro, test (lib/v6/people.ts). The app never deletes a row (repro cleanups remove theirs).
+CREATE TABLE IF NOT EXISTS people (
+  id                serial PRIMARY KEY,
+  builder_id        int UNIQUE,
+  x_handle          text,
+  x_user_id         text,
+  x_name            text,
+  x_avatar_url      text,
+  x_created_at      timestamptz,
+  x_followers       int,
+  github_login      text,
+  legacy_profile_id int,
+  test_reason       text,
+  test_reason_source text,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS person_id int;
+CREATE INDEX IF NOT EXISTS installations_person ON installations (person_id);
+
+-- The tracker reads this view by column name (see the architecture guide): one row per person with an installation or a
+-- builder. Owner-only: no token, email or IP. Columns the v5/v6 data cannot fill (wallet, points, referrals, streak,
+-- coin, score, accepted, check-in, email opt-in) are typed NULLs, never 0 or false: unavailable, not none.
+DROP VIEW IF EXISTS owner_people;
+CREATE VIEW owner_people AS
+SELECT
+  p.id AS builder_id,
+  COALESCE(b.login, p.x_handle, 'i-' || min(i.id)::text) AS slug,
+  false AS hidden,
+  COALESCE(array_agg(i.id ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), ARRAY[]::int[]) AS installation_ids,
+  p.x_handle,
+  (p.x_user_id IS NOT NULL) AS x_proven,
+  p.x_created_at,
+  p.x_followers,
+  COALESCE(b.login, p.github_login) AS github_login,
+  NULL::timestamptz AS gh_created_at,
+  NULL::text AS wallet,
+  NULL::boolean AS wallet_recipient,
+  NULL::timestamptz AS wallet_proven_at,
+  NULL::timestamptz AS wallet_first_tx_at,
+  NULL::text AS wallet_funder,
+  NULL::text AS funded_by_slug,
+  NULL::int AS points_total,
+  NULL::int AS points_weeks,
+  NULL::date AS last_points_week,
+  COALESCE(min(i.created_at), p.created_at) AS joined_at,
+  max(i.last_seen_at) AS last_seen_at,
+  NULL::int AS referred_installs,
+  p.x_name,
+  p.x_avatar_url,
+  NULL::text AS main_project_key,
+  NULL::text AS project_name,
+  -- last_project_key is the canonical repo link (https://github.com/owner/repo); owner/repo when it is one.
+  (array_agg(substring(i.last_project_key from '^https://github\.com/([^/]+/[^/]+)$') ORDER BY i.last_find_at DESC NULLS LAST)
+    FILTER (WHERE i.last_project_key ~ '^https://github\.com/[^/]+/[^/]+$'))[1] AS main_repo,
+  NULL::boolean AS repo_private,
+  NULL::text AS site_url,
+  NULL::numeric AS shipping_score,
+  NULL::int AS shipping_rank,
+  NULL::int AS rank_total,
+  NULL::int AS streak_weeks,
+  NULL::int AS commit_weeks_12,
+  NULL::date AS last_commit_week,
+  NULL::date AS last_approved_week,
+  max(i.last_seen_at) AS last_activity_at,
+  NULL::text AS coin_symbol,
+  NULL::text AS coin_url,
+  NULL::text AS coin_address,
+  NULL::int AS coin_backers,
+  NULL::numeric AS creator_fees_eth,
+  (SELECT count(*)::int FROM applications a WHERE a.owner = ANY(k.keys) AND a.status IN ('applied', 'won', 'rejected', 'no_result')) AS programs_applied,
+  NULL::int AS programs_accepted,
+  (SELECT count(*)::int FROM applications a WHERE a.owner = ANY(k.keys) AND a.status = 'won') AS programs_won,
+  NULL::boolean AS checkin_on,
+  NULL::boolean AS email_opted_in,
+  CASE WHEN p.builder_id IS NOT NULL THEN 'b:' || p.builder_id::text ELSE 'i:' || min(i.id)::text END AS person_key,
+  p.builder_id AS earnkit_builder_id,
+  CASE WHEN b.id IS NOT NULL THEN 'github_signin' WHEN p.x_user_id IS NOT NULL THEN 'x_signin_legacy'
+       WHEN p.github_login IS NOT NULL THEN 'github_claimed' END AS identity_source,
+  (b.id IS NOT NULL OR p.x_user_id IS NOT NULL) AS identity_proven,
+  (p.test_reason IS NOT NULL) AS is_test,
+  p.test_reason
+FROM people p
+LEFT JOIN builders b ON b.id = p.builder_id
+LEFT JOIN installations i ON i.person_id = p.id
+CROSS JOIN LATERAL (
+  SELECT array_remove(ARRAY['b:' || p.builder_id::text] || COALESCE(array_agg('i:' || i2.id::text), ARRAY[]::text[]), NULL) AS keys
+  FROM installations i2 WHERE i2.person_id = p.id
+) k
+GROUP BY p.id, b.id, b.login, k.keys
+HAVING count(i.id) > 0 OR p.builder_id IS NOT NULL;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF;
+END $$;

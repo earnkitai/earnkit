@@ -4,7 +4,9 @@
  * last_find_at and its gaps.
  */
 import { createHash } from 'node:crypto';
-import { type Db, sql } from './db';
+import { type Db, inTx, sql } from './db';
+import { ensurePerson } from '../v6/people';
+import { linkInstallation } from '../v6/builders';
 import { cleanText } from './controls';
 import type { OfferKind } from './reply';
 import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
@@ -45,24 +47,32 @@ export function displayName(name: string | null | undefined): string | null {
 export async function saveInstallation(token: string, clientName: string | null = null, audience: string | null = null, db: Db = sql()): Promise<number> {
   // T6-F2 (v6.1.14): no installation is saved under EarnKit's own name, whoever calls this.
   if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
-  const [r] = await db<{ id: number }[]>`
-    INSERT INTO installations (token_hash, client_name, audience) VALUES (${hash(token)}, ${cleanClientName(clientName)}, ${audience})
-    ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name),
-      audience = COALESCE(EXCLUDED.audience, installations.audience)
-    RETURNING id`;
-  return r.id;
+  // v6.1.21: every installation has a person (people table), made here in the same transaction.
+  return inTx(db, async (tx) => {
+    const [r] = await tx<{ id: number }[]>`
+      INSERT INTO installations (token_hash, client_name, audience) VALUES (${hash(token)}, ${cleanClientName(clientName)}, ${audience})
+      ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name),
+        audience = COALESCE(EXCLUDED.audience, installations.audience)
+      RETURNING id`;
+    await ensurePerson(tx, r.id, cleanClientName(clientName));
+    return r.id;
+  });
 }
 
 /**
  * The token exchange's write (L19-4): spends the code's nonce and saves the installation in one transaction. Null when
  * the nonce was already spent: nothing is saved, and the caller revokes the token that exchange gave (spentToken).
+ * `builderId` (the install sign-in's code) links the installation in the same transaction.
  */
-export async function installOnce(token: string, nonce: string, clientName: string | null, audience: string | null): Promise<number | null> {
+export async function installOnce(token: string, nonce: string, clientName: string | null, audience: string | null, builderId: number | null = null): Promise<number | null> {
   return sql().begin(async (tx) => {
     const spent = await tx`INSERT INTO oauth_codes_spent (nonce, token_hash, at) VALUES (${nonce}, ${hash(token)}, now())
       ON CONFLICT DO NOTHING RETURNING nonce`;
     if (spent.length === 0) return null;
-    return saveInstallation(token, clientName, audience, tx);
+    const id = await saveInstallation(token, clientName, audience, tx);
+    // M3 (v6.1.21): a code naming a builder links in this same transaction; a failed link rolls the install back.
+    if (builderId !== null) await linkInstallation(id, builderId, new Date(), tx);
+    return id;
   }) as Promise<number | null>;
 }
 
