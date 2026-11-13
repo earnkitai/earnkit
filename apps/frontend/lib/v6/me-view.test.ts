@@ -78,13 +78,14 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
   const d = await meData(b, NOW, 'sess', code);
-  // Task 11 fix round 1 (N3): the name quoted as the /link page quotes it.
-  const text = 'The agent calling itself "Claude <Code>", first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.';
-  assert.deepEqual(d.link, { title: 'Link an agent to this account?', code, text, parts: ['The agent calling itself ', '"Claude <Code>"', text.slice('The agent calling itself "Claude <Code>"'.length)] });
+  // Task 11 fix round 1 (N3): the name quoted as the /link page quotes it. L43-17 (v6.1.19): one question, one line.
+  const title = 'Link "Claude <Code>" to your GitHub account?';
+  const text = 'First seen Nov 6. If you did not just ask your agent for this, choose This is not me.';
+  assert.deepEqual(d.link, { title, code, text, parts: ['Link ', '"Claude <Code>"', ' to your GitHub account?'] });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
-  assert.ok(html.includes('Link an agent to this account?'), html);
+  assert.ok(html.includes(text), html);
   // The agent's own name sits isolated, so its text cannot turn the sentence around (v6.1.7 C1).
-  assert.ok(html.includes(text.replace('"Claude <Code>"', '<bdi>&quot;Claude &lt;Code&gt;&quot;</bdi>')), html);
+  assert.ok(html.includes('>Link <bdi>&quot;Claude &lt;Code&gt;&quot;</bdi> to your GitHub account?</h2>'), html);
   assert.ok(!html.includes('<Code>'));
   for (const action of ['link', 'deny']) {
     const form = html.match(new RegExp(`<form action="/me/link" method="post">(?:(?!</form>).)*value="${action}"(?:(?!</form>).)*</form>`))?.[0] ?? '';
@@ -93,23 +94,23 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   }
   assert.ok(html.includes('>Link this agent</button>'));
   assert.ok(html.includes('>This is not me.</button>'));
-  assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
+  assert.ok(html.indexOf(text) < html.indexOf('id="person"'));
   // The ledger rows show the program's title only, never its slug (lane 5, 3.27).
-  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6', money: null, words: 'Applied, Nov 6.' }] }, problem: null }));
+  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6', money: null, words: 'Applied, Nov 6.', send: null }] }, problem: null }));
   assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6.'), rows);
   assert.ok(!/base-builder-grants/.test(rows), rows);
 
   const unnamed = await createLinkCode(await inst(null), NOW);
-  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.');
+  assert.deepEqual((await meData(b, NOW, 'sess', unnamed)).link, { title: 'Link your agent to your GitHub account?', code: unnamed, text, parts: null });
 
   // L21-6, L21-17 (v6.1.16): a dead code's title says what it is: expired, or not one of ours (malformed, or a
   // code-shaped one EarnKit never made).
   const dead: [MeData, string, string][] = [
     [await meData(b, new Date(NOW.getTime() + 16 * 60_000), 'sess', code), 'This link has expired.', 'Ask your agent for a new one.'],
-    [await meData(b, NOW, 'sess', 'not-a-code'), 'This link is not one of ours.', ''],
-    [await meData(b, NOW, 'sess', 'x'.repeat(1024)), 'This link is not one of ours.', ''],
-    [await meData(b, NOW, 'sess', '<script>'), 'This link is not one of ours.', ''],
-    [await meData(b, NOW, 'sess', 'Q'.repeat(22)), 'This link is not one of ours.', ''],
+    [await meData(b, NOW, 'sess', 'not-a-code'), 'This link is not one of ours.', 'Ask your agent for a new link.'],
+    [await meData(b, NOW, 'sess', 'x'.repeat(1024)), 'This link is not one of ours.', 'Ask your agent for a new link.'],
+    [await meData(b, NOW, 'sess', '<script>'), 'This link is not one of ours.', 'Ask your agent for a new link.'],
+    [await meData(b, NOW, 'sess', 'Q'.repeat(22)), 'This link is not one of ours.', 'Ask your agent for a new link.'],
   ];
   for (const [d2, title, words] of dead) {
     assert.deepEqual(d2.link, { title, code: null, text: words, parts: null });
@@ -123,8 +124,9 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   const usedCode = await createLinkCode(await inst('Claude Code'), NOW);
   const { consumeLinkCode } = await import('./link-routes');
   assert.equal(await consumeLinkCode(usedCode, b.id, NOW), 'linked');
-  assert.deepEqual((await meData(b, NOW, 'sess', usedCode)).link, { title: 'Linked.', code: null, text: 'This agent is linked.', parts: null });
-  assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('Link an agent to this account?'));
+  // L43-17 (v6.1.19): `Linked.` alone.
+  assert.deepEqual((await meData(b, NOW, 'sess', usedCode)).link, { title: 'Linked.', code: null, text: '', parts: null });
+  assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('to your GitHub account?'));
 });
 
 test('/me?link=<code> for an agent already linked to another account reads the OTHER text with no buttons (m5)', async () => {
@@ -154,7 +156,8 @@ test('an agent name with bidi and zero-width marks is cleaned on read and isolat
   const code = await createLinkCode(id, NOW);
   const d = await meData(b, NOW, 'sess', code);
   const name = `Evilagent<img src=x>${'z'.repeat(80)}`.slice(0, 60);
-  assert.equal(d.link?.parts?.[1], `"${name.slice(0, 40)}"`);
+  // L43-14 (v6.1.19): an agent's name is quoted at the 60 characters every surface shows.
+  assert.equal(d.link?.parts?.[1], `"${name}"`);
   assert.ok(!/[\u202E\u200B]/.test(d.link?.text ?? ''));
   await sql()`UPDATE installations SET builder_id = ${b.id}, linked_at = ${NOW} WHERE id = ${id}`;
   const linked = await meData(b, NOW, 'sess');
@@ -197,7 +200,10 @@ test('B16 and B19: each answer shows its short form, pending and approved; the t
   const html = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null, open: 'answers.problem' }));
   assert.equal(html.split('Short form, for fields under 300 characters.').length, 2, 'once, under the open answer');
   assert.ok(html.includes('1 answer waits for you below.'));
-  assert.match(html, /name="path" value="answers\.problem"\/><input type="hidden" name="action" value="approve"\/>/);
+  // L43-1 (v6.1.19): its Approve submits the answers form to /me/approve, which carries the answer's seen.
+  const approve = html.match(/<button[^>]*>Approve<\/button>/)?.[0] ?? '';
+  for (const attr of ['type="submit"', 'form="form-answers"', 'formAction="/me/approve"', 'name="approve"', 'value="answers.problem"']) assert.ok(approve.includes(attr), `${attr} in ${approve}`);
+  assert.match(html, /<form id="form-answers"[^>]*>(?:(?!<\/form>).)*name="seen" value="[^"]+"/);
   const closed = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null }));
   assert.equal(closed.split('Short form, for fields under 300 characters.').length, 1, 'collapsed: first line only');
   assert.ok(closed.includes('Waiting for you.'), 'the waiting answer is marked in its section');
@@ -358,4 +364,140 @@ test('L24-14 (v6.1.16 Task 11): /me says in words whether standing approval is o
   const html = renderToStaticMarkup(MeView({ data: on, problem: null }));
   assert.ok(html.includes('On: up to 1 a day, grants, up to $4,500. Sent under it: 1.'), html);
   assert.doesNotMatch(html.replace(/<[^>]*>/g, " "), /\b(a|per) night|overnight/i);
+});
+
+// v6.1.19 Task 2 (lane 43).
+const page = (data: MeData, o: Record<string, unknown> = {}) => renderToStaticMarkup(React.createElement(MeView, { data, problem: null, ...o }));
+
+test('L43-2: a held claim reads "On hold since Nov 11; say go to your agent to send."', async () => {
+  const at = new Date('2026-11-12T12:00:00Z');
+  const b = await upsertBuilder({ github_id: 943_002, login: 'l43held', name: null, avatar_url: null }, at);
+  const owner = `b:${b.id}`;
+  await upsertProgram(programFixture({ id: 'mv-held', title: 'Held Grant' }), 'file', at);
+  const t = new Date(at.getTime() - 40 * 3_600_000);
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, claimed_at, claimed_by, held_at)
+    VALUES (${owner}, 1, 'mv-held', 'started', ${t}, ${t}, 1, ${new Date('2026-11-11T09:00:00Z')})`;
+  const row = (await meData(b, at, 'sess')).ledger.find((r) => r.title === 'Held Grant')!;
+  assert.equal(row.words, 'On hold since Nov 11; say go to your agent to send.');
+  assert.equal(row.send, null, 'a held claim has no I sent it');
+  assert.ok(!page(await meData(b, at, 'sess')).includes('Started, not sent'));
+});
+
+test('L43-7: the first waiting answer is the first in page order', async () => {
+  const b = await upsertBuilder({ github_id: 943_007, login: 'l43order', name: null, avatar_url: null }, NOW);
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { one_liner: { text: 'Global.' } }, projects: [{ id: 'kit', name: 'Kit', answers: { risks: { text: 'Project.' } } }] }, 'agent', NOW).record, NOW);
+  const d = await meData(b, NOW, 'sess');
+  assert.deepEqual(d.pending_approvals.map((p) => p.path), ['projects.kit.answers.risks', 'answers.one_liner']);
+  assert.ok(page(d).includes('href="/me?open=projects.kit.answers.risks#a-projects.kit.answers.risks"'));
+});
+
+test('L43-15 and L43-16: a new record shows one "Not set yet: 14 answers." row with 14 open links; an open answer shows its label only', async () => {
+  const b = await upsertBuilder({ github_id: 943_016, login: 'l43empty', name: null, avatar_url: null }, NOW);
+  const d = await meData(b, NOW, 'sess');
+  const html = page(d);
+  const answers = html.slice(html.indexOf('id="answers"'), html.indexOf('id="form-answers"'));
+  assert.equal(answers.split('<details').length - 1, 1, 'one row');
+  assert.ok(answers.includes('Not set yet: 14 answers.'), answers);
+  assert.equal((answers.match(/href="\/me\?open=answers\.[a-z_]+#a-answers\.[a-z_]+"/g) ?? []).length, 14);
+  assert.ok(!answers.includes('Not set.'), 'no row per empty answer');
+  // Opening one empty answer shows its box, and the fold counts the rest.
+  const open = page(d, { open: 'answers.problem' });
+  const card = open.slice(open.indexOf('id="answers"'), open.indexOf('id="form-answers"'));
+  assert.ok(card.includes('name="answers.problem"') && card.includes('Not set yet: 13 answers.'), card);
+  // L43-15: an open answer's summary is its label alone; the box holds the text.
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { risks: { text: 'First line here.\nMore.' } } }, 'agent', NOW).record, NOW);
+  const set = page(await meData(b, NOW, 'sess'), { open: 'answers.risks' });
+  const row = set.slice(set.indexOf('id="a-answers.risks"'));
+  assert.ok(row.startsWith('id="a-answers.risks" name="answers" open=""><summary><span>Risks</span><strong>') || /<summary><span>[^<]+<\/span>(<strong>[^<]*<\/strong>)?<\/summary>/.test(row.slice(0, 300)), row.slice(0, 300));
+  assert.ok(!row.slice(0, row.indexOf('</summary>')).includes('First line here.'), 'no first line in the open summary');
+});
+
+test('L43-4 and L43-5: the open answer shows its refusal inside it and the box keeps the typed text, escaped', async () => {
+  const b = await upsertBuilder({ github_id: 943_004, login: 'l43draft', name: null, avatar_url: null }, NOW);
+  const typed = '</textarea><script>alert(1)</script>';
+  const d = await meData(b, NOW, 'sess', null, { 'answers.problem': typed, 'policy.auto_apply': 'true', 'policy.max_per_night': '21', 'policy.max_ask_usd': '', 'policy.categories': 'bounty', 'policy.agent_may_submit': 'true', 'policy.never': 'Skip This', 'delete.confirm': 'someone-else' });
+  const html = page(d, { problem: 'Not saved: 2,100 characters typed; at most 2,000.', at: 'answers.problem', open: 'answers.problem' });
+  assert.ok(!html.includes('<script>alert(1)'), 'escaped');
+  assert.ok(html.includes('&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;</textarea>'), 'the box holds it');
+  const row = html.slice(html.indexOf('id="a-answers.problem"'), html.indexOf('</details>', html.indexOf('id="a-answers.problem"')));
+  assert.ok(row.indexOf('Not saved: 2,100 characters typed; at most 2,000.') > 0 && row.indexOf('Not saved') < row.indexOf('<textarea'), row);
+  assert.equal(html.split('Not saved: 2,100').length, 2, 'shown once');
+  // The policy form and the delete box show what was typed.
+  assert.ok(html.includes('name="max_per_night" inputMode="numeric" value="21"') || /name="max_per_night"[^>]*value="21"/.test(html), 'max typed');
+  const box = (v: string) => html.match(new RegExp(`<input type="checkbox"[^>]*name="categories\\[\\]"[^>]*value="${v}"[^>]*>`))?.[0] ?? '';
+  assert.ok(box('bounty').includes('checked') && !box('grant').includes('checked'), 'categories typed');
+  assert.ok(/name="never"[^>]*>Skip This<\/textarea>/.test(html), 'skip list typed');
+  assert.ok(/name="confirm"[^>]*value="someone-else"/.test(html), 'delete box typed');
+});
+
+test('L43-11: a refused delete shows one line and keeps the typed login', async () => {
+  const b = await upsertBuilder({ github_id: 943_011, login: 'l43del', name: null, avatar_url: null }, NOW);
+  const html = page(await meData(b, NOW, 'sess', null, { 'delete.confirm': 'l43-other' }), { problem: 'Type your GitHub login to delete.', at: 'delete' });
+  assert.equal(html.split('Type your GitHub login to delete.').length, 2, 'once');
+  assert.ok(/<label for="delete-confirm" role="alert"[^>]*>Type your GitHub login to delete\.<\/label>/.test(html), html);
+  assert.ok(/name="confirm"[^>]*value="l43-other"/.test(html));
+  const plain = page(await meData(b, NOW, 'sess'));
+  assert.ok(plain.includes('>Type your GitHub login to delete.</label>'));
+});
+
+test('L43-9: a Started, not sent row has one I sent it button posting its program and project to /me/sent', async () => {
+  const b = await upsertBuilder({ github_id: 943_009, login: 'l43sent', name: null, avatar_url: null }, NOW);
+  await upsertProgram(programFixture({ id: 'mv-sent', title: 'Sent Grant' }), 'file', NOW);
+  const t = new Date(NOW.getTime() - 30 * 3_600_000);
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, claimed_at, claimed_by, project_id)
+    VALUES (${'b:' + b.id}, 1, 'mv-sent', 'started', ${t}, ${t}, 1, 'https://github.com/ada/kit')`;
+  const d = await meData(b, NOW, 'sess');
+  assert.deepEqual(d.ledger.find((r) => r.title === 'Sent Grant')!.send, { program_id: 'mv-sent', project_id: 'https://github.com/ada/kit' });
+  const html = page(d, { note: 'Sent Sent Grant.', at: 'ledger' });
+  const form = html.match(/<form[^>]*action="\/me\/sent" method="post">(?:(?!<\/form>).)*<\/form>/)?.[0] ?? '';
+  for (const part of [`name="csrf" value="${d.csrf}"`, 'name="program_id" value="mv-sent"', 'name="project_id" value="https://github.com/ada/kit"', '>I sent it</button>']) assert.ok(form.includes(part), part);
+  const ledger = html.slice(html.indexOf('id="ledger"'), html.indexOf('id="agents"'));
+  assert.ok(ledger.includes('Sent Sent Grant.'), 'the note shows in the applications card');
+});
+
+test('L43-10: the unlink note isolates the quoted agent name', async () => {
+  const b = await upsertBuilder({ github_id: 943_010, login: 'l43ul', name: null, avatar_url: null }, NOW);
+  const html = page(await meData(b, NOW, 'sess'), { note: 'Unlinked "Cursor <b>x</b>".' });
+  assert.ok(html.includes('>Unlinked <bdi>&quot;Cursor &lt;b&gt;x&lt;/b&gt;&quot;</bdi>.</p>'), html.slice(0, 2000));
+});
+
+test('L43-14: a 90-character name ending "(earnkit)" shows the same 60-character start on /me and the link banner', async () => {
+  const b = await upsertBuilder({ github_id: 943_014, login: 'l43long', name: null, avatar_url: null }, NOW);
+  const name = `l43-${'verylongagentname'.repeat(4)} Claude Code (earnkit)`.slice(-90);
+  const id = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
+  const shown = name.replace(/ \(earnkit\)$/, '').slice(0, 60);
+  const code = await createLinkCode(id, NOW);
+  const d = await meData(b, NOW, 'sess', code);
+  assert.equal(d.link?.parts?.[1], `"${shown}"`);
+  await sql()`UPDATE installations SET builder_id = ${b.id}, linked_at = ${NOW} WHERE id = ${id}`;
+  assert.equal((await meData(b, NOW, 'sess')).installations[0].label, shown);
+});
+
+test('L43-17: the four link states read one sentence each on /me', async () => {
+  const { consumeLinkCode, denyLinkCode } = await import('./link-routes');
+  const b = await upsertBuilder({ github_id: 943_017, login: 'l43link', name: null, avatar_url: null }, NOW);
+  const mk = async () => (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, 'Codex', ${NOW}) RETURNING id`)[0].id as number;
+  const live = await createLinkCode(await mk(), NOW);
+  const used = await createLinkCode(await mk(), NOW);
+  await consumeLinkCode(used, b.id, NOW);
+  const denied = await createLinkCode(await mk(), NOW);
+  await denyLinkCode(denied, NOW);
+  const said = async (code: string) => {
+    const l = (await meData(b, NOW, 'sess', code)).link!;
+    return [l.title, l.text].filter(Boolean).join(' ');
+  };
+  assert.equal(await said(live), 'Link "Codex" to your GitHub account? First seen Nov 6. If you did not just ask your agent for this, choose This is not me.');
+  assert.equal(await said(used), 'Linked.');
+  assert.equal(await said(denied), 'Not linked. If it was you, ask your agent for a new link.');
+});
+
+test('fix round 1 M6: the draft fills the boxes only while a signed problem line shows; a plain reload shows the saved values', async () => {
+  const b = await upsertBuilder({ github_id: 943_106, login: 'l43m6', name: null, avatar_url: null }, NOW);
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { person: { name: 'Saved Name' } }, 'builder', NOW).record, NOW);
+  const d = await meData(b, NOW, 'sess', null, { 'person.name': 'Typed Name', 'delete.confirm': 'typed-login' });
+  const refused = page(d, { problem: 'Not saved: Name: 81 characters typed; at most 80.', at: 'person' });
+  assert.ok(/name="person.name"[^>]*value="Typed Name"/.test(refused) && /value="typed-login"/.test(refused));
+  const reload = page(d);
+  assert.ok(/name="person.name"[^>]*value="Saved Name"/.test(reload), 'saved value on a plain reload');
+  assert.ok(!reload.includes('Typed Name') && !reload.includes('typed-login'));
 });

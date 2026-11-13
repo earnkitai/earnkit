@@ -7,7 +7,7 @@ export async function POST(request: Request) {
 }
 export const OPTIONS = preflight;
 /** L19-1: every other method is 405 with Allow. */
-const refuse = () => notAllowed('POST, OPTIONS');
+const refuse = () => notAllowed('POST, OPTIONS', true);
 export const GET = refuse;
 export const PUT = refuse;
 export const PATCH = refuse;

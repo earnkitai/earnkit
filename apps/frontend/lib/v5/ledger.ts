@@ -85,8 +85,10 @@ export type Ledger = {
   won_other: { currency: string; amount: number }[];
   /** Wins kept with no amount (L22-1). */
   won_no_amount: number;
-  /** Sent and waiting: applied, and no result (L22-8). */
+  /** Sent and waiting for a result (applied). L43-8 (v6.1.19): no result is counted apart, in `no_result`. */
   pending: number;
+  /** L43-8 (v6.1.19): sent and closed with no result; the parts still sum to the sent count. */
+  no_result?: number;
   rejected: number;
   skipped: number;
   /** L23-6 (v6.1.16): open programs (`isOpenAt`) this owner has not applied to or skipped, closing within 7 days. */
@@ -395,6 +397,9 @@ export async function record(
     /** won only (L29-3, v6.1.16 Task 15): with no application here (none, a claim or a skip), the builder's own send is
      *  written first (submitted_by builder), then the win; answers `outside`. */
     outsideWin?: true;
+    /** applied only (v6.1.19 fix round 1, M1): the builder said on /me they sent it and no agent of theirs that
+     *  claimed it is still linked; the agent's link check is skipped (the builder is the one acting). */
+    builderOwn?: true;
   } = {},
 ): Promise<RecordResult> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -439,7 +444,7 @@ export async function record(
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
-    if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
+    if (!o.fromScreen && !(o.builderOwn && status === 'applied') && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
     const rows = await tx<{ project_id: string | null; status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; sent_at: Date | null; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null; identity: string | null; title: string | null }[]>`
       SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at, a.identity, a.title FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
@@ -747,7 +752,7 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
   const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown }[]>`
     SELECT program_id, status, amount_usd, amounts FROM applications WHERE owner = ${owner}`;
   const byId = await withOwn(rows.map((r) => r.program_id), programs);
-  const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [], results_soon: [] };
+  const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, no_result: 0, rejected: 0, skipped: 0, closing_soon: [], results_soon: [] };
   let won: Amounts = {};
   const week = (d: Date | null) => d !== null && d.getTime() >= now.getTime() && d.getTime() <= now.getTime() + 7 * DAY;
   const results: { program_id: string; title: string; at: number }[] = [];
@@ -767,8 +772,8 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
       if (a === null) l.won_no_amount++;
       else for (const [c, v] of Object.entries(a)) won = plusAmount(won, v, c);
     } else if (r.status === 'rejected') l.rejected++;
-    // L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to the sent count.
-    else if (r.status === 'no_result') l.pending++;
+    // L43-8 (v6.1.19): no result is its own count (it waits for nothing); the parts still sum to the sent count.
+    else if (r.status === 'no_result') l.no_result = (l.no_result ?? 0) + 1;
     else if (r.status === 'applied') {
       l.pending++;
       // L23-6 (v6.1.16): a sent program's results date in the next 7 days, never its close.
@@ -792,12 +797,13 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
  * The counts after "Your applications: " (L21-1, v6.1.16): "6 sent, 3 won ($12,000), 1 rejected, 2 waiting." The find
  * reply and /me's totals line share it, so the two always agree (Review Focus 9). What was won, never what was asked
  * (v6.1.8, 3.6), as `totalText` writes it (L22-1: "3 won ($3,500.50 and EUR 2,000)", "2 won ($5,000, one amount not
- * given)"); a count of none is left out, waiting is said whenever any wait (L13-18). Pure.
+ * given)"); a count of none is left out, waiting is said whenever any wait (L13-18). L43-8 (v6.1.19): no result apart,
+ * "5 sent, 1 won ($5,000), 1 rejected, 1 no result, 2 waiting." Pure.
  */
 export function ledgerCounts(l: Ledger): string {
   const total = totalText({ usd: l.won_usd, other: l.won_other ?? [], noAmount: l.won_no_amount ?? 0 });
   const won = l.won > 0 && total ? ` (${total})` : '';
-  const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting`] : [])];
+  const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...((l.no_result ?? 0) > 0 ? [`${l.no_result} no result`] : []), ...(l.pending > 0 ? [`${l.pending} waiting`] : [])];
   return `${counts.join(', ')}.`;
 }
 

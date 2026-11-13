@@ -1009,11 +1009,17 @@ export function findReplyCap<T extends FindReply | ProgramReply>(reply: T, cap: 
 }
 
 function programCap(reply: ProgramReply, cap: number): ProgramReply {
+  // L43-13 (v6.1.19): who can apply stands in for the rules on the guide page only; the JSON carries the rules once.
+  // The page's flag stays off the JSON.
   let out: ProgramReply = reply;
+  if (reply.guide) {
+    const { eligibility_from_rules: fromRules, ...guide } = reply.guide;
+    out = { ...reply, guide: { ...guide, eligibility: fromRules ? [] : guide.eligibility } as Guide };
+  }
   const id = reply.program?.id;
   if (reply.guide && reply.guide.rules.length > GUIDE_RULES_SHOWN && id) {
     const told = reply.agent_note.includes('guide.rules');
-    out = { ...out, guide: { ...reply.guide, rules: reply.guide.rules.slice(0, GUIDE_RULES_SHOWN) }, ...(told ? { agent_note: [out.agent_note, RULES_REST_NOTE(id)].join('\n') } : {}) };
+    out = { ...out, guide: { ...out.guide!, rules: reply.guide.rules.slice(0, GUIDE_RULES_SHOWN) }, ...(told ? { agent_note: [out.agent_note, RULES_REST_NOTE(id)].join('\n') } : {}) };
   }
   if (size(out) <= cap || !id) return out;
   const note = FIELDS_CUT_NOTE(id);

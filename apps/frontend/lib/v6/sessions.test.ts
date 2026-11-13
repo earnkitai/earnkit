@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sql } from '../v5/db';
 import { upsertBuilder } from './builders';
-import { OLD_COOKIE, clearCookie, cookieName, cookieValue, createSession, currentName, hasSession, sessionBuilder, sessionToken } from './sessions';
+import { DRAFT_MS, OLD_COOKIE, clearCookie, clearDraft, cookieName, cookieValue, createSession, draftOf, hasSession, saveDraft, sessionBuilder, sessionState, sessionToken } from './sessions';
 
 after(() => sql().end());
 
@@ -51,32 +51,56 @@ test('L31-6 (v6.1.16 Task 17): on local http the name stays ek_me, with no Secur
     assert.equal(cookieName(), 'ek_me');
     const { token, cookie } = await createSession(b.id, NOW);
     assert.equal(cookie, `ek_me=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
-    assert.equal(currentName(`ek_me=${token}`), true);
+    assert.equal(sessionToken(`ek_me=${token}`), token);
   });
 });
 
-test('L35-17 (v6.1.17 Task 4): in production a request with only the old ek_me is read for this release and never promoted', async () => {
+test('L43-3: in production only __Host-ek_me is read; ek_me alone is signed out', async () => {
   const b = await upsertBuilder({ github_id: 930_003, login: 'oldcookie', name: null, avatar_url: null }, NOW);
   const { token } = await asEnv('development', () => createSession(b.id, NOW));
   await asEnv('production', async () => {
-    assert.equal(sessionToken(`ek_me=${token}`), token);
-    assert.equal((await sessionBuilder(`ek_me=${token}`, NOW))?.id, b.id);
-    // The new name wins over the old.
+    assert.equal(sessionToken(`ek_me=${token}`), null);
+    assert.equal(await sessionBuilder(`ek_me=${token}`, NOW), null);
+    assert.equal(await hasSession(`ek_me=${token}`, NOW), false);
+    assert.equal(await sessionState(`ek_me=${token}`, NOW), 'none');
+    // The new name is read; the old one beside it is ignored.
     assert.equal(sessionToken(`ek_me=old; __Host-ek_me=${token}`), token);
-    assert.equal(currentName(`ek_me=${token}`), false);
-    assert.equal(currentName(`ek_me=old; __Host-ek_me=${token}`), true);
-    assert.equal(currentName(null), false);
     const { proxy } = await import('../../proxy');
     process.env.EARNKIT_URL ??= 'https://earnkit.test';
-    // G2.2, G2.4: the /me page reads the old-name session but mints no __Host-ek_me from it, nor from a planted one.
+    // The /me page sends an old-name or planted cookie to the docs, clears both names and mints nothing from it.
     for (const cookie of [`ek_me=${token}`, 'ek_me=PLANTED']) {
       const r = await proxy(new Request('https://earnkit.test/me', { headers: { cookie } }) as never);
-      assert.equal(r.status === 302, cookie.includes('PLANTED'), cookie);
+      assert.equal(r.status, 302, cookie);
+      assert.equal(r.headers.get('location'), 'https://earnkit.test/docs#record');
       const set = r.headers.getSetCookie();
-      assert.ok(!set.some((c) => c.startsWith('__Host-ek_me=') && !c.startsWith('__Host-ek_me=;')), JSON.stringify(set));
+      assert.ok(set.includes('__Host-ek_me=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0') && set.includes('ek_me=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'), JSON.stringify(set));
       assert.ok(!set.some((c) => c.includes(token) || c.includes('PLANTED')), JSON.stringify(set));
     }
   });
+});
+
+test('L43-12: sessionState is expired only for a session row that ended; garbage, forged or ended-by-sign-out is unknown', async () => {
+  const b = await upsertBuilder({ github_id: 930_005, login: 'sessstate', name: null, avatar_url: null }, NOW);
+  const { token } = await createSession(b.id, NOW);
+  const c = `${cookieName()}=${token}`;
+  assert.equal(await sessionState(c, NOW), 'live');
+  assert.equal(await sessionState(c, new Date(NOW.getTime() + 31 * 86_400_000)), 'expired');
+  assert.equal(await sessionState(`${cookieName()}=garbage`, NOW), 'unknown');
+  assert.equal(await sessionState(null, NOW), 'none');
+});
+
+test('L43-4: a draft is kept on the session for 15 minutes, read by that session only, and cleared', async () => {
+  const b = await upsertBuilder({ github_id: 930_006, login: 'drafts', name: null, avatar_url: null }, NOW);
+  const one = `${cookieName()}=${(await createSession(b.id, NOW)).token}`;
+  const two = `${cookieName()}=${(await createSession(b.id, NOW)).token}`;
+  await saveDraft(one, { 'answers.problem': '<b>typed</b>' }, NOW);
+  assert.deepEqual(await draftOf(one, new Date(NOW.getTime() + 60_000)), { 'answers.problem': '<b>typed</b>' });
+  assert.equal(await draftOf(two, NOW), null);
+  assert.equal(await draftOf(one, new Date(NOW.getTime() + DRAFT_MS + 1)), null);
+  await clearDraft(one);
+  assert.equal(await draftOf(one, NOW), null);
+  // No session, nothing kept.
+  await saveDraft(null, { x: 'y' }, NOW);
 });
 
 test('v6.1.17 Task 4: hasSession reads a live session without moving last_seen_at; none, expired or forged is false', async () => {

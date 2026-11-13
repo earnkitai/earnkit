@@ -32,8 +32,10 @@ jobs:
             exit 1
           fi
           # One POST: the HTTP status in $code (000 when there was no answer) and curl's exit code in $rc.
+          # v6.1.19 (L44-14): each try starts with no body, so a failed try never prints the one before it.
           post() {
             rc=0
+            rm -f body.json
             code=$(curl -sS --max-time 540 -X POST -H "Authorization: Bearer $CRON_SECRET" \
               -o body.json -w '%{http_code}' "$CRON_URL") || rc=$?
           }

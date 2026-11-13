@@ -113,3 +113,11 @@ test('L26-11 (v6.1.16): 20 parallel finds from one installation: last_find_at is
   const [same] = await sql()`SELECT last_find_at, prev_find_at FROM installations WHERE id = ${id}`;
   assert.deepEqual([same.last_find_at, same.prev_find_at], [next.last_find_at, next.prev_find_at]);
 });
+
+test('L43-14: displayName drops the trailing (client) from the full name first, then cuts once at 60', () => {
+  const start = `l43-${'verylongagentname'.repeat(5)}`.slice(0, 81);
+  assert.equal(displayName(`${start} (earnkit)`), start.slice(0, 60));
+  assert.equal(displayName('Claude Code (earnkit)'), 'Claude Code');
+  assert.equal(displayName('(earnkit)'), '(earnkit)');
+  assert.equal(displayName('‮​  '), null);
+});

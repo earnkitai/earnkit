@@ -170,9 +170,9 @@ async function handle(incoming: Request) {
 }
 
 /** EarnKit never pushes, so there is no event stream to open (v6.1.7, B6). */
-export const GET = (_request?: Request) => notAllowed(ALLOW, 'EarnKit does not push. Send requests with POST.');
+export const GET = (_request?: Request) => notAllowed(ALLOW, true, 'EarnKit does not push. Send requests with POST.');
 export const POST = handle;
 export const DELETE = handle;
 export const OPTIONS = preflight;
-export const PUT = () => notAllowed(ALLOW);
-export const PATCH = () => notAllowed(ALLOW);
+export const PUT = () => notAllowed(ALLOW, true);
+export const PATCH = () => notAllowed(ALLOW, true);

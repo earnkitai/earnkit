@@ -3,6 +3,7 @@ import {
   ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
   ME_ANSWER_OPEN, ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
   ME_PENDING_ANSWERS, ME_PENDING_FIRST, ME_PENDING_LINE, ME_PENDING_TITLE, ME_WAITING, ME_POLICY_LINE, ME_SAVE, ME_SAVED, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
+  ME_NOT_SET_YET, ME_SENT_IT,
 } from '../../lib/v5/site-copy';
 import { approvalPathOf, firstLineOf, isAnswerPath, type MeData, type MeField } from '../../lib/v6/me-view';
 
@@ -21,6 +22,32 @@ function Saved({ on }: { on: boolean }) {
       {ME_SAVED}
     </span>
   ) : null;
+}
+
+/** A placed note (L43-6, L43-1, L43-9, v6.1.19): `Nothing to save.`, `Saved and approved.`, `Sent {title}.` beside its control. */
+function Note({ text }: { text: string | null }) {
+  return text ? (
+    <span role="status" className="self-center text-[15px] text-s-good-text">
+      {text}
+    </span>
+  ) : null;
+}
+
+/**
+ * A line that may quote an agent's own name (L43-10, v6.1.19: `Unlinked "{name}".`, `Linked: "{name}".`): the quoted
+ * name isolated in `<bdi>`, as the link lines show it. React escapes every part.
+ */
+function Quoted({ text }: { text: string }) {
+  const m = /^([^"]*)("[^"]*")([^"]*)$/.exec(text);
+  return m ? (
+    <>
+      {m[1]}
+      <bdi>{m[2]}</bdi>
+      {m[3]}
+    </>
+  ) : (
+    <>{text}</>
+  );
 }
 
 function Csrf({ token }: { token: string }) {
@@ -45,7 +72,8 @@ function Approval({ path, approvedOn, seen, csrf }: { path: string; approvedOn: 
 
 /** A field's control (L27-8, L27-29, v6.1.16): named by its path, in its section's form (`form`), described by its hint. */
 function Input({ f, id, form, hint }: { f: MeField; id: string; form: string; hint?: string }) {
-  const common = { id, name: f.path, form, defaultValue: f.value, className: INPUT, ...(hint ? { 'aria-describedby': hint } : {}) };
+  // L43-4 (v6.1.19): after a refusal the box holds what was typed (escaped by React as every value).
+  const common = { id, name: f.path, form, defaultValue: f.typed ?? f.value, className: INPUT, ...(hint ? { 'aria-describedby': hint } : {}) };
   if (f.kind === 'bool' || f.kind === 'choice') {
     const options: [string, string][] = f.kind === 'bool' ? [['true', ME_YES], ['false', ME_NO]] : (f.options ?? []).map((o) => [o, ME_CHOICES[o] ?? o]);
     return (
@@ -85,7 +113,7 @@ function Short({ text, tone = META }: { text: string | undefined; tone?: string 
  * aria-describedby), with "From your agent" in it when the agent set the value. The input belongs to its section's
  * form (`form`), so the section has one Save; an approvable field with a value gets its own approval form beside it.
  */
-function Field({ f, csrf, form }: { f: MeField; csrf: string; form: string }) {
+function Field({ f, csrf, form, inline = null }: { f: MeField; csrf: string; form: string; inline?: React.ReactNode }) {
   const id = `f-${f.path}`;
   // The empty add row has no one to remove (v6.1.9 N10).
   const hint = /^team\.\d+\.name$/.test(f.path) && f.value === '' ? undefined : hintOf(f.path);
@@ -96,6 +124,7 @@ function Field({ f, csrf, form }: { f: MeField; csrf: string; form: string }) {
         {f.label}
       </label>
       <div className="flex min-w-0 flex-col gap-2">
+        {inline}
         <Input f={f} id={id} form={form} hint={hintId} />
         {hintId && (
           <p id={hintId} className={`${META} flex flex-col gap-0.5`}>
@@ -104,9 +133,17 @@ function Field({ f, csrf, form }: { f: MeField; csrf: string; form: string }) {
           </p>
         )}
         <Short text={f.short} />
-        {f.approvable && f.value !== '' && (
+        {f.approvable && f.value !== '' && isAnswerPath(f.path) && !f.approved_on ? (
+          // L43-1 (v6.1.19): an open answer's Approve submits its section's form, so the box's text is what is approved
+          // (saved first when it was edited); the form carries the answer's `seen`.
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" form={form} formAction="/me/approve" name="approve" value={f.path} className={SAVE}>
+              {ME_APPROVE}
+            </button>
+          </div>
+        ) : f.approvable && f.value !== '' ? (
           <Approval path={approvalPathOf(f.path)} approvedOn={f.approved_on} seen={f.seen} csrf={csrf} />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -126,29 +163,64 @@ const ANSWER_ROWS = [
   `[&_summary+a]:inline-flex [&_summary+a]:min-h-11 [&_summary+a]:items-center [&_summary+a]:underline`,
 ].join(' ');
 
+/** Where a line shows (L43-5, v6.1.19): the open answer's own refusal, `Saved.` or note sit inside it, above its box. */
+type Placed = { problem: string | null; saved: boolean; note: string | null };
+const NONE: Placed = { problem: null, saved: false, note: null };
+
 /**
  * An answer (L35-24, v6.1.17 Task 4): a `<details>` collapsed to its label and first line (styled by ANSWER_ROWS on its
- * container). The one named by `?open=` is
- * open with its field; any other holds only the link that opens it, so a record of 154 answers stays a small page and
- * only one is open at a time, with no script.
+ * container). The one named by `?open=` is open with its field and only its label in the summary (L43-15, v6.1.19:
+ * the box holds the text); any other holds only the link that opens it, so a record of 154 answers stays a small page
+ * and only one is open at a time, with no script.
  */
-function AnswerRow({ f, csrf, form, open }: { f: MeField; csrf: string; form: string; open: boolean }) {
+function AnswerRow({ f, csrf, form, open, placed = NONE }: { f: MeField; csrf: string; form: string; open: boolean; placed?: Placed }) {
   const id = `a-${f.path}`;
+  const inline = open && (placed.problem || placed.saved || placed.note) ? (
+    <>
+      <Problem text={placed.problem} />
+      {placed.saved && <Saved on />}
+      <Note text={placed.note} />
+    </>
+  ) : null;
   return (
     <details id={id} name="answers" open={open}>
       <summary>
         <span>{f.label}</span>
-        <span>{f.value ? firstLineOf(f.value) : `${ME_NOT_SET}.`}</span>
+        {!open && <span>{f.value ? firstLineOf(f.value) : `${ME_NOT_SET}.`}</span>}
         {f.approvable && f.value !== '' && !f.approved_on && <strong>{ME_WAITING}</strong>}
       </summary>
-      {open ? <Field f={f} csrf={csrf} form={form} /> : <a href={openHref(f.path, id)}>{ME_ANSWER_OPEN}</a>}
+      {open ? <Field f={f} csrf={csrf} form={form} inline={inline} /> : <a href={openHref(f.path, id)}>{ME_ANSWER_OPEN}</a>}
+    </details>
+  );
+}
+
+/**
+ * L43-16 (v6.1.19): every empty answer folded into one row, `Not set yet: {n} answers.`, its body one link per answer
+ * that opens it (one click), so a new record shows one row, not 14.
+ */
+function EmptyAnswers({ fields }: { fields: MeField[] }) {
+  if (fields.length === 0) return null;
+  return (
+    <details id="a-empty" name="answers">
+      <summary>
+        <span>{ME_NOT_SET_YET(fields.length)}</span>
+      </summary>
+      <ul className="flex flex-col pb-2">
+        {fields.map((f) => (
+          <li key={f.path}>
+            <a href={openHref(f.path, `a-${f.path}`)} className={OPEN_LINK}>
+              {f.label}
+            </a>
+          </li>
+        ))}
+      </ul>
     </details>
   );
 }
 
 /** A record row: an answer collapsed (AnswerRow), any other field as it is. */
-function Row({ f, csrf, form, open }: { f: MeField; csrf: string; form: string; open: string | null }) {
-  return isAnswerPath(f.path) ? <AnswerRow f={f} csrf={csrf} form={form} open={open === f.path} /> : <Field f={f} csrf={csrf} form={form} />;
+function Row({ f, csrf, form, open, placed }: { f: MeField; csrf: string; form: string; open: string | null; placed?: Placed }) {
+  return isAnswerPath(f.path) ? <AnswerRow f={f} csrf={csrf} form={form} open={open === f.path} placed={open === f.path ? placed : NONE} /> : <Field f={f} csrf={csrf} form={form} />;
 }
 
 /** A refusal beside the control it is about (L27-9, v6.1.16). */
@@ -161,25 +233,28 @@ function Problem({ text }: { text: string | null }) {
 }
 
 /** A section's one form (L27-8, L27-10, v6.1.16): the day's token, the section, one Save, `Saved.` and any problem beside it. */
-function SectionForm({ id, section, csrf, saved, problem, open = null }: { id: string; section: string; csrf: string; saved: boolean; problem: string | null; open?: string | null }) {
+function SectionForm({ id, section, csrf, saved, problem, open = null, seen = null, note = null }: { id: string; section: string; csrf: string; saved: boolean; problem: string | null; open?: string | null; seen?: string | null; note?: string | null }) {
   return (
     <form id={id} method="post" action="/me/edit" className="flex flex-col gap-3 border-t border-s-line pt-4">
       <Csrf token={csrf} />
       <input type="hidden" name="section" value={section} />
       {/* The open answer stays open after its Save (L35-24, v6.1.17 Task 4). */}
       {open && <input type="hidden" name="open" value={open} />}
+      {/* L43-1 (v6.1.19): the open answer's Approve is a button of this form; it approves the text shown. */}
+      {open && seen !== null && <input type="hidden" name="seen" value={seen} />}
       <Problem text={problem} />
       <div className="flex flex-wrap gap-3">
         <button type="submit" className={`${SAVE} self-start`}>
           {ME_SAVE}
         </button>
         <Saved on={saved} />
+        <Note text={note} />
       </div>
     </form>
   );
 }
 
-function Card({ id, title, card = CARD_PANEL, children }: { id: string; title: string; card?: string; children: React.ReactNode }) {
+function Card({ id, title, card = CARD_PANEL, children }: { id: string; title: React.ReactNode; card?: string; children: React.ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className={`${card.replace('rounded-[36px]', 'rounded-[28px] md:rounded-[36px]')} flex scroll-mt-24 flex-col gap-3 p-5 md:p-8`}>
       <h2 id={`${id}-title`} className={TITLE}>
@@ -191,7 +266,7 @@ function Card({ id, title, card = CARD_PANEL, children }: { id: string; title: s
 }
 
 /** The projects block: one inner card per project. */
-function Projects({ fields, seen, csrf, open }: { fields: MeField[]; seen: MeData['projects_seen']; csrf: string; open: string | null }) {
+function Projects({ fields, seen, csrf, open, placed }: { fields: MeField[]; seen: MeData['projects_seen']; csrf: string; open: string | null; placed: Placed }) {
   // L21-12 (v6.1.16): the empty line only when the record holds no project and no application names one.
   if (fields.length === 0 && seen.length === 0) return <p className="text-[15px] text-s-muted">{ME_NO_PROJECTS}</p>;
   const byId = new Map<string, MeField[]>();
@@ -205,7 +280,7 @@ function Projects({ fields, seen, csrf, open }: { fields: MeField[]; seen: MeDat
         <div key={id} className={`rounded-[24px] bg-s-panel-inner px-4 py-2 md:px-6 ${ANSWER_ROWS}`}>
           <h3 className="ek-serif pt-3 text-[24px] leading-none">{fs.find((f) => f.path.endsWith('.name'))?.value || id}</h3>
           {fs.map((f) => (
-            <Row key={f.path} f={f} csrf={csrf} form="form-projects" open={open} />
+            <Row key={f.path} f={f} csrf={csrf} form="form-projects" open={open} placed={placed} />
           ))}
         </div>
       ))}
@@ -224,8 +299,10 @@ function Projects({ fields, seen, csrf, open }: { fields: MeField[]; seen: MeDat
 }
 
 /** The standing approval: one form for the switch and the limits, then the skip list as its own row. */
-function Policy({ fields, csrf, saved, problem, status }: { fields: MeField[]; csrf: string; saved: boolean; problem: string | null; status: string[] }) {
-  const v = (key: string) => fields.find((f) => f.path === `policy.${key}`)?.value ?? '';
+function Policy({ fields, csrf, saved, problem, status, draft }: { fields: MeField[]; csrf: string; saved: boolean; problem: string | null; status: string[]; draft: MeData['draft'] }) {
+  // L43-4 (v6.1.19): after a refusal the form shows what was typed (the draft holds every field of this form).
+  const typed = draft && 'policy.auto_apply' in draft ? draft : null;
+  const v = (key: string) => typed?.[`policy.${key}`] ?? fields.find((f) => f.path === `policy.${key}`)?.value ?? '';
   const cats = v('categories').split(', ');
   const L = ME_LABELS;
   const box = 'flex min-h-11 items-center gap-3 text-[15px]';
@@ -269,7 +346,7 @@ function Policy({ fields, csrf, saved, problem, status }: { fields: MeField[]; c
         {fields.filter((f) => f.path === 'policy.never').map((f) => (
           <div key={f.path} className="flex flex-col gap-1 text-[15px]">
             <label htmlFor="f-policy.never">{f.label}</label>
-            <textarea id="f-policy.never" name="never" defaultValue={f.value} rows={4} aria-describedby="f-policy.never-hint" className={`${INPUT} leading-[1.5]`} />
+            <textarea id="f-policy.never" name="never" defaultValue={v('never')} rows={4} aria-describedby="f-policy.never-hint" className={`${INPUT} leading-[1.5]`} />
             <p id="f-policy.never-hint" className={META}>
               {hintOf(f.path)}
             </p>
@@ -297,11 +374,21 @@ function Policy({ fields, csrf, saved, problem, status }: { fields: MeField[]; c
  */
 export default function MeView({ data, problem, note = null, saved = null, at = null, open = null }: { data: MeData; problem: string | null; note?: string | null; saved?: string | null; at?: string | null; open?: string | null }) {
   const { csrf } = data;
-  const banner = note === ME_SAVED ? null : note;
-  const placed = new Set([...data.blocks.map((b) => b.key), 'delete']);
+  // Where a line shows: a card, the delete box, the applications (L43-9), or the open answer itself (L43-5, v6.1.19).
+  const placed = new Set<string>([...data.blocks.map((b) => b.key), 'delete', 'ledger', ...(open ? [open] : [])]);
+  const isPlaced = at !== null && placed.has(at);
+  const banner = note === ME_SAVED || (note && isPlaced) ? null : note;
   const problemIn = (key: string) => (problem && at === key ? problem : null);
-  const topProblem = problem && !(at && placed.has(at)) ? problem : null;
+  const noteIn = (key: string) => (note && note !== ME_SAVED && at === key ? note : null);
+  const topProblem = problem && !isPlaced ? problem : null;
+  const inAnswer: Placed = open && at === open ? { problem: problemIn(open), saved: saved !== null && note === null && problem === null, note: noteIn(open) } : NONE;
   const waiting = data.pending_approvals.map((p) => p.path).filter(isAnswerPath);
+  // L43-4 (v6.1.19): the fields show what was typed before a refusal, only while that refusal's line shows (fix
+  // round 1, M6: a plain reload shows the saved values, and a newer agent value is never hidden).
+  const draft = problem ? data.draft : null;
+  const blocks = draft
+    ? data.blocks.map((b) => ({ ...b, fields: b.fields.map((f) => (f.path in draft ? { ...f, typed: draft[f.path] } : f)) }))
+    : data.blocks;
   return (
     <div {...(data.installations.length > 0 ? { 'data-me-linked': '' } : {})} className={`${PAGE_COL} flex flex-col gap-4 pb-10 pt-6 md:pt-10`}>
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -325,23 +412,26 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
 
       {banner && (
         <p role="status" className={`${CARD_PANEL.replace('rounded-[36px]', 'rounded-[24px]')} px-5 py-4 text-[15px] text-s-good-text`}>
-          {banner}
+          <Quoted text={banner} />
         </p>
       )}
 
       {data.link && (
-        <Card id="link" title={data.link.title} card={CARD_NAVY}>
-          {data.link.text && <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">
-            {data.link.parts ? (
-              <>
-                {data.link.parts[0]}
-                <bdi>{data.link.parts[1]}</bdi>
-                {data.link.parts[2]}
-              </>
-            ) : (
-              data.link.text
-            )}
-          </p>}
+        <Card
+          id="link"
+          // L43-17 (v6.1.19): the live title names the agent, its own name isolated.
+          title={data.link.parts ? (
+            <>
+              {data.link.parts[0]}
+              <bdi>{data.link.parts[1]}</bdi>
+              {data.link.parts[2]}
+            </>
+          ) : (
+            data.link.title
+          )}
+          card={CARD_NAVY}
+        >
+          {data.link.text && <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">{data.link.text}</p>}
           {data.link.code && (
             <div className="flex flex-wrap gap-3">
               {(['link', 'deny'] as const).map((action) => (
@@ -386,27 +476,46 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
         </Card>
       )}
 
-      {data.blocks.map((b) => (
-        <Card key={b.key} id={b.key} title={b.title}>
-          {b.key === 'projects' ? (
-            <Projects fields={b.fields} seen={data.projects_seen} csrf={csrf} open={open} />
-          ) : b.key === 'policy' ? (
-            <Policy fields={b.fields} csrf={csrf} saved={saved === 'policy'} problem={problemIn('policy')} status={data.policy_status ?? []} />
-          ) : (
-            <div className={b.key === 'answers' ? ANSWER_ROWS : undefined}>
-              {b.fields.map((f) => (
-                <Row key={f.path} f={f} csrf={csrf} form={`form-${b.key}`} open={open} />
-              ))}
-            </div>
-          )}
-          {b.key !== 'policy' && b.fields.length > 0 && (
-            <SectionForm id={`form-${b.key}`} section={b.key} csrf={csrf} saved={saved === b.key} problem={problemIn(b.key)} open={open && b.fields.some((f) => f.path === open) ? open : null} />
-          )}
-        </Card>
-      ))}
+      {blocks.map((b) => {
+        const openHere = open ? b.fields.find((f) => f.path === open) ?? null : null;
+        // L43-16 (v6.1.19): Your answers lists the set answers and folds the empty ones into one row (the open one shows).
+        const rows = b.key === 'answers' ? b.fields.filter((f) => f.value !== '' || f.path === open) : b.fields;
+        const empty = b.key === 'answers' ? b.fields.filter((f) => f.value === '' && f.path !== open) : [];
+        return (
+          <Card key={b.key} id={b.key} title={b.title}>
+            {b.key === 'projects' ? (
+              <Projects fields={b.fields} seen={data.projects_seen} csrf={csrf} open={open} placed={inAnswer} />
+            ) : b.key === 'policy' ? (
+              <Policy fields={b.fields} csrf={csrf} saved={saved === 'policy'} problem={problemIn('policy')} status={data.policy_status ?? []} draft={draft} />
+            ) : (
+              <div className={b.key === 'answers' ? ANSWER_ROWS : undefined}>
+                {rows.map((f) => (
+                  <Row key={f.path} f={f} csrf={csrf} form={`form-${b.key}`} open={open} placed={inAnswer} />
+                ))}
+                <EmptyAnswers fields={empty} />
+              </div>
+            )}
+            {b.key !== 'policy' && b.fields.length > 0 && (
+              <SectionForm
+                id={`form-${b.key}`}
+                section={b.key}
+                csrf={csrf}
+                saved={saved === b.key && !(open !== null && at === open)}
+                problem={problemIn(b.key)}
+                note={noteIn(b.key)}
+                open={openHere ? open : null}
+                seen={openHere ? openHere.seen : null}
+              />
+            )}
+          </Card>
+        );
+      })}
 
       <Card id="ledger" title={ME_LEDGER_TITLE}>
         {data.ledger_line && <p className="text-[15px]">{data.ledger_line}</p>}
+        {/* L43-9 (v6.1.19): `Sent {title}.` or the refusal, here. */}
+        <Problem text={problemIn('ledger')} />
+        <Note text={noteIn('ledger')} />
         {data.ledger.length === 0 ? (
           <p className="text-[15px] text-s-muted">{ME_LEDGER_EMPTY}</p>
         ) : (
@@ -415,6 +524,17 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 border-t border-s-line py-3 text-[15px] first:border-t-0">
                 <span className="min-w-0">{l.title}</span>
                 <span className="text-s-muted">{l.words}</span>
+                {/* L43-9 (v6.1.19): a claim the builder sent by hand is said sent here, as the sent ask's yes is. */}
+                {l.send && (
+                  <form method="post" action="/me/sent" className="basis-full">
+                    <Csrf token={csrf} />
+                    <input type="hidden" name="program_id" value={l.send.program_id} />
+                    <input type="hidden" name="project_id" value={l.send.project_id} />
+                    <button type="submit" className={GHOST}>
+                      {ME_SENT_IT}
+                    </button>
+                  </form>
+                )}
               </li>
             ))}
           </ul>
@@ -455,16 +575,22 @@ export default function MeView({ data, problem, note = null, saved = null, at = 
         {/* L27-9 (v6.1.16): a visible label, and a refused delete comes back here with its line beside the form. */}
         <form method="post" action="/me/delete" className="flex flex-col gap-2">
           <Csrf token={csrf} />
-          <label htmlFor="delete-confirm" className="text-[13px] text-s-rust-sub">
-            {ME_DELETE_HINT}
-          </label>
+          {/* L43-11 (v6.1.19): a refused delete shows its one line in the label's place, and the box keeps what was typed. */}
+          {problemIn('delete') ? (
+            <label htmlFor="delete-confirm" role="alert" className={`${CARD_RUST.replace('rounded-[36px]', 'rounded-[20px]')} whitespace-pre-line px-4 py-3 text-[15px] text-s-rust-light`}>
+              {problemIn('delete')}
+            </label>
+          ) : (
+            <label htmlFor="delete-confirm" className="text-[13px] text-s-rust-sub">
+              {ME_DELETE_HINT}
+            </label>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input id="delete-confirm" name="confirm" placeholder={data.login} autoComplete="off" className={`${INPUT} sm:max-w-[320px]`} />
+            <input id="delete-confirm" name="confirm" placeholder={data.login} defaultValue={draft?.['delete.confirm']} autoComplete="off" className={`${INPUT} sm:max-w-[320px]`} />
             <button type="submit" className={`${SAVE} self-start sm:self-auto`}>
               {ME_DELETE}
             </button>
           </div>
-          <Problem text={problemIn('delete')} />
         </form>
       </Card>
     </div>

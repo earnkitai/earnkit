@@ -35,9 +35,14 @@ export async function readParams(request: Request, max: number): Promise<URLSear
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { ...CORS, 'Cache-Control': 'no-store', ...headers } });
 
-/** 405 with `Allow` and CORS (L19-1, L19-10). `description` only where a route has its own reason. */
-export const notAllowed = (allow: string, description?: string) =>
-  json({ error: 'method_not_allowed', ...(description && { error_description: description }) }, 405, { Allow: allow });
+/**
+ * 405 with `Allow` (L19-1, L19-10). `cors` (L43-20, v6.1.19): only the MCP, OAuth and well-known handlers pass true and
+ * carry CORS; every other route's 405 has none. `description` only where a route has its own reason.
+ */
+export const notAllowed = (allow: string, cors = false, description?: string) => {
+  const body = { error: 'method_not_allowed', ...(description && { error_description: description }) };
+  return cors ? json(body, 405, { Allow: allow }) : Response.json(body, { status: 405, headers: { 'Cache-Control': 'no-store', Allow: allow } });
+};
 
 /** A request body that did not finish within readCapped's time limit (L19-10). */
 export class BodyTimeoutError extends Error {

@@ -31,11 +31,17 @@ const ROUTE_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 
 /** The Allow of every endpoint the proxy matches past /me (authorize and discovery; the route files answer the same). */
 const ALLOW = 'GET, HEAD, OPTIONS';
 
-/** The same URL with its path lower-cased when the path has an upper-case letter, else null. Pure. */
+/**
+ * The same URL with its path lower-cased when the path has an upper-case letter, else null. L43-21 (v6.1.19): only the
+ * characters outside `%XX` escapes count and change (an escape's hex is not a letter of the path), so
+ * `/programs/base%2Dbuilder%2Dgrants` is left alone rather than sent to a dead lower-case escape. Pure.
+ */
 export function lowerPath(url: URL): URL | null {
-  if (!/[A-Z]/.test(url.pathname)) return null;
+  const parts = url.pathname.split(/(%[0-9A-Fa-f]{2})/);
+  const plain = (i: number) => i % 2 === 0;
+  if (!parts.some((x, i) => plain(i) && /[A-Z]/.test(x))) return null;
   const to = new URL(url.href);
-  to.pathname = url.pathname.toLowerCase();
+  to.pathname = parts.map((x, i) => (plain(i) ? x.toLowerCase() : x)).join('');
   return to;
 }
 
@@ -90,7 +96,7 @@ export async function proxy(request: Request) {
   const url = new URL(request.url);
   const { pathname } = url;
   if (pathname === '/oauth/authorize' || pathname.startsWith('/.well-known/')) {
-    if (!ROUTE_METHODS.has(request.method.toUpperCase())) return notAllowed(ALLOW);
+    if (!ROUTE_METHODS.has(request.method.toUpperCase())) return notAllowed(ALLOW, true);
     return NextResponse.next();
   }
   // L31-1 (v6.1.16 Task 17): a method the path does not serve (L27-4: /link/<code> is a page; its POST is /confirm).
@@ -121,5 +127,8 @@ export const config = {
     '/link/:code([^/.]+)',
     '/((?!_next/|[Aa][Pp][Ii]/|[Mm][Cc][Pp](?:/|$)|[Oo][Aa][Uu][Tt][Hh]/|[Mm][Ee]/|[Ll][Ii][Nn][Kk]/|[Aa][Uu][Tt][Hh]/|\\.well-known/)[^.]*)',
     '/((?![Aa][Pp][Ii]/|_next/|[Mm][Cc][Pp](?:/|$)|[Oo][Aa][Uu][Tt][Hh]/|[Ll][Ii][Nn][Kk]/)[^.]*[A-Z][^.]*)',
+    // L43-20 (v6.1.19): the two files a crawler reads answer OPTIONS as the pages do (405, Allow: GET, HEAD).
+    '/sitemap.xml',
+    '/robots.txt',
   ],
 };

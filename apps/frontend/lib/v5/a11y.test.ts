@@ -225,12 +225,14 @@ test('L27-8, L27-29, L27-21 (Review Focus 18): /me: every form has an action and
   }
   assert.ok(m.includes(`<span>${PROJECT_NAME_LIMIT}</span>`));
   // The delete input has a visible label.
-  assert.match(m, /<label for="delete-confirm"[^>]*>Type your GitHub login to confirm\.<\/label>/);
+  assert.match(m, /<label for="delete-confirm"[^>]*>Type your GitHub login to delete\.<\/label>/);
   // Saved. and a refusal sit beside their section.
   const saved = html(MeView({ data, problem: null, saved: 'person' }));
   assert.match(saved, /<form id="form-person"[\s\S]*?>Saved\.<\/span><\/div><\/form>/);
   const refused = html(MeView({ data, problem: 'Type your GitHub login to delete.', at: 'delete' }));
-  assert.match(refused, /action="\/me\/delete"[\s\S]*role="alert"[^>]*>Type your GitHub login to delete\.<\/p><\/form>/);
+  // L43-11 (v6.1.19): the refusal is the label itself, said once, still labelling the box.
+  assert.match(refused, /action="\/me\/delete"[\s\S]*<label for="delete-confirm" role="alert"[^>]*>Type your GitHub login to delete\.<\/label>/);
+  assert.equal(refused.split('Type your GitHub login to delete.').length, 2);
   assert.equal((refused.match(/role="alert"/g) ?? []).length, 1);
   assert.equal((meMetadata as { alternates?: unknown }).alternates, undefined);
   assert.deepEqual(meMetadata.robots, { index: false, follow: false });

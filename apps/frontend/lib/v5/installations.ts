@@ -25,14 +25,17 @@ export function cleanClientName(name: string | null | undefined): string | null 
 }
 
 /**
- * The agent's name as /me and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)" group
- * dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. The stored
- * `client_name` is untouched. Pure.
+ * The agent's name as /me, /link and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)"
+ * group dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. L43-14
+ * (v6.1.19): the group is dropped from the full cleaned name first, then the name is cut once at 60 characters keeping
+ * the start, so every surface shows the same cut. The stored `client_name` is untouched. Pure.
  */
 export function displayName(name: string | null | undefined): string | null {
-  const s = cleanClientName(name);
-  if (s === null) return null;
-  return s.replace(/\s*\([^()]*\)$/, '').trim() || s;
+  if (!name) return null;
+  const full = cleanText(name.replace(/\s+/g, ' '), Infinity);
+  if (!full) return null;
+  const shown = full.replace(/\s*\([^()]*\)$/, '').trim() || full;
+  return cleanText(shown, 60) || null;
 }
 
 /**
@@ -239,21 +242,6 @@ export async function markList(id: number, hash: string, now: Date, ids?: string
 export async function lastListIds(id: number): Promise<string[]> {
   const [row] = await sql()<{ l: unknown }[]>`SELECT last_list AS l FROM installations WHERE id = ${id}`;
   return Array.isArray(row?.l) ? (row.l as unknown[]).map((x) => (typeof x === 'string' ? x : '')) : [];
-}
-
-/**
- * L1i-5 (v6.1.16.1): the stable list numbers of a session: a program the last list (`prev`, ids by number) of the same
- * project held keeps its number; any other in `order` is numbered on after the last one, in that order. Pure.
- */
-export function stableNumbers(prev: string[], order: string[]): Map<string, number> {
-  const want = new Set(order);
-  const out = new Map<string, number>();
-  prev.forEach((id, i) => {
-    if (id && want.has(id) && !out.has(id)) out.set(id, i + 1);
-  });
-  let next = prev.length;
-  for (const id of order) if (!out.has(id)) out.set(id, ++next);
-  return out;
 }
 
 /** L24-2 (v6.1.16 Task 11): the kind of the last `Say` this installation's find offered, or null. */

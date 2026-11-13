@@ -13,9 +13,9 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last)', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at)', async () => {
   const s = await readStats(NOW);
-  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'read_at']);
+  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
 });
 
@@ -72,15 +72,15 @@ test('installs, finds and applications count what happened, with their windows',
   assert.equal(now.applications_7d - before.applications_7d, 2);
   assert.equal(now.won - before.won, 2);
   assert.equal(now.won_usd - before.won_usd, 750.5);
-  for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at' && k !== 'read_at') assert.equal(typeof v, k === 'won_other' ? 'object' : 'number', k);
+  for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at' && k !== 'read_at') assert.equal(typeof v, k === 'won_other' ? 'object' : k === 'last_check_ok' ? 'boolean' : 'number', k);
 });
 
-test('statsGet answers the fourteen keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
+test('statsGet answers the fifteen keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
   const ok = await statsGet(() => readStats(NOW));
   assert.equal(ok.status, 200);
   // L36-4 (v6.1.18 Task 5): the header says the route's real cache.
   assert.equal(ok.headers.get('cache-control'), 'public, max-age=600');
-  assert.equal(Object.keys((await ok.json()) as object).length, 14);
+  assert.equal(Object.keys((await ok.json()) as object).length, 15);
   const bad = await statsGet(async () => {
     throw new Error('db down');
   });
@@ -199,4 +199,33 @@ test('L42-5 fix round 1: an outside win recorded over an EarnKit claim counts as
   const [c] = await db<{ all: string; drafted: string; reported: string }[]>`
     WITH s AS (${sendRows(db)}) SELECT ${sendCounts(db)} FROM s WHERE program_id = 'l42-claimed-out'`;
   assert.deepEqual({ all: Number(c.all), drafted: Number(c.drafted), reported: Number(c.reported) }, { all: 1, drafted: 0, reported: 1 });
+});
+
+// v6.1.19 Task 6 (lane 44).
+test('L44-10: last_check_ok is false while the latest run failed its link check, true once a run finishes it; last_run_at stays the last finished run', async () => {
+  const db = sql();
+  await db`DELETE FROM cron_state`;
+  try {
+    assert.equal((await readStats(NOW)).last_check_ok, true, 'no run yet: nothing failed');
+    await db`INSERT INTO cron_state (id, last_run_at, last_check_failed_at) VALUES (true, NULL, ${ago(1)})`;
+    assert.deepEqual([(await readStats(NOW)).last_run_at, (await readStats(NOW)).last_check_ok], [null, false]);
+    await db`UPDATE cron_state SET last_run_at = ${ago(2)}`;
+    assert.deepEqual([(await readStats(NOW)).last_run_at, (await readStats(NOW)).last_check_ok], [ago(2).toISOString(), false]);
+    await db`UPDATE cron_state SET last_run_at = ${NOW}`;
+    assert.equal((await readStats(NOW)).last_check_ok, true);
+  } finally {
+    await db`DELETE FROM cron_state`;
+  }
+});
+
+test('L44-5: applications_7d counts by send time: two sends 8 days ago with results yesterday are not this week', async () => {
+  const i = await statInstall();
+  for (const id of ['l44-a', 'l44-b']) await upsertProgram(programFixture({ id, max_award_usd: 5000 }), 'file', NOW);
+  const before = await readStats(NOW);
+  for (const id of ['l44-a', 'l44-b']) assert.equal((await record(`i:${i}`, id, 'applied', { installationId: i, now: ago(8) })).ok, true);
+  assert.equal((await record(`i:${i}`, 'l44-a', 'rejected', { installationId: i, now: ago(1) })).ok, true);
+  assert.equal((await record(`i:${i}`, 'l44-b', 'no_result', { installationId: i, now: ago(1) })).ok, true);
+  const after_ = await readStats(NOW);
+  assert.equal(after_.applications_7d - before.applications_7d, 0);
+  assert.equal(after_.applications - before.applications, 2);
 });

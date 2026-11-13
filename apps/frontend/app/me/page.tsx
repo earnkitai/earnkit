@@ -4,7 +4,7 @@ import Footer from '../components/common/Footer';
 import MeView from './MeView';
 import { ME_DESCRIPTION, ME_TITLE } from '../../lib/v5/site-copy';
 import { authSecret, isAnswerPath, meData, problemShown } from '../../lib/v6/me-view';
-import { sessionBuilder, sessionToken } from '../../lib/v6/sessions';
+import { draftOf, sessionBuilder, sessionToken } from '../../lib/v6/sessions';
 
 export const dynamic = 'force-dynamic';
 /** L27-21 (v6.1.16): noindex and no canonical (no `alternates`; the layout sets none). */
@@ -17,8 +17,8 @@ const openOf = (v: string | undefined) => (v && isAnswerPath(v) ? v : null);
 
 export default async function MePage({ searchParams }: { searchParams: Promise<Query> }) {
   const now = new Date();
-  // One parser for the session cookie (v6.1.7 B2): the first session cookie in the raw header (the
-  // __Host- name, else the old ek_me for one release, L31-6), as the gate and every post read it.
+  // One parser for the session cookie (v6.1.7 B2): the first session cookie in the raw header under the current name
+  // only (L43-3, v6.1.19: the old ek_me is never read in production), as the gate and every post read it.
   const cookie = (await headers()).get('cookie');
   const token = sessionToken(cookie);
   const builder = token ? await sessionBuilder(cookie, now) : null;
@@ -27,7 +27,9 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
   // Only a line /me's own handlers signed is shown; React escapes it. ?link= is the code GitHub sign-in came back with.
   const problem = problemShown('problem', one(q.problem), one(q.sig), builder.id, now, authSecret());
   const note = problem ? null : problemShown('note', one(q.note), one(q.sig), builder.id, now, authSecret());
-  const data = await meData(builder, now, token, one(q.link));
+  // L43-4 (v6.1.19): what the builder typed into a refused form, for 15 minutes; React escapes it as every value.
+  // Fix round 1 (M6): read only while a signed refusal line shows.
+  const data = await meData(builder, now, token, one(q.link), problem ? await draftOf(cookie, now) : null);
   return (
     <>
       {/* L27-9, L27-10 (v6.1.16): `saved` and `at` name a section (unsigned: they only place `Saved.` and a signed line). */}

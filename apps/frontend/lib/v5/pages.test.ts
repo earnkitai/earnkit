@@ -244,7 +244,8 @@ test('/programs/<id> renders the guide; a missing logo file renders no image', a
   const m = html(await ProgramGuidePage(params('zz-page-open')));
   const t = textOf(m);
   assert.ok(t.includes('Page Open Grants') && /\$\s?5,000/.test(t));
-  assert.ok(t.includes('Project name') && t.includes('A project name.'));
+  // L43-18 (v6.1.19): a to-do that only repeats its label shows the label alone.
+  assert.ok(t.includes('Project name.') && !t.includes('A project name.'), t);
   assert.ok(t.includes('Apply from a public repo.'));
   assert.ok(t.includes('https://example.com/grants') || t.includes('Program page.'));
   assert.ok(!m.includes('/programs/zz-page-open.svg'), 'no image for a logo file that does not exist');
@@ -334,11 +335,11 @@ test('/llms.txt is plain text', async () => {
   assert.match(await res.text(), /https:\/\/earnkit\.com\/mcp/);
 });
 
-test('/api/stats answers the fourteen keys (L22-1, v6.1.16: won_other and won_without_amount; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit, read_at)', async () => {
+test('/api/stats answers the fifteen keys (L22-1, v6.1.16: won_other and won_without_amount; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit, read_at; v6.1.19: last_check_ok)', async () => {
   const res = await statsGet();
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, number>;
-  assert.equal(Object.keys(body).length, 14);
+  assert.equal(Object.keys(body).length, 15);
   assert.ok(body.programs_open >= 2);
 });
 
@@ -391,12 +392,13 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
   const saved = process.env.EARNKIT_URL;
   process.env.EARNKIT_URL = 'https://earnkit.com';
   try {
-    // L23-15 (v6.1.16): a cookie whose session is gone (ended, or never one) goes to the expired line, the cookie cleared.
-    for (const [headers, to] of [[{}, '/docs#record'], [{ cookie: 'ek_me=forged' }, '/docs?expired=1#record']] as [Record<string, string>, string][]) {
+    // L23-15 (v6.1.16): a cookie whose session is gone is cleared; L43-12 (v6.1.19): one that never was a session asks
+    // for a sign-in from the agent's link (the expired line is only for a session that ended).
+    for (const [headers, to] of [[{}, '/docs#record'], [{ cookie: 'ek_me=forged' }, '/docs?signin=1#record']] as [Record<string, string>, string][]) {
       const r = await proxy(new Request('http://10.0.0.7:8080/me', { headers }) as never);
       assert.equal(r.status, 302);
       assert.equal(r.headers.get('location'), `https://earnkit.com${to}`);
-      assert.equal(/ek_me=;.*Max-Age=0/.test(r.headers.get('set-cookie') ?? ''), to.includes('expired'), to);
+      assert.equal(/ek_me=;.*Max-Age=0/.test(r.headers.get('set-cookie') ?? ''), to.includes('signin'), to);
     }
   } finally {
     if (saved === undefined) delete process.env.EARNKIT_URL;
@@ -455,10 +457,11 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
   assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);
-  // An Approve form carries the set_at the builder saw.
-  assert.ok(/name="action" value="approve"\/><input type="hidden" name="seen" value="\d{4}-/.test(m), 'approve carries seen');
+  // An Approve carries the set_at the builder saw (L43-1, v6.1.19: the open answer's section form carries it).
+  assert.ok(/<form id="form-answers"[^>]*>(?:(?!<\/form>).)*name="seen" value="\d{4}-/.test(m), 'approve carries seen');
   const forms = m.match(/<form[^>]*>/g) ?? [];
-  assert.ok(forms.length > 10 && forms.every((f) => /method="post"/.test(f) && /action="\/me\//.test(f)));
+  // Seven section forms, the policy form, delete and sign-out (the open answer's Approve is a button of its section form).
+  assert.ok(forms.length >= 10 && forms.every((f) => /method="post"/.test(f) && /action="\/me\//.test(f)), String(forms.length));
   assert.equal((m.match(/name="csrf"/g) ?? []).length, forms.length);
 });
 
@@ -547,7 +550,8 @@ test('L35-24 (v6.1.17 Task 4): /me collapses each answer to its first line, one 
     assert.ok(!closed.includes('Second line'), 'collapsed to the first line');
     // Waiting for you counts the 154 and links the first; each is marked where it sits.
     assert.ok(textOf(closed).includes('154 answers wait for you below. Open the first one'));
-    assert.ok(closed.includes('href="/me?open=answers.one_liner#a-answers.one_liner"'));
+    // L43-7 (v6.1.19): the first waiting answer in page order (the projects card comes first).
+    assert.ok(closed.includes('href="/me?open=projects.p0.answers.one_liner#a-projects.p0.answers.one_liner"'));
     assert.equal(closed.split('Waiting for you.').length - 1, 154);
     // The page in a browser carries the React payload too, about one and a half times this again (lane 35 measured the
     // whole response: 755 KB before the count replaced the repeated rows, under 500 KB after).
@@ -557,7 +561,8 @@ test('L35-24 (v6.1.17 Task 4): /me collapses each answer to its first line, one 
     const opened = html(MeView({ data, problem: null, open: 'projects.p3.answers.risks' }));
     assert.equal((opened.match(/<details[^>]* open=""/g) ?? []).length, 1);
     assert.equal(opened.split('Second line risks.').length - 1, 1);
-    assert.match(opened, /name="path" value="projects\.p3\.answers\.risks"\/><input type="hidden" name="action" value="approve"\/>/);
+    const approve = opened.match(/<button[^>]*>Approve<\/button>/)?.[0] ?? '';
+    for (const attr of ['form="form-projects"', 'name="approve"', 'value="projects.p3.answers.risks"', 'formAction="/me/approve"']) assert.ok(approve.includes(attr), attr);
     assert.ok(opened.includes('name="projects.p3.answers.risks"'));
     assert.ok(/<input type="hidden" name="open" value="projects\.p3\.answers\.risks"\/>/.test(opened), 'the open answer stays open after Save');
     assert.ok(Buffer.byteLength(opened) < 200 * 1024);
