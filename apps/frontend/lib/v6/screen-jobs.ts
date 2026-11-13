@@ -12,7 +12,7 @@ import type postgres from 'postgres';
 import { cleanText } from '../v5/controls';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { CONFIRMED, amountsOf, record, resultWords, winCapOf } from '../v5/ledger';
-import { amountsOverCap } from '../v5/amount';
+import { amountsOverCap, roundIn } from '../v5/amount';
 import { amountsText, plusAmount, sameAmounts, type Amounts } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps, type Project } from '../v5/project-input';
@@ -80,9 +80,7 @@ export type Outcome = {
 };
 /** A won outcome's money by currency, or null when none was given. Pure. */
 const moneyOf = (o: Outcome): Amounts | null =>
-  o.outcome !== 'won' ? null : o.money ? { [o.money.currency]: cents(o.money.value) } : o.amount_usd != null ? { USD: cents(o.amount_usd) } : null;
-/** A value rounded to the cent, to be stored (the cap reads the given value first, L22-5). Pure. */
-const cents = (v: number): number => Math.round(v * 100) / 100;
+  o.outcome !== 'won' ? null : o.money ? { [o.money.currency]: roundIn(o.money.value, o.money.currency) } : o.amount_usd != null ? { USD: roundIn(o.amount_usd, 'USD') } : null;
 /** Applicants per page of a screen's results (L15-3, v6.1.14; 10 from v6.1.16 Task 12, L26-4: a page stays under 20 KB). */
 export const PAGE_SIZE = 10;
 export type XpCounts = { applications_90d: number; outcomes: { won: number; rejected: number } };
@@ -764,7 +762,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     }
     // L22-6 (v6.1.16): the amount as given, cents and currency kept.
     const money = moneyOf(o);
-    const given = o.outcome !== 'won' ? null : o.money ? { ...o.money, value: cents(o.money.value) } : o.amount_usd != null ? { value: cents(o.amount_usd), currency: 'USD' } : null;
+    const given = o.outcome !== 'won' ? null : o.money ? { ...o.money, value: roundIn(o.money.value, o.money.currency) } : o.amount_usd != null ? { value: roundIn(o.amount_usd, 'USD'), currency: 'USD' } : null;
     const pkey = o.outcome === 'won' && o.payment ? o.payment.key : null;
     type Before = KeptOutcome & { at: Date; payment_keys: string[] };
     // T5-F5 (v6.1.14): the outcome it replaces is read under the row's lock, in the upsert's transaction.

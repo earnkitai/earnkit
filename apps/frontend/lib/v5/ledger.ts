@@ -24,7 +24,7 @@ import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '
 import { identityFor, projectKeyOf, type Project } from './project-input';
 import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
-import { UNDER_A_DOLLAR, amountsOverCap, overCap, underADollar } from './amount';
+import { amountsOverCap, overCap, roundIn, underADollar, underADollarLine } from './amount';
 import { quoteName } from './controls';
 
 /**
@@ -409,6 +409,8 @@ export async function record(
     /** applied only (v6.1.19 fix round 1, M1): the builder said on /me they sent it and no agent of theirs that
      *  claimed it is still linked; the agent's link check is skipped (the builder is the one acting). */
     builderOwn?: true;
+    /** won only (v6.1.19.1 review I2): the win names no project, so it takes the owner's one row of the program, as before. */
+    anyRow?: true;
   } = {},
 ): Promise<RecordResult> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -430,9 +432,8 @@ export async function record(
   }
   if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
-  // L22-5 (v6.1.16, fix round 1): the cap reads the given value; it is rounded to the cent only to be stored.
+  // L22-5 (v6.1.16, fix round 1): the cap reads the given value; it is rounded to its currency's places only to be stored.
   const givenValue = status === 'won' && !noAmount ? given!.value : null;
-  const value = givenValue === null ? null : Math.round(givenValue * 100) / 100;
   const cap = winCapOf(program);
   const note = noAmount ? o.note ?? AMOUNT_NOT_GIVEN : o.note ?? null;
   let repeated = false;
@@ -466,7 +467,9 @@ export async function record(
     // Controller ruling: only when that row's key gives the same repo key as this call's.
     const row = (identity ? rows.find((r) => r.identity === identity && repoKeyOf(r.project_id) === repoKeyOf(key)) : undefined) ?? (exactOnly
       ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined)
-      : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip'));
+      // v6.1.19.1 (L47-2): a win with a project is that project's, as a send is: its own key (or a keyless row), never
+      // another project's row of the same program; a win that names no project (`anyRow`, review I2) takes the one row.
+      : pickRow(rows, key, (RESULTS.includes(status) && (status !== 'won' || o.anyRow === true)) || status === 'held' || status === 'unskip'));
     if (!program && !row) return unknown;
     // An identity another of the owner's rows of this program holds (under another repo key) is never written twice.
     const ident = identity && rows.some((r) => r.identity === identity && r !== row) ? null : identity;
@@ -547,13 +550,15 @@ export async function record(
     // L22-2 (v6.1.16): a win with no currency named, over a win held in one other currency, is in that currency.
     const keptCodes = Object.keys(kept ?? {});
     const currency = given?.currency ?? (keptCodes.length === 1 && keptCodes[0] !== 'USD' ? keptCodes[0] : 'USD');
+    // v6.1.19.1 (L47-1): stored rounded to its currency's places (8 for a coin, 2 else), never to the cent for a coin.
+    const value = givenValue === null ? null : roundIn(givenValue, currency);
     const money: Amounts | null = value === null ? null : { [currency]: value };
     // L22-4, L22-5 (v6.1.16): the given amount against the cap, before any rounding; another currency converted for the check only.
     // L45-4 (v6.1.19): a currency with no rate is never weighed (recorded uncapped), so an over-cap amount is always comparable.
     const overNote = { ok: false, note: OVER_CAP(cap) } as const;
     // L45-3 (v6.1.19), fix round 1 (M1): under one dollar in the currency the win is kept in (the win's own when none
     // was named), so a further 100 over a JPY win is weighed as JPY.
-    if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: UNDER_A_DOLLAR } as const;
+    if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: underADollarLine(currency) } as const;
     if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;

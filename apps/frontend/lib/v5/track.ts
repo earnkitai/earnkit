@@ -800,7 +800,7 @@ async function act(
   const identity = i.status === 'gap_done' ? undefined : offRepo ? appKey || null : await identityHere();
   const parentRepo = repoKeyOf(appKey) ? await parentOf(appKey) : null;
   let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied, showLogin, tied, identity, parentRepo,
-    ...(i.status === 'won' ? { outsideWin: true as const, offRepo } : {}),
+    ...(i.status === 'won' ? { outsideWin: true as const, offRepo, ...(project.given ? {} : { anyRow: true as const }) } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // L28-1 (v6.1.16 Task 14): a send the builder made of a repo another account sent is kept under the name only.
   let sentTwice: { day: string; login: string | null } | null = null;
@@ -860,7 +860,8 @@ async function act(
   const title = shortTitle(await titleOf(owner, i.program_id), (await getProgram(i.program_id))?.file.short_title);
   // The win as the ledger now holds it (its currency resolved there); a further payment names its own currency.
   // L28-4 (v6.1.16 Task 14): the row just written, read back by its own project key.
-  const rowKey = (await rowHere(owner, i.program_id, appKey, RESULT_STATUSES.includes(i.status)))?.project_id ?? appKey;
+  // v6.1.19.1 (L47-2): a win is read back by its own project, as ledger.record wrote it (review I2: one named none, any row).
+  const rowKey = (await rowHere(owner, i.program_id, appKey, RESULT_STATUSES.includes(i.status) && (i.status !== 'won' || !project.given)))?.project_id ?? appKey;
   const kept = i.status === 'won' ? (await resultOf(owner, i.program_id, rowKey))?.amounts ?? null : null;
   const wonText = kept ? amountsText(kept) : amount ? moneyText(amount.value, amount.currency) : '';
   const wonCurrency = (total: Record<string, number>) =>

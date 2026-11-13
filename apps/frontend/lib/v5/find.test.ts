@@ -4596,12 +4596,6 @@ test('L46-12 (v6.1.20): "Nothing new since your last look." never shows when a p
   }
 });
 
-// Registered last (v6.1.20 review I5): every find reply above, gated or not, keeps the builder contract; a full list
-// (the full view or the open full list) has no line budget.
-test('v6.1.20 review I5: every find reply in this file keeps the builder contract', () => {
-  assert.ok(findReplies.length > 200, String(findReplies.length));
-  for (const t of findReplies) builderRules(t, !/^(Everything open|Open now: \d+ programs?, nearest first:)/.test(t) && !t.includes('\nRules:\n'));
-});
 
 // ---- v6.1.20 review fixes ----
 
@@ -4667,4 +4661,27 @@ test('v6.1.20 review M2, M3: the standing one-program state says only that it is
   assert.equal(readyState({ ...base, in_person: false }, { standing: true }), 'T ($1). It is ready.');
   assert.doesNotMatch(inPersonState({ ...base, setup: ['a YC account'], needs: ['a YC account'] }), /First, you a/);
   assert.match(inPersonState({ ...base, setup: ['apply to attend and get accepted'] }), /First, you apply to attend and get accepted\./);
+});
+
+test('L1m-1 (v6.1.19.1): a cache row from before v6.1.18 (no license) is re-read before the first find answers when reads are allowed, so a licensed repo gets no license question', async () => {
+  const project = { ...RIPGREP, users: true };
+  await sql()`DELETE FROM repo_cache`;
+  const mit = () => replayFetch('nextjs-dashboard', (u, b) => (/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace('"license":null', '"license":{"key":"mit","spdx_id":"MIT"}') : b));
+  const first = mit();
+  await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: first.fetch }, 'find', { program_id: 'herodevs-sustainability-fund', project });
+  // The row as the pre-v6.1.18 cache wrote it, read a minute ago: usable (fork, archived) but no license key.
+  await sql()`UPDATE repo_cache SET facts = facts - 'license' - 'license_read', fetched_at = ${new Date(NOW.getTime() - 60_000)}`;
+  const second = mit();
+  const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: second.fetch }, 'find', { program_id: 'herodevs-sustainability-fund', project });
+  assert.ok(second.calls.some((u) => /api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u)), 'the old row is read again before the answer');
+  assert.deepEqual((r.reply!.verdict as { gaps: { what: string }[] }).gaps.map((g) => g.what), ['a developer tool whose versions are near or past official end of life'], r.reply!.show_to_builder as string);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /licen[cs]e/i);
+  assert.equal((await sql()`SELECT facts->>'license' AS license FROM repo_cache`)[0].license, 'MIT');
+});
+
+// Registered last (v6.1.20 review I5): every find reply above, gated or not, keeps the builder contract; a full list
+// (the full view or the open full list) has no line budget.
+test('v6.1.20 review I5: every find reply in this file keeps the builder contract', () => {
+  assert.ok(findReplies.length > 200, String(findReplies.length));
+  for (const t of findReplies) builderRules(t, !/^(Everything open|Open now: \d+ programs?, nearest first:)/.test(t) && !t.includes('\nRules:\n'));
 });

@@ -2875,9 +2875,15 @@ test('L45-3 (v6.1.19): a win under one dollar, once converted, is refused and wr
   const c = await ctx();
   await upsertProgram(programFixture({ id: 'l45-tiny', title: 'Tiny Grant', max_award_usd: 5000 }), 'file', NOW);
   await track(c, { program_id: 'l45-tiny', status: 'applied' });
-  for (const args of [{ amount_usd: 0.001 }, { amount_usd: 0.004 }, { amount_usd: 0.5 }, { amount: '0,500' }, { amount: 100, currency: 'JPY' }]) {
+  for (const args of [{ amount_usd: 0.001 }, { amount_usd: 0.004 }, { amount_usd: 0.5 }, { amount: '0,500' }]) {
     const r = await track(c, { program_id: 'l45-tiny', status: 'won', ...args });
     assert.equal(r.show_to_builder, 'Tell me the amount in whole dollars, 1 or more.', JSON.stringify(args));
+    assert.equal(r.refused, true);
+  }
+  // v6.1.19.1 (L47-1): the whole-dollar line is for US dollars only; another currency under a dollar has its own.
+  for (const args of [{ amount: 100, currency: 'JPY' }, { amount: '0.00005 ETH' }, { amount: '0.01 SOL' }]) {
+    const r = await track(c, { program_id: 'l45-tiny', status: 'won', ...args });
+    assert.equal(r.show_to_builder, 'That amount is too small to record. Tell me the amount and its currency.', JSON.stringify(args));
     assert.equal(r.refused, true);
   }
   assert.equal((await sql()`SELECT status FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l45-tiny'`)[0].status, 'applied');
@@ -2905,7 +2911,7 @@ test('L45-4 (v6.1.19, fix round 1): an unknown currency is refused by name; a co
   await upsertProgram(programFixture({ id: 'l45-jpy', title: 'Yen Grant', max_award_usd: 5000 }), 'file', NOW);
   await track(c, { program_id: 'l45-jpy', status: 'applied' });
   await track(c, { program_id: 'l45-jpy', status: 'won', amount: 10_000, currency: 'JPY' });
-  assert.equal((await track(c, { program_id: 'l45-jpy', status: 'won', amount: 100, payment: { key: 'j2' } })).show_to_builder, 'Tell me the amount in whole dollars, 1 or more.');
+  assert.equal((await track(c, { program_id: 'l45-jpy', status: 'won', amount: 100, payment: { key: 'j2' } })).show_to_builder, 'That amount is too small to record. Tell me the amount and its currency.');
   // A known rate still converts for the cap.
   assert.equal((await track(c, { program_id: 'l45-cur', status: 'won', amount: '6000 EUR' })).show_to_builder, "Over the program's $5,000 cap; nothing recorded.");
 });
@@ -3043,4 +3049,63 @@ test('L46-13 (v6.1.20): no Next is ready, but the next ready program waits on th
   } finally {
     await sql()`DELETE FROM programs WHERE id IN ('l4613-a', 'l4613-b')`;
   }
+// v6.1.19.1: hotfix from lane 47.
+});
+
+test('L47-1 (v6.1.19.1): a coin win keeps its places (up to 8), fiat keeps 2; stored and said as given', async () => {
+  const c = await ctx();
+  const cases: [string, Record<string, unknown>, string, Record<string, number>][] = [
+    ['l471-eth', { amount: '0.001 ETH' }, 'ETH 0.001', { ETH: 0.001 }],
+    ['l471-btc', { amount: '0.0004 BTC' }, 'BTC 0.0004', { BTC: 0.0004 }],
+    ['l471-sol', { amount: 0.123456789, currency: 'SOL' }, 'SOL 0.12345679', { SOL: 0.12345679 }],
+    ['l471-eur', { amount: 2.5, currency: 'EUR' }, 'EUR 2.50', { EUR: 2.5 }],
+  ];
+  for (const [id, args, said, stored] of cases) {
+    await upsertProgram(programFixture({ id, title: 'Coin Grant', max_award_usd: 5000 }), 'file', NOW);
+    await track(c, { program_id: id, status: 'applied' });
+    const r = await track(c, { program_id: id, status: 'won', ...args });
+    assert.equal(r.show_to_builder, `Tracked: ${said} from Coin Grant.`, id);
+    const [row] = await sql()`SELECT amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = ${id}`;
+    assert.deepEqual(row.amounts, stored, id);
+    assert.equal(JSON.stringify(row.amounts), JSON.stringify(stored), id);
+    const [h] = await sql()`SELECT amount, currency FROM application_history WHERE installation_id = ${c.installationId} AND program_id = ${id} AND status = 'won'`;
+    assert.equal(Number(h.amount), Object.values(stored)[0], id);
+  }
+  // A further payment adds to 8 places in the coin.
+  const more = await track(c, { program_id: 'l471-eth', status: 'won', amount: '0.002 ETH', payment: { key: 'p2' } });
+  assert.equal(more.show_to_builder, 'Tracked: ETH 0.002 more from Coin Grant, ETH 0.003 in total.');
+  // An outside win in a coin reads its places too.
+  await upsertProgram(programFixture({ id: 'l471-out', title: 'Out Grant', max_award_usd: 5000 }), 'file', NOW);
+  const out = await track(c, { program_id: 'l471-out', status: 'won', amount: '0.001 ETH', outside: true });
+  assert.equal(out.show_to_builder, 'Recorded: Out Grant won, ETH 0.001. Noted as sent by you outside EarnKit.');
+  const [o] = await sql()`SELECT amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l471-out'`;
+  assert.deepEqual(o.amounts, { ETH: 0.001 });
+});
+
+test('L47-2 (v6.1.19.1): a win on a second name-only project of the same program lands on its own row, never the first project\'s', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l472-m', title: 'Money Grant', max_award_usd: 5000 }), 'file', NOW);
+  const won = (name: string, amount: string) => track(c, { program_id: 'l472-m', status: 'won', amount, outside: true, project: { name } });
+  assert.equal((await won('Money 5', '100 USDC')).show_to_builder, 'Recorded: Money Grant won, USDC 100. Noted as sent by you outside EarnKit.');
+  const six = await won('Money 6', '100 USDC');
+  assert.equal(six.show_to_builder, 'Recorded: Money Grant won, USDC 100. Noted as sent by you outside EarnKit.');
+  const seven = await won('Money 7', '0.001 ETH');
+  assert.equal(seven.show_to_builder, 'Recorded: Money Grant won, ETH 0.001. Noted as sent by you outside EarnKit.');
+  const rows = await sql()`SELECT project_id, amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-m' ORDER BY project_id`;
+  assert.deepEqual(rows.map((r) => [r.project_id, r.amounts]), [['name:money 5', { USDC: 100 }], ['name:money 6', { USDC: 100 }], ['name:money 7', { ETH: 0.001 }]]);
+  // A win with no project on a program with one row still takes that row.
+  await upsertProgram(programFixture({ id: 'l472-one', title: 'One Grant', max_award_usd: 5000 }), 'file', NOW);
+  await track(c, { program_id: 'l472-one', status: 'applied', project: { name: 'Solo' } });
+  assert.equal((await track(c, { program_id: 'l472-one', status: 'won', amount_usd: 50 })).show_to_builder, 'Tracked: $50 from One Grant.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-one'`)[0].n, 1);
+});
+
+test('L47-2 review I2 (v6.1.19.1): a win that names no project, after a find on another project, lands on the one sent row', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l472-i2', title: 'Pee Grant', max_award_usd: 5000 }), 'file', NOW);
+  await track(c, { program_id: 'l472-i2', status: 'applied', project: { name: 'Proj A' } });
+  await markFind(c.installationId, NOW, undefined, 'name:proj b');
+  assert.equal((await track(c, { program_id: 'l472-i2', status: 'won', amount_usd: 500 })).show_to_builder, 'Tracked: $500 from Pee Grant.');
+  const rows = await sql()`SELECT project_id, status, amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-i2'`;
+  assert.deepEqual(rows.map((r) => [r.project_id, r.status, r.amounts]), [['name:proj a', 'won', { USD: 500 }]]);
 });
