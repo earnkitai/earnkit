@@ -29,6 +29,8 @@ One Next.js app (`apps/frontend`) on Railway, one Postgres database, one daily j
 
 Every reply carries `show_to_builder` (plain text the agent may reword) and `agent_note` (what the agent does
 next). The server instructions (the whole text sent to agents) sit in `mcp.ts` and are pinned by `mcp.test.ts`.
+v6.1.22 (L46-11): their second sentence is `SHOW_REPLY` (tool-text.ts): show find's reply as given, in the builder's
+language when they write in another (names, money and links unchanged); llms.txt quotes it in its second step.
 Since v6.1.14 (T1 to T7) the instructions say find first in every session and `record get` only once find's reply has
 `linked` true; find's description asks for every project fact before the first call (chains with contracts,
 `live_url`, `users`, `first_commit_at`); find and track share one project schema (`ProjectArg` and
@@ -141,7 +143,9 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    answers, Base's revenue; L1e-3, v6.1.13, so an idea and an empty repo read the same need). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
    homepage, contracts and chains with basis `code`), never anything the agent passed; the reply's ready line (v6.1.16 Task 15, L29-18, replacing v6.1.15's Drafted shape) is "{title}, {money}, closes {date}. You give: {fields}.", `You give:` left out when the builder gives nothing or the closing names it (`youGive` in `reply.ts`); the counts stay in the JSON.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
-   installation's `last_find_at`. Empty on the first call.
+   installation's `last_find_at`. Empty on the first call. v6.1.22 (L46-15): `form changed` is said only for a program
+   the owner has started and not sent (an `applications` row `started`, `held_at` null: `whatOf(..., formWatched)`);
+   status, deadline and amount changes are said as before.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
    results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
    how it went when results are due." is always kept.
@@ -945,6 +949,11 @@ texts cut to 120 characters, then "Ask for one kind at a time for the rest."). T
 and {f} facts. Approve the answers at earnkit.com/me and they go into drafts." (zero parts left out); a kind with an
 unapproved answer is not missing, and the reply says "{n} answers wait for your approval." `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
+v6.1.22 (L46-10): a rule with `"check": "contracts"` (the audit programs: ESSP, Arbitrum Security, Uniswap Security
+Fund) is a hard no, `needs smart contracts to audit`, when `hasContracts(facts)` is false: no contract read or
+reported, and the project's own words (name, description, README excerpt, topics) name none of contract, contracts,
+smart contract, solidity, vyper, hook, protocol (whole words). Checked before the rule's done, so an earlier yes never
+makes a dashboard auditable; with contracts the rule stays its question.
 
 **The four tools** (`lib/v5/mcp.ts`):
 
