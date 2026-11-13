@@ -4710,13 +4710,32 @@ test('v6.1.20 re-review O3: off GitHub, the users yes drafts for the builder to 
   const out = (await mcpCall({ ...ctx(await installation()), linkUrl: async () => link }, 'find', { project })).reply!.show_to_builder as string;
   // Other files add ready programs to the shared catalog; whichever closes, it drafts and never applies.
   assert.match(out.split('\n').at(-1)!, /^(Do real people use it\? Say yes, sign in at \S+, and I draft it for you to send|Sign in at \S+ so I can check your users, then say yes and I draft .+ for you to send)\.$/, out);
-  assert.doesNotMatch(out, /\bI apply\b/, out);
+  assert.doesNotMatch(out, /\bI apply\b|\bthen apply\b|\bapply to\b|standing approval|Say do\b/, out);
   // The users closing itself, off GitHub, signed out.
   const { usersUnlinkedAt } = await import('./reply');
   assert.equal(usersUnlinkedAt(link, 'apply').replace(/and I apply\.$/, 'and I draft it for you to send.'), `Do real people use it? Say yes, sign in at ${link}, and I draft it for you to send.`);
   const { id, builderId } = await linkedWith({});
   const linked = (await mcpCall({ ...ctx(id), builderId }, 'find', { project })).reply!.show_to_builder as string;
-  assert.doesNotMatch(linked, /\bI apply\b(?! only)/, linked);
+  assert.doesNotMatch(linked, /\bI apply\b(?! only)|\bthen apply\b|\bapply to\b|standing approval|Say do\b/, linked);
+});
+
+test('v6.1.20 re-review 3 (N1): signed out on GitHub, the full list whose default Say is a do offer says it after the sign-in', async () => {
+  const link = 'https://earnkit.com/link/n1';
+  const c = { ...(await dashCtx()), linkUrl: async () => link };
+  const full = (await mcpCall(c, 'find', { project: { ...SAAS, users: true }, filter: { all: true } })).reply!.show_to_builder as string;
+  // Other tests add ready programs to the shared catalog, so the default Say may be an apply; either way it is said once,
+  // after the sign-in, last.
+  assert.match(full.split('\n').at(-1)!, new RegExp(`^Sign in at ${link} so I know the repo is yours, then say `), full);
+  assert.equal(full.split(/(?<=[.?!])\s+/).filter((x) => /^Sign in\b/.test(x)).length, 1, full);
+  // The full list of this fixture alone (no other ready program): the dropped do Say comes back as the offer.
+  const { gateLines } = await import('./find');
+  const { signInFirst } = await import('./ledger');
+  const fixture = 'Everything open for Dashboard, nearest first:\n\nNot ready yet:\n1. FLOSS/fund ($10,000 to $100,000).\n\nSay do 1 and I add an MIT license file.';
+  const g = gateLines(fixture, 'strip', false);
+  assert.deepEqual(g.kept, ['Everything open for Dashboard, nearest first:', '', 'Not ready yet:', '1. FLOSS/fund ($10,000 to $100,000).']);
+  assert.equal(signInFirst(link, g.offer), `Sign in at ${link} so I know the repo is yours, then say do 1 and I add an MIT license file.`);
+  // A started line's own offer is an apply wording too.
+  assert.deepEqual(gateLines('A Grant: started Nov 1, nothing sent. Say yes to apply or say skip.', 'strip', false).kept, ['A Grant: started Nov 1, nothing sent.']);
 });
 
 // Registered last (v6.1.20 review I5): every find reply above, gated or not, keeps the builder contract; a full list
