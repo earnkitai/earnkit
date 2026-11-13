@@ -931,9 +931,10 @@ export function gatedRow(line: string, mode: 'strip' | 'draft'): string {
   // A ready row: "{n}. {title} ({money}). {what EarnKit does}".
   const row = /^(\d+\. .+?\))\. (.+)$/.exec(line);
   if (row && APPLY_ROW.test(row[2])) return draft ? `${row[1]}. ${READY_DRAFT}` : `${row[1]}.`;
-  // The one-program reply: "{title} ({money}). It is ready: {what EarnKit does}. {rest}".
-  const one = /^(.+?\)\.) It is ready: (I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval)\.(.*)$/.exec(line);
-  if (one) return draft ? `${one[1]} It is ready: ${READY_DRAFT}${one[3]}` : `${one[1]} It is ready.${one[3]}`;
+  // The one-program reply (v6.1.22 live check): "{title} ({money}) is ready to send. {rest}" or "{title} ({money}) is
+  // ready: {what EarnKit does}. {rest}".
+  const one = /^(.+?\)) is ready(?: to send|: (I apply once you say yes|I add the funding file to your repo, then apply|I send it under your standing approval))\.(.*)$/.exec(line);
+  if (one && !/^\d+\. /.test(line)) return draft ? `${one[1]} is ready: ${READY_DRAFT}${one[3]}` : `${one[1]} is ready to send.${one[3]}`;
   return line;
 }
 /** v6.1.20 review C2: a ready row's sentence that applies (its act, a step before it, a yes that stands). */

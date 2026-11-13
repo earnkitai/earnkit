@@ -402,7 +402,7 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   // F3 fix round 1 (v6.1.10): the users yes stands only for a fully ready program; FLOSS still needs its manifest link.
   assert.equal((yes.reply!.verdict as { status: string }).status, 'ready');
   assert.equal(yes.reply!.show_to_builder, [
-    'FLOSS/fund ($10,000 to $100,000). It is ready. You give your funding manifest link.',
+    'FLOSS/fund ($10,000 to $100,000) is ready to send. You give your funding manifest link.',
     '',
     'Sign in so I know the repo is yours, then say yes and I apply to FLOSS/fund.',
   ].join('\n'));
@@ -446,7 +446,7 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   const lines = (r.reply!.show_to_builder as string).split('\n');
   // L46-3 (v6.1.20): the license is not read here, so its rule is the one yes before the send.
   assert.deepEqual(lines, [
-    'FLOSS/fund ($10,000 to $100,000). It is ready: I apply once you say yes. You give your funding manifest link.',
+    'FLOSS/fund ($10,000 to $100,000) is ready to send. You give your funding manifest link.',
     '',
     'Say yes and I apply to FLOSS/fund.',
   ], r.reply!.show_to_builder as string);
@@ -508,7 +508,7 @@ test('I1 (v6.1.15 fix round 1): a public GitLab repo with users is the builder\'
   // L1l-6 (v6.1.19): a GitHub sign-in cannot show a GitLab repo is theirs; it checks their users. Fix round 1 (I1): and
   // the yes drafts for the builder to send, never "I apply".
   assert.equal(show, [
-    'FLOSS/fund ($10,000 to $100,000). It is ready: I draft it for you to send. You give your funding manifest link.',
+    'FLOSS/fund ($10,000 to $100,000) is ready: I draft it for you to send. You give your funding manifest link.',
     '',
     'Sign in so I can check your users, then say yes and I draft it for you to send.',
   ].join('\n'));
@@ -1882,7 +1882,7 @@ test('L38-1 (v6.1.18 Task 11): a ready FLOSS/fund says EarnKit adds the funding 
   // L46-3 (v6.1.20): the repo has no license file; EarnKit adds it first.
   await mcpCall(signed, 'track', { program_id: 'floss-fund-zerodha', status: 'gap_done', item: 'feature:license', project });
   const one = await mcpCall(signed, 'find', { program_id: 'floss-fund-zerodha', project });
-  assert.match(one.reply!.show_to_builder as string, /^FLOSS\/fund \(\$10,000 to \$100,000\)\. It is ready: I add the funding file to your repo, then apply\.$/m);
+  assert.match(one.reply!.show_to_builder as string, /^FLOSS\/fund \(\$10,000 to \$100,000\) is ready: I add the funding file to your repo, then apply\.$/m);
   const step = one.reply!.agent_step as ManifestStep;
   assert.equal(step.kind, 'funding_manifest');
   assert.equal(step.url, RAW);
@@ -1969,7 +1969,7 @@ test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule y
   // L18-2 (v6.1.18): the two read alike but for FUTO's step: the idea's code goes in a public repo, the empty repo's in it.
   assert.deepEqual(lines[1], [...lines[0].slice(0, 2), FUTO_CODE(true).replace(/^1\./, '2.'), lines[0][3]]);
   assert.deepEqual(lines[0], [
-    'Thiel Fellowship ($250,000 over two years). It is ready: I draft it for you to send. You give your online application answers.\n\nSay yes and I draft it for you to send.',
+    'Thiel Fellowship ($250,000 over two years) is ready: I draft it for you to send. You give your online application answers.\n\nSay yes and I draft it for you to send.',
     '1. Thiel Fellowship ($250,000 over two years). Your yes stands.',
     '2. FUTO Microgrants ($1,000 to $5,000) needs the code in a public repo, then 1 more step.',
     'Thiel Fellowship needs your online application answers; then I draft it for you to send.',
@@ -2600,7 +2600,7 @@ test('fix round 1 (v6.1.8, 1b): the one-program line is the list line without it
   const listLine = lineOf(list.show_to_builder as string, r.n);
   const one = await mcpCall(ctx(await installation()), 'find', { program_id: r.program_id, project: PROJECT });
   // v6.1.20: the one-program reply opens with the list row's title and money, then its state sentence.
-  assert.ok((one.reply!.show_to_builder as string).split('\n')[0].startsWith(listLine.replace(/^\d+\. /, '').replace(/\..*$/, '.')), listLine);
+  assert.ok((one.reply!.show_to_builder as string).split('\n')[0].startsWith(listLine.replace(/^\d+\. /, '').replace(/\..*$/, '')), listLine);
   const d = replayFetch('nextjs-dashboard');
   const onBase = { name: 'Dashboard', description: 'An admin dashboard.', repo_url: `https://github.com/${d.repo}`, live_url: 'https://dash.example.com', users: true, chains: [{ chain: 'base', mainnet: true }] };
   const c = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: d.fetch });
@@ -2814,7 +2814,7 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   const after = await mcpCall(c, 'find', { program_id: 'solana-foundation-grants', project });
   // L24-2 (v6.1.16 Task 11): the yes to the rule settled the rule only; the next reply offers apply afresh.
   const lines = (after.reply!.show_to_builder as string).split('\n');
-  assert.equal(lines[0], 'Solana Foundation Grants (milestone grants). It is ready. You give your requested amount.');
+  assert.equal(lines[0], 'Solana Foundation Grants (milestone grants) is ready to send. You give your requested amount.');
   assert.equal(lines.at(-1), 'Sign in so I know the repo is yours, then say yes and I apply to Solana Foundation Grants.');
   assert.doesNotMatch(after.reply!.show_to_builder as string, /Your yes stands/);
   // After that apply offer the yes stands (N3, v6.1.12): the closing names the answers still missing.
@@ -3007,7 +3007,7 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   // afresh. After that offer the list's closing names the manifest link (N3, v6.1.12) and line 1 does not. L38-1
   // (v6.1.18 Task 11): the repo is not read here, so the link stays the builder's (a read repo gets the agent step).
   const floss = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  assert.equal(floss.reply!.show_to_builder, 'FLOSS/fund ($10,000 to $100,000). It is ready, and your yes stands.\n\nFLOSS/fund needs your funding manifest link; then I apply.');
+  assert.equal(floss.reply!.show_to_builder, 'FLOSS/fund ($10,000 to $100,000) is ready, and your yes stands.\n\nFLOSS/fund needs your funding manifest link; then I apply.');
   const listed = await mcpCall(c, 'find', { project: CLI });
   assert.match((listed.reply!.show_to_builder as string), /FLOSS\/fund needs your funding manifest link; then I apply\./);
   assert.equal((listed.reply!.show_to_builder as string).match(/funding manifest link/g)!.length, 1, listed.reply!.show_to_builder as string);
@@ -3019,14 +3019,14 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   // L1e-4 (v6.1.13): the users yes said to FLOSS/fund is a fact about the project, so this program's users question is
   // answered too; the yes to send was said to FLOSS/fund alone, so the closing asks it here.
   const used0 = await mcpCall(c, 'find', { program_id: 'f3-used', project: CLI });
-  assert.equal(used0.reply!.show_to_builder, 'Used Grant (up to $5,000). It is ready: I apply once you say yes.\n\nSay yes and I apply to Used Grant.');
+  assert.equal(used0.reply!.show_to_builder, 'Used Grant (up to $5,000) is ready to send.\n\nSay yes and I apply to Used Grant.');
   assert.doesNotMatch(used0.reply!.show_to_builder as string, /real people use it/);
   // Final round (I2): users: true the agent passed settles the users item (ready), but the builder said nothing, so
   // the closing asks for the yes; only gap_done users (the builder's yes relayed) makes it stand.
   const passed = await mcpCall(c, 'find', { program_id: 'f3-used', project: { ...CLI, users: true } });
   assert.equal((passed.reply!.verdict as { status: string }).status, 'ready');
   assert.equal(passed.reply!.show_to_builder, [
-    'Used Grant (up to $5,000). It is ready: I apply once you say yes.',
+    'Used Grant (up to $5,000) is ready to send.',
     '',
     'Say yes and I apply to Used Grant.',
   ].join('\n'));
@@ -3034,7 +3034,7 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   await mcpCall(c, 'track', { program_id: 'f3-used', status: 'gap_done', item: 'users', project: CLI });
   const used = await mcpCall(c, 'find', { program_id: 'f3-used', project: CLI });
   assert.equal(used.reply!.show_to_builder, [
-    'Used Grant (up to $5,000). It is ready, and your yes stands.',
+    'Used Grant (up to $5,000) is ready, and your yes stands.',
     '',
     'Your yes stands for Used Grant: I apply now.',
   ].join('\n'));
@@ -4613,7 +4613,8 @@ test('v6.1.20 review C2: a gated ready row is rebuilt from its shape, a step wit
   // The opening (M5: on a draft path, ready for you to send).
   assert.equal(gatedRow('For X, 2 programs are ready to send now; I apply once you say yes.', 'strip'), 'For X, 2 programs are ready to send now.');
   assert.equal(gatedRow('For X, 1 program is ready to send now; I apply once you say yes.', 'draft'), 'For X, 1 program is ready for you to send.');
-  assert.equal(gatedRow('T ($1). It is ready: I apply once you say yes. You give your email.', 'draft'), 'T ($1). It is ready: I draft it for you to send. You give your email.');
+  assert.equal(gatedRow('T ($1) is ready to send. You give your email.', 'draft'), 'T ($1) is ready: I draft it for you to send. You give your email.');
+  assert.equal(gatedRow('T ($1) is ready to send. You give your email.', 'strip'), 'T ($1) is ready to send. You give your email.');
 });
 
 test('v6.1.20 review C1, I1, M6, M7: the gate takes every apply wording out, keeps an early Say as the one ask, and says the held, do and setup offers after the sign-in', async () => {
@@ -4658,7 +4659,7 @@ test('v6.1.20 review C1: signed out with a repo and a due sent ask, a ready prog
 test('v6.1.20 review M2, M3: the standing one-program state says only that it is ready; a thing to have is never "First, you"', async () => {
   const { readyState, inPersonState } = await import('./reply');
   const base = { program_id: 'x', title: 'T', money: '$1', max_award_usd: 1, category: 'grant', closes_at: null, closes_in: null, long_shot: null, in_person: true, submission_url: 'https://x', fields: [], filled: 0, facts_from_repo: 0, repo_required: 0, from_record: 0, need_you: [], total: 0, needs: [], setup: [], rules: [], n: 1 } as unknown as ReadyProgram;
-  assert.equal(readyState({ ...base, in_person: false }, { standing: true }), 'T ($1). It is ready.');
+  assert.equal(readyState({ ...base, in_person: false }, { standing: true }), 'T ($1) is ready to send.');
   assert.doesNotMatch(inPersonState({ ...base, setup: ['a YC account'], needs: ['a YC account'] }), /First, you a/);
   assert.match(inPersonState({ ...base, setup: ['apply to attend and get accepted'] }), /First, you apply to attend and get accepted\./);
 });
@@ -4792,7 +4793,7 @@ test('L47-6 (v6.1.22): an outside win while upcoming never blocks the new round:
     await upsertProgram(programFixture({ id: 'l47-up-two', title: 'L47 Upcoming Two', max_award_usd: 5000 }), 'file', NOW);
     const r = (await mcpCall(ctx(id), 'find', { program_id: 'l47-up-two', project: P })).reply!;
     const one = r.show_to_builder as string;
-    assert.match(one, /^L47 Upcoming Two \((?:up to )?\$5,000\)\. .+ Won \$1,000 in an earlier round\.$/m, one);
+    assert.match(one, /^L47 Upcoming Two \((?:up to )?\$5,000\) is ready to send\. Won \$1,000 in an earlier round\.$/m, one);
     assert.notEqual(r.agent_note, 'This program already has a result; nothing to send.');
     // The list names the program with its earlier win after the row.
     const list = (await mcpCall(ctx(id), 'find', { project: P, filter: { all: true } })).reply!;

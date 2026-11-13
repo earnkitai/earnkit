@@ -1924,7 +1924,9 @@ test('v6.1.20: ready, signed out with a repo: the gate takes the row\'s apply aw
   v20Rules(gated);
   // An unconfirmed repo: the row and the yes draft for the builder to send.
   assert.equal(gatedRow('1. FLOSS/fund ($10,000 to $100,000). I apply once you say yes.', 'draft'), '1. FLOSS/fund ($10,000 to $100,000). I draft it for you to send.');
-  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000). It is ready: I apply once you say yes.', 'strip'), 'FLOSS/fund ($10,000 to $100,000). It is ready.');
+  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000) is ready to send.', 'strip'), 'FLOSS/fund ($10,000 to $100,000) is ready to send.');
+  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000) is ready: I add the funding file to your repo, then apply.', 'strip'), 'FLOSS/fund ($10,000 to $100,000) is ready to send.');
+  assert.equal(gatedRow('FLOSS/fund ($10,000 to $100,000) is ready to send.', 'draft'), 'FLOSS/fund ($10,000 to $100,000) is ready: I draft it for you to send.');
 });
 
 test('v6.1.20: the opening, the program sentences and the Also sentence as pure functions', () => {
@@ -2315,4 +2317,17 @@ test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every 
     for (const l of t.split('\n').filter((x) => x !== '')) assert.match(l, /[.?:]$/, t);
     if (/\bSay\b/.test(t)) assert.match(t.split('\n').at(-1)!, /\bSay\b/, t);
   }
+});
+
+test('live v6.1.20 (v6.1.22): a ready program reads "is ready to send." or "is ready: {action}."', async () => {
+  const { readyState } = await import('./reply');
+  const floss = { ...V20.floss, agent_step: { kind: 'funding_manifest' } } as unknown as ReadyProgram;
+  const futo = ready({ title: 'FUTO Microgrants', money: '$1,000 to $5,000' });
+  assert.equal(readyState(floss), 'FLOSS/fund ($10,000 to $100,000) is ready: I add the funding file to your repo, then apply.');
+  assert.equal(readyState(futo), 'FUTO Microgrants ($1,000 to $5,000) is ready to send.');
+  assert.equal(readyState(futo, { click: true }), 'FUTO Microgrants ($1,000 to $5,000) is ready: I draft it for you to send.');
+  assert.equal(readyState(futo, { standing: true }), 'FUTO Microgrants ($1,000 to $5,000) is ready to send.');
+  assert.equal(readyState(futo, { stands: true }), 'FUTO Microgrants ($1,000 to $5,000) is ready, and your yes stands.');
+  assert.equal(readyState(futo, { needs: ['email'] }), 'FUTO Microgrants ($1,000 to $5,000) is ready to send. You give your email.');
+  assert.equal(readyState({ ...futo, closes_in: 'in 6 days' }), 'FUTO Microgrants ($1,000 to $5,000, closes in 6 days) is ready to send.');
 });

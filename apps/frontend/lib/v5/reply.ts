@@ -1552,16 +1552,19 @@ export function gapState(g: GapProgram, closed: string | null = null): string {
 }
 /** v6.1.20: the one-program reply's head: "{title} ({money}, closes ...)." Pure. */
 export const oneHead = (title: string, money: string, when?: string | null): string => `${title} (${[money, ...(when ? [when] : [])].join(', ')}).`;
-/** v6.1.20: the one-program reply for a ready program: head, then "It is ready: {what EarnKit does}". Pure. */
+/** v6.1.22 (live check): the one-program reply for a ready program, one terse sentence: "{title} ({money}) is ready to
+ *  send." (a plain apply, the standing approval), "{title} ({money}) is ready: {what EarnKit does}" (its own action: the
+ *  funding file, a draft), "{title} ({money}) is ready, and your yes stands.". Pure. */
 export function readyState(p: ReadyProgram, o: { click?: boolean; needs?: string[]; standing?: boolean; stands?: boolean } = {}): string {
+  const head = oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null).replace(/\.$/, '');
   // The builder already said yes: the closing says what follows.
-  if (o.stands) return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready, and your yes stands.`;
+  if (o.stands) return `${head} is ready, and your yes stands.`;
   // Review M2: under the standing approval the closing says what happens; the state is only that it is ready.
-  if (o.standing) return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready.`;
-  const act = p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : READY_APPLY;
+  if (o.standing) return `${head} is ready to send.`;
+  const act = p.agent_step ? MANIFEST_LINE : o.click ? READY_DRAFT : null;
   const needs = (o.needs ?? []).map(bare);
   const give = needs.length > 0 ? ` You give your ${joinAnd(capped(needs))}.` : '';
-  return `${oneHead(p.title, p.money, p.closes_in ? `closes ${p.closes_in}` : null)} It is ready: ${lowerFirst(act)}${give}`;
+  return act ? `${head} is ready: ${lowerFirst(act)}${give}` : `${head} is ready to send.${give}`;
 }
 /** v6.1.20: an in-person program's own reply: head, "You attend in person.", the odds, then what it needs. Pure. */
 export function inPersonState(p: ReadyProgram): string {
