@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "6.1.22",
+  "version": "6.1.23",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
-    "next": "16.4.1",
+    "next": "16.4.6",
     "postgres": "^3.4.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

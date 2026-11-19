@@ -586,7 +586,7 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
   assert.equal(replyText(base({ gaps: [floss] }), true).split('\n').at(-1), 'Do real people use it? Say yes, sign in, and I apply.');
   assert.equal(replyText(base({ ready: [yc], gaps: [floss] }), true).split('\n').at(-1), 'Do real people use it? Say yes, sign in, and I apply.');
   assert.equal(replyText(base({ linked: true, gaps: [floss] }), true).split('\n').at(-1), 'Do real people use it? Say yes and I apply.');
-  assert.equal(replyText(base({ ready: [yc], gaps: [gap({ title: 'Circle' })] }), true).split('\n').at(-1), 'Tell me when the contract is on Arc and I look again, or say 2 and I draft Y Combinator for you to send.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [gap({ title: 'Circle' })] }), true).split('\n').at(-1), 'Say 2 and I draft Y Combinator for you to send, or tell me when the contract is on Arc.');
   // A remote step that names its own action ("do n") and in-person programs: never the bare line.
   const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
   assert.equal(replyText(base({ gaps: [codes] }), true).split('\n').at(-1), 'Say do 1 and I add the codes.');
@@ -1654,7 +1654,10 @@ test('L38 big 2 (v6.1.18 Task 10): the default In person block is one line, numb
   const p = replyParts(base({ ready: [yc, alliance], gaps: steps }), true);
   const lines = p.text.split('\n');
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, p.text);
-  assert.ok(lines.includes('Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 6 days), both in person with long odds.'), p.text);
+  // L1n-1 (v6.1.23): YC, the draft the closing names, is a numbered row; Alliance stays in the Also sentence.
+  assert.ok(lines.includes('4. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today.'), p.text);
+  assert.ok(lines.includes('Also open: Alliance ALL19 ($400,000, closes in 6 days), in person with long odds.'), p.text);
+  assert.equal(lines.at(-1), 'Say 4 and I draft Y Combinator for you to send, or tell me when the contract is on Arc.');
   assert.doesNotMatch(p.text, /Long odds: many|Needs a YC account|your email/);
   assert.ok(p.hidden.some((h) => h.startsWith('4. Y Combinator Winter 2027 Batch, $500,000 investment. Long odds: many apply, few are taken. Needs a YC account')), p.hidden.join('\n'));
   assert.deepEqual(p.shown.slice(-2), [yc.program_id, alliance.program_id]);
@@ -1864,10 +1867,10 @@ const V20_STATES: [string, R, Parameters<typeof replyText>[4], string][] = [
     'Nothing is ready to send for Invoicely yet. The closest:',
     '',
     '1. FUTO Microgrants ($1,000 to $5,000) needs the code in a repo first.',
+    // L1n-1 (v6.1.23): the program the draft Say names is a numbered row, and the draft leads.
+    '2. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000), in person with long odds.',
-    '',
-    'Tell me when the code is in a repo and I look again, or say 2 and I draft Y Combinator Winter 2027 Batch for you to send.',
+    'Say 2 and I draft Y Combinator for you to send, or tell me when the code is in a repo.',
   ].join('\n')],
   ['in person only', base({ ready: [V20.yc, V20.alliance], linked: true }), {}, [
     'Nothing you can send from here is ready for Invoicely yet.',
@@ -1998,7 +2001,7 @@ const META_VR = { program_id: 'meta-vr-start-developer-competition-2026', title:
 test('L18-1: the more line counts the rows the rank cap hid and names what closes this week', () => {
   const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [UGREEN, META_VR] } });
   const lines = text.split('\n');
-  assert.ok(lines.includes('Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 18 more in the full list; UGREEN Hackathon 2026 on AI NAS closes in 3 days; Meta VR Start Developer Competition 2026 closes in 6 days.'), text);
+  assert.ok(lines.includes('Also open: Alliance ($400K), in person. 18 more in the full list; UGREEN Hackathon 2026 on AI NAS closes in 3 days; Meta VR Start Developer Competition 2026 closes in 6 days.'), text);
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, text);
   assert.equal(lines.at(-3)!.startsWith('Also open: '), true, text);
   assert.ok(/^(Nothing is ready yet\.|Say |Tell me )/.test(lines.at(-1)!), text);
@@ -2006,7 +2009,7 @@ test('L18-1: the more line counts the rows the rank cap hid and names what close
 
 test('L18-1b: the more line with nothing closing this week keeps the old shape', () => {
   const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
-  assert.equal(text.split('\n').at(-3), 'Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 18 more in the full list.', text);
+  assert.equal(text.split('\n').at(-3), 'Also open: Alliance ($400K), in person. 18 more in the full list.', text);
   // Without a hidden count, nothing changes: no rows hidden, no more line.
   assert.doesNotMatch(renderReply(l18Rows(), true, L18_NOW), /more in the full list/);
 });
@@ -2023,7 +2026,7 @@ test('L18-1c: budget-hidden and cap-hidden rows are summed once', () => {
   assert.equal(budget.more, left);
   const p = replyParts(r, true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
   const lines = p.text.split('\n');
-  assert.equal(lines.at(-3), `Also open: Y Combinator ($500K) and Alliance ($400K), both in person. ${left + 18} more in the full list.`, p.text);
+  assert.equal(lines.at(-3), `Also open: Alliance ($400K), in person. ${left + 18} more in the full list.`, p.text);
   assert.equal(p.more, left + 18);
   assert.equal(lines.filter((l) => /more in the full list/.test(l)).length, 1, p.text);
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, p.text);
@@ -2302,6 +2305,124 @@ test('L36-2: a builder-sent claim past 24 hours asks instead of saying nothing s
   const n = agentNote({ ...one, released: [futo] }, { more: 0 });
   assert.match(n, /The reply asks whether each was sent: FUTO Microgrants\./);
   assert.doesNotMatch(n, /were released/);
+});
+
+test('L1n-1 (v6.1.23): the in-person draft is a numbered row, the draft leads, and no closing names a number off the screen', async () => {
+  const { roundless, draftOrStep, inPersonDraftRow } = await import('./reply');
+  assert.equal(roundless('Y Combinator Winter 2027 Batch'), 'Y Combinator');
+  assert.equal(roundless('Alliance ALL19'), 'Alliance ALL19');
+  assert.equal(roundless('Kiroween 2026'), 'Kiroween');
+  assert.equal(draftOrStep(2, 'Y Combinator Winter 2027 Batch', 'Tell me when the code is in a public repo and I look again.'), 'Say 2 and I draft Y Combinator for you to send, or tell me when the code is in a public repo.');
+  assert.equal(draftOrStep(2, 'Y Combinator Winter 2027 Batch', null), 'Say 2 and I draft Y Combinator for you to send.');
+  assert.equal(inPersonDraftRow({ ...V20.yc, n: 2, setup: [] }), '2. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs only your answers, so I can draft it today.');
+  const t = v20(base({ gaps: [V20.code], ready: [V20.yc, V20.alliance], linked: true }));
+  assert.equal(t, [
+    'Nothing is ready to send for Invoicely yet. The closest:',
+    '',
+    '1. FUTO Microgrants ($1,000 to $5,000) needs the code in a repo first.',
+    '2. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today.',
+    '',
+    'Also open: Alliance ALL19 ($400,000, closes in 5 days), in person with long odds.',
+    '',
+    'Say 2 and I draft Y Combinator for you to send, or tell me when the code is in a repo.',
+  ].join('\n'));
+  v20Rules(t);
+  // Signed out the same reply needs no sign-in: the draft is for the builder to send.
+  const out = v20(base({ gaps: [V20.code], ready: [V20.yc], sign_in: V20_LINK }));
+  assert.equal(out.split('\n').at(-1), 'Say 2 and I draft Y Combinator for you to send, or tell me when the code is in a repo.');
+  assert.doesNotMatch(out, /I apply|Sign in/);
+});
+
+test('L1n-2 (v6.1.23): a row that still needs users and carries a rule asks both in one question, signed out, linked and with a setup step', async () => {
+  const license = { kind: 'rule' as const, item: 'rule:0000000b', what: 'an open source license on the project', effort: 'minutes' as const, agent_can: false };
+  const row = { ...V20.users, also: [license] };
+  const out = v20(base({ gaps: [row], sign_in: V20_LINK }));
+  assert.equal(out, [
+    'Nothing is ready to send for Invoicely yet. The closest:',
+    '',
+    '1. FLOSS/fund ($10,000 to $100,000) needs real users and your word that it is open source.',
+    '',
+    `Do real people use it, and is it open source? Say yes, sign in at ${V20_LINK}, and I check.`,
+  ].join('\n'));
+  v20Rules(out);
+  const linked = replyParts(base({ gaps: [row], linked: true }), true, V20_NOW, null, { name: 'Invoicely' });
+  assert.equal(linked.text.split('\n').at(-1), 'Do real people use it, and is it open source? Say yes and I apply.');
+  assert.equal(linked.offer, 'apply');
+  // Unconfirmed repo: the gate takes the apply closing away and keeps it to say after the check; nothing left applies.
+  const { gateLines } = await import('./find');
+  const gated = gateLines(linked.text, 'draft', true);
+  assert.equal(gated.offer, 'Do real people use it, and is it open source? Say yes and I apply.');
+  assert.doesNotMatch(gated.kept.join('\n'), /\bapply\b/);
+  const setup = replyParts(base({ gaps: [{ ...row, setup: ['publish a funding manifest'] }], linked: true }), true, V20_NOW, null, { name: 'Invoicely' });
+  assert.equal(setup.text.split('\n').at(-1), 'Do real people use it, and is it open source? Say yes and I check.');
+  assert.equal(setup.offer, 'look_again');
+  // Another rule: the program's rule by name, the row in "you confirm" words.
+  const other = { ...V20.users, title: 'Base Ecosystem Fund', also: [{ ...license, what: 'a startup that chooses Base as its home' }] };
+  const t = v20(base({ gaps: [other], linked: true }));
+  assert.match(t, /^1\. Base Ecosystem Fund \(\$10,000 to \$100,000\) needs real users, and you confirm a startup that chooses Base as its home\.$/m, t);
+  assert.equal(t.split('\n').at(-1), 'Do real people use it, and does the Base Ecosystem Fund rule fit it? Say yes and I apply.');
+  assert.doesNotMatch(t, /rule fits you/);
+});
+
+test('L1n-4 (v6.1.23): the full-list opening trims a cut name', () => {
+  const t = renderReply(base({ gaps: [V20.code], linked: true }), true, V20_NOW, null, { all: true, name: 'Offline Sync End To End ' });
+  assert.equal(t.split('\n')[0], 'Everything open for Offline Sync End To End, nearest first:');
+});
+
+test('L1n-7 (v6.1.23): the lookup users closing reads as the default, with the users-and-rule question beside a rule', async () => {
+  const { usersLookup } = await import('./reply');
+  const license = { kind: 'rule' as const, item: 'rule:0000000b', what: 'an open source license on the project', effort: 'minutes' as const, agent_can: false };
+  const g = { ...V20.users, n: 0 };
+  assert.deepEqual(usersLookup(g, { linked: true, link: null, draftOnly: false }), { text: 'Do real people use it? Say yes and I apply.', offer: 'apply' });
+  assert.deepEqual(usersLookup(g, { linked: false, link: V20_LINK, draftOnly: false }), { text: `Do real people use it? Say yes, sign in at ${V20_LINK}, and I apply.`, offer: 'apply' });
+  assert.deepEqual(usersLookup(g, { linked: true, link: null, draftOnly: true }), { text: 'Do real people use it? Say yes and I draft it for you to send.', offer: 'draft' });
+  assert.deepEqual(usersLookup({ ...g, setup: ['publish a funding manifest'] }, { linked: true, link: null, draftOnly: false }), { text: 'Do real people use it? Say yes and I check.', offer: 'look_again' });
+  assert.deepEqual(usersLookup({ ...g, also: [license] }, { linked: false, link: V20_LINK, draftOnly: false }), { text: `Do real people use it, and is it open source? Say yes, sign in at ${V20_LINK}, and I check.`, offer: 'look_again' });
+  assert.deepEqual(usersLookup({ ...g, also: [license] }, { linked: true, link: null, draftOnly: false }), { text: 'Do real people use it, and is it open source? Say yes and I apply.', offer: 'apply' });
+  assert.equal(usersLookup(V20.code, { linked: true, link: null, draftOnly: false }), null);
+});
+
+test('L1n-6 (v6.1.23): the several-gaps state sentence says "and you confirm", never "your yes that"', async () => {
+  const { gapState } = await import('./reply');
+  const rule = { kind: 'rule' as const, item: 'rule:0000000c', what: 'a developer tool whose versions are near or past official end of life', effort: 'minutes' as const, agent_can: false };
+  assert.equal(gapState({ ...V20.code, also: [rule] }), 'It needs the code in a repo, and you confirm a developer tool whose versions are near or past official end of life.');
+  assert.equal(gapState({ ...V20.colosseum, also: [rule] }), 'needs a demo video link (a short screen recording of it working) first; I fill in everything else. Before you submit, you also join the sprint and register on Arena, and you confirm a developer tool whose versions are near or past official end of life.');
+});
+
+test('Review I1, M5 (v6.1.23): the users-and-change row says "I can add" only when linked; the gate takes it away', async () => {
+  const users = { kind: 'users' as const, item: 'users', what: 'real users', effort: 'hours' as const, agent_can: false };
+  const row = { ...gap({ title: 'FLOSS/fund', money: '$10,000 to $100,000', gap: users, also: [LICENSE_FILE] }), max_award_usd: 100000 };
+  const linked = v20(base({ gaps: [row], linked: true }));
+  assert.match(linked, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\) needs real users, and a license file I can add\.$/m, linked);
+  const out = v20(base({ gaps: [row], sign_in: V20_LINK }));
+  assert.match(out, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\) needs real users and a license file\.$/m, out);
+  // A repo not shown to be theirs (the gate's draft mode): the row is said plainly.
+  const { gateLines } = await import('./find');
+  assert.ok(gateLines(linked, 'draft', true).kept.includes('1. FLOSS/fund ($10,000 to $100,000) needs real users and a license file.'), linked);
+});
+
+test('Review I2 (v6.1.23): the 3+ lookup shape keeps users and EarnKit\'s changes out of the builder\'s list, and fills only with a form', async () => {
+  const { gapState } = await import('./reply');
+  const users = { kind: 'users' as const, item: 'users', what: 'real users', effort: 'hours' as const, agent_can: false };
+  const g = { ...V20.code, also: [users, LICENSE_FILE] };
+  assert.equal(gapState(g), 'needs the code in a repo first; I fill in everything else. It also needs real users and a license file.');
+  assert.equal(gapState(g, null, false), 'needs the code in a repo first. It also needs real users and a license file.');
+  const rule = { kind: 'rule' as const, item: 'rule:0000000b', what: 'an open source license on the project', effort: 'minutes' as const, agent_can: false };
+  assert.equal(gapState({ ...V20.code, also: [users, rule] }), 'needs the code in a repo first; I fill in everything else. It also needs real users. Before you submit, you confirm an open source license on the project.');
+  assert.doesNotMatch(gapState({ ...V20.colosseum, also: [users, LICENSE_FILE] }), /you also[^.]*(real users|license file)/);
+});
+
+test('Review I3 (v6.1.23): an in-person draft row reads its setup steps as the builder\'s', async () => {
+  const { inPersonDraftRow } = await import('./reply');
+  assert.equal(
+    inPersonDraftRow({ n: 2, title: 'Monad Blitz Guangzhou', money: '$1,000 in prizes', closes_in: null, setup: ['be in Guangzhou on November 21', 'follow the Mojo event page after registering'], long_shot: null }),
+    '2. Monad Blitz Guangzhou ($1,000), in person, needs you to be in Guangzhou on November 21, you to follow the Mojo event page after registering and your answers, so I can draft it today.',
+  );
+  assert.equal(
+    inPersonDraftRow({ n: 3, title: 'Antler US Residency', money: '$500,000 investment', closes_in: null, setup: ["work in person at Antler's NYC, SF or Austin office for up to 3 months"], long_shot: 'many apply, few are taken' }),
+    "3. Antler US Residency ($500,000), in person with long odds, needs you to work in person at Antler's NYC, SF or Austin office for up to 3 months and your answers, so I can draft it today.",
+  );
+  assert.match(inPersonDraftRow({ n: 2, title: 'Solana Incubator', money: '$250,000', closes_in: null, setup: ['commit every founder to move to NYC for 3 months'], long_shot: null }), /needs you to commit every founder to move to NYC for 3 months and your answers,/);
 });
 
 // Registered last, so it reads every reply the tests above rendered.

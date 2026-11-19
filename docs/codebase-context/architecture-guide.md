@@ -2124,3 +2124,78 @@ v6.1.18 sent-ask key, the v6.1.20 `It is ready:` lines, the older skip, outside-
   backfill; one file, one run, so their place in it is no order to follow). Until the new code serves, the old code's
   sent-ask write (`ON CONFLICT (installation_id, program_id)`) fails once the old key is gone (review M1). Nothing new
   in the environment.
+
+## v6.1.23: journey campaign round 15 (lane 1n)
+
+Plan `v6.1.23-journeys-15-plan.md`. This section is the current word where the v6.1.20 and v6.1.22 sections read
+otherwise (the L46-2 draft beside a step, the no-project lookup's rules list, the one-program `your yes that` sentence,
+the one-program users closing, `hasContracts`).
+
+### The list reply
+
+- **The in-person draft is on screen (L1n-1).** When the closing offers the draft of an in-person program (nothing
+  ready, the closing names only a step or nothing), that program is a numbered row after the rows shown (`draftRow`,
+  `inPersonDraftRow`: `2. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs a YC account and
+  your answers, so I can draft it today.`; `needs only your answers` when it has no setup step) and leaves the Also
+  sentence. The closing leads with the draft, the step after it (`draftOrStep`): `Say 2 and I draft Y Combinator for
+  you to send, or tell me when the code is in a public repo.`; the name is the short title without its round
+  (`roundless`). The row costs one line of the budget. Its number is the
+  program's own n (`numbered` puts in person after every step row), so when the line budget hides a step row the
+  printed numbers can skip (1, 2, 3, 5); the Say names that same n. The builder
+  contract (`fixtures/builder-rules.ts`) checks every `Say N` / `say do N` number is a printed row.
+- **Users and a rule (L1n-2).** When the step-rule closing's row still needs users (`usersRuleOf`: every real gap the
+  users question, a rule beside), one question asks both: `Do real people use it, and is it open source? Say yes, sign
+  in at {link}, and I check.` signed out; linked `... Say yes and I apply.` (offer `apply`, gated like every apply) or
+  `... and I check.` with a setup step; a non-license rule `does the {title} rule fit it?`. The row reads `needs real
+  users and your word that it is open source.` (`licenseRule`) or `needs real users, and you confirm {rule}.`. The
+  signed-out link insertion, `asksSignIn` and the off-GitHub users draft read the longer question.
+- **The change named (L1n-8).** The closing stays the L38-3 users-and-change yes (money first); linked, its row says
+  the change: `needs real users, and a license file I can add.` (`gapRow`'s `doUsers: 'add'`; a verb change keeps the
+  old row). Signed out it reads `needs real users and a license file.` (`'plain'`), and `gateLines` turns the linked
+  form plain wherever the repo is not shown to be the builder's (review I1).
+- **Also (L1n-12).** A hidden program closing this week is named only when its own verdict is ready, rules only or one
+  gap (`nearIds` in find); the rest count in the number.
+- **Full list (L1n-4).** `fullView` trims the name. L1n-13: the full list keeps `Say a number and I show what that
+  program asks.` L1n-11 (the one ready row folded into the opening) is not taken: every Say and check indexes rows 1..N.
+
+### The one-program lookup
+
+- **No project (L1n-5).** Without a project and without `ask: "rules"`, open or upcoming: `{title} ({money}{, closes}).
+  {description's first sentence} In short: {a}; {b}; {c}; and {k} more in the guide.` on one line (`briefTail`: each the
+  first clause of a guide rule; a clause naming a file or a camelCase identifier stays in the guide), `You attend in
+  person.` at its end for an in-person form, then `Tell me what you build, or its repo link, and I check the fit.`
+  (`NO_PROJECT_ONE`). No heading, no bullets, no rule-ask lines; `ask: "rules"` keeps them.
+- **States (L1n-6, the worst reply 3).** `gapState`: one need and rules `It needs {a}, and you confirm {rule}.`; two needs
+  `It needs {a} and {b}.`; three or more (needs and rules) `needs {first} first; I fill in everything else. Before you
+  submit, you also {rest}, and you confirm {rule}.`, which `verdictText` joins to the head without its full stop
+  (`Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 5 days) needs a demo video link (...)
+  first; ...`). Each rest item: `you to X` reads `X`, a thing reads `have {thing}`.
+- **Users (L1n-7).** A lookup whose real gaps are all the users question closes as the default does (`usersLookup`):
+  `Do real people use it? Say yes and I apply.` linked (offer `apply`, so the yes then stands), `... Say yes, sign in at
+  {link}, and I apply.` signed out (find makes the link, `usersStep`), `and I check` with a setup step, `and I draft it
+  for you to send.` for a program the builder sends, the L1n-2 question beside a rule; off GitHub the gate drafts it.
+  The agent note adds `USERS_NOTE`.
+
+### Eligibility
+
+- **Contracts (L1n-3, L1n-9).** `hasContracts` reads the project's name and description only; `CONTRACT_WORDS` are
+  `contract`, `contracts`, `smart contract`, `solidity`, `vyper`, `hook`. A `check: "contracts"` rule with no address
+  read or reported: on a chain the address is the step whatever the words (first in the gaps, `unshift`; a chain or
+  `contract_on` step still wins); no chain is a no unless the name or description names contracts (then the question).
+- **HeroDevs (L1n-10).** Its end-of-life rule carries keywords (`end of life`, `eol`, `lts`, `long-term support`,
+  `legacy`, `deprecated`, `unmaintained`), so a project naming none reads it unlikely (L1c-2) and leaves the default.
+
+### Final fix round (review I1 to I5, M2, M3, M5, M6, M8)
+
+- **I2.** The 3+ lookup shape keeps the users question and every change EarnKit makes (`agent_can`) out of the
+  builder's list: they read `It also needs {x}.`; a thing the builder brings reads `get {thing}`; `; I fill in everything
+  else` only when the program has a form EarnKit fills (`gapState(g, closed, fills)`, find passes `hasForm(row)`). With
+  no builder item left and a rule: `Before you submit, you confirm {rule}.`
+- **I3.** `inPersonDraftRow` runs setup steps through `needWords` (plus `work` and `follow` as verbs there) and
+  `joinGaps`: `needs you to be in Guangzhou on November 21, you to follow ... and your answers, so I can draft it today.`
+- **I4.** With the users-and-rule question as the closing, the agent note adds `USERS_RULE_NOTE(items)`: one yes is
+  both answers, track `gap_done` with the rule item, then find with `users: true` (list and lookup; `isUsersRuleSay`).
+- **I5.** `rankGaps(..., contractsNamed)`: when the project's own words name no contracts (`hasContracts`), an
+  address-only audit row (`addressOnly`) moves after every row with real changes and a stated award (`addressLast`);
+  it stays in the full list. Arkanoid's default is back to Base Builder Grant and FLOSS/fund at rows 3 and 4.
+- **M3.** On the not-your-repo gate, which drops the draft Say, the in-person row loses `, so I can draft it today`.

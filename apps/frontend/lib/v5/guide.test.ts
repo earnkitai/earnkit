@@ -34,7 +34,7 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
 });
 
 test('closes: a date, rolling, not open yet, closed', () => {
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' }))).closes, 'Closes Dec 1.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' })), new Date('2026-11-01T00:00:00Z')).closes, 'Closes Dec 1.');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-b' }))).closes, 'Rolling');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-c', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] }))).closes, 'Not open yet');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).closes, 'Closed');

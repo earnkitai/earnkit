@@ -8,7 +8,7 @@
  * project's chains that state no award put one naming the project's first reported chain first (v6.1.7), then keep
  * catalog (input) order. Pure.
  */
-import { rulesOnly, type Effort, type Gap, type Verdict } from './eligibility';
+import { CONTRACT_ADDRESS, rulesOnly, type Effort, type Gap, type Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
 
 const EFFORT_RANK: Record<Effort, number> = { minutes: 0, hours: 1, days: 2, weeks: 3 };
@@ -71,7 +71,31 @@ type Hit = (v: Verdict) => boolean;
  * `hit` (N1, v6.1.12): a keyword hit ranks as a rule-free step does (own chain first, then real-gap count, effort,
  * money), never behind the rule-free ones for its rule.
  */
-export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set(), first?: string, chains: readonly string[] = [], hit: Hit = () => false): Verdict[] {
+export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set(), first?: string, chains: readonly string[] = [], hit: Hit = () => false, contractsNamed = true): Verdict[] {
+  const sorted = rankGapsBy(v, programs, mainnets, first, chains, hit);
+  return contractsNamed ? sorted : addressLast(sorted, programs);
+}
+
+/** L1n-9 review I5 (v6.1.23): a row whose only gap is the contract address (an audit subsidy for a project whose own
+ *  words name no contracts). Pure. */
+const addressOnly = (x: Verdict): boolean => x.gaps.length > 0 && x.gaps.every((g) => g.item === CONTRACT_ADDRESS.item || g.kind === 'rule') && x.gaps.some((g) => g.item === CONTRACT_ADDRESS.item);
+/** L1n-9 review I5 (v6.1.23): each address-only row moves after every row with real changes and a stated award, the
+ *  rest of the order kept: a subsidy on an audit is no money to the builder, and the address may dead-end. Pure. */
+function addressLast(sorted: Verdict[], programs: Programs): Verdict[] {
+  const out = sorted.filter((x) => !addressOnly(x));
+  const moneyRow = (x: Verdict) => !rulesOnly(x.gaps) && award(x, programs) !== null;
+  const after = out.reduce((at, x, i) => (moneyRow(x) ? i + 1 : at), 0);
+  let shift = 0;
+  sorted.forEach((x, i) => {
+    if (!addressOnly(x)) return;
+    const was = sorted.slice(0, i).filter((y) => !addressOnly(y)).length;
+    out.splice(Math.max(was, after) + shift, 0, x);
+    shift++;
+  });
+  return out;
+}
+
+function rankGapsBy(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string>, first: string | undefined, chains: readonly string[], hit: Hit): Verdict[] {
   const bears = (x: Verdict) => ruleBearing(x) && !hit(x);
   const only = (x: Verdict) => rulesOnly(x.gaps) && !hit(x);
   const firstTie = (a: Verdict, b: Verdict) =>
