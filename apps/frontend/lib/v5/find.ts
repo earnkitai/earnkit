@@ -1180,7 +1180,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // so no agent writes and pushes a funding file for a send the gate holds back.
   const offHost = !repoKey(project!.repo_url);
   // v6.1.20 re-review O3: off GitHub no sign-in confirms the repo, so the users yes drafts for the builder to send.
-  const usersDraft = (t: string) => t.replace(/(Do real people use it\? Say yes(?:, sign in(?: at \S+)?,)? and I) apply\./, '$1 draft it for you to send.');
+  const usersDraft = (t: string) => t.replace(/(Do real people use it(?:, and [^?]+)?\? Say yes(?:, sign in(?: at \S+)?,)? and I) apply\./, '$1 draft it for you to send.');
   const drafted = offHost && usersDraft(given.show_to_builder) !== given.show_to_builder;
   if (drafted) await markOffer(ctx.installationId, 'draft', ctx.now);
   const r = withoutSteps(drafted ? { ...given, show_to_builder: usersDraft(given.show_to_builder) } : given);
@@ -1522,6 +1522,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const { shownReady, shownGaps } = selectionOf(all);
   // L18-1 (v6.1.18): the rows the rank cap left out of the default view, and those of them closing within 7 days (in
   // closing order, at most two), for the builder's more line. The full list leaves none out.
+  const nearIds = new Set([...readyV, ...gapV.filter((v) => v.gaps.length === 1 || rulesOnly(v.gaps))].map((v) => v.program_id));
   const rankCapped = new Set([...readyV.filter((v) => !shownReady.includes(v)), ...gapV.filter((v) => !shownGaps.includes(v))].map((v) => v.program_id));
   /** L1i-5 (v6.1.16.1): the programs the default view lists (for the full list's closing Say). */
   const defaultIdsOf = (): Set<string> => {
@@ -1592,7 +1593,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const hiddenRows = all ? undefined : {
     count: rankCapped.size,
     // Task 7 (v6.1.18, Task 1 review minor): every one; the more line drops the shown ones by id, then names two.
-    closing: ledger.closing_soon.filter((c) => rankCapped.has(c.program_id))
+    // L1n-12 (v6.1.23): named only when its own fit is ready, a rule or one gap away; the rest count in the number.
+    closing: ledger.closing_soon.filter((c) => rankCapped.has(c.program_id) && nearIds.has(c.program_id))
       .map((c) => ({ program_id: c.program_id, title: c.title, closes_at: c.closes_at, closes_in: closesIn(byId.get(c.program_id)!.file, ctx.now) })),
   };
   // L23-4 (v6.1.16): every applied program past its results date with no result, asked once a day by each installation.

@@ -8,4 +8,6 @@ export function builderRules(t: string, budget = true): void {
   assert.ok(t.split(/(?<=[.?!:])\s+/).filter((x) => /^Sign in\b/.test(x)).length <= 1, t);
   assert.doesNotMatch(t, /—|\p{Extended_Pictographic}|\b(score|rank|grade|points|coin|token|streak)s?\b/iu, t);
   assert.ok(t.split(/(?<=[.?!])\s+/).filter((x) => /\bSay\b|(^|, (then|or) )say\b/.test(x)).length <= 1, t);
+  // L1n-1 (v6.1.23): every number a Say names is a numbered row on the same screen.
+  for (const m of t.matchAll(/\b[Ss]ay (?:do )?(\d+)\b/g)) assert.match(t, new RegExp(`^${m[1]}\\. `, 'm'), t);
 }

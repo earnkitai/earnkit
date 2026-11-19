@@ -603,6 +603,20 @@ export const USERS_UNLINKED = 'Do real people use it? Say yes, sign in, and I ch
 export const USERS_UNLINKED_APPLY = 'Do real people use it? Say yes, sign in, and I apply.';
 /** L1i-3 (v6.1.16.1): the users question with the sign-in link in it, the reply's one sign-in sentence. Pure. */
 export const usersUnlinkedAt = (link: string, then: 'check' | 'apply' = 'check'): string => `Do real people use it? Say yes, sign in at ${link}, and I ${then}.`;
+/** L1n-2 (v6.1.23): a rule about the license (its words name one). Pure. */
+export const licenseRule = (what: string): boolean => /\blicen[cs]es?\b/i.test(what);
+/** L1n-2 (v6.1.23): a row whose real gaps are all the users question and that carries a rule: the second half of the
+ *  one question ("is it open source", "does the {title} rule fit it"), with `more` when a setup step is left too; null
+ *  otherwise. Pure. */
+export function usersRuleOf(g: GapProgram | undefined): { question: string; more: boolean } | null {
+  if (!g) return null;
+  const all = [g.gap, ...g.also];
+  const real = all.filter((x) => x.kind !== 'rule');
+  const rules = all.filter((x) => x.kind === 'rule');
+  if (real.length === 0 || !real.every(usersQuestion) || rules.length === 0) return null;
+  const license = rules.length === 1 && licenseRule(rules[0].what);
+  return { question: license ? 'is it open source' : `does the ${g.title} rule fit it`, more: g.setup.length > 0 || all.some((x) => !!x.setup) };
+}
 /** L29-19 (v6.1.16 Task 15): one way to pass the users yes. */
 export const USERS_NOTE = 'On yes, call find again with users: true.';
 /** L29-27 (v6.1.16 Task 15): how a number skips, for the agent only. */
@@ -644,6 +658,8 @@ export function closingLine(o: {
   /** L35-8 (v6.1.17, fix round 1 I1): the default view hides ready rows; its And-more line says how many, and the yes
    *  says "ready" so it reads against the heading. */
   hidden?: boolean;
+  /** L1n-2 (v6.1.23): the step-rule row still needs users: one question asks both (`usersRuleQuestion`). */
+  usersRule?: { question: string; more: boolean } | null;
 }): Closing {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
   // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead. L1e-3 (v6.1.13): a program
@@ -707,6 +723,12 @@ export function closingLine(o: {
     if (o.doUsers) return { text: doUsersClosing(o.doUsers.verb, o.doUsers.title), offer: 'apply' };
     // L29-28 (v6.1.16 Task 15): the rule Say says what the yes does.
     if (o.firstRule !== null) return { text: `Nothing is ready yet. ${ruleSay(o.firstRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
+    // L1n-2 (v6.1.23): a row that still needs users never closes on its rule alone: one question asks both.
+    if (o.stepRule != null && o.usersRule) {
+      const ask = `Do real people use it, and ${o.usersRule.question}?`;
+      if (o.linked === false) return { text: `Nothing is ready yet. ${ask} Say yes, sign in, and I check.`, offer: 'look_again' };
+      return o.usersRule.more ? { text: `Nothing is ready yet. ${ask} Say yes and I check.`, offer: 'look_again' } : { text: `Nothing is ready yet. ${ask} Say yes and I apply.`, offer: 'apply' };
+    }
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
     if (o.stepRule != null) return { text: `Nothing is ready yet. ${ruleSay(o.stepRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
     const step = o.firstStep ?? null;
@@ -1075,6 +1097,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L24-28: the one ready program, over the builder's limit.
   const overLimit = r.auto_apply && unsaid.length === 1 && r.blockers.some((b) => b.program_id === unsaid[0].program_id && b.outside_approval && b.over_limit_usd !== undefined);
   const stepRule = stepRuleOf(steps);
+  // L1n-2 (v6.1.23): the step-rule row that still needs users.
+  const usersRule = stepRule !== null && firstRule === null ? usersRuleOf(steps.find((g) => g.n === stepRule)) : null;
   const doOffer = doOfferOf(steps as (GapProgram & { n: number })[]);
   // L38-3 (v6.1.18): a step program with a stated amount, whose yes is the users answer and EarnKit's change, closes
   // ahead of the rule of a program with no stated amount, and ahead of its own change step.
@@ -1119,6 +1143,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
             doOffer,
             yesNeeds,
             linked: r.linked,
+            usersRule,
             onHold: onHold.length,
             ...(readyHidden ? { hidden: true } : {}),
           });
@@ -1139,7 +1164,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // has no sign-in line; the link stays in the JSON for the agent, and a send with a repo is gated by find (`signInFirst`).
   // Fix round 1 (I2): judged on the Say the reply ends on; the full view ends on the default view's.
   const endsOn = o.all && o.defaultSay !== undefined ? o.defaultSay : closingOf.text;
-  const asksSignIn = !r.linked && /Do real people use it\? Say yes, sign in\b/.test(endsOn);
+  const asksSignIn = !r.linked && /Do real people use it(?:, and [^?]+)?\? Say yes, sign in\b/.test(endsOn);
   // Fix round 1 (I1): only when the closing keeps the reply's Say (no not-sent, started or sent line says it first).
   const notSent = notSentLine(r, now);
   // v6.1.16 Task 9 N4 (v6.1.17): a program the not-sent line names gets no started line too.
@@ -1167,12 +1192,13 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // program with a form is on the screen: its draft is the one Say; the step stays that row's sentence.
   const draftable = inPerson.filter((p) => !p.claimed_since);
   // v6.1.20 polish (4): a step program on the screen keeps its step as the action; the draft is offered beside it.
+  // L1n-1 (v6.1.23): the program the draft Say names is a numbered row on the screen (`draftRow`), and the draft leads,
+  // the step after it.
+  let draftRow: ReadyProgram | null = null;
   if (!signsIn && ready.length === 0 && tonight === 0 && closingOf.offer === null && draftable.length > 0 && !o.all) {
     const step = closingOf.text.replace(/^Nothing is ready yet\.\s*/, '');
-    const draft = draftSay(draftable[0].n, draftable[0].title);
-    Object.assign(closingOf, step === '' || carriesSay(step)
-      ? { text: draft, offer: 'draft' as const }
-      : { text: `${step.replace(/\.$/, '')}, or s${draft.slice(1)}`, offer: 'draft' as const });
+    draftRow = draftable[0];
+    Object.assign(closingOf, { text: draftOrStep(draftRow.n, draftRow.title, step === '' || carriesSay(step) ? null : step), offer: 'draft' as const });
   }
   // v6.1.20: the opening says nothing is ready, so the closing does not say it again.
   closingOf.text = closingAfterOpening(closingOf.text);
@@ -1238,7 +1264,11 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   const stepAgent = (g: GapProgram): string => (oneStep(g) || g === ruleNamed ? gapLine(g, false, closed) : moreStepsLine(g));
   const stepBlock = (gs: GapProgram[]): Block | null => {
     if (gs.length === 0) return null;
-    const said = gs.map((g) => gapSentence(g, { whole: g === ruleNamed, closed }));
+    const said = gs.map((g) => gapSentence(g, {
+      whole: g === ruleNamed, closed, ...(usersRule && g.n === stepRule ? { usersRule: true } : {}),
+      // L1n-8 (v6.1.23): the row the users-and-change yes closes on names the change EarnKit makes.
+      ...(doUsers && free.length === 0 && g.program_id === doUsers.program.program_id ? { doUsers: true } : {}),
+    }));
     const agent = gs.map(stepAgent);
     const at = gs.indexOf(gapShown);
     return { ids: gs.map((g) => g.program_id), line: (i) => said[i], hide: (i) => agent[i], order: at < 0 ? gs.map((_, i) => i) : [at, ...gs.map((_, i) => i).filter((i) => i !== at)] };
@@ -1299,11 +1329,12 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     ...inPersonLines,
   ];
   // v6.1.20: the in-person programs are said in the Also sentence (no numbers), with the count the full list holds.
+  // L1n-1 (v6.1.23): the in-person program the draft Say names is a numbered row, not in the Also sentence.
   const attendRows = [
-    ...inPerson.map((p) => ({ ...p })),
+    ...inPerson.filter((p) => p.program_id !== draftRow?.program_id).map((p) => ({ ...p })),
     ...attendRules.map((g) => ({ ...g, long_shot: (g as { long_shot?: string | null }).long_shot ?? null, ...(ruleOnlyGap(g) ? { rule: [g.gap, ...g.also].map((x) => midSentence(x.what)).join('; ') } : {}) })),
   ];
-  const attendIds = attendRows.map((x) => x.program_id);
+  const attendIds = [...(draftRow ? [draftRow.program_id] : []), ...attendRows.map((x) => x.program_id)];
   const readyIds = r.ready.map((p) => p.program_id);
   const stepIds = r.gaps.map((g) => g.program_id);
   const hiddenOf = (sh: string[]) => {
@@ -1313,7 +1344,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // L18-1 (v6.1.18): the rows the rank cap left out are added once; the Also sentence names two closing this week.
   const capHidden = Math.max(0, o.hidden?.count ?? 0);
   const opening = openingSentence({ name: o.name, ready: free.length, held: heldReady.length, onHold: onHold.length, steps: steps.length, inPerson: attendCount, act: readyAct });
-  const room = DEFAULT_LINES - (sayLine ? 1 : 0) - 1 - (attendRows.length > 0 ? 1 : 0);
+  const room = DEFAULT_LINES - (sayLine ? 1 : 0) - 1 - (attendRows.length > 0 ? 1 : 0) - (draftRow ? 1 : 0);
   const once = fit(slots, room);
   const fitted = attendRows.length === 0 && hiddenOf(once.shown) + capHidden > 0 ? fit(slots, room - 1) : once;
   const { hidden, shown, rows } = fitted;
@@ -1324,12 +1355,33 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // Task 7 (v6.1.18): by id, never by title (two programs may share one).
   const closingHidden = (o.hidden?.closing ?? []).filter((c) => !shown.includes(c.program_id) && !attendIds.includes(c.program_id)).map((c) => ({ ...c, title: shortTitle(c.title, o.shorts?.get(c.program_id)) }));
   const alsoLine = alsoSentence(attendRows, left, closingHidden, now);
-  const text = paragraphs(opening, kept.slice(0, rows), alsoLine, kept.slice(rows), sayLine);
+  const text = paragraphs(opening, [...kept.slice(0, rows), ...(draftRow ? [inPersonDraftRow(draftRow)] : [])], alsoLine, kept.slice(rows), sayLine);
   return { text, offer, hidden: [...rest, ...hidden], shown: [...shown, ...attendIds], say: sayLine, more: left };
 }
 
-/** L46-2 (v6.1.20): the draft Say of a program on the screen, by its number. Pure. */
-export const draftSay = (n: number, title: string): string => `Say ${n} and I draft ${title} for you to send.`;
+/** L46-2 (v6.1.20): the draft Say of a program on the screen, by its number. L1n-1 (v6.1.23): by its name without the
+ *  round (`roundless`). Pure. */
+export const draftSay = (n: number, title: string): string => `Say ${n} and I draft ${roundless(title)} for you to send.`;
+/** L1n-1 (v6.1.23): a program's name without its round: "Y Combinator Winter 2027 Batch" reads "Y Combinator". Pure. */
+export const roundless = (title: string): string => {
+  const cut = title.replace(/\s+(?:(?:Winter|Spring|Summer|Fall|Autumn)\s+)?20\d\d(?:\s+(?:Batch|Cohort))?$/, '').trim();
+  return cut === '' ? title : cut;
+};
+/** L1n-1 (v6.1.23): the draft Say first, the step closing after it ("Say 2 and I draft Y Combinator for you to send, or
+ *  tell me when the code is in a public repo."); the draft alone with no step. Pure. */
+export const draftOrStep = (n: number, title: string, step: string | null): string => {
+  const draft = draftSay(n, title);
+  if (!step) return draft;
+  const rest = step.replace(/\.$/, '').replace(/ and I look again$/, '');
+  return `${draft.replace(/\.$/, '')}, or ${lowerFirst(rest)}.`;
+};
+/** L1n-1 (v6.1.23): the in-person program the draft Say names, as a numbered row: "2. Y Combinator Winter 2027 Batch
+ *  ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today."; "needs only your
+ *  answers" when the program has no setup step of its own. Pure. */
+export const inPersonDraftRow = (p: Pick<ReadyProgram, 'n' | 'title' | 'money' | 'closes_in' | 'setup'> & { long_shot?: string | null }): string => {
+  const needs = p.setup.length > 0 ? `${joinAnd(p.setup.map(midSentence))} and your answers` : 'only your answers';
+  return `${p.n}. ${p.title} (${[moneyFigure(p.money), ...(p.closes_in ? [`closes ${p.closes_in}`] : [])].join(', ')}), in person${p.long_shot ? ' with long odds' : ''}, needs ${needs}, so I can draft it today.`;
+};
 /** L46-9 (v6.1.20): the closing as a plain fact when another line keeps the reply's one Say: "Tell me when X and I look
  *  again." reads "When X, I look again."; an ask with nothing else in it is left out. Pure. */
 export const plainClosing = (text: string): string => {
@@ -1432,7 +1484,9 @@ export function fullView(blocks: [string, (ReadyProgram | GapProgram)[]][], afte
     const at = lead[head] ?? 'Ready:';
     runs.set(at, [...(runs.get(at) ?? []), ...[...ps].sort((a, b) => a.n - b.n).map((p) => line(p, head))]);
   }
-  return paragraphs(`Everything open${name ? ` for ${name}` : ''}, nearest first:`, ...[...runs].map(([at, rows]) => [at, ...rows]), after, say);
+  // L1n-4 (v6.1.23): the name trimmed, as the default's opening trims it (a cut name never leaves a space before the comma).
+  const named = name?.trim() || null;
+  return paragraphs(`Everything open${named ? ` for ${named}` : ''}, nearest first:`, ...[...runs].map(([at, rows]) => [at, ...rows]), after, say);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1542,12 +1596,28 @@ const afterGap = (g: GapProgram, own: string[]): string => `${own.map((x) => ` $
  * {gap} first."), several ("needs {first}, then {k} more steps."); `whole`: the row the rule Say names, every step and
  * the rule on screen. Pure.
  */
-export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
+export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null; usersRule?: boolean; doUsers?: boolean } = {}): string {
   return `${gapRow(g, o)}${earlierTail(g)}`;
 }
-function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null } = {}): string {
+function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null; usersRule?: boolean; doUsers?: boolean } = {}): string {
   const head = `${g.n}. ${g.title} ${moneyParen(g)}`;
   const { needs, rules, own } = askedOf(g, o.closed ?? null);
+  // L1n-8 (v6.1.23): "needs real users and a license file, which I can add." (each change a thing, not a verb).
+  if (o.doUsers) {
+    const all = [g.gap, ...g.also];
+    const users = all.filter(usersQuestion).map((x) => needWords(x.what));
+    const made = all.filter((x) => x.agent_can).map((x) => midSentence(x.what));
+    if (users.length > 0 && made.length > 0 && made.every((x) => !VERB.test(x)))
+      return `${head} needs ${joinAnd([...users, ...made])}, which I can add.${afterGap(g, own)}`;
+  }
+  // L1n-2 (v6.1.23): the row the users-and-rule question names says both: "needs real users and your word that it is
+  // open source." (a license rule), else "needs real users, and you confirm {rule}.".
+  if (o.usersRule && needs.length > 0 && rules.length > 0) {
+    const what = needs.length === 1 ? needs[0] : `${joinGaps(needs)} first`;
+    return rules.length === 1 && licenseRule(rules[0])
+      ? `${head} needs ${what} and your word that it is open source.${afterGap(g, own)}`
+      : `${head} needs ${what}, and you confirm ${rules.join('; ')}.${afterGap(g, own)}`;
+  }
   const yes = rules.length > 0 ? `one yes from you: ${rules.join('; ')}` : '';
   if (needs.length === 0 && rules.length > 0) return `${head} needs ${yes}.${afterGap(g, own)}`;
   if (needs.length === 0) return `${head}.${afterGap(g, own)}`;
