@@ -820,27 +820,36 @@ test('L46-10 (v6.1.22): an audit program is a no for a project with no chain and
   assert.deepEqual(CONTRACT_ADDRESS, { kind: 'repo', item: 'repo:contract', what: 'a contract address', setup: 'tell me the contract address', effort: 'minutes', agent_can: false });
 });
 
-test('L46-10b (v6.1.22): a contract read or a Solidity README keeps the audit rule as a question', async () => {
+test('L46-10b (v6.1.22), L1n-3, L1n-9 (v6.1.23): a contract read keeps the audit rule as a question; the builder\'s own words decide only with no chain; on a chain the address comes first', async () => {
   const essp = fromFile('ethereum-security-subsidy-program');
+  const ufsf = fromFile('uniswap-foundation-security-fund');
   const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
   const facts = (over: Partial<RepoFacts>): RepoFacts => ({
-    ...base, name: 'Vault', description: 'A lending vault.', repo_url: 'https://github.com/l46/vault', public: true, chains: [{ chain: 'ethereum', mainnet: false, basis: 'code' }], ...over,
+    ...base, name: 'Vault', description: 'A lending vault.', repo_url: 'https://github.com/l46/vault', public: true, chains: [{ chain: 'ethereum', mainnet: true, basis: 'reported' }], contracts: [], ...over,
   });
-  const ruleGap = (f: RepoFacts) => {
-    const v = evaluate(essp, f, new Set(), NOW);
+  const ruleGap = (program: typeof essp, f: RepoFacts) => {
+    const v = evaluate(program, f, new Set(), NOW);
     assert.notEqual(v.status, 'no', JSON.stringify(v));
     assert.ok(v.gaps.some((g) => g.kind === 'rule'), JSON.stringify(v));
   };
-  ruleGap(facts({ contracts: [{ chain: 'ethereum', address: '0x' + 'b'.repeat(40), basis: 'reported' }] }));
-  ruleGap(facts({ readme_excerpt: 'Written in Solidity with Foundry; not deployed yet.' }));
-  ruleGap(facts({ description: 'A lending protocol on Ethereum.' }));
-  ruleGap(facts({ topics: ['vyper'] }));
-  ruleGap(facts({ name: 'Swap Hook' }));
-  // Whole words only: "protocols" or "hooked" name none, so the address is asked (the project is on a chain).
-  const words = evaluate(essp, facts({ description: 'Hooked on network protocols.', chains: [{ chain: 'ethereum', mainnet: true, basis: 'reported' }] }), new Set(), NOW);
-  assert.deepEqual(words.gaps, [CONTRACT_ADDRESS]);
+  // A contract read or reported: the rule is the question.
+  ruleGap(essp, facts({ contracts: [{ chain: 'ethereum', address: '0x' + 'b'.repeat(40), basis: 'reported' }] }));
+  // L1n-9: on a chain with no address, the address is the first step whatever the words say.
+  for (const over of [{ description: 'Solidity contracts for a lending vault.' }, { readme_excerpt: 'Written in Solidity with Foundry; not deployed yet.' }, { name: 'Swap Hook' }]) {
+    const v = evaluate(essp, facts(over), new Set(), NOW);
+    assert.equal(v.gaps[0], CONTRACT_ADDRESS, JSON.stringify(over));
+  }
   // Still to deploy on the chain: that step stands and the address is not asked as well; the rule waits.
-  assert.deepEqual(evaluate(essp, facts({ description: 'Charts.' }), new Set(), NOW).gaps.map((g) => g.kind), ['chain']);
+  assert.deepEqual(evaluate(essp, facts({ chains: [{ chain: 'ethereum', mainnet: false, basis: 'code' }] }), new Set(), NOW).gaps.map((g) => g.kind), ['chain']);
+  // No chain: the builder's own name or description naming contracts keeps the rule a question.
+  ruleGap(ufsf, facts({ chains: [], description: 'Uniswap v4 hook contracts for limit orders.' }));
+  ruleGap(ufsf, facts({ chains: [], name: 'Swap Hook' }));
+  // L1n-3: never the README or the topics, and "protocol" is no contract word (Bluesky: the AT Protocol, React hooks).
+  const bluesky = facts({ chains: [], name: 'Bluesky Social App', description: 'The Bluesky Social application for Web, iOS, and Android.', readme_excerpt: 'Built on the AT Protocol. Uses React hooks and Solidity-free code.', topics: ['vyper', 'protocol'] });
+  for (const slug of ['ethereum-security-subsidy-program', 'arbitrum-security-program', 'uniswap-foundation-security-fund']) {
+    assert.equal(evaluate(fromFile(slug), bluesky, new Set(), NOW).status, 'no', slug);
+  }
+  assert.equal(evaluate(ufsf, facts({ chains: [], description: 'A lending protocol.' }), new Set(), NOW).reason, 'needs smart contracts to audit');
 });
 
 test('L46-10 (v6.1.22, Task 4 review minor 2): the address step is decided after the items, so their order never matters', async () => {
@@ -861,4 +870,16 @@ test('L46-10 (v6.1.22): only a rule takes check contracts', () => {
   assert.ok(eligibilityOf(essp.file).some((i) => i.kind === 'rule' && i.check === 'contracts'));
   assert.throws(() => ProgramFile.parse({ ...essp.file, eligibility: [{ kind: 'feature', value: 'x', check: 'contracts' }] }));
   assert.throws(() => ProgramFile.parse({ ...essp.file, eligibility: [{ kind: 'rule', note: 'x', check: 'code' }] }));
+});
+
+test('L1n-10 (v6.1.23): HeroDevs is unlikely for a project that names no end-of-life support, likely for one that does', async () => {
+  const hero = fromFile('herodevs-sustainability-fund');
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...base, repo_url: 'https://github.com/l1n/x', public: true, contracts: [], chains: [], ...over });
+  const game = facts({ name: '2048', description: 'A small sliding tile puzzle game.' });
+  const lts = facts({ name: 'AngularJS LTS', description: 'Long-term support for AngularJS after its end of life.' });
+  const note = 'a developer tool whose versions are near or past official end of life';
+  const pending: Gap[] = [{ kind: 'rule', item: ruleItem(note), what: note, effort: 'minutes', agent_can: false }];
+  assert.equal(unlikely(hero, game, pending), true);
+  assert.equal(unlikely(hero, lts, pending), false);
 });

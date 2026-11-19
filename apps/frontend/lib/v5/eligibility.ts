@@ -246,10 +246,13 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       case 'rule': {
         // L46-10 (v6.1.22): an audit program for a project with no smart contracts: a no with no chain at all, whatever
         // was confirmed; on a chain, the contract address is the one step and the rule waits for it (ruling 2).
-        if (i.check === 'contracts' && !hasContracts(facts)) {
-          if (facts.chains.length === 0) return out('no', [], 'needs smart contracts to audit');
-          needsAddress = true;
-          break;
+        // L1n-9 (v6.1.23): on a chain with no address read or reported, the address is asked whatever the words say.
+        if (i.check === 'contracts' && facts.contracts.length === 0) {
+          if (facts.chains.length > 0) {
+            needsAddress = true;
+            break;
+          }
+          if (!hasContracts(facts)) return out('no', [], 'needs smart contracts to audit');
         }
         if (done.has(itemKey(i))) break;
         // L38-27 (v6.1.18 Task 11): a license rule the read settles: an OSI license confirms it; no license file is
@@ -278,7 +281,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   }
 
   // A contract still to deploy on the program's chain gives the address: that step alone is asked.
-  if (needsAddress && !gaps.some((g) => g.kind === 'chain' || g.kind === 'contract_on')) gaps.push(CONTRACT_ADDRESS);
+  // L1n-9 (v6.1.23): it is the row's first step, so the address is what the row and the closing ask.
+  if (needsAddress && !gaps.some((g) => g.kind === 'chain' || g.kind === 'contract_on')) gaps.unshift(CONTRACT_ADDRESS);
   const reason = inPerson ? 'in person' : null;
   if (gaps.length === 0) return out('ready', [], reason);
   // Real gaps first, then the rules to confirm; only the real ones count toward the limits.
@@ -333,13 +337,15 @@ const unhyphen = (s: string): string => s.replace(/-/g, ' ');
 export const names = (text: string, phrase: string): boolean =>
   new RegExp(`(?<![\\p{L}\\p{N}])${unhyphen(phrase.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(unhyphen(text.toLowerCase()));
 
-/** L46-10 (v6.1.22): the words that name smart contracts in a project's own words (whole words, lower-cased). */
-const CONTRACT_WORDS = ['contract', 'contracts', 'smart contract', 'solidity', 'vyper', 'hook', 'protocol'];
+/** L46-10 (v6.1.22): the words that name smart contracts in a project's own words (whole words, lower-cased). L1n-3
+ *  (v6.1.23): `protocol` left the list (the AT Protocol is no contract). */
+const CONTRACT_WORDS = ['contract', 'contracts', 'smart contract', 'solidity', 'vyper', 'hook'];
 /** L46-10 (v6.1.22): whether the project has smart contracts: one read or reported (find merges reported addresses into
- *  `contracts`), or its name, description, README excerpt or topics name one of CONTRACT_WORDS. Pure. */
+ *  `contracts`), or its own name or description names one of CONTRACT_WORDS. L1n-3 (v6.1.23): never the README excerpt
+ *  or the topics (every React README says "hook"). Pure. */
 export const hasContracts = (facts: RepoFacts): boolean => {
   if (facts.contracts.length > 0) return true;
-  const own = [...[facts.name, facts.description, facts.readme_excerpt ?? ''].map((t) => wordsOf(proseOf(t), new Set())), ...(facts.topics ?? [])].join('\n');
+  const own = [facts.name, facts.description].map((t) => wordsOf(proseOf(t), new Set())).join('\n');
   return CONTRACT_WORDS.some((w) => names(own, w));
 };
 

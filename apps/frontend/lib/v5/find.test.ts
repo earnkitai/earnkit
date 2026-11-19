@@ -130,8 +130,9 @@ test('first find has no since', async () => {
       '',
       '1. Arbitrum Mentorship Program (up to $100,000, closes Dec 6).',
       '2. Base Ecosystem Fund (pre-seed and seed investment) needs one yes from you: a pre-seed or seed stage startup that chooses Base as its home.',
-      '3. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
-      '4. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
+      // L1n-9 (v6.1.23): on a chain with no address, Arbitrum's audit subsidy asks the address, one step away.
+      '3. Arbitrum Security Program (audit subsidy) needs a contract address first.',
+      '4. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
       '',
       'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
       '',
@@ -1424,8 +1425,9 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '',
       '1. Arbitrum Mentorship Program (up to $100,000, closes Dec 6).',
       '2. Base Ecosystem Fund (pre-seed and seed investment) needs one yes from you: a pre-seed or seed stage startup that chooses Base as its home.',
-      '3. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
-      '4. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
+      // L1n-9 (v6.1.23): on a chain with no address, Arbitrum's audit subsidy asks the address, one step away.
+      '3. Arbitrum Security Program (audit subsidy) needs a contract address first.',
+      '4. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
       '',
       'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
       '',
@@ -1696,7 +1698,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '',
       '1. FLOSS/fund ($10,000 to $100,000) needs a license file first.',
       '2. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
-      '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs a license file, then 1 more step.',
+      '3. GitHub Secure Open Source Fund ($10,000 per project) needs a license file, then 2 more steps.',
       '',
       'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 19 more in the full list.',
       '',
@@ -1725,7 +1727,8 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '',
       '1. FLOSS/fund ($10,000 to $100,000) needs a public repo first.',
       '2. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
-      '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs a public repo, then 1 more step.',
+      // L1n-10 (v6.1.23): ALVR names no end-of-life support, so HeroDevs' rule is unlikely and leaves the default.
+      '3. GitHub Secure Open Source Fund ($10,000 per project) needs a public repo, then 2 more steps.',
       YC_ROW(4),
       '',
       ALSO_IP(20),
@@ -2269,7 +2272,7 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       '',
       '1. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
       '2. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
-      '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs real users, then 2 more steps.',
+      '3. GitHub Secure Open Source Fund ($10,000 per project) needs real users, then 3 more steps.',
       YC_ROW(4),
       '',
       ALSO_IP(19),
@@ -2291,7 +2294,7 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
   // v6.1.18 merge: HeroDevs' license file (L38-27) joins its end-of-life rule (L18-2), so no row is one step away.
   assert.deepEqual([2, 3, 4].map((n) => lineOf(early.show_to_builder as string, n)), [
     '2. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
-    '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs a license file, then 1 more step.',
+    '3. GitHub Secure Open Source Fund ($10,000 per project) needs a license file, then 2 more steps.',
     '',
   ]);
   // Two days out it is listed first, ahead of the cap. L38-27: its license rule is a license file too, and the two
@@ -2299,7 +2302,7 @@ test('O1 (v6.1.10, Review Focus 2): a program closing in two days that the proje
   const late = (await at(new Date('2026-11-10T08:00:00Z'))).reply!;
   assert.deepEqual([2, 3, 4].map((n) => lineOf(late.show_to_builder as string, n)), [
     '2. PayPal AI Hackathon ($67,500 in prizes, closes in 2 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
-    '3. HeroDevs Open Source Sustainability Fund ($2,500 to $15,000) needs a license file, then 1 more step.',
+    '3. GitHub Secure Open Source Fund ($10,000 per project) needs a license file, then 2 more steps.',
     '',
   ]);
   assert.equal((late.gaps as { program_id: string; closes_in?: string }[])[0].closes_in, 'in 2 days');

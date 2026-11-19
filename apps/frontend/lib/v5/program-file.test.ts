@@ -171,8 +171,10 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   // L1e-2 (v6.1.13, fix round 1 T3-R2): who the age rule is for, never a bare number or "fellowship"; Avalanche's ecosystem rule names its chain.
   assert.deepEqual(kw('thiel-fellowship'), ['student', 'students', 'college', 'university', 'dropout', 'drop out', 'undergrad']);
   assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'avalanche subnet', 'avalanche l1']);
-  for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
+  for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
+  // L1n-10 (v6.1.23): HeroDevs' end-of-life rule is likely only for a project that names its support window.
+  assert.deepEqual(kw('herodevs-sustainability-fund'), ['end of life', 'end-of-life', 'eol', 'lts', 'long-term support', 'legacy', 'deprecated', 'unmaintained']);
 });
 
 test('Review Focus 5 (v6.1.14): the three re-kinded programs read as grants on /programs and in replies, never hackathons', () => {

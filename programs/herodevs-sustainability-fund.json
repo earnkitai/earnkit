@@ -23,7 +23,7 @@
   "min_tier": "used",
   "eligibility": [
     { "kind": "users", "note": "an open source developer tool with existing users" },
-    { "kind": "rule", "note": "a developer tool whose versions are near or past official end of life" },
+    { "kind": "rule", "note": "a developer tool whose versions are near or past official end of life", "keywords": ["end of life", "end-of-life", "eol", "lts", "long-term support", "legacy", "deprecated", "unmaintained"] },
     { "kind": "rule", "note": "an OSI-approved open source license", "check": "license" }
   ],
   "setup": [],
