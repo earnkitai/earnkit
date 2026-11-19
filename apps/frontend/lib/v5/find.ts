@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, usersLookup, USERS_NOTE, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
@@ -423,7 +423,7 @@ const actionOffer = (action: string | null): OfferKind | null => {
  * lines, the kind of the `Say` they offer (L24-2, v6.1.16 Task 11): "Your yes stands" only after an apply offer
  * (`lastOffer`); a program on the standing-approval list (`standing`, L24-13) closes on STANDING_ONE. Pure.
  */
-function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null; done: Set<string>; lastOffer: OfferKind | null; standing: boolean }): { lines: string[]; offer: OfferKind | null } {
+function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null; link?: string | null; done: Set<string>; lastOffer: OfferKind | null; standing: boolean }): { lines: string[]; offer: OfferKind | null } {
   const p = row.file;
   // v6.1.20: the program by its short title, its money in parentheses, then one state sentence.
   const title = shortTitle(p.title, p.short_title);
@@ -433,11 +433,15 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
     // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once. L38 big 1 (v6.1.18 Task 10): inside the action,
     // first ("Sign in at {link} so I can check the repo, then ..."), never a line of its own.
     // L18-3 (v6.1.18): a program the builder sends closes on the draft, never on apply.
-    const action = gapAction(g, o.signIn, o.draftOnly);
+    // L1n-7 (v6.1.23): the users question closes as the default's does.
+    const users = o.signIn ? null : usersLookup(g, { linked: o.linked, link: o.link ?? null, draftOnly: o.draftOnly });
+    const action = users?.text ?? gapAction(g, o.signIn, o.draftOnly);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
     const head = oneHead(g.title, g.money, g.closes_in ? `closes ${g.closes_in}` : null);
     const state = gapState(g, gapActionStep(g, o.signIn, o.draftOnly));
-    return { lines: [state ? `${head} ${state}` : head, ...o.rules, action].filter((l): l is string => l !== null), offer: actionOffer(action) };
+    // The worst reply 3 (v6.1.23): a state that starts "needs" continues the head's sentence.
+    const line = !state ? head : /^needs /.test(state) ? `${head.replace(/\.$/, '')} ${state}` : `${head} ${state}`;
+    return { lines: [line, ...o.rules, action].filter((l): l is string => l !== null), offer: users?.offer ?? actionOffer(action) };
   }
   const r = { ...ready(), title, n: 0 };
   // L1j-7 (v6.1.17): an in-person program closes on its one action too.
@@ -475,8 +479,42 @@ export const ATTEND_ONE = 'You attend in person.';
 export const CLOSED_ONE = 'It is closed; say its name again when it reopens, or tell me about your project and I find what is open.';
 /** Fix round 1 (v6.1.19 Task 3, M3): the same with a project given. */
 export const CLOSED_PROJECT_ONE = 'It is closed; say its name again when it reopens, or ask me what is open for this project.';
-/** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. */
-export const NO_PROJECT_ONE = 'Tell me about your project and I check the fit.';
+/** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. L1n-5 (v6.1.23): the ask names
+ *  what to tell. */
+export const NO_PROJECT_ONE = 'Tell me what you build, or its repo link, and I check the fit.';
+/** L1n-5 (v6.1.23): a file name or a camelCase identifier, never said to the builder. */
+const CODE_WORD = /\b[\w-]+\.(json|toml|ya?ml|md|js|ts|sol)\b|\b[a-z]+[A-Z][A-Za-z]*\b/;
+/** L1n-5 (v6.1.23): rules shown in short on a lookup with no project; the rest are the guide's. */
+export const RULES_IN_SHORT = 3;
+/** L1n-5 (v6.1.23): the first sentence of a text, its full stop kept; '' for none. Pure. */
+export const firstSentence = (text: string): string => {
+  const t = text.trim();
+  if (t === '') return '';
+  const m = /^(.+?[.!?])(?=\s+[A-Za-z(]|$)/s.exec(t);
+  return (m ? m[1] : `${t}.`).replace(/\s+/g, ' ');
+};
+/** L1n-5 (v6.1.23): a rule's first sentence, to its first semicolon, as a clause after "In short:": no full stop, the first letter lower-cased
+ *  unless the first word is the program's own name or an acronym. Pure. */
+const ruleClause = (rule: string, own: string): string => {
+  // Its first clause: a rule's own semicolons would read as the next rule.
+  const t = firstSentence(rule).replace(/[.!?]$/, '').split(/;\s+/)[0];
+  const word = /^[A-Za-z]+/.exec(t)?.[0] ?? '';
+  return /^[A-Z][a-z]/.test(word) && !own.includes(word) ? `${t.charAt(0).toLowerCase()}${t.slice(1)}` : t;
+};
+/**
+ * L1n-5 (v6.1.23): what a lookup with no project says after the head, each part with its leading space: the
+ * description's first sentence, then "In short: {a}; {b}; {c}." (the first sentence of each of the first three rules,
+ * "; and {k} more in the guide" past three). Pure.
+ */
+export function briefTail(p: Pick<Program, 'title' | 'organizer' | 'description'>, rules: string[]): string {
+  const desc = firstSentence(p.description ?? '');
+  const own = `${p.title} ${p.organizer ?? ''}`;
+  // A clause naming a file or a code identifier ("farcaster.json", "accountAssociation") stays in the guide.
+  const shown = rules.map((r) => ruleClause(r, own)).filter((r) => r !== '' && !CODE_WORD.test(r)).slice(0, RULES_IN_SHORT);
+  const more = rules.length - shown.length;
+  const short = shown.length > 0 ? ` In short: ${shown.join('; ')}${more > 0 ? `; and ${more} more in the guide` : ''}.` : '';
+  return `${desc ? ` ${desc}` : ''}${short}`;
+}
 
 /** Fix round 1 (I1, v6.1.18 Task 8): a verdict's rule items, as a remembered gap's `rules` (left out when none). Pure. */
 const ruleItemsOf = (gaps: Gap[]): { rules?: string[] } => {
@@ -546,6 +584,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const guide = guideText(row, ctx.now);
   // The rules list stays in guide.rules; the builder sees it only with no project (no verdict to give) or on asking.
   const guideRules = !project || ask === 'rules' ? guideLines(guide) : [];
+  // L1n-5 (v6.1.23): a lookup with no project and no ask for the rules reads short (`briefTail`).
+  const brief = !project && ask !== 'rules';
   // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
   const rules = ruleNotes(p);
   // Fix round 1 (I1, v6.1.18 Task 8): this look lists the program's open rules; a yes to it confirms those.
@@ -569,7 +609,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // Unlinked, with the proof among the gaps: the sign-in sentence with its link, once, as the list closes (v6.1.14); the
   // action itself when it is the one step left.
   const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && hasProof(verdict.gaps);
-  const link = signStep ? await linkOf(ctx) : null;
+  // L1n-7 (v6.1.23): signed out, the users question carries the sign-in link too.
+  const usersStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && verdict.gaps.some((x) => x.kind === 'users') && verdict.gaps.filter((x) => x.kind !== 'rule').every((x) => x.kind === 'users');
+  const link = signStep || usersStep ? await linkOf(ctx) : null;
   // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
   // Fix round 1 (M6): "the repo" only with a repo link; else the proof's bar.
   const signIn = signStep ? signInCheck(link, Boolean(project?.repo_url), proofBarOf(verdict.gaps) ?? 'used') : null;
@@ -588,7 +630,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ready: [{ ...readyOf(row, verdict, facts, ctx.now, rec, ownDone), n: 1 }], blockers: blockersOf([row], rec.record),
     }).list.length === 1;
   const said = !closed && !upcoming && verdict
-    ? verdictText(row, verdict, () => withoutStep(readyOf(row, verdict, facts, ctx.now, rec, ownDone), heldSince !== null), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done, lastOffer, standing })
+    ? verdictText(row, verdict, () => withoutStep(readyOf(row, verdict, facts, ctx.now, rec, ownDone), heldSince !== null), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, link, done, lastOffer, standing })
     : null;
   let offer: OfferKind | null = said?.offer ?? null;
   const show = closed
@@ -599,14 +641,20 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       // Fix round 1 (M3): with a project given, the way on never asks for the project.
       : [oneHead(short, moneyOf(p)), project ? CLOSED_PROJECT_ONE : CLOSED_ONE]
     : upcoming
-      ? [`${oneHead(short, moneyOf(p))} Not open yet: ${opens}.`, ...rules.map(ruleAsk), ...guideRules]
+      ? brief
+        ? [`${oneHead(short, moneyOf(p))} Not open yet: ${opens}.${briefTail(p, guide.rules)}`]
+        : [`${oneHead(short, moneyOf(p))} Not open yet: ${opens}.`, ...rules.map(ruleAsk), ...guideRules]
       : said
         ? said.lines
         // L1j-7 (v6.1.17 fix round 1 M1): an open in-person program ends on its one action with no project too. L1k-4
         // (v6.1.18): an online one ends on the ask for the project, never on a rules bullet.
         // L38 big 2 (v6.1.18 Task 10): an in-person one with an online form asks for the project, as an online one does.
         // L1l-4 (v6.1.19): an in-person one with a form still says so before the project ask.
-        : [oneHead(short, moneyOf(p), when), ...rules.map(ruleAsk), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
+        // L1n-5 (v6.1.23): with no project (and no ask for the rules), one line and the ask: the description's first
+        // sentence and three rules in short; the guide holds the rest.
+        : brief
+          ? [`${oneHead(short, moneyOf(p), when)}${briefTail(p, guide.rules)}${p.in_person && hasForm(row) ? ` ${ATTEND_ONE}` : ''}`, p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE]
+          : [oneHead(short, moneyOf(p), when), ...rules.map(ruleAsk), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
@@ -651,6 +699,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
               ...(real.some((g) => g.item === CONTRACT_ADDRESS.item) ? [CONTRACT_ADDRESS_NOTE] : []),
+              // L1n-7 (v6.1.23): the users question's yes.
+              ...(/^Do real people use it\b/.test(show.at(-1) ?? '') ? [USERS_NOTE] : []),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
               ...(step ? [MANIFEST_NOTE] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),

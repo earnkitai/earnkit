@@ -2369,6 +2369,26 @@ test('L1n-4 (v6.1.23): the full-list opening trims a cut name', () => {
   assert.equal(t.split('\n')[0], 'Everything open for Offline Sync End To End, nearest first:');
 });
 
+test('L1n-7 (v6.1.23): the lookup users closing reads as the default, with the users-and-rule question beside a rule', async () => {
+  const { usersLookup } = await import('./reply');
+  const license = { kind: 'rule' as const, item: 'rule:0000000b', what: 'an open source license on the project', effort: 'minutes' as const, agent_can: false };
+  const g = { ...V20.users, n: 0 };
+  assert.deepEqual(usersLookup(g, { linked: true, link: null, draftOnly: false }), { text: 'Do real people use it? Say yes and I apply.', offer: 'apply' });
+  assert.deepEqual(usersLookup(g, { linked: false, link: V20_LINK, draftOnly: false }), { text: `Do real people use it? Say yes, sign in at ${V20_LINK}, and I apply.`, offer: 'apply' });
+  assert.deepEqual(usersLookup(g, { linked: true, link: null, draftOnly: true }), { text: 'Do real people use it? Say yes and I draft it for you to send.', offer: 'draft' });
+  assert.deepEqual(usersLookup({ ...g, setup: ['publish a funding manifest'] }, { linked: true, link: null, draftOnly: false }), { text: 'Do real people use it? Say yes and I check.', offer: 'look_again' });
+  assert.deepEqual(usersLookup({ ...g, also: [license] }, { linked: false, link: V20_LINK, draftOnly: false }), { text: `Do real people use it, and is it open source? Say yes, sign in at ${V20_LINK}, and I check.`, offer: 'look_again' });
+  assert.deepEqual(usersLookup({ ...g, also: [license] }, { linked: true, link: null, draftOnly: false }), { text: 'Do real people use it, and is it open source? Say yes and I apply.', offer: 'apply' });
+  assert.equal(usersLookup(V20.code, { linked: true, link: null, draftOnly: false }), null);
+});
+
+test('L1n-6 (v6.1.23): the several-gaps state sentence says "and you confirm", never "your yes that"', async () => {
+  const { gapState } = await import('./reply');
+  const rule = { kind: 'rule' as const, item: 'rule:0000000c', what: 'a developer tool whose versions are near or past official end of life', effort: 'minutes' as const, agent_can: false };
+  assert.equal(gapState({ ...V20.code, also: [rule] }), 'It needs the code in a repo, and you confirm a developer tool whose versions are near or past official end of life.');
+  assert.equal(gapState({ ...V20.colosseum, also: [rule] }), 'needs a demo video link (a short screen recording of it working) first; I fill in everything else. Before you submit, you also join the sprint and register on Arena, and you confirm a developer tool whose versions are near or past official end of life.');
+});
+
 // Registered last, so it reads every reply the tests above rendered.
 test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
   assert.ok(rendered.length >= 100, `${rendered.length}`);

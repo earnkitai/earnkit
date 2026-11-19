@@ -617,6 +617,24 @@ export function usersRuleOf(g: GapProgram | undefined): { question: string; more
   const license = rules.length === 1 && licenseRule(rules[0].what);
   return { question: license ? 'is it open source' : `does the ${g.title} rule fit it`, more: g.setup.length > 0 || all.some((x) => !!x.setup) };
 }
+/**
+ * L1n-7 (v6.1.23): a one-program lookup whose real gaps are all the users question closes as the default does: "Do real
+ * people use it? Say yes and I apply." (linked), "... Say yes, sign in at {link}, and I apply." (signed out), "and I
+ * check" with a setup step left (or a rule, signed out), "and I draft it for you to send." for a program the builder
+ * sends; a rule beside it is asked in the same question (L1n-2). With the offer it makes; null when it does not apply. Pure.
+ */
+export function usersLookup(g: GapProgram, o: { linked: boolean; link: string | null; draftOnly: boolean }): Closing | null {
+  if (g.in_person) return null;
+  const all = [g.gap, ...g.also];
+  const real = all.filter((x) => x.kind !== 'rule');
+  if (real.length === 0 || !real.every(usersQuestion)) return null;
+  const rule = usersRuleOf(g);
+  const ask = rule ? `Do real people use it, and ${rule.question}?` : 'Do real people use it?';
+  const more = g.setup.length > 0 || all.some((x) => !!x.setup);
+  const then = more || (rule && !o.linked) ? 'check' : o.draftOnly ? 'draft it for you to send' : 'apply';
+  const offer: OfferKind = then === 'check' ? 'look_again' : then === 'apply' ? 'apply' : 'draft';
+  return { text: o.linked ? `${ask} Say yes and I ${then}.` : `${ask} Say yes, sign in${o.link ? ` at ${o.link}` : ''}, and I ${then}.`, offer };
+}
 /** L29-19 (v6.1.16 Task 15): one way to pass the users yes. */
 export const USERS_NOTE = 'On yes, call find again with users: true.';
 /** L29-27 (v6.1.16 Task 15): how a number skips, for the agent only. */
@@ -1626,7 +1644,9 @@ function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null; use
   if (more === 0) return `${head} needs ${needs[0]} first.${afterGap(g, own)}`;
   return `${head} needs ${needs[0]}, then ${more} more step${more === 1 ? '' : 's'}.${afterGap(g, own)}`;
 }
-/** v6.1.20: the one-program reply's state sentence for a gap: "It needs {a}, {b} and your yes that {rule}.". Pure. */
+/** v6.1.20: the one-program reply's state sentence for a gap: "It needs {a}, and you confirm {rule}." (L1n-6, v6.1.23);
+ *  two needs or more, "needs {first} first; I fill in everything else. Before you submit, you also {rest}, and you
+ *  confirm {rule}." to follow the head without its full stop. Pure. */
 export function gapState(g: GapProgram, closed: string | null = null): string {
   const { needs, rules, own } = askedOf(g, closed);
   const tail = afterGap(g, own);
@@ -1638,7 +1658,14 @@ export function gapState(g: GapProgram, closed: string | null = null): string {
   if (needs.length === 0 && rules.length > 0) return `It needs one yes from you: ${rules.join('; ')}.${tail}`;
   if (needs.length === 0) return tail.trim();
   if (rules.length === 0 && needs.length === 1) return `It needs ${needs[0]} first.${tail}`;
-  return `It needs ${joinGaps([...needs, ...rules.map((r) => `your yes that ${r}`)])}.${tail}`;
+  // L1n-6 (v6.1.23): the rule as "and you confirm {rule}", never "your yes that {rule}".
+  const confirm = rules.length > 0 ? `, and you confirm ${rules.join('; ')}` : '';
+  if (needs.length === 1) return `It needs ${needs[0]}${confirm}.${tail}`;
+  if (rules.length === 0 && needs.length === 2) return `It needs ${joinGaps(needs)}.${tail}`;
+  // The worst reply 3 (v6.1.23): the first need first, EarnKit fills the rest, then what the builder also does before
+  // submitting, on the head's own sentence ("{title} ({money}) needs ..."; `verdictText` joins it).
+  const rest = needs.slice(1).map((x) => (/^you to /.test(x) ? x.slice('you to '.length) : `have ${x}`));
+  return `needs ${needs[0]} first; I fill in everything else. Before you submit, you also ${joinGaps(rest)}${confirm}.${tail}`;
 }
 /** v6.1.20: the one-program reply's head: "{title} ({money}, closes ...)." Pure. */
 export const oneHead = (title: string, money: string, when?: string | null): string => `${title} (${[money, ...(when ? [when] : [])].join(', ')}).`;
