@@ -2389,6 +2389,42 @@ test('L1n-6 (v6.1.23): the several-gaps state sentence says "and you confirm", n
   assert.equal(gapState({ ...V20.colosseum, also: [rule] }), 'needs a demo video link (a short screen recording of it working) first; I fill in everything else. Before you submit, you also join the sprint and register on Arena, and you confirm a developer tool whose versions are near or past official end of life.');
 });
 
+test('Review I1, M5 (v6.1.23): the users-and-change row says "I can add" only when linked; the gate takes it away', async () => {
+  const users = { kind: 'users' as const, item: 'users', what: 'real users', effort: 'hours' as const, agent_can: false };
+  const row = { ...gap({ title: 'FLOSS/fund', money: '$10,000 to $100,000', gap: users, also: [LICENSE_FILE] }), max_award_usd: 100000 };
+  const linked = v20(base({ gaps: [row], linked: true }));
+  assert.match(linked, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\) needs real users, and a license file I can add\.$/m, linked);
+  const out = v20(base({ gaps: [row], sign_in: V20_LINK }));
+  assert.match(out, /^1\. FLOSS\/fund \(\$10,000 to \$100,000\) needs real users and a license file\.$/m, out);
+  // A repo not shown to be theirs (the gate's draft mode): the row is said plainly.
+  const { gateLines } = await import('./find');
+  assert.ok(gateLines(linked, 'draft', true).kept.includes('1. FLOSS/fund ($10,000 to $100,000) needs real users and a license file.'), linked);
+});
+
+test('Review I2 (v6.1.23): the 3+ lookup shape keeps users and EarnKit\'s changes out of the builder\'s list, and fills only with a form', async () => {
+  const { gapState } = await import('./reply');
+  const users = { kind: 'users' as const, item: 'users', what: 'real users', effort: 'hours' as const, agent_can: false };
+  const g = { ...V20.code, also: [users, LICENSE_FILE] };
+  assert.equal(gapState(g), 'needs the code in a repo first; I fill in everything else. It also needs real users and a license file.');
+  assert.equal(gapState(g, null, false), 'needs the code in a repo first. It also needs real users and a license file.');
+  const rule = { kind: 'rule' as const, item: 'rule:0000000b', what: 'an open source license on the project', effort: 'minutes' as const, agent_can: false };
+  assert.equal(gapState({ ...V20.code, also: [users, rule] }), 'needs the code in a repo first; I fill in everything else. It also needs real users. Before you submit, you confirm an open source license on the project.');
+  assert.doesNotMatch(gapState({ ...V20.colosseum, also: [users, LICENSE_FILE] }), /you also[^.]*(real users|license file)/);
+});
+
+test('Review I3 (v6.1.23): an in-person draft row reads its setup steps as the builder\'s', async () => {
+  const { inPersonDraftRow } = await import('./reply');
+  assert.equal(
+    inPersonDraftRow({ n: 2, title: 'Monad Blitz Guangzhou', money: '$1,000 in prizes', closes_in: null, setup: ['be in Guangzhou on November 21', 'follow the Mojo event page after registering'], long_shot: null }),
+    '2. Monad Blitz Guangzhou ($1,000), in person, needs you to be in Guangzhou on November 21, you to follow the Mojo event page after registering and your answers, so I can draft it today.',
+  );
+  assert.equal(
+    inPersonDraftRow({ n: 3, title: 'Antler US Residency', money: '$500,000 investment', closes_in: null, setup: ["work in person at Antler's NYC, SF or Austin office for up to 3 months"], long_shot: 'many apply, few are taken' }),
+    "3. Antler US Residency ($500,000), in person with long odds, needs you to work in person at Antler's NYC, SF or Austin office for up to 3 months and your answers, so I can draft it today.",
+  );
+  assert.match(inPersonDraftRow({ n: 2, title: 'Solana Incubator', money: '$250,000', closes_in: null, setup: ['commit every founder to move to NYC for 3 months'], long_shot: null }), /needs you to commit every founder to move to NYC for 3 months and your answers,/);
+});
+
 // Registered last, so it reads every reply the tests above rendered.
 test('Review Focus 12, ONE_SAY_ORDER (v6.1.17 Task 5, v6.1.16 Task 9 N6): every reply fixture rendered through replyText promises no send tonight and carries at most one Say', () => {
   assert.ok(rendered.length >= 100, `${rendered.length}`);

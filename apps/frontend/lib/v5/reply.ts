@@ -635,6 +635,13 @@ export function usersLookup(g: GapProgram, o: { linked: boolean; link: string | 
   const offer: OfferKind = then === 'check' ? 'look_again' : then === 'apply' ? 'apply' : 'draft';
   return { text: o.linked ? `${ask} Say yes and I ${then}.` : `${ask} Say yes, sign in${o.link ? ` at ${o.link}` : ''}, and I ${then}.`, offer };
 }
+/** Review I4 (v6.1.23): the users-and-rule question's one yes is both answers. */
+export const USERS_RULE_NOTE = (items: string[]): string =>
+  `A yes to "Do real people use it, and ...?" answers both: call track with gap_done and item ${items.join(', then item ')}, then call find again with users: true; never ask the rule again.`;
+/** Review I4 (v6.1.23): whether a closing is the users-and-rule question. Pure. */
+export const isUsersRuleSay = (say: string): boolean => /Do real people use it, and [^?]+\? Say yes\b/.test(say);
+/** Review I4 (v6.1.23): the rule items a users-and-rule row's yes confirms. Pure. */
+export const usersRuleItems = (g: GapProgram): string[] => [g.gap, ...g.also].filter((x) => x.kind === 'rule').map((x) => x.item);
 /** L29-19 (v6.1.16 Task 15): one way to pass the users yes. */
 export const USERS_NOTE = 'On yes, call find again with users: true.';
 /** L29-27 (v6.1.16 Task 15): how a number skips, for the agent only. */
@@ -1285,7 +1292,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
     const said = gs.map((g) => gapSentence(g, {
       whole: g === ruleNamed, closed, ...(usersRule && g.n === stepRule ? { usersRule: true } : {}),
       // L1n-8 (v6.1.23): the row the users-and-change yes closes on names the change EarnKit makes.
-      ...(doUsers && free.length === 0 && g.program_id === doUsers.program.program_id ? { doUsers: true } : {}),
+      // Review I1: only linked; the gate takes "I can add" away where the repo is not shown to be theirs.
+      ...(doUsers && free.length === 0 && g.program_id === doUsers.program.program_id ? { doUsers: r.linked === true ? 'add' as const : 'plain' as const } : {}),
     }));
     const agent = gs.map(stepAgent);
     const at = gs.indexOf(gapShown);
@@ -1397,7 +1405,10 @@ export const draftOrStep = (n: number, title: string, step: string | null): stri
  *  ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today."; "needs only your
  *  answers" when the program has no setup step of its own. Pure. */
 export const inPersonDraftRow = (p: Pick<ReadyProgram, 'n' | 'title' | 'money' | 'closes_in' | 'setup'> & { long_shot?: string | null }): string => {
-  const needs = p.setup.length > 0 ? `${joinAnd(p.setup.map(midSentence))} and your answers` : 'only your answers';
+  // Review I3 (v6.1.23): a setup step reads as the builder's to do ("you to be in Guangzhou on November 21").
+  // "work" and "follow" start setup steps too (Antler, Monad Blitz), though not every need word.
+  const asNeed = (x: string) => (/^(work|follow)\b/i.test(x.trim()) ? `you to ${midSentence(x)}` : needWords(x));
+  const needs = p.setup.length > 0 ? joinGaps([...p.setup.map(asNeed), 'your answers']) : 'only your answers';
   return `${p.n}. ${p.title} (${[moneyFigure(p.money), ...(p.closes_in ? [`closes ${p.closes_in}`] : [])].join(', ')}), in person${p.long_shot ? ' with long odds' : ''}, needs ${needs}, so I can draft it today.`;
 };
 /** L46-9 (v6.1.20): the closing as a plain fact when another line keeps the reply's one Say: "Tell me when X and I look
@@ -1614,19 +1625,22 @@ const afterGap = (g: GapProgram, own: string[]): string => `${own.map((x) => ` $
  * {gap} first."), several ("needs {first}, then {k} more steps."); `whole`: the row the rule Say names, every step and
  * the rule on screen. Pure.
  */
-export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null; usersRule?: boolean; doUsers?: boolean } = {}): string {
+export function gapSentence(g: GapProgram, o: { whole?: boolean; closed?: string | null; usersRule?: boolean; doUsers?: 'add' | 'plain' } = {}): string {
   return `${gapRow(g, o)}${earlierTail(g)}`;
 }
-function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null; usersRule?: boolean; doUsers?: boolean } = {}): string {
+function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null; usersRule?: boolean; doUsers?: 'add' | 'plain' } = {}): string {
   const head = `${g.n}. ${g.title} ${moneyParen(g)}`;
   const { needs, rules, own } = askedOf(g, o.closed ?? null);
-  // L1n-8 (v6.1.23): "needs real users and a license file, which I can add." (each change a thing, not a verb).
+  // L1n-8 (v6.1.23): linked, "needs real users, and a license file I can add." (each change a thing, not a verb);
+  // signed out (review I1), "needs real users and a license file.".
   if (o.doUsers) {
     const all = [g.gap, ...g.also];
     const users = all.filter(usersQuestion).map((x) => needWords(x.what));
     const made = all.filter((x) => x.agent_can).map((x) => midSentence(x.what));
     if (users.length > 0 && made.length > 0 && made.every((x) => !VERB.test(x)))
-      return `${head} needs ${joinAnd([...users, ...made])}, which I can add.${afterGap(g, own)}`;
+      return o.doUsers === 'add'
+        ? `${head} needs ${joinAnd(users)}, and ${joinAnd(made)} I can add.${afterGap(g, own)}`
+        : `${head} needs ${joinAnd([...users, ...made])}.${afterGap(g, own)}`;
   }
   // L1n-2 (v6.1.23): the row the users-and-rule question names says both: "needs real users and your word that it is
   // open source." (a license rule), else "needs real users, and you confirm {rule}.".
@@ -1647,7 +1661,7 @@ function gapRow(g: GapProgram, o: { whole?: boolean; closed?: string | null; use
 /** v6.1.20: the one-program reply's state sentence for a gap: "It needs {a}, and you confirm {rule}." (L1n-6, v6.1.23);
  *  two needs or more, "needs {first} first; I fill in everything else. Before you submit, you also {rest}, and you
  *  confirm {rule}." to follow the head without its full stop. Pure. */
-export function gapState(g: GapProgram, closed: string | null = null): string {
+export function gapState(g: GapProgram, closed: string | null = null, fills = true): string {
   const { needs, rules, own } = askedOf(g, closed);
   const tail = afterGap(g, own);
   if (g.in_person) {
@@ -1662,10 +1676,18 @@ export function gapState(g: GapProgram, closed: string | null = null): string {
   const confirm = rules.length > 0 ? `, and you confirm ${rules.join('; ')}` : '';
   if (needs.length === 1) return `It needs ${needs[0]}${confirm}.${tail}`;
   if (rules.length === 0 && needs.length === 2) return `It needs ${joinGaps(needs)}.${tail}`;
-  // The worst reply 3 (v6.1.23): the first need first, EarnKit fills the rest, then what the builder also does before
-  // submitting, on the head's own sentence ("{title} ({money}) needs ..."; `verdictText` joins it).
-  const rest = needs.slice(1).map((x) => (/^you to /.test(x) ? x.slice('you to '.length) : `have ${x}`));
-  return `needs ${needs[0]} first; I fill in everything else. Before you submit, you also ${joinGaps(rest)}${confirm}.${tail}`;
+  // The worst reply 3 (v6.1.23): the first need first, EarnKit fills the rest (only when it fills a form, review I2),
+  // then what the builder also does before submitting, on the head's own sentence ("{title} ({money}) needs ...";
+  // `verdictText` joins it). Review I2: the users question and a change EarnKit makes are never the builder's to do:
+  // they read "It also needs {x}." apart; a thing the builder brings reads "get {thing}".
+  const all = [g.gap, ...g.also];
+  const apart = new Set(all.filter((x) => usersQuestion(x) || x.agent_can).map((x) => needWords(x.what)));
+  const later = needs.slice(1);
+  const rest = later.filter((x) => !apart.has(x)).map((x) => (/^you to /.test(x) ? x.slice('you to '.length) : `get ${x}`));
+  const others = later.filter((x) => apart.has(x));
+  const also = others.length > 0 ? ` It also needs ${joinGaps(others)}.` : '';
+  const before = rest.length > 0 ? ` Before you submit, you also ${joinGaps(rest)}${confirm}.` : rules.length > 0 ? ` Before you submit, you confirm ${rules.join('; ')}.` : '';
+  return `needs ${needs[0]} first${fills ? '; I fill in everything else' : ''}.${also}${before}${tail}`;
 }
 /** v6.1.20: the one-program reply's head: "{title} ({money}, closes ...)." Pure. */
 export const oneHead = (title: string, money: string, when?: string | null): string => `${title} (${[money, ...(when ? [when] : [])].join(', ')}).`;
@@ -1831,6 +1853,9 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   // L29-19 (v6.1.16 Task 15): one way.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push(`"Do real people use it" is a question, not work: ask the builder once. ${USERS_NOTE}${o.say !== undefined && isDoUsersSay(o.say) ? ` ${DO_USERS_NOTE}` : ''}`);
+  // Review I4 (v6.1.23): the users-and-rule question's yes settles the rule too.
+  const usersRuleRow = o.say !== undefined && isUsersRuleSay(o.say) ? r.gaps.find((g) => usersRuleOf(g) !== null) : undefined;
+  if (usersRuleRow) lines.push(USERS_RULE_NOTE(usersRuleItems(usersRuleRow)));
   if (r.gaps.some((g) => [g.gap, ...g.also].some(startedQuestion)))
     lines.push('"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at in the project next time, or, when they started after the program\'s start, call track with gap_done and that gap\'s item. Never invent the date.');
   // L29-26 (v6.1.16 Task 15): the default view's left-out lines, and what "say more" is.

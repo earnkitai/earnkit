@@ -13,7 +13,7 @@ import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, lowerFirst, shortTitle, signInCheck, unlinkedNoticeLine } from '../v6/reply-words';
 import { closeDay, closesWords, dayWords, programZone } from './deadline';
-import { CONTRACT_ADDRESS, evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
+import { CONTRACT_ADDRESS, evaluate, hasContracts, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastProjectKey, rememberGap, lastList, lastListIds, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
 import { ALREADY_SENT_REPO, applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, joinDecision, joinRows, markAsked, quietRekey, NOT_YOUR_REPO, sentForRepo, CANT_CONFIRM_REPO, signInFirst, outcomeAsksDue, askSent, sentAsksOpen, markSentAsked, earlierWinOf, earlierWins, EARLIER_WIN, SENT_ASK_AFTER_HOURS, type SentAsk, rekeyByRepoId, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
@@ -26,7 +26,7 @@ import { inputError, readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, usersLookup, USERS_NOTE, yesStands, type OfferKind } from './reply';
+import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, usersLookup, USERS_NOTE, USERS_RULE_NOTE, isUsersRuleSay, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
 
@@ -438,7 +438,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
     const action = users?.text ?? gapAction(g, o.signIn, o.draftOnly);
     // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
     const head = oneHead(g.title, g.money, g.closes_in ? `closes ${g.closes_in}` : null);
-    const state = gapState(g, gapActionStep(g, o.signIn, o.draftOnly));
+    // Review I2 (v6.1.23): "I fill in everything else" only for a program with a form EarnKit fills.
+    const state = gapState(g, gapActionStep(g, o.signIn, o.draftOnly), hasForm(row));
     // The worst reply 3 (v6.1.23): a state that starts "needs" continues the head's sentence.
     const line = !state ? head : /^needs /.test(state) ? `${head.replace(/\.$/, '')} ${state}` : `${head} ${state}`;
     return { lines: [line, ...o.rules, action].filter((l): l is string => l !== null), offer: users?.offer ?? actionOffer(action) };
@@ -699,8 +700,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
               ...(real.some((g) => g.item === CONTRACT_ADDRESS.item) ? [CONTRACT_ADDRESS_NOTE] : []),
-              // L1n-7 (v6.1.23): the users question's yes.
+              // L1n-7 (v6.1.23): the users question's yes; review I4: with a rule beside it, the one yes is both.
               ...(/^Do real people use it\b/.test(show.at(-1) ?? '') ? [USERS_NOTE] : []),
+              ...(isUsersRuleSay(show.at(-1) ?? '') && verdict ? [USERS_RULE_NOTE(verdict.gaps.filter((x) => x.kind === 'rule').map((x) => x.item))] : []),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
               ...(step ? [MANIFEST_NOTE] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
@@ -949,6 +951,8 @@ export function gateLines(text: string, mode: 'strip' | 'draft', gatedOffer: boo
     .map((l) => l.replace(TAIL_OFFER, ''))
     .map((l) => l.split(/(?<=[.?!])\s+/).filter((x) => !APPLY_NOW.test(x)).join(' '))
     .map((l) => gatedRow(l, mode))
+    // Review I1 (v6.1.23): a repo not shown to be theirs gets no change from EarnKit: the row names the change plainly.
+    .map((l) => l.replace(/^(\d+\. .+ needs real users), and (.+) I can add\.$/, '$1 and $2.'))
     // v6.1.20 re-review O2: what still promises an apply is said without it: a step reads "and I look again", a yes that
     // waits names only what it waits on, and any other apply sentence goes.
     .map((l) => l.split(/(?<=[.?!])\s+/).map((x) => {
@@ -1298,7 +1302,9 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // That line stays only where EarnKit cannot draft: a GitHub repo it could not read, or a program with no form.
   const targetRow = target.id ? await getProgram(target.id) : null;
   const offDraft = !against && offHost && (targetRow === null || hasForm(targetRow));
-  const kept = gateLines(r.show_to_builder, 'draft', gatedOffer).kept.filter((l) => !(against && /^Say /.test(l)));
+  // Review M3 (v6.1.23): the in-person draft row promises the draft only while its Say stays.
+  const kept = gateLines(r.show_to_builder, 'draft', gatedOffer).kept.filter((l) => !(against && /^Say /.test(l)))
+    .map((l) => (against ? l.replace(/, so I can draft it today\.$/, '.') : l));
   const keptSay = kept.some((l) => /\bSay\b/.test(l));
   const readyHere = target.id !== null && !!targetRow && ('program' in r ? (r as { verdict?: { status?: string } }).verdict?.status === 'ready' : ((r as FindReply).ready ?? []).length > 0);
   const offDraftSay = offDraft && !keptSay && readyHere;
@@ -1530,7 +1536,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // the project's own chain ranks first.
   // N1 (v6.1.12): a rule-bearing program whose rule keyword the project names competes as a rule-free step.
   const hit = (v: Verdict) => keywordHit(byId.get(v.program_id)!, facts, v.gaps);
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains, hit);
+  // Review I5 (v6.1.23): an address-only audit row ranks after the money rows unless the builder's own words name contracts.
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains, hit, hasContracts(facts));
   // N-3 (v6.1.9): a program the builder acted on (a step marked done, or a live claim of theirs) heads its group in the
   // default list until it is applied or skipped (both leave the list).
   // L1d-1 (v6.1.11): only a claim on this project counts, by its stored project (the record id or the project key).
