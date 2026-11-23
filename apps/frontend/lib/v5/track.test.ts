@@ -1909,8 +1909,8 @@ test('M1, FR-1 (Task 14 fix round 1): with no evidence the refusal and find say 
   const g = await signedIn('gl-m1');
   const lab = { name: 'Lab', description: 'On GitLab.', repo_url: 'https://gitlab.com/gl-m1/lab' };
   const started = await track(g, { program_id: 'l28-m1', status: 'started', project: lab });
-  // L36-6 (v6.1.18): signed in, the builder hears what could not be read and the one way on.
-  assert.equal(started.show_to_builder, 'I could not read gitlab.com/gl-m1/lab, so I cannot check it is yours. Send it yourself and tell me when it is in.');
+  // L36-6 (v6.1.18), v6.1.24: signed in, the builder hears that ownership could not be confirmed, and the one way on.
+  assert.equal(started.show_to_builder, 'I cannot confirm gitlab.com/gl-m1/lab is yours. Send it yourself and tell me when it is in.');
   assert.doesNotMatch(started.agent_note, /ask for (it|the login)/);
   assert.equal(started.refused, true);
   const f = await find({ ...g, linkUrl: async () => null }, { program_id: 'l28-m1', project: lab });

@@ -108,8 +108,8 @@ export const NEEDS_PUBLIC_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code 
 /** L1f-1 (v6.1.14): an open source program and a private repo: the repo made public, re-checked by the next report or read. */
 export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes', agent_can: false };
 /** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question.
- *  L38-9 (v6.1.18): the gap names what is missing, a live repo. */
-export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
+ *  L38-9 (v6.1.18): the gap names what is missing, a live repo. v6.1.24: the what and setup say the repo is archived. */
+export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'a live repo (yours is archived)', setup: 'tell me the active repo', effort: 'minutes', agent_can: false };
 /** L46-10 (v6.1.22, ruling 2): an audit program and a project on a chain with no contract read, reported or named: the
  *  address is the step, re-checked by the next find (the agent passes it in project.chains[].contract). */
 export const CONTRACT_ADDRESS: Gap = { kind: 'repo', item: 'repo:contract', what: 'a contract address', setup: 'tell me the contract address', effort: 'minutes', agent_can: false };

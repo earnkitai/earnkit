@@ -226,10 +226,14 @@ export function signInFirst(link: string | null, offer: string | null = null, wh
   return `${head}, then say yes and I apply.`;
 }
 /** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours".
- *  L36-6 (v6.1.18): the builder is signed in, so EarnKit has their login: name the repo it could not read and the one
- *  way on. */
-export const CANT_CONFIRM_REPO = (key: string): string =>
-  `I could not read ${key.replace(/^https:\/\//, '')}, so I cannot check it is yours. Send it yourself and tell me when it is in.`;
+ *  L36-6 (v6.1.18): the builder is signed in, so EarnKit has their login: name the repo and the one way on.
+ *  v6.1.24: the wording is "cannot confirm it is yours", never "could not read", and a GitHub repo also offers sign-in. */
+export const CANT_CONFIRM_REPO = (key: string): string => {
+  const at = key.replace(/^https:\/\//, '');
+  // v6.1.24 (dogfood Nov 23): the repo was read; what is missing is proof it is the builder's, never "could not read".
+  const signIn = /^github\.com\//.test(at) ? 'Sign in with the GitHub account that commits to it, or send' : 'Send';
+  return `I cannot confirm ${at} is yours. ${signIn} it yourself and tell me when it is in.`;
+};
 /** L28-3: the agent note when a builder-submitted send with a repo that is not theirs is kept under the name only. */
 export const NAME_ONLY_NOTE = 'The repo is not yours; recorded under the project name only.';
 /** L36-9 (v6.1.18): a builder's own send of a repo another builder already sent: recorded, and the builder hears it. */

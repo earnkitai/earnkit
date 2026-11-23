@@ -614,7 +614,7 @@ async function act(
     const against = (await evidenceOf(ctx, appKey)).against;
     return refuse(against ? NOT_YOUR_REPO : CANT_CONFIRM_REPO(appKey),
       against ? 'Nothing was recorded. Do not submit this one with this repo: apply only with a repo the builder owns or commits to.'
-        : 'Nothing was recorded. EarnKit could not read this repo to check it is the builder\'s: let the builder send it, then call track applied with submitted_by builder.');
+        : 'Nothing was recorded. EarnKit could not confirm this repo is the builder\'s: let the builder send it, then call track applied with submitted_by builder.');
   };
   /** L28-1, L28-3: the project's name key, for a builder-submitted send kept under the name only. */
   const nameKey = async (): Promise<string> => {
