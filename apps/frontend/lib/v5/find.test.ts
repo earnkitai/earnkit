@@ -135,7 +135,7 @@ test('first find has no since', async () => {
       '3. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
       '4. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list, any time you ask.',
       '',
       'Sign in so I know the repo is yours, then say yes and tell me the number of founders and your top 3 successes, and I apply to Arbitrum Mentorship Program.',
     ].join('\n'),
@@ -1388,7 +1388,7 @@ const FUTO_CODE = (empty = false) => `1. FUTO Microgrants ($1,000 to $5,000) nee
 /** v6.1.20: the opening when steps are shown, the in-person Also sentence, and the L46-2 draft closing. */
 const OPEN_STEPS = (name: string) => `Nothing is ready to send for ${name} yet. The closest:`;
 // L1n-1 (v6.1.23): YC, the draft the closing names, is a numbered row; Alliance stays in the Also sentence.
-const ALSO_IP = (more: number) => `Also open: Alliance ALL19 ($400,000, closes in 14 days), in person with long odds. ${more} more in the full list.`;
+const ALSO_IP = (more: number) => `Also open: Alliance ALL19 ($400,000, closes in 14 days), in person with long odds. ${more} more in the full list, any time you ask.`;
 const YC_ROW = (n = 2) => `${n}. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today.`;
 /** v6.1.20 polish (4): the step stays the action, the in-person draft offered beside it. */
 const STEP_OR_YC = (step: string, n = 2) => `Say ${n} and I draft Y Combinator for you to send, or ${step.charAt(0).toLowerCase()}${step.slice(1).replace(/\.$/, '').replace(/ and I look again$/, '')}.`;
@@ -1431,7 +1431,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '3. Base Builder Grant Program (up to $5,000) needs you to add Base Builder Codes to the app, then 1 more step.',
       '4. FLOSS/fund ($10,000 to $100,000) needs real users, then 1 more step.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list, any time you ask.',
       '',
       'Sign in so I know the repo is yours, then say yes and tell me the number of founders and your top 3 successes, and I apply to Arbitrum Mentorship Program.',
     ].join('\n'),
@@ -1457,7 +1457,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
       '',
       '1. FUTO Microgrants ($1,000 to $5,000) needs one yes from you: open source software from a small or early-stage project.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 18 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 18 more in the full list, any time you ask.',
       '',
       'I could not read the repo, so this is from what you told me.',
       '',
@@ -1479,7 +1479,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
       '',
       '1. FLOSS/fund ($10,000 to $100,000) needs real users first.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 23 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 23 more in the full list, any time you ask.',
       '',
       'Repo reads are paused until tomorrow, so this is from what you told me.',
       '',
@@ -1527,7 +1527,7 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
     // L1n-8, review I1 (v6.1.23): signed out the row names the change plainly, never that EarnKit adds it.
     '1. FLOSS/fund ($10,000 to $100,000) needs real users and a license file.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list, any time you ask.',
     '',
     'Do real people use it? Say yes, sign in at https://earnkit.com/link/abc, and I check.',
   ].join('\n'));
@@ -1624,7 +1624,7 @@ test('L1h-8 (v6.1.17 Task 5, v6.1.16 Task 15 M5): lane 1h personas 8, 9, 12, 15,
     [8, 'the code in a public repo', futo, 18, CODE_STEP()],
     // L38-6 (v6.1.18): the gap names the private repo, so its note is left out (persona 9); so is the empty one (15).
     [9, 'a public repo', '1. FLOSS/fund ($10,000 to $100,000) needs a public repo first.', 22, 'Tell me when the repo is public and I look again.'],
-    [12, 'a live repo', '1. FLOSS/fund ($10,000 to $100,000) needs a live repo first.', 21, 'Tell me the live repo and I look again.'],
+    [12, 'a live repo (yours is archived)', '1. FLOSS/fund ($10,000 to $100,000) needs a live repo (yours is archived) first.', 21, 'Tell me the active repo and I look again.'],
     [15, 'the code in a repo', FUTO_CODE(true), 16, CODE_STEP(true)],
     [30, 'the code in a public repo', futo, 18, CODE_STEP()],
     [31, 'the code in a repo', '1. Solana Foundation Grants (milestone grants) needs the code in a repo, then 1 more step.', 10, CODE_STEP(true)],
@@ -1665,7 +1665,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
       '',
       '1. FLOSS/fund ($10,000 to $100,000) needs real users and a license file.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list, any time you ask.',
       '',
       'Do real people use it? Say yes, sign in, and I check.',
     ].join('\n'),
@@ -1702,7 +1702,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '2. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), then 4 more steps.',
       '3. GitHub Secure Open Source Fund ($10,000 per project) needs a license file, then 2 more steps.',
       '',
-      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 19 more in the full list.',
+      'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 19 more in the full list, any time you ask.',
       '',
       'Sign in so I know the repo is yours, then say do 1 and I add an MIT license file.',
     ].join('\n'),
@@ -2158,12 +2158,12 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   assert.equal(show, [
     'Nothing is ready to send for Atom yet. The closest:',
     '',
-    '1. FLOSS/fund ($10,000 to $100,000) needs a live repo first.',
+    '1. FLOSS/fund ($10,000 to $100,000) needs a live repo (yours is archived) first.',
     YC_ROW(2),
     '',
     ALSO_IP(21),
     '',
-    STEP_OR_YC('Tell me the live repo and I look again.', 2),
+    STEP_OR_YC('Tell me the active repo and I look again.', 2),
   ].join('\n'));
   assert.doesNotMatch(show, /This repo is archived/);
   // v6.1.20 (L46-2): the live repo is the row's step; the closing drafts what the builder can send now.
@@ -2171,11 +2171,11 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   assert.ok((r.reply!.agent_note as string).split('\n').includes(REPO_STEP_NOTE));
   const one = await mcpCall(c, 'find', { program_id: 'herodevs', project: ATOM });
   assert.equal(one.reply!.show_to_builder, [
-    'HeroDevs Open Source Sustainability Fund ($2,500 to $15,000). It needs a live repo, and you confirm a developer tool whose versions are near or past official end of life.',
+    'HeroDevs Open Source Sustainability Fund ($2,500 to $15,000). It needs a live repo (yours is archived), and you confirm a developer tool whose versions are near or past official end of life.',
     '',
-    'Tell me the live repo and I look again.',
+    'Tell me the active repo and I look again.',
   ].join('\n'));
-  assert.equal((one.reply!.show_to_builder as string).match(/ell me the live repo/g)!.length, 1);
+  assert.equal((one.reply!.show_to_builder as string).match(/ell me the active repo/g)!.length, 1);
 });
 
 test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are never asked the users question, and a yes never makes FLOSS/fund ready', async () => {
@@ -2255,7 +2255,7 @@ test('L1c-2 (v6.1.10, Review Focus 3): an idea that names no VR word never opens
     '',
     '1. Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days) needs a demo video link (a short screen recording of it working), you to join the Meta VR Start program, you to turn on Developer Access for your Meta account and you to join the competition with a Devpost account first, and one yes from you: a hands-first experience for Meta VR devices.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 18 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 18 more in the full list, any time you ask.',
     '',
     'Say 1 if the Meta VR Start Developer Competition 2026 rule fits you and I draft it.',
   ].join('\n'));
@@ -2343,7 +2343,7 @@ test('C59 (v6.1.8): a fork, an archived repo and an empty repo each get their on
   const archived = await run('archived-dashboard');
   // L1g-5 (v6.1.16): a shown line reads the archive ("a live repo"), so the note is left out; the archive is said once.
   assert.doesNotMatch(archived.show_to_builder as string, /This repo is archived; programs want active work\./);
-  assert.match(listText(archived), /: a live repo\./);
+  assert.match(listText(archived), /: a live repo \(yours is archived\)\./);
   // Its homepage is not a live link: the live bar is a gap.
   assert.ok(ids(archived.gaps).includes('f-live'), JSON.stringify(ids(archived.gaps)));
   const empty = await run('empty-repo');
@@ -3492,7 +3492,7 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
     '5. Berg Grant (up to $5,000) needs a demo video link (a short screen recording of it working) first.',
     '6. Demo Grant (up to $5,000) needs a demo video link (a short screen recording of it working) first.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 40 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 40 more in the full list, any time you ask.',
     '',
     'Since Nov 4: Alliance ALL19: deadline moved to Nov 18.',
     '',
@@ -3998,7 +3998,7 @@ test('fix round 1 (v6.1.19 Task 3, M5): the no-project closing with several asks
 test('fix round 1 (v6.1.19 Task 3): withinLines drops the more line, then the Before line, then body lines from the end; first and last stay', async () => {
   const { withinLines } = await import('./find');
   const body = (n: number) => Array.from({ length: n }, (_, i) => `${i + 1}. Row.`);
-  const more = 'Also: 9 more in the full list.';
+  const more = 'Also: 9 more in the full list, any time you ask.';
   const before = 'Before applying: your name.';
   assert.deepEqual(withinLines(['Head', ...body(7), more, before, 'Say.']), ['Head', ...body(7), before, 'Say.']);
   assert.deepEqual(withinLines(['Head', ...body(8), more, before, 'Say.']), ['Head', ...body(8), 'Say.']);
@@ -4210,7 +4210,7 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   // v6.1.20: the in-person programs are named in the Also sentence, unnumbered.
   const inAlso = (/^Also open: (.+?), (both )?in person/m.exec(show)?.[1].match(/ \(\$/g) ?? []).length;
   assert.equal(n, fullRows - shownRows - inAlso, show);
-  assert.match(show, new RegExp(`^Also( open)?: .*\\b${n} more in the full list(\\.|; .+\\.)$`, 'm'));
+  assert.match(show, new RegExp(`^Also( open)?: .*\\b${n} more in the full list(?:, any time you ask)?(\\.|; .+\\.)$`, 'm'));
   assert.ok(show.split('\n').filter((l) => l.trim() !== '').length <= 10, show);
   assert.equal(all.reply!.more_count, 0);
   assert.ok((def.reply!.agent_note as string).includes(`The full list holds ${n} more;`));
@@ -4226,7 +4226,7 @@ test('L18-1: a no-repo project with a live link counts every row the default vie
   assert.equal(nov12.reply!.more_count, left);
   // L1n-12 (v6.1.23): PayPal and UGREEN close this week but each needs several steps for Ledgerly, so they count in the
   // number and are not named.
-  assert.equal(lines.at(-3), `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 6 days), both in person with long odds. ${left} more in the full list.`, lines.join('\n'));
+  assert.equal(lines.at(-3), `Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 6 days), both in person with long odds. ${left} more in the full list, any time you ask.`, lines.join('\n'));
   const paypal = (nov12All.reply!.gaps as { program_id: string; gap: unknown; also: unknown[] }[]).find((g) => g.program_id === 'paypal-ai-hackathon');
   assert.ok(paypal && paypal.also.length >= 1, 'PayPal is several steps away');
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10);
@@ -4958,7 +4958,7 @@ test('Task 2 fix round 1 (M1, M2): off GitHub, a gated do closing removed leaves
     const { id, builderId } = await linkedWith({ projects: [] });
     const r = (await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'fr1-codes', project })).reply!;
     const text = r.show_to_builder as string;
-    assert.equal(text, 'FR1 Codes Grant (up to $5,000). It needs you to add Base Builder Codes to the app first.\n\nI could not read gitlab.com/fr1/gl-app, so I cannot check it is yours. Send it yourself and tell me when it is in.');
+    assert.equal(text, 'FR1 Codes Grant (up to $5,000). It needs you to add Base Builder Codes to the app first.\n\nI cannot confirm gitlab.com/fr1/gl-app is yours. Send it yourself and tell me when it is in.');
     assert.doesNotMatch(text, /\bI apply\b/, text);
     assert.ok(!['apply', 'do', 'stop'].includes((await lastOfferOf(id)) ?? ''), String(await lastOfferOf(id)));
     builderRules(text);
@@ -5029,7 +5029,7 @@ test('L46-10 (v6.1.22, ruling 2): on a chain with no contract address, an audit 
     '2. FLOSS/fund ($10,000 to $100,000) needs real users and a license file.',
     '3. GitHub Secure Open Source Fund ($10,000 per project) needs real users, then 3 more steps.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 30 more in the full list, any time you ask.',
     '',
     'Do real people use it? Say yes, sign in, and I check.',
   ].join('\n'));

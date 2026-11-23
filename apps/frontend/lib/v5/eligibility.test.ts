@@ -567,7 +567,7 @@ test('L1f-3 (v6.1.14): an archived repo is never asked the users question: its o
   const facts = await factsOf('archived-dashboard');
   assert.ok(facts.notes?.includes('archived'));
   const v = evaluate(fromFile('floss-fund-zerodha'), facts, new Set(), NOW);
-  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'a live repo', 'tell me the live repo']]]);
+  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'a live repo (yours is archived)', 'tell me the active repo']]]);
   assert.ok(!v.gaps.some((g) => g.kind === 'users'));
   // A live repo gets the users question as before.
   const live = evaluate(fromFile('floss-fund-zerodha'), { ...facts, notes: [] }, new Set(), NOW);
@@ -717,7 +717,7 @@ test('L38-27 (v6.1.18 Task 11): the license GitHub detects settles a license rul
   assert.deepEqual(items('NOASSERTION', [ruleItem(RULE)]), []);
   // An archived repo: its license is not the live repo's, so its one step is the live repo, then the read (v6.1.18.1:
   // never the rule beside it).
-  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo']);
+  assert.deepEqual(evaluate(hero, { ...bare, license: null, notes: ['archived'] }, new Set([EOL]), NOW).gaps.map((g) => g.what), ['a live repo (yours is archived)']);
   // The rules marked as license checks; the ones that ask more than a license are not.
   const checked = (slug: string) => eligibilityOf(fromFile(slug).file).filter((i) => i.check === 'license').map((i) => i.note);
   // L46-3 (v6.1.20): FLOSS/fund funds open source, so its license is checked too.

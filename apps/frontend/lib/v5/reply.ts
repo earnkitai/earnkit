@@ -1719,13 +1719,13 @@ const alsoRow = (p: { title: string; money: string; closes_in?: string | null; c
   `${p.title} (${[moneyFigure(p.money), ...(p.closes_in ? [`closes ${p.closes_in}`] : []), ...(p.claimed_since ? [HELD_BY_OTHER] : []), ...(rule ? [`one yes from you: ${rule}`] : [])].join(', ')})`;
 /**
  * v6.1.20: the one "Also" sentence: the in-person programs ("Also open: A ($x) and B ($y), in person with long odds"),
- * then the count left for the full list and what of it closes this week; "Also:" when only the count is left; null when
- * there is nothing to add. Pure.
+ * then the count left for the full list ("any time you ask", so the default view tells them how to see the rest) and
+ * what of it closes this week; "Also:" when only the count is left; null when there is nothing to add. Pure.
  */
 export function alsoSentence(attend: { title: string; money: string; closes_in?: string | null; claimed_since?: string; long_shot?: string | null; rule?: string }[], more: number, closing: ClosingHidden[] = [], now: Date = new Date()): string | null {
   // v6.1.20 polish (2): two short sentences: the in-person programs, then the tail and what of it closes this week.
   const named = [...closing].sort((a, b) => Date.parse(a.closes_at) - Date.parse(b.closes_at)).slice(0, CLOSING_NAMED);
-  const tail = more > 0 ? [`${more} more in the full list`, ...named.map((c) => `${c.title} closes ${closingIn(c, now)}`)].join('; ') : '';
+  const tail = more > 0 ? [`${more} more in the full list, any time you ask`, ...named.map((c) => `${c.title} closes ${closingIn(c, now)}`)].join('; ') : '';
   if (attend.length === 0) return tail ? `Also: ${tail}.` : null;
   const odds = attend.every((x) => !!x.long_shot) ? ' with long odds' : '';
   const head = `Also open: ${joinAnd(attend.map((x) => alsoRow(x, x.rule)))}, ${attend.length === 2 ? 'both ' : ''}in person${odds}.`;

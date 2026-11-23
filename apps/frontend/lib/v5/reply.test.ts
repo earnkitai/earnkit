@@ -382,7 +382,7 @@ test('the "Before applying" line groups the sign-ins, names the clicks and the f
     'Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4.',
     'Say yes and I apply to 3 and draft Click Grant for you to send.',
   ]);
-  const moreAt = lines.indexOf('Also: 1 more in the full list.');
+  const moreAt = lines.indexOf('Also: 1 more in the full list, any time you ask.');
   assert.ok(moreAt > 0 && lines[moreAt - 1] === '' && /^\d+\. /.test(lines[moreAt - 2]), text);
   assert.doesNotMatch(text.replace(/Click Grant/g, ''), /click/i);
   assert.doesNotMatch(text, /Before I send/);
@@ -718,7 +718,7 @@ test('a program another agent of the builder holds goes in its own block after R
     '1. Free One ($1K).',
     '2. Free Two ($1K).',
     '',
-    'Also: 2 more in the full list.',
+    'Also: 2 more in the full list, any time you ask.',
     '',
     'Say yes and I apply to all 2.',
   ].join('\n'));
@@ -1157,7 +1157,7 @@ test('L1f-2 (v6.1.14): a step program whose only change is code in a repo closes
 test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, their step after "First:" and in the closing', () => {
   const end = (r: R) => replyText(r, true).split('\n').at(-1);
   const PUBLIC = { kind: 'repo' as const, item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes' as const, agent_can: false };
-  const ARCHIVED = { kind: 'repo' as const, item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes' as const, agent_can: false };
+  const ARCHIVED = { kind: 'repo' as const, item: 'repo:archived', what: 'a live repo (yours is archived)', setup: 'tell me the active repo', effort: 'minutes' as const, agent_can: false };
   const MANIFEST = 'publish a funding manifest on your site or repo';
   const floss = gap({ title: 'FLOSS/fund', gap: PUBLIC, setup: [MANIFEST], n: 1 });
   const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'an OSI-approved open source license', effort: 'hours' as const, agent_can: false };
@@ -1182,18 +1182,18 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   assert.doesNotMatch(both, /Say yes and I apply/);
   assert.equal(gapAction(floss), 'Tell me when the repo is public and I look again.');
   const atom = gap({ title: 'FLOSS/fund', gap: ARCHIVED, setup: [MANIFEST], n: 1 });
-  assert.equal(gapLine(atom, true), 'FLOSS/fund, $1K: a live repo. First: tell me the live repo; publish a funding manifest on your site or repo.');
+  assert.equal(gapLine(atom, true), 'FLOSS/fund, $1K: a live repo (yours is archived). First: tell me the active repo; publish a funding manifest on your site or repo.');
   const archived = replyText(base({ gaps: [atom] }), true);
   // L38 big 3 (v6.1.18 Task 10): a live repo and the manifest are two steps.
   assert.equal(archived, [
     'Nothing is ready to send yet. The closest:',
     '',
-    '1. FLOSS/fund ($1K) needs a live repo, then 1 more step.',
+    '1. FLOSS/fund ($1K) needs a live repo (yours is archived), then 1 more step.',
     '',
-    'Tell me the live repo and I look again.',
+    'Tell me the active repo and I look again.',
   ].join('\n'));
-  assert.equal(end(base({ gaps: [atom] })), 'Tell me the live repo and I look again.');
-  assert.equal(gapAction({ ...atom, setup: [] }), 'Tell me the live repo and I look again.');
+  assert.equal(end(base({ gaps: [atom] })), 'Tell me the active repo and I look again.');
+  assert.equal(gapAction({ ...atom, setup: [] }), 'Tell me the active repo and I look again.');
   // M3: the code closing is picked by the gap's kind.
   assert.equal(firstStepOf([gap({ title: 'FUTO', gap: { kind: 'repo', item: 'repo', what: 'any words', effort: 'days', agent_can: false } })])?.users === false, true);
   assert.equal(end(base({ gaps: [gap({ title: 'FUTO', gap: { kind: 'repo', item: 'repo', what: 'any words', effort: 'days', agent_can: false }, n: 1 })] })), 'Tell me when the code is in a repo and I look again.');
@@ -1204,7 +1204,7 @@ test('L1g-5 (v6.1.16): one closing shape for every single step, the step said on
   const chain = (what: string) => ({ kind: 'chain' as const, item: 'chain:base', what, effort: 'hours' as const, agent_can: false, details: { chain: 'base' } });
   const MANIFEST = 'publish a funding manifest on your site or repo';
   const own = { kind: 'feature' as const, item: 'feature:manifest', what: 'a funding manifest', setup: MANIFEST, effort: 'hours' as const, agent_can: false };
-  const ARCHIVED = { kind: 'repo' as const, item: 'repo:archived', what: 'a live repo', setup: 'tell me the live repo', effort: 'minutes' as const, agent_can: false };
+  const ARCHIVED = { kind: 'repo' as const, item: 'repo:archived', what: 'a live repo (yours is archived)', setup: 'tell me the active repo', effort: 'minutes' as const, agent_can: false };
   assert.equal(stepClause(NEEDS_CODE), 'the code is in a repo');
   assert.equal(stepClause(PUBLIC_REPO), 'the repo is public');
   assert.equal(stepClause(chain('deploy the contract on Base')), 'the contract is on Base');
@@ -1216,7 +1216,7 @@ test('L1g-5 (v6.1.16): one closing shape for every single step, the step said on
   assert.equal(stepClause(ARCHIVED), null);
   assert.equal(stepClause(ruleGap('a team')), null);
   assert.equal(CODE_CLOSING, singleStepClosing(NEEDS_CODE));
-  assert.equal(singleStepClosing(ARCHIVED), 'Tell me the live repo and I look again.');
+  assert.equal(singleStepClosing(ARCHIVED), 'Tell me the active repo and I look again.');
   assert.equal(singleStepClosing(own), 'Tell me when you publish a funding manifest on your site or repo and I look again.');
   assert.equal(singleStepClosing(ruleGap('a team')), 'Tell me when that is done and I look again.');
   // The one-program action and the list closing read the same, and the line leaves the named step out.
@@ -1237,9 +1237,9 @@ test('L1g-5 (v6.1.16): one closing shape for every single step, the step said on
   assert.equal(replyText(base({ gaps: [atom], repo_notes: ['archived'] }), true), [
     'Nothing is ready to send yet. The closest:',
     '',
-    '1. FLOSS/fund ($1K) needs a live repo first.',
+    '1. FLOSS/fund ($1K) needs a live repo (yours is archived) first.',
     '',
-    'Tell me the live repo and I look again.',
+    'Tell me the active repo and I look again.',
   ].join('\n'));
   assert.match(replyText(base({ gaps: [gap({ title: 'Arc', n: 1 })], repo_notes: ['archived'] }), true), /This repo is archived; programs want active work\./);
 });
@@ -1312,7 +1312,7 @@ test('R38 (L17-6, v6.1.16): 25 programs held by agent A; agent B reads its own u
     '1. Mine A ($1K).',
     '2. Mine B ($1K).',
     '',
-    'Also: 25 more in the full list.',
+    'Also: 25 more in the full list',
     '',
     'Say yes and I apply to all 2.',
   ]);
@@ -1507,7 +1507,7 @@ test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row t
   const rows = lines.filter((l) => /^\d+\. /.test(l)).map((l) => Number(l.split('.')[0]));
   assert.deepEqual(rows, rows.map((_, i) => i + 1), p.text);
   // L1j-3 (v6.1.17): every row left out, step or in person, is counted on the line before the Say.
-  assert.equal(lines.at(-3), 'Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 2 more in the full list.', p.text);
+  assert.equal(lines.at(-3), 'Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 2 more in the full list, any time you ask.', p.text);
   const five = lines.find((l) => l.includes('Five Grant'))!;
   assert.equal(lines.at(-1), `Say ${five.split('.')[0]} if the Five Grant rule fits you and I draft it.`);
   // Every program the default leaves out is in the full view, and the full view asks no rule.
@@ -1517,7 +1517,7 @@ test('L1i-2 (v6.1.16.1, Review Focus 1): the default view shows every step row t
   assert.equal(full.split('\n').at(-1), FULL_RULE_SAY);
   // `shown` names the rows by their shown number, in order (the In person line's two too).
   assert.equal(p.shown.length, rows.length + 2);
-  assert.ok(p.text.split('\n').includes('Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 2 more in the full list.'), p.text);
+  assert.ok(p.text.split('\n').includes('Also open: Y Combinator ($500K) and Alliance ($400K), both in person. 2 more in the full list, any time you ask.'), p.text);
 });
 
 test('L1i-6 (v6.1.16.1): the full view carries closes and in person; a hidden ready row leaves no gap in the shown numbers', () => {
@@ -1568,7 +1568,7 @@ test('L35-8 (v6.1.17, lane 35 C.2 and C.3): a ready row closing within a day is 
     '2. L35 Closing Soon ($1K, closes today).',
     '3. Dec One ($1K, closes Dec 12).',
     '',
-    'Also: 3 more in the full list.',
+    'Also: 3 more in the full list, any time you ask.',
     '',
     'Say yes and I apply to all 6.',
   ].join('\n'));
@@ -1719,7 +1719,7 @@ test('L38 big 3 (v6.1.18 Task 10): one step means one step; the rest go under Mo
   const lines = tight.text.split('\n');
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, tight.text);
   const rows = lines.filter((l) => /^\d+\. /.test(l)).length;
-  assert.equal(lines.at(-3), `Also: ${12 - rows} more in the full list.`, tight.text);
+  assert.equal(lines.at(-3), `Also: ${12 - rows} more in the full list, any time you ask.`, tight.text);
   assert.equal(tight.more, 12 - rows);
 });
 
@@ -1828,7 +1828,7 @@ const V20_STATES: [string, R, Parameters<typeof replyText>[4], string][] = [
     '2. FLOSS/fund ($10,000 to $100,000) needs real users first.',
     '3. Colosseum Eternal ($25,000 award) needs a demo video link (a short screen recording of it working), then 2 more steps.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 5 days), both in person with long odds. 29 more in the full list; Meta VR Start Developer Competition 2026 closes in 6 days.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 5 days), both in person with long odds. 29 more in the full list, any time you ask; Meta VR Start Developer Competition 2026 closes in 6 days.',
     '',
     'Say 1 if the Base Ecosystem Fund rule fits you and I draft it.',
   ].join('\n')],
@@ -1845,7 +1845,7 @@ const V20_STATES: [string, R, Parameters<typeof replyText>[4], string][] = [
     '',
     '1. FLOSS/fund ($10,000 to $100,000) needs real users first.',
     '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 5 days), both in person with long odds. 21 more in the full list.',
+    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 5 days), both in person with long odds. 21 more in the full list, any time you ask.',
     '',
     `Do real people use it? Say yes, sign in at ${V20_LINK}, and I apply.`,
   ].join('\n')],
@@ -1939,7 +1939,7 @@ test('v6.1.20: the opening, the program sentences and the Also sentence as pure 
   assert.equal(needWords('code in a public repo'), 'the code in a public repo');
   assert.equal(needWords('deploy the contract on Arc'), 'you to deploy the contract on Arc');
   assert.equal(needWords('Base Builder Codes in the app'), 'Base Builder Codes in the app');
-  assert.equal(alsoSentence([], 19), 'Also: 19 more in the full list.');
+  assert.equal(alsoSentence([], 19), 'Also: 19 more in the full list, any time you ask.');
   assert.equal(alsoSentence([], 0), null);
   assert.equal(closingAfterOpening('Nothing is ready yet. Say 1 if the X rule fits you and I draft it.'), 'Say 1 if the X rule fits you and I draft it.');
   assert.equal(plainClosing('Tell me when the repo is public and I look again.'), 'When the repo is public, I look again.');
@@ -2001,7 +2001,7 @@ const META_VR = { program_id: 'meta-vr-start-developer-competition-2026', title:
 test('L18-1: the more line counts the rows the rank cap hid and names what closes this week', () => {
   const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [UGREEN, META_VR] } });
   const lines = text.split('\n');
-  assert.ok(lines.includes('Also open: Alliance ($400K), in person. 18 more in the full list; UGREEN Hackathon 2026 on AI NAS closes in 3 days; Meta VR Start Developer Competition 2026 closes in 6 days.'), text);
+  assert.ok(lines.includes('Also open: Alliance ($400K), in person. 18 more in the full list, any time you ask; UGREEN Hackathon 2026 on AI NAS closes in 3 days; Meta VR Start Developer Competition 2026 closes in 6 days.'), text);
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, text);
   assert.equal(lines.at(-3)!.startsWith('Also open: '), true, text);
   assert.ok(/^(Nothing is ready yet\.|Say |Tell me )/.test(lines.at(-1)!), text);
@@ -2009,7 +2009,7 @@ test('L18-1: the more line counts the rows the rank cap hid and names what close
 
 test('L18-1b: the more line with nothing closing this week keeps the old shape', () => {
   const text = renderReply(l18Rows(), true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
-  assert.equal(text.split('\n').at(-3), 'Also open: Alliance ($400K), in person. 18 more in the full list.', text);
+  assert.equal(text.split('\n').at(-3), 'Also open: Alliance ($400K), in person. 18 more in the full list, any time you ask.', text);
   // Without a hidden count, nothing changes: no rows hidden, no more line.
   assert.doesNotMatch(renderReply(l18Rows(), true, L18_NOW), /more in the full list/);
 });
@@ -2021,12 +2021,12 @@ test('L18-1c: budget-hidden and cap-hidden rows are summed once', () => {
   // L38 big 2 (v6.1.18 Task 10): nine, since the In person line takes one line.
   const r = base({ ready: [yc, alliance], gaps: ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'].map((t) => gap({ title: `${t} Grant` })) });
   const budget = replyParts(r, true, L18_NOW);
-  const left = Number(/ (\d+) more in the full list\.$/.exec(budget.text.split('\n').at(-3)!)![1]);
+  const left = Number(/ (\d+) more in the full list(?:, any time you ask)?(?:\.|;)/.exec(budget.text.split('\n').at(-3)!)![1]);
   assert.ok(left > 0, budget.text);
   assert.equal(budget.more, left);
   const p = replyParts(r, true, L18_NOW, null, { hidden: { count: 18, closing: [] } });
   const lines = p.text.split('\n');
-  assert.equal(lines.at(-3), `Also open: Alliance ($400K), in person. ${left + 18} more in the full list.`, p.text);
+  assert.equal(lines.at(-3), `Also open: Alliance ($400K), in person. ${left + 18} more in the full list, any time you ask.`, p.text);
   assert.equal(p.more, left + 18);
   assert.equal(lines.filter((l) => /more in the full list/.test(l)).length, 1, p.text);
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, p.text);
@@ -2035,9 +2035,9 @@ test('L18-1c: budget-hidden and cap-hidden rows are summed once', () => {
 test('L18-1d: a closing program the default view shows is not named on the more line', () => {
   const r = base({ gaps: [gap({ title: UGREEN.title, closes_at: UGREEN.closes_at, closes_in: 'in 3 days' }), gap({ title: 'Two Grant' })] });
   const text = renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [UGREEN, META_VR] } });
-  assert.ok(text.split('\n').includes('Also: 4 more in the full list; Meta VR Start Developer Competition 2026 closes in 6 days.'), text);
+  assert.ok(text.split('\n').includes('Also: 4 more in the full list, any time you ask; Meta VR Start Developer Competition 2026 closes in 6 days.'), text);
   // When every closing one is shown, the line keeps the old shape.
-  assert.ok(renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [UGREEN] } }).split('\n').includes('Also: 4 more in the full list.'));
+  assert.ok(renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [UGREEN] } }).split('\n').includes('Also: 4 more in the full list, any time you ask.'));
 });
 
 test('L18-1e: the agent note says how many more the full list holds', () => {
@@ -2114,7 +2114,7 @@ test('L1k-5: the And-more line is the line after its block; the repo note follow
     '',
     '1. Fund 1 ($1K).',
     '',
-    'Also: 3 more in the full list.',
+    'Also: 3 more in the full list, any time you ask.',
     '',
     'Your applications: A (sent Nov 3, waiting).',
   ], t.join('\n'));
@@ -2127,7 +2127,7 @@ test('Task 7 (Task 1 review minors): the more line drops a shown program by id, 
   // to two comes after that filter, so the shown one never takes a slot.
   const twin = { program_id: 'twin-b', title: 'Twin Grant', closes_at: plusDays(L18_NOW, 2) };
   const text = renderReply(r, true, L18_NOW, null, { hidden: { count: 4, closing: [{ program_id: 'twin-a', title: 'Twin Grant', closes_at: plusDays(L18_NOW, 1) }, twin, UGREEN, META_VR] } });
-  assert.ok(text.split('\n').includes('Also: 4 more in the full list; Twin Grant closes in 2 days; UGREEN Hackathon 2026 on AI NAS closes in 3 days.'), text);
+  assert.ok(text.split('\n').includes('Also: 4 more in the full list, any time you ask; Twin Grant closes in 2 days; UGREEN Hackathon 2026 on AI NAS closes in 3 days.'), text);
 });
 
 // ---- v6.1.18 Task 8: more sends per session (lane 36) ----
@@ -2479,7 +2479,7 @@ test('Task 2 fix round 1 (I1): an earlier-round win whose row the 10-line cap hi
   const last = { ...steps[8], earlier_win: '$1,000' };
   const apps = [{ program_id: last.program_id, title: last.title, status: 'won' as const, sent_at: null, result_at: null, amount: '$1,000', earlier: true as const }];
   const hidden = v20(base({ gaps: [...steps.slice(0, 8), last], applications: apps } as never));
-  assert.match(hidden, /^Also: \d+ more in the full list\./m, hidden);
+  assert.match(hidden, /^Also: \d+ more in the full list, any time you ask\./m, hidden);
   assert.doesNotMatch(hidden, /^\d+\. Step Grant 9 /m, hidden);
   // Said once: on the applications line, since the row is not on screen.
   assert.match(hidden, /Your applications: Step Grant 9 \(won \$1,000\)\./, hidden);

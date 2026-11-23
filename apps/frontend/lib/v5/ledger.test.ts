@@ -4,7 +4,7 @@ import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { claim } from '../v6/claims';
-import { BESIDE_NOTE, CONFIRMED, EARLIER_RESULT, WIN_KEPT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine } from './ledger';
+import { BESIDE_NOTE, CONFIRMED, EARLIER_RESULT, WIN_KEPT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine, CANT_CONFIRM_REPO } from './ledger';
 
 after(() => sql().end());
 
@@ -1084,4 +1084,16 @@ test('L47-6 fix round 1 (Minors 1 and 2): a correction while upcoming refreshes 
   assert.deepEqual(await record(o(i), 'l47-fix', 'won', { amount_usd: 300, outsideWin: true, now: new Date(NOW.getTime() + 2 * DAY) }), { ok: true, outside: true });
   const w = (await read()).earlier_win;
   assert.deepEqual([w.amounts, w.moved], [{ USD: 1200 }, true]);
+});
+
+test('v6.1.24: CANT_CONFIRM_REPO never says the repo could not be read; GitHub offers sign-in', () => {
+  assert.equal(
+    CANT_CONFIRM_REPO('https://github.com/org/app'),
+    'I cannot confirm github.com/org/app is yours. Sign in with the GitHub account that commits to it, or send it yourself and tell me when it is in.',
+  );
+  assert.equal(
+    CANT_CONFIRM_REPO('https://gitlab.com/org/app'),
+    'I cannot confirm gitlab.com/org/app is yours. Send it yourself and tell me when it is in.',
+  );
+  assert.doesNotMatch(CANT_CONFIRM_REPO('https://github.com/org/app'), /could not read/);
 });

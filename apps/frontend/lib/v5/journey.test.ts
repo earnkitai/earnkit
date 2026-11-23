@@ -47,7 +47,7 @@ const CLOSINGS = [
   /^Say \d+ and I draft [^\n]+ for you to send\.$/,
   /^Say yes and I start the in-person applications\.$/,
   /^Nothing fits [^\n]*yet\. Tell me more about it, or its repo link, and I look again\.$/,
-  /^(Tell me when [^\n]+|Tell me the live repo) and I look again\.$/,
+  /^(Tell me when [^\n]+|Tell me the active repo) and I look again\.$/,
   /^Send me the demo video link and I fill it in\.$/,
   /^Say a number and I show what that program asks\.$/,
   // L24-11 (v6.1.16 Task 11): the one standing-approval line.

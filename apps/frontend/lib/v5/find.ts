@@ -1035,7 +1035,7 @@ export function draftTarget(r: FindReply | ProgramReply): { id: string | null; n
 const shortTarget = async (t: { id: string | null; named: string | null }) =>
   t.named && t.id ? { ...t, named: shortTitle(t.named, (await getProgram(t.id))?.file.short_title) } : t;
 /** Fix round 1 (M1): the agent note when the builder's tie to the repo could not be confirmed (no evidence either way). */
-export const CANT_CONFIRM_NOTE = "EarnKit could not read this repo to check it is the builder's: do not apply with it; let the builder send it, then call track applied with submitted_by builder.";
+export const CANT_CONFIRM_NOTE = "EarnKit could not confirm this repo is the builder's: do not apply with it; let the builder send it, then call track applied with submitted_by builder.";
 
 /** What find asks or says before any send (L28-3, L28-5, L28-7, v6.1.16 Task 14), filled while the reply is built. */
 type BeforeSend = { join: string | null };
