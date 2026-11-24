@@ -33,7 +33,7 @@ import {
   type PageReader,
 } from './official-page';
 import { programProblems } from './program-checks';
-import { ProgramFile, categoryOf, type Program } from './program-file';
+import { PRIVATE_SHOWN, ProgramFile, categoryOf, isPrivateId, type Program } from './program-file';
 import { dateStatus, isOpenAt, upsertProgram } from './programs';
 import { PENDING_DAYS, linkAnchors, officialUrlProblem, pendingReason, uncheckedLink } from './programs-pending';
 import { findProgramsDir } from './programs-dir';
@@ -535,6 +535,18 @@ export function parseSince(text: string): Date | null {
   return new Date(t - offset);
 }
 
+/** The per-program send counts as shown: every private program folded into one `PRIVATE_SHOWN` entry (v3.8 E8). Pure. */
+export function byProgramShown(rows: readonly { program_id: string; title: string | null; sent: string | number }[]): { program_id: string; title: string; sent: number }[] {
+  const out: { program_id: string; title: string; sent: number }[] = [];
+  let hidden: { program_id: string; title: string; sent: number } | null = null;
+  for (const p of rows) {
+    if (!isPrivateId(p.program_id)) out.push({ program_id: p.program_id, title: p.title ?? p.program_id, sent: Number(p.sent) });
+    else if (hidden) hidden.sent += Number(p.sent);
+    else out.push((hidden = { program_id: PRIVATE_SHOWN.id, title: PRIVATE_SHOWN.title, sent: Number(p.sent) }));
+  }
+  return out;
+}
+
 /**
  * GET /api/programs/applications?since=<ISO>&limit=<1..500>, owner only (authFailure): every send (applied or any
  * result), newest first by its send time (`sendTime`; v6.1.19 L42-2: a send with none, made outside EarnKit, is listed
@@ -590,12 +602,12 @@ export async function applicationsGet(request: Request): Promise<Response> {
       ok: true,
       totals: {
         all: Number(t.all), agent: Number(t.agent), drafted: Number(t.drafted), reported: Number(t.reported), auto: Number(t.auto),
-        by_program: byProgram.map((p) => ({ program_id: p.program_id, title: p.title ?? p.program_id, sent: Number(p.sent) })),
+        by_program: byProgramShown(byProgram),
       },
       rows: rows.map((r) => ({
         application_id: r.application_id,
-        program_id: r.program_id,
-        title: r.title ?? r.program_id,
+        // v3.8 E8: a builder's private program is counted, never named.
+        ...(isPrivateId(r.program_id) ? { program_id: PRIVATE_SHOWN.id, title: PRIVATE_SHOWN.title } : { program_id: r.program_id, title: r.title ?? r.program_id }),
         status: r.status,
         // L42-9 (v6.1.19): an unmarked send is the agent's (L29-23); the stored null stays.
         submitted_by: by(r.submitted_by ?? 'agent'),

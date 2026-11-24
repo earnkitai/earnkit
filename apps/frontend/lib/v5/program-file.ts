@@ -13,7 +13,7 @@ const noLinks = (schema: z.ZodString) =>
   schema.refine((s) => !/https?:\/\/|www\./i.test(s), 'no links');
 const chainSlug = z.string().refine(isKnownChain, 'not a known chain (chains.ts)');
 
-function isTimeZone(tz: string): boolean {
+export function isTimeZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz });
     return true;
@@ -70,6 +70,14 @@ export const SIGN_IN = ['none', 'google', 'github', 'email', 'platform'] as cons
 export const NEEDS = ['founder_video', 'demo_video', 'resume', 'deck', 'pitch_pdf'] as const;
 /** The lowest standing of work the program accepts. */
 export const MIN_TIER = ['used', 'live', 'building'] as const;
+/** v3.8 E8: every private program id (lib/v6/private-programs.ts) starts with this; no catalog id may. */
+export const PRIVATE_PREFIX = 'private-';
+/** v3.8 E8: what an operator read (owner digest, GET /api/programs/applications) shows for any private program: counted,
+ *  never named. */
+export const PRIVATE_SHOWN = { id: 'private', title: 'Private programs' } as const;
+export const isPrivateId = (id: string): boolean => id.startsWith(PRIVATE_PREFIX);
+/** v3.8 E8: what the reward is paid in: money, platform credits, or both. */
+export const REWARD_KINDS = ['cash', 'credits', 'mixed'] as const;
 
 /** A short guide string: 1 to 12 words, no links. */
 export const ShortText = noLinks(
@@ -316,9 +324,26 @@ export const ProgramFile = z
     new_organizer: z.literal(true).optional(),
     /** v3.8 E6: set by the check only. A builder link is not on the fetched official page: no prefill, no agent submit. */
     info_only: z.literal(true).optional(),
+    /**
+     * v3.8 E8 (cutover A5): the program flags an agent reads instead of re-deriving them from the page; each only as
+     * the program's own text states it, never guessed. `existing_work: new_work_only` (needs new work), `sign_in` and
+     * `new_organizer` (organizer status) are the other three. Data only: nothing acts on them yet.
+     */
+    reward_kind: z.enum(REWARD_KINDS).optional(),
+    /** The application form itself asks for identity documents ("no KYC" means none here). */
+    application_kyc: z.boolean().optional(),
+    /** Identity documents are asked of a winner before payout. */
+    payout_kyc: z.boolean().optional(),
+    /** The application form asks to connect or sign with a wallet. */
+    wallet_prompt: z.boolean().optional(),
+    /** The applicant attests to something (originality, eligibility) on the form. */
+    attestation: z.boolean().optional(),
+    /** The program's terms bar automated or agent-made submissions. */
+    no_automation: z.boolean().optional(),
   })
   .superRefine((p, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (p.id.startsWith(PRIVATE_PREFIX)) issue(`id: "${PRIVATE_PREFIX}" starts a builder's private program id, never a catalog one`);
     if (p.sign_in === 'platform' && !p.platform_name) issue('sign_in: platform needs platform_name');
     if (p.sign_in !== 'platform' && p.platform_name) issue('platform_name is only for sign_in: platform');
     for (const e of p.eligibility ?? [])

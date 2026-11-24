@@ -144,6 +144,9 @@ export async function linkInstallation(installationId: number, builderId: number
     await tx`DELETE FROM project_reports b USING project_reports i
       WHERE b.owner = ${to} AND i.owner = ${from} AND i.project_key = b.project_key`;
     await tx`UPDATE project_reports SET owner = ${to} WHERE owner = ${from}`;
+    // v3.8 E8: the private program rows go with the ledger; of one id in both, the builder's own stays.
+    await tx`DELETE FROM private_programs i USING private_programs b WHERE i.owner = ${from} AND b.owner = ${to} AND i.id = b.id`;
+    await tx`UPDATE private_programs SET owner = ${to} WHERE owner = ${from}`;
     return { migrated: moved.count };
   });
 }
@@ -222,6 +225,8 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     // v6.1.16 Task 9: the results-question markers and the promised sends go with the account.
     await tx`DELETE FROM outcome_asks WHERE owner = ${owner}`;
     await tx`DELETE FROM sent_asks WHERE owner = ${owner}`;
+    // v3.8 E8: the builder's private program rows.
+    await tx`DELETE FROM private_programs WHERE owner = ${owner}`;
     await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted', promised = NULL, promised_at = NULL WHERE builder_id = ${id}`;
     // L28-10: a deleted record is nothing to read back.
     await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;

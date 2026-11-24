@@ -2048,6 +2048,20 @@ else sets it, so legacy X rows and earlier sign-ins are unverified until the nex
 counts take real owners only (`ownerReason`: the owner key's person's `test_reason`); `wonOnce` dedupes within each
 class. `sendRows` carries `reason` too.
 
+## v3.8 E8: private program rows and program flags
+
+Behind `private_rows`. A program that cannot pass the official-page check is saved by the builder's agent through
+`track` `action: add_private` into its own table, `private_programs` (owner, id), never `programs`: every public read
+(lists, guides, sitemap, llms.txt, find's catalog, GET /api/programs) reads `programs` only, so a private row cannot
+leak by a missing filter, and `private-programs.test.ts` checks each read anyway plus that only `private-programs.ts`
+and `builders.ts` name the table. Ids start `private-` (`PRIVATE_PREFIX`), which `ProgramFile` refuses for a catalog
+id. Track on a private row records the builder's own send only (`submitted_by: builder`); an agent's send is refused,
+so it is never submitted by an agent. New rows are limited per owner a day (`LIMITS.privateRows`). The owner digest
+and GET /api/programs/applications count private applications under one unnamed `Private programs` entry. Link moves
+the rows, delete removes them. Program flags (`reward_kind`, `application_kyc`, `payout_kyc`, `wallet_prompt`,
+`attestation`, `no_automation`) are optional data on the record, read by agents from find's `program`; nothing acts on
+them yet. Design: `docs/design-docs-and-implementation-plans/v3.8-e8-private-rows.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the
