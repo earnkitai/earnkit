@@ -17,8 +17,9 @@ same id. The other source is the programs write API (`POST /api/programs/write`,
 Any program that pays builders for software, on any chain or none: ecosystem grants, hackathons,
 accelerators, open-source funds, platform developer funds. There is no chain allowlist. `chains`
 takes any slug registered in `apps/frontend/lib/v5/chains.ts` (`base`, `arc`, `tempo`, `monad`,
-`robinhood`, `avalanche`, `arbitrum`, `ethereum`, `optimism`, `polygon`, `solana`); a new chain is
-added there by the owner first. A program tied to no chain sets `"any_chain": true` and lists none.
+`robinhood`, `avalanche`, `arbitrum`, `ethereum`, `optimism`, `polygon`, `bnb`, `solana`); a new chain
+is added there by the owner first. Write the slug, not another name for the chain: BNB Chain (BSC, BNB
+Smart Chain) is `bnb`. A program tied to no chain sets `"any_chain": true` and lists none.
 
 ## Adding a program
 

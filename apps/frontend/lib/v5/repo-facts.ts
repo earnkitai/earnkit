@@ -115,6 +115,7 @@ const VIEM_NAMES: Record<string, [string, boolean]> = {
   arbitrum: ['arbitrum', true], arbitrumSepolia: ['arbitrum', false],
   optimism: ['optimism', true], optimismSepolia: ['optimism', false],
   polygon: ['polygon', true], polygonAmoy: ['polygon', false],
+  bsc: ['bnb', true], bscTestnet: ['bnb', false],
   mainnet: ['ethereum', true], sepolia: ['ethereum', false],
 };
 const MAX_CONFIG_MAINNETS = 2;

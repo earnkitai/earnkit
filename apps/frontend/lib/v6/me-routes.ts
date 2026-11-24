@@ -6,7 +6,7 @@
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { isKnownChain } from '../v5/chains';
+import { chainSlugOf } from '../v5/chains';
 import { readBody } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
@@ -197,10 +197,11 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
   if (f.path === 'policy.never') return { ok: true, value: lines(v) };
   if (leaf === 'chains_claimed') {
     // Any case matches; every unknown one is named (v6.1.9 N8); each chain is saved once, in first order (F10, v6.1.12).
+    // v3.8 G-A: an alias ("BSC", "BNB Chain") is saved as its slug.
     const given = list(v);
-    const bad = given.filter((c) => !isKnownChain(c.toLowerCase()));
+    const bad = given.filter((c) => chainSlugOf(c) === null);
     if (bad.length > 0) return { ok: false, problem: `Not a known chain: ${bad.join(', ')}.` };
-    return { ok: true, value: onceEach(given.map((c) => c.toLowerCase())) };
+    return { ok: true, value: onceEach(given.map((c) => chainSlugOf(c)!)) };
   }
   if (f.path === 'policy.categories') return { ok: true, value: list(v) };
   if (/(^|\.)answers\.[a-z_]+$/.test(f.path)) return { ok: true, value: { text: v } };

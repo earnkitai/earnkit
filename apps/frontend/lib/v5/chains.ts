@@ -110,6 +110,17 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     explorer_api: 'https://polygon.blockscout.com/api/v2',
     rpc: 'https://polygon-rpc.com',
   },
+  bnb: {
+    name: 'BNB Chain',
+    evm: true,
+    // BNB Smart Chain. "bscscan.com" inside "testnet.bscscan.com" is not a mainnet signal (repo-facts strips testnet hosts first).
+    mainnet: { ids: [56], hosts: ['bsc-dataseed.bnbchain.org', 'bsc-dataseed.binance.org', 'bscscan.com'] },
+    testnet: { ids: [97], hosts: ['bsc-testnet-dataseed.bnbchain.org', 'data-seed-prebsc-1-s1.bnbchain.org', 'testnet.bscscan.com'] },
+    explorer: 'https://bscscan.com',
+    // No keyless Blockscout instance for BNB Smart Chain: contract reads stay off, as for Avalanche.
+    explorer_api: null,
+    rpc: 'https://bsc-dataseed.bnbchain.org',
+  },
   solana: {
     name: 'Solana',
     evm: false,
@@ -123,6 +134,25 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
 
 /** Whether `slug` is a registered chain (own keys only). Pure. */
 export const isKnownChain = (slug: string): boolean => Object.hasOwn(CHAIN_REGISTRY, slug);
+
+/**
+ * Other names people and agents use for a registered chain, folded (lower case, one space): never a slug of its own,
+ * so program files and stored rows keep one slug per chain.
+ */
+const CHAIN_ALIASES: Record<string, string> = {
+  bsc: 'bnb',
+  'bnb chain': 'bnb',
+  bnbchain: 'bnb',
+  'bnb smart chain': 'bnb',
+  'binance smart chain': 'bnb',
+};
+
+/** The registered slug `input` names (the slug itself or an alias, any case, dashes, underscores and spaces alike), or null. Pure. */
+export function chainSlugOf(input: string): string | null {
+  const folded = input.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  if (isKnownChain(folded)) return folded;
+  return Object.hasOwn(CHAIN_ALIASES, folded) ? CHAIN_ALIASES[folded] : null;
+}
 
 /** The chain's display name, or the slug itself when unknown. Pure. */
 export const chainName = (slug: string): string => (isKnownChain(slug) ? CHAIN_REGISTRY[slug].name : slug);

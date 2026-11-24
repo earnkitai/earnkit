@@ -167,7 +167,9 @@ record: category, `submission_requirements` with `kind`, `from` and `todo` on ea
 `eligibility`, `results_due`, `form`, `focus`, `past_rounds`, `best_bet`, `verified_at`). The database stores the
 parsed record whole (`programs.file`); `status`, `ends_at` and the like mirror it for queries. A row that no longer
 parses is skipped by every reader. `chains.ts` is the chain registry (ids, RPC and explorer hosts, EVM or not);
-a program may only name registered slugs, and the registry grows by owner edit.
+a program may only name registered slugs, and the registry grows by owner edit. `chainSlugOf` reads the other
+names people use for a chain (`bsc`, "BNB Chain", "Binance Smart Chain" are `bnb`) where an agent or builder types a
+chain (project input, `chains_claimed` on /me); program files and the write API take the slug only.
 
 The pipeline, in order:
 

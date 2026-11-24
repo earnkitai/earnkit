@@ -20,8 +20,8 @@ test('chainName: the display name, or the slug when unknown', () => {
   assert.equal(chainName('foo'), 'foo');
 });
 
-test('the registry: the seven v4 chains plus four, solana not EVM', () => {
-  for (const c of ['base', 'arc', 'tempo', 'monad', 'robinhood', 'avalanche', 'arbitrum', 'ethereum', 'optimism', 'polygon', 'solana'])
+test('the registry: the seven v4 chains plus five (bnb in v3.8), solana not EVM', () => {
+  for (const c of ['base', 'arc', 'tempo', 'monad', 'robinhood', 'avalanche', 'arbitrum', 'ethereum', 'optimism', 'polygon', 'bnb', 'solana'])
     assert.ok(isKnownChain(c), c);
   assert.equal(CHAIN_REGISTRY.solana.evm, false);
   assert.deepEqual(CHAIN_REGISTRY.solana.mainnet.ids, []);

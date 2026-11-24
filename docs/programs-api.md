@@ -122,7 +122,7 @@ Key values:
 - `id`: 3 to 64 lowercase letters, digits or dashes (`monad-builder-grants`).
 - `category`: `grant`, `hackathon`, `investment` or `bounty`.
 - `status`: `active`, `upcoming` (needs `opens_note`) or `closed`.
-- `chains`: chain slugs from EarnKit's registry: `base`, `arc`, `tempo`, `monad`, `robinhood`, `avalanche`, `arbitrum`, `ethereum`, `optimism`, `polygon`, `solana`. `[]` only with `any_chain: true`. A program on a chain not in the list: ask the owner to add the chain first.
+- `chains`: chain slugs from EarnKit's registry: `base`, `arc`, `tempo`, `monad`, `robinhood`, `avalanche`, `arbitrum`, `ethereum`, `optimism`, `polygon`, `bnb` (BNB Chain: BSC, BNB Smart Chain), `solana`. Send the slug, not another name for the chain. `[]` only with `any_chain: true`. A program on a chain not in the list: ask the owner to add the chain first.
 - `chain_required`: `true` when the source requires one of `chains` at the project's core.
 - `needs_contract`: one of `chains`, when a deployed mainnet contract there is required.
 - `existing_work`: `allowed`, `new_work_only` or `unknown`.
