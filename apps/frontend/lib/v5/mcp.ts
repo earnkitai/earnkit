@@ -17,6 +17,7 @@ import { withCatalog } from './catalog-page';
 import { RecordAdvertised, recordTool } from '../v6/record-tool';
 import { ScreenInput, screenTool } from '../v6/screen-tool';
 import { SERVER_INSTRUCTIONS, FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION } from './tool-text';
+import { errorReply, replyFieldsOn, withReplyFields, type ToolName } from './reply-fields';
 
 /** `builderId`: the installation's linked builder, or null. `ip`: the caller's address as a rate-limit key, when the route knows it. */
 export type McpContext = {
@@ -60,29 +61,46 @@ export async function refusedFor(ctx: McpContext, now: Date): Promise<{ retryAft
   return null;
 }
 
-/** A refused call (L26-5): its limit line, with the seconds to wait for agents in `structuredContent`. */
-export const limitReply = (r: { retryAfter: number; who: 'installation' | 'address' }) => ({
-  content: [{ type: 'text' as const, text: (r.who === 'installation' ? LIMIT_OWN : LIMIT_ADDRESS)(r.retryAfter) }],
-  structuredContent: { retry_after_seconds: r.retryAfter },
-  isError: true,
-});
+/** v3.8 E13: the agent note on a busy reply and on a limit reply, with `reply_fields` on. */
+export const BUSY_NOTE = 'Nothing was changed. Call again in a minute with the same arguments.';
+export const LIMIT_NOTE = 'Nothing was changed. Call again after retry_after_seconds.';
+
+/**
+ * A refused call (L26-5): its limit line, with the seconds to wait for agents in `structuredContent`. v3.8 E13: with
+ * `reply_fields` on, the text is the JSON shape of a tool reply, status refused.
+ */
+export const limitReply = (r: { retryAfter: number; who: 'installation' | 'address' }) => {
+  const line = (r.who === 'installation' ? LIMIT_OWN : LIMIT_ADDRESS)(r.retryAfter);
+  return {
+    content: [{ type: 'text' as const, text: replyFieldsOn() ? JSON.stringify(errorReply(line, LIMIT_NOTE, 'refused', { retry_after_seconds: r.retryAfter })) : line }],
+    structuredContent: { retry_after_seconds: r.retryAfter },
+    isError: true,
+  };
+};
 
 /** L29-9 (v6.1.16 Task 15): a refusal (`refuse`, `inputError`) is isError true with the same content. */
 const reply = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }], ...(isRefused(value) ? { isError: true } : {}) });
+/** v3.8 E13: a plain error line, or with `reply_fields` on its JSON (`errorReply`). Always isError. */
+const errorLine = (line: string, note: string) =>
+  ({ content: [{ type: 'text' as const, text: replyFieldsOn() ? JSON.stringify(errorReply(line, note, 'error')) : line }], isError: true });
 
-async function run(ctx: McpContext, name: string, args: unknown, fn: () => Promise<unknown>) {
+async function run(ctx: McpContext, name: ToolName, args: unknown, fn: () => Promise<unknown>) {
+  // v3.8 E13: `status` and `state` on every reply with `reply_fields` on; off, the reply is unchanged.
+  const fields = (value: unknown) => (replyFieldsOn() ? withReplyFields(name, value, args) : value);
   try {
     // Before any walk of the arguments (v6.1.7, B4); the route refuses these before the transport too.
-    if (tooDeep(args, MAX_ARG_DEPTH)) return reply(inputError(TOO_DEEP_NOTE));
+    if (tooDeep(args, MAX_ARG_DEPTH)) return reply(fields(inputError(TOO_DEEP_NOTE)));
     const refused = await refusedFor(ctx, ctx.now ?? new Date());
     if (refused !== null) return limitReply(refused);
-    return reply(await fn());
+    return reply(fields(await fn()));
   } catch (err) {
-    if (err instanceof z.ZodError)
-      return { content: [{ type: 'text' as const, text: `Invalid input: ${err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}` }], isError: true };
+    if (err instanceof z.ZodError) {
+      const detail = err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ');
+      return replyFieldsOn() ? reply(fields(inputError(detail))) : { content: [{ type: 'text' as const, text: `Invalid input: ${detail}` }], isError: true };
+    }
     // Only the error's name: a database error carries its query and parameters.
     console.error(`[mcp] ${name} failed`, err instanceof Error ? err.name : typeof err);
-    return { content: [{ type: 'text' as const, text: BUSY }], isError: true };
+    return errorLine(BUSY, BUSY_NOTE);
   }
 }
 
