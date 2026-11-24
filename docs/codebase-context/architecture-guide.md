@@ -174,9 +174,11 @@ The pipeline, in order:
 1. Research: the owner's Grok Bot writes through `POST /api/programs/write` (instructions in `docs/programs-api.md`).
    `programs-api.ts` validates (`program-checks.ts`, `api-text.ts`, `untrusted-text.ts`, `confusables.ts`) and
    upserts, closes, or holds the write pending.
-2. Approval: a new program, or a write changing `submission_url`, `chains`, `form` or `pool_source_url`, waits for
-   the owner's one-click link (`programs-pending.ts`, signed with `EARNKIT_AUTH_SECRET`, 7 days). Everything else is
-   live at once and appears in the owner's daily digest with a revert link.
+2. Held writes (v3.8: no person approves a program; the approval email, link and route are deleted, and
+   `no-approval.test.ts` keeps them out): outside the automated lane, a new program, or a write changing
+   `submission_url`, `chains`, `form` or `pool_source_url` whose links don't check out, is held as `pending` and
+   nothing applies it. Everything else is live at once and appears in the owner's digest (`GET /api/programs/digest`,
+   recorded by the daily run; no email) with the write id that `POST /api/programs/revert` takes.
    v3.8 E6r: the automated lane skips this step. When `auto_live` is on, the writer sends the official-page check's
    fields (Growth: `amount_quote`, `deadline_quote`, `found_by_*`, `handle`, `evidence_url`), or the caller is the
    owner or a test account (the write route runs in the /me session's flag context, and the owner/test flag preview
@@ -462,10 +464,10 @@ L18-5, v6.1.19 L42-7: when the previous UTC day had sends, a `{n} sent yesterday
 {r} from outside. {total} to date.` line (`total` the dated sends through the end of yesterday) with one
 `- {title}: {k} sent` line per program (L44-18; `- {title} ({id}): {k}` before v6.1.19), most first; a day with none
 adds nothing (v6.1.19 L44-9 carries in missed days, below); a send is dated by `sendTime` in
-`stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) answers `sent`,
-`none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
+`stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) answers (v3.8, `recordOwnerDigest`, no email)
+`recorded` or `none` (nothing, or this body already recorded today); its key is
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
-day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
+day. The owner reads it with `GET /api/programs/digest`; EarnKit sends no mail (v3.8, `mail.ts` deleted). The owner triggers one screen job with the same route and a
 JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minutes), no probe, sweep or digest.
 
 v6.1.19 Task 6 (lane 44), the daily run round 3. A run whose link check failed (the walk threw, or `budget`) builds
@@ -524,8 +526,8 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), `installs_real`, `people` and `people_real` (v6.1.21: not flagged as tests), and names no one |
 | `/me/start`, `/me/consent`, `/privacy` | v3.8 E12 (`form`): the onboarding form, its save and withdraw, the privacy page |
-| `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
-| `/api/programs/digest` | v3.8 E7r: the owner's daily digest as a read (`digestGet` → `ownerDigest`, programs bearer, reads only; a revertable change names its write id). `POST /api/programs/revert` with an Authorization header reverts `{ write_id }` under the bearer; without one it is the signed link as before. The daily email is unchanged until the approval path is deleted |
+| `/api/programs/write`, `writes`, `revert` | The owner's program API (revert: bearer `{ write_id }` only) |
+| `/api/programs/digest` | v3.8 E7r: the owner's daily digest as a read (`digestGet` → `ownerDigest`, programs bearer, reads only; a revertable change names its write id). `POST /api/programs/revert` with an Authorization header reverts `{ write_id }` under the bearer; without one it is the signed link as before. There is no email: the daily run records the digest (`recordOwnerDigest`) |
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
@@ -653,10 +655,9 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | Variable | Used for |
 |---|---|
 | `DATABASE_URL` | Postgres |
-| `EARNKIT_AUTH_SECRET` | Signs OAuth client ids and codes, approve and revert links |
+| `EARNKIT_AUTH_SECRET` | Signs OAuth client ids and codes, sessions and link state |
 | `EARNKIT_URL` | The public origin (required in production) |
 | `GITHUB_TOKEN` | Public repo reads (server token; unset means lower limits) |
-| `RESEND_API_KEY` | Owner emails (unset: no mail) |
 | `CRON_SECRET` | Bearer for `/api/cron` (unset: 503); also a GitHub repo secret |
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
@@ -1235,7 +1236,7 @@ name no result apart (`Ledger.no_result`: `5 sent, 1 won ($5,000), 1 rejected, 1
 applied rows only; L43-8), on /me and in find.
 
 **Environment (ten).** `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (also signs link codes, the sign-in state and the /me
-csrf), `EARNKIT_URL`, `GITHUB_TOKEN`, `RESEND_API_KEY`, `CRON_SECRET`, `EARNKIT_PROGRAMS_TOKEN`,
+csrf), `EARNKIT_URL`, `GITHUB_TOKEN`, `CRON_SECRET`, `EARNKIT_PROGRAMS_TOKEN`,
 `EARNKIT_PROGRAMS_API`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` (unset: `/link` says `Sign-in is not
 set up yet.` and the callback goes to `/link/failed`). Plus `EARNKIT_SCREEN_OUT`, local only.
 

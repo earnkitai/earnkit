@@ -1,36 +1,28 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import type { Mailer } from './mail';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { record } from './ledger';
 import { secretMatches } from './http';
 import { programsListGet, watchCatalogRevalidation } from './programs-read';
-import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
-import { applicationsGet, parseSince, programsApiOn, approveGet, approvePost, programsChanged, digestGet, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { applicationsGet, parseSince, programsApiOn, programsChanged, digestGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
 const TOKEN = 'p'.repeat(40);
 const TODAY = new Date().toISOString().slice(0, 10);
 
-let sent: Parameters<Mailer>[0][] = [];
-const mailer: Mailer = async (m) => {
-  sent.push(m);
-};
 const probe = async () => {};
 
 beforeEach(() => {
   process.env.EARNKIT_PROGRAMS_TOKEN = TOKEN;
   process.env.EARNKIT_AUTH_SECRET = 's'.repeat(40);
-  process.env.RESEND_API_KEY = 're_test';
-  sent = [];
 });
 afterEach(() => {
   delete process.env.EARNKIT_PROGRAMS_TOKEN;
   delete process.env.EARNKIT_AUTH_SECRET;
-  delete process.env.RESEND_API_KEY;
+  delete process.env.EARNKIT_FLAGS;
 });
 
 /**
@@ -71,21 +63,29 @@ const post = (payload: unknown, auth = `Bearer ${TOKEN}`) =>
   });
 
 const write = async (program: Record<string, unknown>) => {
-  const res = await writePost(post({ action: 'upsert', program }), { mailer, probe });
+  const res = await writePost(post({ action: 'upsert', program }), { probe });
   return { status: res.status, json: (await res.json()) as Record<string, unknown> };
 };
 
-const pendingId = async (programId: string): Promise<{ id: string; at: Date }> => {
-  const [w] = await sql()<{ id: string; at: Date }[]>`
-    SELECT id, at FROM program_writes WHERE program_id = ${programId} AND result = 'pending' ORDER BY id DESC LIMIT 1`;
-  return w!;
+/** v3.8 E6: the program goes live through the auto_live lane (its page carries the quotes and its links); the flag goes off again after. */
+const liveWrite = async (program: Record<string, unknown>) => {
+  process.env.EARNKIT_FLAGS = 'auto_live';
+  // A tracked handle whose profile names the program's domain, so the organizer is confirmed and the record unchanged.
+  const handle = `h${String(program.id).replace(/[^a-z0-9]/g, '').slice(0, 14)}`;
+  const domain = new URL(String(program.official_url ?? program.source_url)).hostname.replace(/^www\./, '');
+  assert.equal((await writePost(post({ action: 'handle', handle, profile_domain: domain }))).status, 200);
+  const page = `<html><body><p>Up to $5,000 per grant.</p><p>Applications are reviewed on a rolling basis.</p><a href="${String(program.submission_url)}">Apply</a></body></html>`;
+  const res = await writePost(
+    post({ action: 'upsert', program, amount_quote: 'Up to $5,000 per grant', deadline_quote: 'reviewed on a rolling basis', found_by_query: 'grants', found_by_source: 'exa', handle }),
+    { probe, readPage: async () => page },
+  );
+  delete process.env.EARNKIT_FLAGS;
+  assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+  return res;
 };
 
-const approve = async (programId: string) => {
-  const w = await pendingId(programId);
-  const t = encodeURIComponent(approveToken(w.id, approveExpiry(w.at)));
-  return approvePost(new Request(`https://earnkit.com/api/programs/approve?t=${t}`, { method: 'POST' }), { probe });
-};
+const pendingCount = async (programId: string): Promise<number> =>
+  (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM program_writes WHERE program_id = ${programId} AND result = 'pending'`)[0]!.n;
 
 const listed = async () => {
   const res = await programsListGet(new Request('https://earnkit.com/api/programs'));
@@ -110,21 +110,19 @@ test('a body over 256 KB is 413; not JSON is 400', async () => {
   assert.equal((await writePost(bad)).status, 400);
 });
 
-test('a new program on an unknown site is 202 pending and emails the owner once', async () => {
+test('auto_live off: a new program on an unknown site is 202 pending, held once, with no email and no approve link', async () => {
   const p = body({ id: 'api-new-unknown' });
   const first = await write(p);
   assert.equal(first.status, 202);
   assert.equal(first.json.result, 'pending');
-  assert.equal(first.json.owner_emailed, true);
-  assert.equal(sent.length, 1);
-  assert.match(sent[0].text, /api-new-unknown/);
-  assert.match(sent[0].text, /\/api\/programs\/approve\?t=/);
+  assert.ok(!('owner_emailed' in first.json));
+  assert.doesNotMatch(JSON.stringify(first.json), /approve/i);
   assert.equal(await getProgram('api-new-unknown'), null);
 
   const again = await write(p);
   assert.equal(again.status, 202);
   assert.equal(again.json.result, 'pending');
-  assert.equal(sent.length, 1);
+  assert.equal(await pendingCount('api-new-unknown'), 1);
 });
 
 test('a program on a curated site for its chains goes live at once', async () => {
@@ -137,7 +135,6 @@ test('a program on a curated site for its chains goes live at once', async () =>
   assert.equal(res.status, 200);
   assert.equal(res.json.result, 'created');
   assert.equal(res.json.live, true);
-  assert.equal(sent.length, 0);
   assert.equal((await getProgram('api-base-live'))?.source, 'api');
   assert.equal((await write(p)).json.result, 'unchanged');
 });
@@ -200,7 +197,6 @@ test('a link in a text field and a submission link off-site are refused', async 
 
 test('a link that does not load is refused', async () => {
   const res = await writePost(post({ action: 'upsert', program: body({ id: 'api-dead' }) }), {
-    mailer,
     probe: async () => {
       throw new Error('answered 404');
     },
@@ -209,58 +205,39 @@ test('a link that does not load is refused', async () => {
   assert.match(((await res.json()) as { problems: string[] }).problems[0], /^source_url: doesn't load/);
 });
 
-test('form change waits for approval', async () => {
+test('auto_live off: a form change on a live program is held, and nothing applies it', async () => {
   const p = body({ id: 'api-form', title: 'Form Grants' });
-  assert.equal((await write(p)).json.result, 'pending');
-  const approved = await approve('api-form');
-  assert.equal(approved.status, 200);
+  await liveWrite(p);
   assert.equal((await getProgram('api-form'))?.file.form, undefined);
   assert.equal((await listed()).find((x) => x.id === 'api-form')?.submission_url, 'https://api-form.org/apply');
-  sent = [];
 
   const form = { platform: 'google', url: 'https://docs.google.com/forms/d/e/abc/viewform', fields: { project_name: 'entry.123' } };
   const res = await write({ ...p, form });
   assert.equal(res.status, 202);
   assert.equal(res.json.result, 'pending');
-  assert.equal(sent.length, 1);
   assert.equal((await listed()).find((x) => x.id === 'api-form')?.submission_url, 'https://api-form.org/apply');
   assert.equal((await getProgram('api-form'))?.file.form, undefined);
-
-  const page = await approveGet(
-    new Request(`https://earnkit.com/api/programs/approve?t=${encodeURIComponent(approveToken((await pendingId('api-form')).id, approveExpiry((await pendingId('api-form')).at)))}`),
-  );
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /<form method="post"/);
-  assert.equal((await getProgram('api-form'))?.file.form, undefined);
-
-  assert.equal((await approve('api-form')).status, 200);
-  assert.deepEqual((await getProgram('api-form'))?.file.form, form);
 });
 
 test('a change outside the link, chains and form on a live program goes live at once', async () => {
   const p = body({ id: 'api-reward', title: 'Reward Grants' });
-  await write(p);
-  await approve('api-reward');
+  await liveWrite(p);
   const res = await write({ ...p, reward: 'Up to $8,000 per grant', max_award_usd: 8000 });
   assert.equal(res.status, 200);
   assert.equal(res.json.result, 'updated');
   assert.equal((await getProgram('api-reward'))?.file.max_award_usd, 8000);
 });
 
-test('a change to min_tier, sign_in or submit on a live program waits for approval', async () => {
+test('auto_live off: a change to min_tier, sign_in or submit on a live program is held', async () => {
   const p = body({ id: 'api-tier', title: 'Tier Grants' });
-  await write(p);
-  await approve('api-tier');
-  sent = [];
+  await liveWrite(p);
   for (const [field, value] of [['min_tier', 'live'], ['sign_in', 'google'], ['submit', 'builder']] as const) {
     const res = await write({ ...p, [field]: value });
     assert.equal(res.status, 202, field);
     assert.equal(res.json.result, 'pending', field);
   }
   assert.equal((await getProgram('api-tier'))?.file.min_tier, undefined);
-  assert.equal(sent.length, 3);
-  assert.equal((await approve('api-tier')).status, 200);
-  assert.equal((await getProgram('api-tier'))?.file.submit, 'builder');
+  assert.equal((await getProgram('api-tier'))?.file.submit, 'either');
 });
 
 test('the API cannot set reviewers_contact', async () => {
@@ -269,44 +246,35 @@ test('the API cannot set reviewers_contact', async () => {
   assert.deepEqual(res.json.problems, ["reviewers_contact: the API can't set reviewers_contact; the owner adds it by file"]);
 });
 
-test('an approve link is single use, and a bad token changes nothing', async () => {
-  await write(body({ id: 'api-once', title: 'Once Grants' }));
-  const w = await pendingId('api-once');
-  const t = encodeURIComponent(approveToken(w.id, approveExpiry(w.at)));
-  const req = (token: string) => new Request(`https://earnkit.com/api/programs/approve?t=${token}`, { method: 'POST' });
-  assert.equal((await approvePost(req(t), { probe })).status, 200);
-  assert.equal((await approvePost(req(t), { probe })).status, 409);
-  const bad = await approvePost(req(`${t.slice(0, -2)}xx`), { probe });
-  assert.equal(bad.status, 400);
-});
-
 const appliedWrite = async (programId: string, result: string) => {
   const [w] = await sql()<{ id: string; at: Date }[]>`
     SELECT id, at FROM program_writes WHERE program_id = ${programId} AND action = 'upsert' AND result = ${result} ORDER BY id DESC LIMIT 1`;
   return w!;
 };
-const revertReq = (w: { id: string; at: Date }, method = 'POST') =>
-  new Request(`https://earnkit.com/api/programs/revert?t=${encodeURIComponent(revertToken(w.id, revertExpiry(w.at)))}`, { method });
+/** v3.8 E7: revert is a bearer POST by write id. */
+const revertReq = (w: { id: string }, auth = `Bearer ${TOKEN}`) =>
+  new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: auth }, body: JSON.stringify({ write_id: w.id }) });
 
 test('revert puts the program back as it was before that write, once', async () => {
   const p = body({ id: 'api-revert', title: 'Revert Grants' });
-  await write(p);
-  await approve('api-revert');
+  await liveWrite(p);
   await write({ ...p, reward: 'Up to $9,000 per grant', max_award_usd: 9000 });
   const w = await appliedWrite('api-revert', 'updated');
 
-  const page = await revertGet(revertReq(w, 'GET'));
-  assert.equal(page.status, 200);
+  assert.equal((await revertPost(revertReq(w, 'Bearer wrong'))).status, 401);
   assert.equal((await getProgram('api-revert'))?.file.max_award_usd, 9000);
 
   assert.equal((await revertPost(revertReq(w))).status, 200);
   assert.equal((await getProgram('api-revert'))?.file.max_award_usd, 5000);
-  assert.equal((await revertPost(revertReq(w))).status, 409);
+  const again = await revertPost(revertReq(w));
+  assert.equal(again.status, 409);
+  assert.equal(((await again.json()) as { state: string }).state, 'done');
+  const bad = new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` }, body: '{"write_id":"x"}' });
+  assert.equal((await revertPost(bad)).status, 400);
 });
 
 test('reverting the write that created a program closes it', async () => {
-  await write(body({ id: 'api-revert-new', title: 'New Revert Grants' }));
-  await approve('api-revert-new');
+  await liveWrite(body({ id: 'api-revert-new', title: 'New Revert Grants' }));
   const w = await appliedWrite('api-revert-new', 'created');
   assert.equal((await revertPost(revertReq(w))).status, 200);
   assert.equal((await getProgram('api-revert-new'))?.file.status, 'closed');
@@ -315,11 +283,11 @@ test('reverting the write that created a program closes it', async () => {
 
 test('close: an api program closes; a curated one is 409', async () => {
   await write(body({ id: 'api-close', source_url: 'https://www.base.org/close-me', submission_url: 'https://www.base.org/close-me/apply' }));
-  const res = await writePost(post({ action: 'close', id: 'api-close', reason: 'the round ended' }), { mailer, probe });
+  const res = await writePost(post({ action: 'close', id: 'api-close', reason: 'the round ended' }), { probe });
   assert.equal(res.status, 200);
   assert.equal(((await res.json()) as { result: string }).result, 'closed');
   assert.equal((await getProgram('api-close'))?.file.status, 'closed');
-  const curated = await writePost(post({ action: 'close', id: 'base-builder-grants', reason: 'no' }), { mailer, probe });
+  const curated = await writePost(post({ action: 'close', id: 'base-builder-grants', reason: 'no' }), { probe });
   assert.equal(curated.status, 409);
 });
 
@@ -333,7 +301,7 @@ test('writesGet: the audit rows without bodies, and the pending writes', async (
   assert.equal(out.pending.find((w) => w.program_id === 'api-writes')?.title, 'Writes Grants');
 });
 
-test('a write that only changes form.url off the curated sites is pending; approving applies it', async () => {
+test('auto_live off: a write that only changes form.url off the curated sites is held', async () => {
   const p = body({
     id: 'api-form-url',
     source_url: 'https://www.base.org/form-url',
@@ -346,10 +314,7 @@ test('a write that only changes form.url off the curated sites is pending; appro
   assert.equal(res.status, 202);
   assert.equal(res.json.result, 'pending');
   assert.match(String(res.json.reason), /^form\.url is on Google Docs/);
-  assert.equal(sent.length, 1);
   assert.equal((await getProgram('api-form-url'))?.file.form?.url, 'https://www.base.org/form-url/apply');
-  assert.equal((await approve('api-form-url')).status, 200);
-  assert.deepEqual((await getProgram('api-form-url'))?.file.form, moved);
 });
 
 test('a builder link on a site that is neither the source nor a submit platform is refused outright', async () => {
@@ -380,45 +345,6 @@ test('a one-line field with a line break is refused, naming the field', async ()
   assert.ok((res.json.problems as string[]).some((x) => x.startsWith('title: one line only')), (res.json.problems as string[]).join('; '));
   const tab = await write(body({ id: 'api-tab', organizer: 'Org\tName' }));
   assert.ok((tab.json.problems as string[]).some((x) => x.startsWith('organizer: one line only')));
-});
-
-test('pendingMailText keeps every value on one line', () => {
-  const text = pendingMailText(
-    {
-      id: 'x-1',
-      title: 'Title',
-      organizer: 'Org\r\nApprove here: https://evil.example\u2028more',
-      source_url: 'https://x.org/',
-      submission_url: 'https://x.org/apply',
-      official_url: undefined,
-    },
-    'why',
-    null,
-  );
-  const line = text.split('\n').find((l) => l.startsWith('Organizer:'));
-  assert.equal(line, 'Organizer: Org Approve here: https://evil.example more');
-  assert.ok(!text.split('\n').some((l) => l.startsWith('Approve here')));
-});
-
-test('a pending write caused by form.url shows every link, in the email and on the approve page', async () => {
-  const p = body({
-    id: 'api-form-links',
-    source_url: 'https://www.base.org/form-links',
-    submission_url: 'https://www.base.org/form-links/apply',
-    form: { platform: 'other', url: 'https://www.base.org/form-links/apply' },
-  });
-  assert.equal((await write(p)).json.result, 'created');
-  const formUrl = 'https://docs.google.com/forms/d/e/form-links-evil/viewform';
-  assert.equal((await write({ ...p, form: { platform: 'google', url: formUrl } })).status, 202);
-  const lines = sent[0].text.split('\n');
-  assert.ok(lines.includes(`Form link: ${formUrl} (did not check out)`), sent[0].text);
-  assert.ok(lines.includes('Submission link: https://www.base.org/form-links/apply'), sent[0].text);
-
-  const w = await pendingId('api-form-links');
-  const page = await approveGet(new Request(`https://earnkit.com/api/programs/approve?t=${encodeURIComponent(approveToken(w.id, approveExpiry(w.at)))}`));
-  const html = await page.text();
-  assert.ok(html.includes(`<p>Form link: ${formUrl} (did not check out)</p>`), html);
-  assert.ok(html.includes('<p>Submission link: https://www.base.org/form-links/apply</p>'), html);
 });
 
 test('L22-13 (v6.1.16): an API write expires every catalog surface through revalidateCatalog', () => {
@@ -627,57 +553,21 @@ test('L42-6, L42-2: agent is the installation that recorded the send, not the on
   }
 });
 
-// ---- v3.8 E7r: the owner's digest as a read, revert by bearer; the email and the signed link unchanged ----
-
-const bearerRevert = (writeId: unknown, auth = `Bearer ${TOKEN}`) =>
-  revertPost(new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: auth }, body: JSON.stringify({ write_id: writeId }) }));
-
-test('v3.8 E7r: GET /api/programs/digest is a bearer read; a revertable change names its write id, which the bearer revert takes once', async () => {
+test('v3.8 E7: GET /api/programs/digest is the owner read: bearer only, plain data plus one line per item, a revertable change names its write id', async () => {
   const get = (auth = `Bearer ${TOKEN}`) => digestGet(new Request('https://earnkit.com/api/programs/digest', { headers: { authorization: auth } }));
   assert.equal((await get('Bearer wrong')).status, 401);
   const p = body({ id: 'api-digest', title: 'Digest Grants' });
-  await write(p);
-  await approve('api-digest');
+  await liveWrite(p);
   await write({ ...p, reward: 'Up to $7,000 per grant', max_award_usd: 7000 });
-  sent = [];
-  const digestsBefore = (await sql()`SELECT count(*)::int AS n FROM owner_digests`)[0]!.n;
   const res = await get();
   assert.equal(res.status, 200);
-  const out = (await res.json()) as { ok: boolean; lines: string[]; changes: { program_id: string; write_id: string | null }[]; mailed: boolean };
+  const out = (await res.json()) as { ok: boolean; day: string; lines: string[]; changes: { program_id: string; write_id: string | null }[]; recorded: boolean };
+  assert.equal(out.ok, true);
   const change = out.changes.find((c) => c.program_id === 'api-digest')!;
   assert.match(change.write_id!, /^\d+$/);
-  assert.ok(out.lines.includes(`- Digest Grants: amount (revert: write ${change.write_id})`), out.lines.join('\n'));
-  assert.ok(out.lines.every((l) => !l.includes('/api/programs/revert?t=')));
-  // A read: nothing recorded, nothing mailed.
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM owner_digests`)[0]!.n, digestsBefore);
-  assert.deepEqual(sent, []);
-
-  assert.equal((await bearerRevert(change.write_id, 'Bearer wrong')).status, 401);
-  const ok = await bearerRevert(change.write_id);
-  assert.equal(ok.status, 200);
-  assert.deepEqual(await ok.json(), { ok: true, id: 'api-digest', result: 'reverted' });
+  assert.ok(out.lines.some((l) => l === `- Digest Grants: amount (revert: write ${change.write_id})`), out.lines.join('\n'));
+  assert.ok(out.lines.every((l) => !l.includes('\n')));
+  assert.equal(out.recorded, false);
+  assert.equal((await revertPost(revertReq({ id: change.write_id! }))).status, 200);
   assert.equal((await getProgram('api-digest'))?.file.max_award_usd, 5000);
-  const again = await bearerRevert(change.write_id);
-  assert.equal(again.status, 409);
-  assert.equal(((await again.json()) as { state: string }).state, 'done');
-  assert.equal((await bearerRevert('x')).status, 400);
-  assert.equal((await bearerRevert('999999999')).status, 404);
-});
-
-test('v3.8 E7r: without an Authorization header, revert is the signed link exactly as before', async () => {
-  const p = body({ id: 'api-link-revert', title: 'Link Revert Grants' });
-  await write(p);
-  await approve('api-link-revert');
-  await write({ ...p, reward: 'Up to $8,000 per grant', max_award_usd: 8000 });
-  const w = await appliedWrite('api-link-revert', 'updated');
-  const t = encodeURIComponent(revertToken(w.id, revertExpiry(new Date())));
-  const res = await revertPost(new Request(`https://earnkit.com/api/programs/revert?t=${t}`, { method: 'POST' }));
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get('content-type') ?? '', /text\/html/);
-  assert.equal((await getProgram('api-link-revert'))?.file.max_award_usd, 5000);
-});
-
-test('v3.8 E7r: the digest is 404 while the API is off', async () => {
-  delete process.env.EARNKIT_PROGRAMS_TOKEN;
-  assert.equal((await digestGet(new Request('https://earnkit.com/api/programs/digest'))).status, 404);
 });

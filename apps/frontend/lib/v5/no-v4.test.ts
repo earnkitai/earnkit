@@ -11,7 +11,7 @@ const FRONTEND = join(import.meta.dirname, '..', '..');
 const APP = join(FRONTEND, 'app');
 
 const ENV_ALLOWED = new Set([
-  'DATABASE_URL', 'EARNKIT_AUTH_SECRET', 'EARNKIT_URL', 'GITHUB_TOKEN', 'RESEND_API_KEY', 'CRON_SECRET',
+  'DATABASE_URL', 'EARNKIT_AUTH_SECRET', 'EARNKIT_URL', 'GITHUB_TOKEN', 'CRON_SECRET',
   'EARNKIT_PROGRAMS_TOKEN', 'EARNKIT_PROGRAMS_API', 'NODE_ENV', 'EARNKIT_TEST_GUARD', 'TEST_GUARD_LOG',
   'EK_TEST_DB', 'NODE_TEST_CONTEXT',
   // The test template's catalog sync clock (fixtures/test-db-template.mjs); a deploy never sets it.
@@ -43,7 +43,7 @@ const APP_DIRS = new Set([
   'install', 'install/consent', 'oauth', 'oauth/authorize', 'oauth/register', 'oauth/token',
   '.well-known', '.well-known/oauth-authorization-server', '.well-known/oauth-protected-resource',
   '.well-known/oauth-protected-resource/[[...path]]',
-  'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/applications', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
+  'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/applications', 'api/programs/revert', 'api/programs/reviewers',
   // v3.8 E7r: the owner's digest as a read (programs bearer).
   'api/programs/digest',
   'api/stats', 'api/cron',
