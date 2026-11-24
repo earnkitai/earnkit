@@ -25,7 +25,8 @@ import { findProgramsDir, revertPlan } from './programs-api';
 import { revertExpiry, revertUrl } from './programs-pending';
 import { sendCounts, sendRows } from './stats';
 
-export type DigestChange = { id: string; title: string; fields: string[]; revertUrl: string | null; revertNote?: string };
+/** `writeId` (v3.8 E7r): the write POST /api/programs/revert takes, set by the read (`ownerDigest`) in place of `revertUrl`. */
+export type DigestChange = { id: string; title: string; fields: string[]; revertUrl: string | null; writeId?: string | null; revertNote?: string };
 export type DigestHealth = {
   closed: { id: string; title: string }[];
   /** v6.1.16 Task 16 (L30-1): upcoming programs the daily run opened at their start date. */
@@ -164,7 +165,8 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
   if (changes.length > 0) {
     const lines = changes.map((c) => {
       const words = c.fields.map((f) => FIELD_WORDS[f] ?? f).join(', ');
-      return `- ${oneLine(c.title)}: ${words}${c.revertUrl ? `\n  Revert: ${c.revertUrl}` : c.revertNote ? ` ${c.revertNote}` : ''}`;
+      const revert = c.revertUrl ? `\n  Revert: ${c.revertUrl}` : c.writeId ? ` (revert: write ${c.writeId})` : c.revertNote ? ` ${c.revertNote}` : '';
+      return `- ${oneLine(c.title)}: ${words}${revert}`;
     });
     blocks.push(['Changes to live programs', ...lines].join('\n'));
   }
@@ -174,10 +176,13 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
 type TitleRow = { id: string; file: unknown };
 const titleOf = (r: TitleRow) => ProgramFile.safeParse(r.file).data?.title ?? r.id;
 
-type Link = { url: string | null; note?: string };
+type Link = { url: string | null; writeId?: string | null; note?: string };
 
-/** A revert link for the program's latest applied write; otherwise why there is none. */
-async function revertLinkFor(id: string, now: Date, failures: Set<string>): Promise<Link> {
+/**
+ * A revert link for the program's latest applied write; otherwise why there is none. `asWrite` (v3.8 E7r, the read):
+ * the write's id for POST /api/programs/revert in place of a signed link.
+ */
+async function revertLinkFor(id: string, now: Date, failures: Set<string>, asWrite = false): Promise<Link> {
   const db = sql();
   try {
     const [w] = await db<{ id: string }[]>`
@@ -186,10 +191,11 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>): Prom
       ORDER BY id DESC LIMIT 1`;
     if (!w) return { url: null, note: '(not revertable)' };
     const plan = await revertPlan(db, w.id, findProgramsDir(), false);
-    return plan.kind === 'ok' ? { url: revertUrl(w.id, revertExpiry(now)) } : { url: null, note: '(not revertable)' };
+    if (plan.kind !== 'ok') return { url: null, note: '(not revertable)' };
+    return asWrite ? { url: null, writeId: String(w.id) } : { url: revertUrl(w.id, revertExpiry(now)) };
   } catch (err) {
     failures.add(err instanceof Error ? err.name.replace(/[^\w]/g, '').slice(0, 40) : 'unknown');
-    return { url: null, note: '(no revert link)' };
+    return { url: null, note: asWrite ? '(revert unknown)' : '(no revert link)' };
   }
 }
 
@@ -282,12 +288,14 @@ function needsOwner(rows: TitleRow[], now: Date): { unreadable: Unreadable[]; to
 /** The digest's idempotency key: the UTC day and the first 16 hex of the body's sha256. Pure. */
 export const digestKey = (day: string, body: string) => `owner-digest:${day}:${createHash('sha256').update(body).digest('hex').slice(0, 16)}`;
 
+/** The day's digest as built: the text (null when there is nothing to say) and the parts it was built from. */
+type Gathered = { day: string; text: string | null; changes: DigestChange[]; health: DigestHealth; applications: DigestApplications; results: DigestResults };
+
 /**
- * Gathers the UTC day's events, mails the digest if there is one: 'sent', 'none' (nothing to say, or this body was
- * already sent today), or 'mail off' (RESEND_API_KEY unset, checked first, nothing read or sent).
+ * Gathers the UTC day's events and builds the digest text. Reads only. `asWrite` (v3.8 E7r, the read): each revertable
+ * change names its write id instead of carrying a signed revert link.
  */
-export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent' | 'none' | 'mail off'> {
-  if (!process.env.RESEND_API_KEY?.trim()) return 'mail off';
+async function gatherDigest(now: Date, asWrite: boolean): Promise<Gathered> {
   const day = now.toISOString().slice(0, 10);
   const dayStart = new Date(`${day}T00:00:00Z`);
   const dayEnd = new Date(dayStart.getTime() + 86_400_000);
@@ -379,15 +387,40 @@ export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent
   for (const r of changeRows) {
     // The opening is its own block; its status-only change row is not listed again.
     if (opened.has(r.id) && r.fields.length === 1 && r.fields[0] === 'status') continue;
-    if (!links.has(r.id)) links.set(r.id, await revertLinkFor(r.id, now, failures));
+    if (!links.has(r.id)) links.set(r.id, await revertLinkFor(r.id, now, failures, asWrite));
     const l = links.get(r.id)!;
-    changes.push({ id: r.id, title: titleOf(r), fields: r.fields, revertUrl: l.url, ...(l.note && { revertNote: l.note }) });
+    changes.push({ id: r.id, title: titleOf(r), fields: r.fields, revertUrl: l.url, ...(asWrite && { writeId: l.writeId ?? null }), ...(l.note && { revertNote: l.note }) });
   }
   if (failures.size > 0) console.error(`[owner-digest] revert links failed: ${[...failures].join(', ')}`);
 
-  const apps = await digestApplications(dayStart, last?.day ?? null);
-  const text = dailyOwnerText(day, changes, health, apps, await digestResults(since, now));
+  const applications = await digestApplications(dayStart, last?.day ?? null);
+  const results = await digestResults(since, now);
+  return { day, text: dailyOwnerText(day, changes, health, applications, results), changes, health, applications, results };
+}
+
+/** v3.8 E7r: the owner's digest as a read (GET /api/programs/digest), plus whether the daily email already sent it. */
+export type OwnerDigest = Gathered & { sent: boolean };
+
+/**
+ * v3.8 E7r (plan 23.2): the UTC day's digest, read only: the same window and blocks as the email, each revertable
+ * change naming its write id for POST /api/programs/revert. Changes nothing, so it may be called any number of times.
+ */
+export async function ownerDigest(now: Date): Promise<OwnerDigest> {
+  const d = await gatherDigest(now, true);
+  // The email's body carries signed links, so its hash is not this text's: `sent` says only that today's mail went.
+  const [sent] = await sql()<{ day: string }[]>`SELECT day FROM owner_digests WHERE day = ${d.day}`;
+  return { ...d, sent: Boolean(sent) };
+}
+
+/**
+ * Gathers the UTC day's events, mails the digest if there is one: 'sent', 'none' (nothing to say, or this body was
+ * already sent today), or 'mail off' (RESEND_API_KEY unset, checked first, nothing read or sent).
+ */
+export async function sendOwnerDigest(now: Date, mailer?: Mailer): Promise<'sent' | 'none' | 'mail off'> {
+  if (!process.env.RESEND_API_KEY?.trim()) return 'mail off';
+  const { day, text } = await gatherDigest(now, false);
   if (text === null) return 'none';
+  const db = sql();
   const key = digestKey(day, text);
   const hash = key.slice(key.lastIndexOf(':') + 1);
   const [sent] = await db<{ body_hash: string | null }[]>`SELECT body_hash FROM owner_digests WHERE day = ${day}`;
