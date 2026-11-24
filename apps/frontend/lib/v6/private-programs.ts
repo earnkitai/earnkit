@@ -9,7 +9,7 @@
  * by an agent: track records only the builder's own send on it. Behind the `private_rows` flag.
  */
 import { z } from 'zod';
-import { sql } from '../v5/db';
+import { type Db, sql } from '../v5/db';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { PRIVATE_PREFIX, isTimeZone } from '../v5/program-file';
 import { cleanText } from '../v5/controls';
@@ -82,6 +82,18 @@ export async function privateProgramOf(owner: string, name: string): Promise<Pri
 /** Every private row of `owner`, by id. */
 export async function privatePrograms(owner: string): Promise<PrivateProgram[]> {
   return (await sql()<Row[]>`SELECT owner, id, file FROM private_programs WHERE owner = ${owner} ORDER BY id`).map(toProgram);
+}
+
+/** v3.8 E10: `owner`'s private rows read in `db` (a transaction: the track import's plan). */
+export async function privateRowsIn(db: Db, owner: string): Promise<PrivateProgram[]> {
+  return (await db<Row[]>`SELECT owner, id, file FROM private_programs WHERE owner = ${owner} ORDER BY id`).map(toProgram);
+}
+
+/** v3.8 E10: the track import's write of one private row under its own id, with no daily limit (an owner's own import). */
+export async function putPrivate(db: Db, owner: string, id: string, file: PrivateProgramIn, now: Date): Promise<void> {
+  const parsed = PrivateProgramInput.parse(file);
+  await db`INSERT INTO private_programs (owner, id, file, created_at, updated_at) VALUES (${owner}, ${id}, ${db.json(parsed)}, ${now}, ${now})
+    ON CONFLICT (owner, id) DO UPDATE SET file = EXCLUDED.file, updated_at = EXCLUDED.updated_at`;
 }
 
 /** The statuses track takes on a private row: no gap steps (it has no catalog items) and no standing-approval send. */
