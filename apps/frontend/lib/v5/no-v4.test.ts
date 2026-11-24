@@ -29,6 +29,8 @@ const ENV_ALLOWED = new Set([
   'REPRO_BASE_URL', 'REPRO_DATABASE_URL', 'REPRO_AUTH_SECRET', 'REPRO_CRON_SECRET', 'REPRO_ALLOW_REMOTE', 'REPRO_SCRIPT',
   // Task 17 (v6.1.16): the boot check runs on the Node runtime only.
   'NEXT_RUNTIME',
+  // v3.8 first ship: the feature flags (lib/v5/flags.ts), a comma list; unset turns every flag off.
+  'EARNKIT_FLAGS',
 ]);
 const REMOVED_DEPS = ['@anthropic-ai/sdk', '@huggingface/transformers', 'aws4fetch', 'fflate', 'ox', 'viem'];
 
