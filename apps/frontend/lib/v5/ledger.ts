@@ -14,6 +14,7 @@
  * stated maximum, else its pool, else 10,000,000, is refused (`overCap`, converted for the check only); investments
  * are never "asked".
  */
+import { COPY_V37, copy } from './copy';
 import { lowerFirst } from '../v6/reply-words';
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
@@ -42,7 +43,7 @@ const itemFold = (s: string): string => s.replace(/[^\P{C}]/gu, '').trim().toLow
 /** L45-10 (v6.1.19): the program's own item an agent's copy names (trimmed, cleaned, any case), else null. Pure. */
 export const gapItemOf = (program: ProgramRow, item: string): string | null => gapItems(program).find((k) => itemFold(k) === itemFold(item)) ?? null;
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
-export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
+export const WHICH_CHANGE = COPY_V37.whichChange;
 
 /** A skip or a claim over another of the owner's agents' live claim (v6.1.13, B3): nothing is written. L23-3 (v6.1.16):
  *  never a send, which is always recorded (`other_claim`). */
@@ -138,7 +139,7 @@ export const isEarlierRound = (row: { status: string; earlier_win?: EarlierWin |
   row.status === 'won' && row.earlier_win != null && !row.earlier_win.moved;
 
 /** A win with no amount above 0 (L22-6, v6.1.16: cents are kept, so a win is no longer whole dollars only). */
-export const WHOLE_DOLLARS = 'Tell me how much you won.';
+export const WHOLE_DOLLARS = COPY_V37.wholeDollars;
 const DAY = 86_400_000;
 /** How long after its close a send still counts under standing approval (F8, v6.1.12). */
 export const CLOSED_GRACE_MS = 3_600_000;
@@ -448,14 +449,14 @@ export async function record(
   const given = o.amount ?? (o.amount_usd !== undefined ? { value: o.amount_usd, currency: 'USD' } : undefined);
   const noAmount = status === 'won' && o.amountNotGiven === true && given === undefined;
   if (status === 'won' && !noAmount && !(given && typeof given.value === 'number' && Number.isFinite(given.value) && given.value > 0))
-    return { ok: false, note: WHOLE_DOLLARS };
+    return { ok: false, note: copy().wholeDollars };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
     const keys = gapItems(program);
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
-    if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
+    if (!o.item || !keys.includes(o.item)) return { ok: false, note: copy().whichChange, items: keys };
   }
-  if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
+  if (status === 'gap_done' && !o.item) return { ok: false, note: copy().whichChange };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   // L22-5 (v6.1.16, fix round 1): the cap reads the given value; it is rounded to its currency's places only to be stored.
   const givenValue = status === 'won' && !noAmount ? given!.value : null;

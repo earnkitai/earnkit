@@ -2,6 +2,7 @@
  * The track tool: validates the input, writes the ledger (or, for started, the claim), and answers
  * with one line for the builder, one for the agent, and the updated ledger.
  */
+import { COPY_V37, copy } from './copy';
 import { z } from 'zod';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { DELETED_NOTICE, shortTitle } from '../v6/reply-words';
@@ -214,7 +215,7 @@ async function joinProject(ctx: TrackContext, owner: string, name: string, proje
   const passed = projectKeyOf(project);
   const to = repoKeyOf(passed) ? passed : await lastProjectKey(ctx.installationId);
   const from = nameKeyOf({ name });
-  if (!repoKeyOf(to) || !from) return refuse('Tell me the repo link and I join them.', 'Nothing was joined. Call track with program_id join, status gap_done, item join:<name> and the project with its repo_url.');
+  if (!repoKeyOf(to) || !from) return refuse(copy().joinRepoAsk, 'Nothing was joined. Call track with program_id join, status gap_done, item join:<name> and the project with its repo_url.');
   if (await repoNotMine(ctx, to)) return refuse(NOT_YOUR_REPO, 'Nothing was joined: the repo is not the builder\'s.');
   const repo = to.replace(/^https:\/\//, '');
   const res = await joinRows(owner, from, to, await repoIdOf(to), await parentOf(to));
@@ -339,7 +340,7 @@ export const OUTSIDE_WIN = (title: string, money: string) => `Recorded: ${title}
 /** L29-27 (v6.1.16 Task 15): the agent note wherever the builder hears "Say unskip" (L47-15, v6.1.22: one phrase). */
 export const BRING_BACK_NOTE = 'On "unskip", call track with unskip.';
 /** L47-8 (v6.1.22): gap_done on the rules a Next line named, after the builder's yes: the yes covers the send. */
-export const NEXT_NOTED = 'Noted; I apply now.';
+export const NEXT_NOTED = COPY_V37.nextNoted;
 /** L47-8 (v6.1.22, controller ruling): the same for a program the builder sends themselves. */
 export const NEXT_NOTED_DRAFT = 'Noted; I draft it for you to send.';
 /** L47-8 (v6.1.22): the agent note after it: no find. */
@@ -355,7 +356,7 @@ export const SKIPPED_START_NOTE = 'Do not submit this one. When the builder says
 /** L45-20 (v6.1.19): a win on a program that has not opened, unless the builder says it came from outside EarnKit. */
 export const NOT_OPENED_WIN = (title: string) => `${title} has not opened; nothing to record.`;
 /** L45-15 (v6.1.19): gap_done with no item on a program the agent named. */
-export const WHICH_CHANGE_ON = (title: string) => `Which change did you finish on ${title}?`;
+export const WHICH_CHANGE_ON = (title: string): string => copy().whichChangeOn(title);
 /** L24-4 (v6.1.16 Task 11): the agent note after track held. */
 export const HELD_NOTE = 'Held: do not send it. When the builder says go, call track started and then send.';
 /** L24-27 (v6.1.16 Task 11): the claim's 24 hours, in the agent note only. */
@@ -971,7 +972,7 @@ async function act(
   }
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (res.ok && i.status === 'skipped' && 'repeated' in res)
-    return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated applications.', ledger: await summary(owner, programs, ctx.now) };
+    return { show_to_builder: copy().alreadySkipped, agent_note: 'Call find again for the updated applications.', ledger: await summary(owner, programs, ctx.now) };
   // L17-9 (v6.1.16): a send refused as unlinked already went out; the agent tells the builder to keep a note.
   if (!res.ok && i.status === 'applied' && res.note === UNLINKED_MEANWHILE) return refuse(UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE);
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
@@ -1010,7 +1011,7 @@ async function act(
       // shown to be theirs, the program open, not sent here, held, or claimed by another agent. Otherwise a plain note.
       if (!(await nextYesHolds(ctx, owner, i.program_id, project.key, p))) return { show_to_builder: NEXT_NOTED_LATER, agent_note: NEXT_LATER_NOTE, ledger: await summary(owner, programs, ctx.now) };
       const draft = p?.file.submit === 'builder' || (ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.agent_may_submit === false);
-      return { show_to_builder: draft ? NEXT_NOTED_DRAFT : NEXT_NOTED, agent_note: NEXT_GAP_NOTE(i.program_id), ledger: await summary(owner, programs, ctx.now) };
+      return { show_to_builder: draft ? NEXT_NOTED_DRAFT : copy().nextNoted, agent_note: NEXT_GAP_NOTE(i.program_id), ledger: await summary(owner, programs, ctx.now) };
     }
     const [show, note] = 'repeated' in res
       ? ['Already tracked.', 'Call find again for the updated applications.']
@@ -1021,7 +1022,7 @@ async function act(
           ? ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']
           : codeChecked(i.item!)
             // F6 (v6.1.12): no repo to check; the builder says when it is up.
-            ? ['Tracked. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']
+            ? [copy().tellWhenLive, 'When the builder says it is live, call find again with its repo or live link.']
           : ['Tracked.', 'Call find again; that step counts as done.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
@@ -1049,7 +1050,7 @@ async function act(
       ? `Tracked: ${moneyText(amount ? amount.value : 0, wonCurrency(res.total))} more from ${title}, ${amountsText(res.total)} in total.`
       : 'replaced' in res && res.replaced !== undefined
         ? `Tracked: ${wonText} from ${title}. Replaced the earlier amount.`
-        : `Tracked: ${wonText} from ${title}.`,
+        : copy().won(wonText, title),
     // L38-16 (v6.1.18): the next ready program follows, as after a send (NEXT_LINE); none, the line ends here.
     // L41-6 (v6.1.19): the rejection by name, so a Next line after it never reads as tracked.
     rejected: `Noted: ${title} said no.`,
@@ -1190,8 +1191,7 @@ export const NEXT_LINE = (n: Pick<NextReady, 'title' | 'money' | 'draft'> & { ru
 /** L46-13 (v6.1.20): what the next ready program still needs from the record, filled by `nextReady`. */
 type NextLacks = { lacks?: { title: string; needs: string[] } };
 /** L46-13 (v6.1.20): "Base Builder Grants is next; it needs a website link and your X link." (two named at most). Pure. */
-export const NEXT_LACKS = (l: { title: string; needs: string[] }): string =>
-  `${l.title} is next; it needs ${l.needs.slice(0, 2).join(' and ')} first.`;
+export const NEXT_LACKS = (l: { title: string; needs: string[] }): string => copy().nextLacks(l);
 /** L36-12 (v6.1.18): the agent's way to the next send without a find. L41-3 (v6.1.19): with rules, the gap_done
  *  that confirms them first. Pure. */
 export const NEXT_NOTE = (n: NextReady): string => {

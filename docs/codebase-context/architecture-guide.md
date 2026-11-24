@@ -2115,6 +2115,12 @@ from the reply and its arguments in `mcp.ts`'s `run`. Errors that were one text 
 unknown and old tool names, the route's too-deep and not-an-object answers) become the same JSON shape
 (`errorReply`). Off, every reply is main's. Design: `docs/design-docs-and-implementation-plans/v3.8-e13-reply-fields.md`.
 
+## v3.8 E14: the copy table
+
+`lib/v5/copy.ts` holds the builder lines the v3.8 copy pass rewrites (`COPY_V37`, exactly main's strings) and
+`copy()`, read at call time by find, reply, track, ledger, record and screen. The old constant names are aliases of
+`COPY_V37`. Design: `docs/design-docs-and-implementation-plans/v3.8-e14-copy-extraction.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the
