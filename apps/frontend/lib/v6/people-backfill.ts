@@ -112,22 +112,70 @@ export type Reflag = { person: number; person_key: string; from: string | null; 
  * over dogfood over test, persona and repro); a person unflagged by hand is left alone. Reads only.
  */
 export async function reflagPlan(db: Db, env: Record<string, string | undefined> = process.env): Promise<Reflag[]> {
-  const rows = await db<{ id: number; builder_id: number | null; test_reason: string | null; test_reason_source: string | null; login: string | null; x_handle: string | null; x_user_id: string | null; ids: number[]; names: (string | null)[] }[]>`
-    SELECT p.id, p.builder_id, p.test_reason, p.test_reason_source, b.login, p.x_handle, p.x_user_id,
+  return (await reflagScan(db, env)).changes.map(({ handle: _, ...r }) => r);
+}
+
+/** reflagPlan's rows with each person's public handle (GitHub login, else X handle), and how many people were read. */
+async function reflagScan(db: Db, env: Record<string, string | undefined>): Promise<{ scanned: number; changes: (Reflag & { handle: string | null })[] }> {
+  const rows = await db<{ id: number; builder_id: number | null; test_reason: string | null; test_reason_source: string | null; login: string | null; github_login: string | null; bx_handle: string | null; x_handle: string | null; x_user_id: string | null; ids: number[]; names: (string | null)[] }[]>`
+    SELECT p.id, p.builder_id, p.test_reason, p.test_reason_source, b.login, p.github_login, b.x_handle AS bx_handle, p.x_handle, p.x_user_id,
       COALESCE(array_agg(i.id ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), ARRAY[]::int[]) AS ids,
       COALESCE(array_agg(i.client_name ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), ARRAY[]::text[]) AS names
     FROM people p LEFT JOIN builders b ON b.id = p.builder_id LEFT JOIN installations i ON i.person_id = p.id
-    GROUP BY p.id, b.login ORDER BY p.id`;
-  const out: Reflag[] = [];
+    GROUP BY p.id, b.login, b.x_handle ORDER BY p.id`;
+  const changes: (Reflag & { handle: string | null })[] = [];
   for (const r of rows) {
     if (r.test_reason_source === UNFLAGGED) continue;
     const flag: TestFlag | null =
       envListReason({ githubLogin: r.login, xHandle: r.x_user_id ? r.x_handle : null, installationIds: r.ids }, env) ??
       (r.builder_id == null ? (r.names.map(clientNameReason).find(Boolean) ?? null) : null);
     if (!flag || reasonRank(flag.reason) <= reasonRank(r.test_reason)) continue;
-    out.push({ person: r.id, person_key: r.builder_id != null ? `b:${r.builder_id}` : r.ids.length ? `i:${r.ids[0]}` : `p:${r.id}`, from: r.test_reason, to: flag.reason, source: flag.source });
+    const x = r.bx_handle ?? r.x_handle;
+    const handle = r.login ?? r.github_login ?? (x ? `@${x.replace(/^@/, '')}` : null);
+    changes.push({ person: r.id, person_key: r.builder_id != null ? `b:${r.builder_id}` : r.ids.length ? `i:${r.ids[0]}` : `p:${r.id}`, from: r.test_reason, to: flag.reason, source: flag.source, handle });
   }
-  return out;
+  return { scanned: rows.length, changes };
+}
+
+export const REFLAG_LABEL = '[reflag dry-run]';
+const HANDLE_CAP = 200;
+/** A handle printed only when it looks like one (GitHub login or @X handle); anything else is hidden, never echoed. */
+const safeHandle = (h: string | null) => (h && /^@?[A-Za-z0-9_][A-Za-z0-9_.-]{0,38}$/.test(h) ? h : '(no public handle)');
+
+/**
+ * v3.8: the deploy's read-only reflag report (`--reflag-report`, run by `pnpm predeploy` with Railway's own env lists).
+ * Inside a READ ONLY transaction that is rolled back; prints only counts and, per changed person, the public handle
+ * and old -> new values (at most 200 lines). Never an email, name, wallet, OAuth account id, token or the DB URL.
+ * `verified_by`/`verified_at` are set only by a fresh OAuth sign-in, never by reflag, so that count is always 0.
+ */
+export async function reflagReport(out: (s: string) => void = console.log, env: Record<string, string | undefined> = process.env): Promise<{ scanned: number; changed: number }> {
+  const { scanned, changes } = await inMode(false, async (tx) => {
+    await tx`SET TRANSACTION READ ONLY`;
+    await tx`SET LOCAL statement_timeout = '30s'`;
+    return reflagScan(tx, env);
+  });
+  const line = (s: string) => out(`${REFLAG_LABEL} ${s}`);
+  const tally = (pick: (c: Reflag) => string | null) => {
+    const m = new Map<string, number>();
+    for (const c of changes) {
+      const k = pick(c);
+      if (k) m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m].sort(([a], [b]) => a.localeCompare(b));
+  };
+  const lists = listsSet(env);
+  line(`read only, rolled back; env lists: ${Object.entries(lists).map(([k, n]) => `${k}=${n}`).join(' ')}`);
+  line(`people scanned: ${scanned}`);
+  line(`test_reason would change: ${changes.length}`);
+  for (const [k, n] of tally((c) => `${c.from ?? 'null'} -> ${c.to}`)) line(`  test_reason ${k}: ${n}`);
+  const owner = tally((c) => ((c.from === 'owner') !== (c.to === 'owner') ? `${c.from === 'owner'} -> ${c.to === 'owner'}` : null));
+  line(`owner would change: ${owner.reduce((a, [, n]) => a + n, 0)}`);
+  for (const [k, n] of owner) line(`  owner ${k}: ${n}`);
+  line('verified would change: 0 (reflag never sets verified_by or verified_at)');
+  for (const c of changes.slice(0, HANDLE_CAP)) line(`  ${safeHandle(c.handle)}: test_reason ${c.from ?? 'null'} -> ${c.to}${(c.from === 'owner') !== (c.to === 'owner') ? `, owner ${c.from === 'owner'} -> ${c.to === 'owner'}` : ''}`);
+  if (changes.length > HANDLE_CAP) line(`  ... ${changes.length - HANDLE_CAP} more not listed (cap ${HANDLE_CAP})`);
+  line('done');
+  return { scanned, changed: changes.length };
 }
 
 /** The person a key names: `b:<builder id>`, `i:<installation id>` (that installation's person) or `p:<people id>`. */

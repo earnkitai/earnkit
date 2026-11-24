@@ -2042,6 +2042,15 @@ clears one; only a stronger one replaces it: owner over dogfood over test, perso
 p:id> [--apply]` clears one person's reason by hand (source `unflagged`; nothing automatic flags it again). All are
 dry runs unless `--apply`. The script reads the env lists from its own shell: export them before running.
 
+v3.8 reflag dry run at deploy: `pnpm predeploy` ends with `(pnpm people:reflag-report || true)`, i.e.
+`people-backfill.mts --reflag-report` (`reflagReport` in lib/v6/people-backfill.ts). It runs the `--reflag` evaluation
+with Railway's own env lists inside a READ ONLY transaction that is rolled back (statement timeout 30 s, whole run capped
+at 60 s) and prints a `[reflag dry-run]` block: people scanned, `test_reason` transitions (old -> new, counted), owner
+gained/lost counts, verified (always 0: only a fresh OAuth sign-in sets it), then up to 200 lines of public handle
+(builder login, claimed GitHub login, else @X handle; anything not handle-shaped prints `(no public handle)`) with
+old -> new values. Never an email, name, wallet, OAuth id, token or URL. Any error prints one `skipped: <code>` line;
+the script always exits 0, so it can never fail a deploy. Find it in the deploy logs by its label.
+
 ## v3.8 E3: verified sign-in and the count ladder
 
 Design: `design-docs-and-implementation-plans/v3.8-e3-verified-ladder-plan.md`; every count is defined in
