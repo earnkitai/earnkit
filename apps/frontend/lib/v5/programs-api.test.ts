@@ -6,8 +6,7 @@ import { programFixture } from './fixtures/program';
 import { record } from './ledger';
 import { secretMatches } from './http';
 import { programsListGet, watchCatalogRevalidation } from './programs-read';
-import { revertExpiry, revertToken } from './programs-pending';
-import { applicationsGet, parseSince, programsApiOn, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { applicationsGet, parseSince, programsApiOn, programsChanged, digestGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
@@ -252,8 +251,9 @@ const appliedWrite = async (programId: string, result: string) => {
     SELECT id, at FROM program_writes WHERE program_id = ${programId} AND action = 'upsert' AND result = ${result} ORDER BY id DESC LIMIT 1`;
   return w!;
 };
-const revertReq = (w: { id: string; at: Date }, method = 'POST') =>
-  new Request(`https://earnkit.com/api/programs/revert?t=${encodeURIComponent(revertToken(w.id, revertExpiry(w.at)))}`, { method });
+/** v3.8 E7: revert is a bearer POST by write id. */
+const revertReq = (w: { id: string }, auth = `Bearer ${TOKEN}`) =>
+  new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: auth }, body: JSON.stringify({ write_id: w.id }) });
 
 test('revert puts the program back as it was before that write, once', async () => {
   const p = body({ id: 'api-revert', title: 'Revert Grants' });
@@ -261,13 +261,16 @@ test('revert puts the program back as it was before that write, once', async () 
   await write({ ...p, reward: 'Up to $9,000 per grant', max_award_usd: 9000 });
   const w = await appliedWrite('api-revert', 'updated');
 
-  const page = await revertGet(revertReq(w, 'GET'));
-  assert.equal(page.status, 200);
+  assert.equal((await revertPost(revertReq(w, 'Bearer wrong'))).status, 401);
   assert.equal((await getProgram('api-revert'))?.file.max_award_usd, 9000);
 
   assert.equal((await revertPost(revertReq(w))).status, 200);
   assert.equal((await getProgram('api-revert'))?.file.max_award_usd, 5000);
-  assert.equal((await revertPost(revertReq(w))).status, 409);
+  const again = await revertPost(revertReq(w));
+  assert.equal(again.status, 409);
+  assert.equal(((await again.json()) as { state: string }).state, 'done');
+  const bad = new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` }, body: '{"write_id":"x"}' });
+  assert.equal((await revertPost(bad)).status, 400);
 });
 
 test('reverting the write that created a program closes it', async () => {
@@ -548,4 +551,23 @@ test('L42-6, L42-2: agent is the installation that recorded the send, not the on
     await db`DELETE FROM installations WHERE token_hash IN ('l42-a', 'l42-b')`;
     await db`DELETE FROM builders WHERE github_id = 918420`;
   }
+});
+
+test('v3.8 E7: GET /api/programs/digest is the owner read: bearer only, plain data plus one line per item, a revertable change names its write id', async () => {
+  const get = (auth = `Bearer ${TOKEN}`) => digestGet(new Request('https://earnkit.com/api/programs/digest', { headers: { authorization: auth } }));
+  assert.equal((await get('Bearer wrong')).status, 401);
+  const p = body({ id: 'api-digest', title: 'Digest Grants' });
+  await liveWrite(p);
+  await write({ ...p, reward: 'Up to $7,000 per grant', max_award_usd: 7000 });
+  const res = await get();
+  assert.equal(res.status, 200);
+  const out = (await res.json()) as { ok: boolean; day: string; lines: string[]; changes: { program_id: string; write_id: string | null }[]; recorded: boolean };
+  assert.equal(out.ok, true);
+  const change = out.changes.find((c) => c.program_id === 'api-digest')!;
+  assert.match(change.write_id!, /^\d+$/);
+  assert.ok(out.lines.some((l) => l === `- Digest Grants: amount (revert: write ${change.write_id})`), out.lines.join('\n'));
+  assert.ok(out.lines.every((l) => !l.includes('\n')));
+  assert.equal(out.recorded, false);
+  assert.equal((await revertPost(revertReq({ id: change.write_id! }))).status, 200);
+  assert.equal((await getProgram('api-digest'))?.file.max_award_usd, 5000);
 });

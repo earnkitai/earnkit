@@ -1,6 +1,7 @@
 /**
  * The owner's programs write API (Growth's writer): POST /api/programs/write upserts or closes an API program (or
- * records a tracked handle), GET /api/programs/writes is its audit log, the revert link undoes one write. Audited.
+ * records a tracked handle), GET /api/programs/writes is its audit log, GET /api/programs/digest the owner's daily
+ * digest (owner-digest.ts), POST /api/programs/revert undoes one write. All under the programs bearer token. Audited.
  *
  * v3.8 E6 (decision 21): no person approves a program. With the `auto_live` flag on, an upsert goes live at once when
  * the official-page check passes (official-page.ts: the quotes on the page, organizer status, information only) and is
@@ -34,20 +35,10 @@ import {
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
 import { dateStatus, isOpenAt, upsertProgram } from './programs';
-import {
-  PENDING_DAYS,
-  confirmPage,
-  linkAnchors,
-  linkExpired,
-  officialUrlProblem,
-  ownerLine,
-  pendingReason,
-  revertTarget,
-  uncheckedLink,
-  type LinkTarget,
-} from './programs-pending';
+import { PENDING_DAYS, linkAnchors, officialUrlProblem, pendingReason, uncheckedLink } from './programs-pending';
 import { findProgramsDir } from './programs-dir';
 import { revalidateCatalog } from './programs-read';
+import { ownerDigest } from './owner-digest';
 import { RateLimitError, enforce } from './rate-limit';
 import { BUILDER_OWN_NOTE } from './ledger';
 import { SENT, sendCounts, sendRows, sendTime, throughEarnkit } from './stats';
@@ -626,43 +617,19 @@ export async function applicationsGet(request: Request): Promise<Response> {
   }
 }
 
-const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t') ?? '';
-
-/** The token's write, or the failure page. The signature is checked before any database read. */
-function checkLink(target: LinkTarget | null, now: Date, expired: string): { t: LinkTarget } | { fail: Response } {
-  if (!target) return { fail: ownerLine(REVERT_TEXT.bad, 400) };
-  if (linkExpired(target, now)) return { fail: ownerLine(expired, 410) };
-  return { t: target };
-}
-
 // ---- revert ----
 
-export const REVERT_TEXT = {
-  title: 'Revert this change?',
-  undo: 'The program goes back to how it was before this change.',
-  close: 'This change created the program, so reverting closes it.',
-  button: 'Revert',
-  bad: 'This link is not valid.',
-  expired: 'This link has expired. Change the program with the bot instead.',
-  done: 'This change was already reverted.',
-  superseded: 'A later change replaced this one, so it can no longer be reverted. Revert the later one.',
-  curated: 'EarnKit curates this program now, so the bot change is gone already.',
-  noEarlier: "EarnKit has no earlier copy of this program, so it can't revert this change.",
-  reverted: 'Reverted. The program is back to how it was.',
-  closed: 'Reverted. The program is closed.',
-  busy: BUSY,
+/** What POST /api/programs/revert answers when it cannot revert, by state: plain words for the owner's agent. */
+export const NOT_REVERTABLE = {
+  missing: 'No applied write has that id.',
+  done: 'That write was already reverted.',
+  superseded: 'A later change replaced that write, so it can no longer be reverted. Revert the later one.',
+  curated: 'EarnKit curates this program now, so the API change is gone already.',
+  no_earlier: "EarnKit has no earlier copy of this program, so it can't revert that write.",
 } as const;
+type NotRevertable = keyof typeof NOT_REVERTABLE;
 
-type NotRevertable = 'missing' | 'done' | 'superseded' | 'curated' | 'no_earlier';
-const NOT_REVERTABLE: Record<NotRevertable, [string, number]> = {
-  missing: [REVERT_TEXT.bad, 400],
-  done: [REVERT_TEXT.done, 409],
-  superseded: [REVERT_TEXT.superseded, 409],
-  curated: [REVERT_TEXT.curated, 409],
-  no_earlier: [REVERT_TEXT.noEarlier, 409],
-};
-
-/** The writes a revert link can undo: applied upserts (a bot's or an approval's) and closes. */
+/** The writes a revert can undo: applied upserts (a bot's or an approval's) and closes. */
 const appliedSql = (db: Db) => db`((action = 'upsert' AND result IN ('created', 'updated')) OR (action = 'close' AND result = 'closed'))`;
 
 /** The program's state just before write `writeId`: the last applied body before it (closed when a close came after it), or null. */
@@ -734,40 +701,57 @@ export async function revertWrite(writeId: string, deps: RevertDeps = {}): Promi
   return out;
 }
 
+const WRITE_ID = /^[1-9][0-9]{0,15}$/;
+
 /**
- * GET /api/programs/revert?t=: the confirm page; it changes nothing. The signed token alone
- * decides, so the link works while the API is off (the owner's way back from a bad write).
+ * POST /api/programs/revert `{ "write_id": "<id>" }`, programs bearer (v3.8 E7: no signed link, no confirm page): undoes
+ * that applied write once (`revertWrite`). 200 `{ ok, id, result: 'reverted' | 'closed' }`; 409 with the reason when it
+ * cannot (`NOT_REVERTABLE`); 400 for a bad body.
  */
-export async function revertGet(request: Request, now = new Date(), programsDir?: string | null): Promise<Response> {
-  const token = tokenOf(request);
-  const c = checkLink(revertTarget(token), now, REVERT_TEXT.expired);
-  if ('fail' in c) return c.fail;
+export async function revertPost(request: Request, deps: RevertDeps = {}): Promise<Response> {
+  const denied = authFailure(request);
+  if (denied) return denied;
+  const text = await readBody(request, 1024, () => json({ ok: false, error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
+  let writeId: unknown;
   try {
-    const plan = await revertPlan(sql(), c.t.writeId, programsDir === undefined ? findProgramsDir() : programsDir, false);
-    if (plan.kind === 'no') return ownerLine(...NOT_REVERTABLE[plan.state]);
-    return confirmPage(
-      REVERT_TEXT.title,
-      [`Program: ${plan.title} (${plan.id})`, plan.does === 'close' ? REVERT_TEXT.close : REVERT_TEXT.undo],
-      `/api/programs/revert?t=${encodeURIComponent(token)}`,
-      REVERT_TEXT.button,
-    );
+    writeId = (JSON.parse(text ?? '') as { write_id?: unknown } | null)?.write_id;
+  } catch {
+    writeId = undefined;
+  }
+  if (typeof writeId === 'number') writeId = String(writeId);
+  if (typeof writeId !== 'string' || !WRITE_ID.test(writeId)) return json({ ok: false, error: 'write_id: the id of an applied write (from the digest)' }, 400);
+  try {
+    const out = await revertWrite(writeId, deps);
+    if (out.kind === 'no') return json({ ok: false, error: NOT_REVERTABLE[out.state], state: out.state }, out.state === 'missing' ? 404 : 409);
+    return json({ ok: true, id: out.id, result: out.closed ? 'closed' : 'reverted' });
   } catch (err) {
-    console.error(`[programs-api] revert page failed: ${errTag(err)}`);
-    return ownerLine(REVERT_TEXT.busy, 503);
+    console.error(`[programs-api] revert failed: ${errTag(err)}`);
+    return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
   }
 }
 
-/** POST /api/programs/revert?t=: the revert. Single use: a replay finds the revert row and does nothing. */
-export async function revertPost(request: Request, deps: RevertDeps = {}): Promise<Response> {
-  const now = deps.now ?? new Date();
-  const c = checkLink(revertTarget(tokenOf(request)), now, REVERT_TEXT.expired);
-  if ('fail' in c) return c.fail;
+/**
+ * GET /api/programs/digest, programs bearer (v3.8 E7, plan 23.2 owner read): the day's digest as plain data plus one
+ * line per item (`lines`, the digest text split by line). Reads only; the daily run records the day.
+ */
+export async function digestGet(request: Request, now = new Date()): Promise<Response> {
+  const denied = authFailure(request);
+  if (denied) return denied;
   try {
-    const out = await revertWrite(c.t.writeId, { ...deps, now });
-    if (out.kind === 'no') return ownerLine(...NOT_REVERTABLE[out.state]);
-    return ownerLine(out.closed ? REVERT_TEXT.closed : REVERT_TEXT.reverted, 200);
+    const d = await ownerDigest(now);
+    return json({
+      ok: true,
+      day: d.day,
+      lines: d.text === null ? [] : d.text.trim().split('\n').slice(1).filter((l) => l.trim() !== ''),
+      changes: d.changes.map((c) => ({ program_id: c.id, title: c.title, fields: c.fields, write_id: c.writeId, ...(c.revertNote ? { note: c.revertNote } : {}) })),
+      health: d.health,
+      applications: d.applications,
+      results: d.results,
+      recorded: d.recorded,
+    });
   } catch (err) {
-    console.error(`[programs-api] revert failed: ${errTag(err)}`);
-    return ownerLine(REVERT_TEXT.busy, 503);
+    console.error(`[programs-api] digest failed: ${errTag(err)}`);
+    return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
   }
 }

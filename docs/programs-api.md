@@ -10,7 +10,7 @@ Run this in your own terminal (not in a Claude session). It prints the token onc
 T=$(openssl rand -hex 32); echo "$T"; railway variables --project ae726253-edb5-4c47-b308-854be7cf36b1 --service earnkit --environment production --set "EARNKIT_PROGRAMS_TOKEN=$T"
 ```
 
-Paste the printed token into the Grok Bot as `EARNKIT_PROGRAMS_TOKEN`. Without the token (or with `EARNKIT_PROGRAMS_API=off`) the write and log routes answer 404. Revert links need `EARNKIT_AUTH_SECRET`; the daily digest email needs `RESEND_API_KEY`.
+Paste the printed token into the Grok Bot as `EARNKIT_PROGRAMS_TOKEN`. Without the token (or with `EARNKIT_PROGRAMS_API=off`) the write and log routes answer 404. The same token gates the owner's digest read and revert (below). EarnKit sends no email.
 
 ## What to research
 
@@ -34,6 +34,8 @@ All bodies are JSON. Base URL: `https://earnkit.com`.
 |---|---|---|
 | `POST /api/programs/write` | `Authorization: Bearer <token>` | Add, update or close one program |
 | `GET /api/programs` | none | What is listed now. `?category=grant\|hackathon\|investment\|bounty`, `?status=active\|upcoming` |
+| `GET /api/programs/digest` | `Authorization: Bearer <token>` | The owner's daily digest as a read (no email): `{ day, lines, changes: [{ program_id, title, fields, write_id, note? }], health, applications, results, recorded }`; `lines` is one line per item, and a revertable change's line ends `(revert: write <id>)` |
+| `POST /api/programs/revert` | `Authorization: Bearer <token>` | `{ "write_id": "<id>" }` undoes that applied write once: `{ ok, id, result: "reverted" \| "closed" }`; 409 `{ ok: false, error, state }` when it can't (`done`, `superseded`, `curated`, `no_earlier`), 404 for no such applied write, 400 for a bad body |
 | `GET /api/programs/writes` | `Authorization: Bearer <token>` | Your last 100 writes: `{ at, program_id, action, result, reason }`, each with `found_by_query` and `found_by_source`, and `pending`: the writes held in the last 7 days `{ at, program_id, reason, title, submission_url, source_url }` |
 
 `GET /api/programs` returns up to 200 programs: `{ id, title, organizer, category, chains, any_chain, money, status, closes_at, closes_in, source_url, submission_url, source }`. Sorted by category, then soonest close (rolling last), then the larger award. `source` is `file` (curated by the owner) or `api` (yours). It is cached for up to a minute.
@@ -94,7 +96,7 @@ A link checks out when it is on the site of a live program the owner curated for
 
 A link on a form, submit, hosting or shared platform (Google Forms, Typeform, Tally, Airtable, Questbook, DoraHacks, Devfolio, HackQuest, ETHGlobal, Buidlbox, Gitcoin, Superteam, Karma GAP, Taikai, Akindo, github.io, vercel.app, notion.site and the like) never checks out on its own: those programs always wait for the owner once.
 
-Any other change to a live program (reward, amounts, deadline, text, requirements, eligibility, past rounds) is live at once. The owner gets one email a day listing the day's changes, each with a revert link. A revert puts the program back as it was before that write (or closes it, if that write created it; or re-opens it, if that write closed it). Only a program's latest change can be reverted. A revert shows in `GET /api/programs/writes` as action `revert`.
+Any other change to a live program (reward, amounts, deadline, text, requirements, eligibility, past rounds) is live at once. The owner's daily digest lists the day's changes (`GET /api/programs/digest`), each with the write id a revert takes. A revert (`POST /api/programs/revert`) puts the program back as it was before that write (or closes it, if that write created it; or re-opens it, if that write closed it). Only a program's latest change can be reverted. A revert shows in `GET /api/programs/writes` as action `revert`.
 
 ### Fields you can send
 

@@ -4,7 +4,7 @@ import { sql } from './db';
 import { cronPost, HEALTH_BUDGET_MS, RUN_BUDGET_MS } from './cron';
 import { errorCode } from './health';
 import { SafeFetchError } from './safe-fetch';
-import type { Mailer } from './mail';
+import { recordOwnerDigest } from './owner-digest';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
 import { watchCatalogRevalidation } from './programs-read';
@@ -15,11 +15,10 @@ after(() => sql().end());
 
 const SECRET = 'c'.repeat(40);
 const req = (auth?: string) => new Request('https://earnkit.test/api/cron', { method: 'POST', headers: auth ? { authorization: auth } : {} });
-let sent: Parameters<Mailer>[0][] = [];
-const mailer: Mailer = async (m) => {
-  sent.push(m);
-};
-const deps = { link: async () => ({ ok: true as const, page: '<p>x</p>' }), mailer, now: new Date('2026-11-04T06:15:00Z') };
+/** v3.8 E7: the digests the daily run recorded (nothing is mailed). */
+let sent: { text: string }[] = [];
+const recordDigest = (now: Date) => recordOwnerDigest(now, (d) => sent.push({ text: d.text! }));
+const deps = { link: async () => ({ ok: true as const, page: '<p>x</p>' }), recordDigest, now: new Date('2026-11-04T06:15:00Z') };
 type Body = {
   health: Record<string, number> | null; swept: Record<string, number | null>; screen: { read: number; requeued: number; left: number; jobs_finished: string[] } | null;
   digest: string | null; failed: { id: string | null; step: string; error: string }[];
@@ -45,11 +44,9 @@ const quietLog = async <T>(run: () => Promise<T>): Promise<T> => {
 beforeEach(() => {
   sent = [];
   process.env.CRON_SECRET = SECRET;
-  process.env.RESEND_API_KEY = 're_test';
 });
 afterEach(() => {
   delete process.env.CRON_SECRET;
-  delete process.env.RESEND_API_KEY;
 });
 
 test('cronPost: 401 without or with a wrong secret, 503 when CRON_SECRET is unset', async () => {
@@ -83,15 +80,8 @@ test('cronPost: runs every step and answers the counts, the swept counts per tab
   assert.deepEqual(Object.keys(body.swept), ['repo_cache', 'reports', 'screens', 'link_codes', 'sessions', 'oauth_codes', 'oauth_clients', 'evidence', 'windows', 'outcome_asks', 'sent_asks']);
   assert.ok(Object.values(body.swept).every((n) => typeof n === 'number'));
   assert.deepEqual(Object.keys(body.screen!), ['read', 'requeued', 'left', 'jobs_finished']);
-  assert.ok(['sent', 'none'].includes(body.digest!));
+  assert.ok(['recorded', 'none'].includes(body.digest!));
   assert.deepEqual(body.failed, []);
-});
-
-test('cronPost: the digest says mail off when RESEND_API_KEY is unset (L30-5)', async () => {
-  delete process.env.RESEND_API_KEY;
-  const body = (await (await cronPost(req(`Bearer ${SECRET}`), deps)).json()) as Body;
-  assert.equal(body.digest, 'mail off');
-  assert.equal(sent.length, 0);
 });
 
 test('cronPost: the sweep after health drops a repo_cache row over 30 days old and answers swept', async () => {
@@ -139,7 +129,7 @@ test('L30-4: a sweep error still lets the screen step and the digest run, with f
     const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
       ...deps, runHealth: quietHealth,
       workQueue: async () => (queued++, { read: 5, requeued: 0, left: 0, jobs_finished: [] }),
-      sendDigest: async () => (digests++, 'none' as const),
+      recordDigest: async () => (digests++, 'none' as const),
     }));
     assert.equal(res.status, 200);
     const body = (await res.json()) as Body;
@@ -173,7 +163,7 @@ test('L30-3: a health write refused for one program closes the others and that o
 });
 
 test('L30-4: a digest error after the closes reads failed digest with status 200', async () => {
-  const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: idleQueue, sendDigest: async () => { throw new Error('x'); } }));
+  const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: idleQueue, recordDigest: async () => { throw new Error('x'); } }));
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
   assert.equal(body.digest, null);
@@ -188,7 +178,7 @@ test('L30-4: 500 only when every step failed', async () => {
       ...deps,
       runHealth: async () => { throw new Error('h'); },
       workQueue: async () => { throw new Error('q'); },
-      sendDigest: async () => { throw new Error('d'); },
+      recordDigest: async () => { throw new Error('d'); },
     }));
     assert.equal(res.status, 500);
     const body = (await res.json()) as Body;
@@ -214,7 +204,7 @@ test('budget: RUN_BUDGET_MS is 420 s; the queue gets min(300 s, the deadline les
   t = 1_000_000;
   let digests = 0;
   const res = await cronPost(req(`Bearer ${SECRET}`), {
-    ...deps, clock: () => t, runHealth: slowHealth(420_000), workQueue: q, sendDigest: async () => (digests++, 'none' as const),
+    ...deps, clock: () => t, runHealth: slowHealth(420_000), workQueue: q, recordDigest: async () => (digests++, 'none' as const),
   });
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
@@ -275,7 +265,7 @@ test('cronPost: a run with a job_id works that job only and skips health, the sw
   const res = await cronPost(jsonReq({ job_id: 'job-abc' }), {
     ...deps,
     runHealth: async () => { throw new Error('health must not run'); },
-    sendDigest: async () => { throw new Error('digest must not run'); },
+    recordDigest: async () => { throw new Error('digest must not run'); },
     workQueue: async (o) => (calls.push(o), { read: 3, requeued: 0, left: 0, jobs_finished: ['job-abc'] }),
   });
   assert.equal(res.status, 200);
@@ -351,7 +341,7 @@ test('cronPost: the plain run sweeps link codes, sessions and spent OAuth codes 
   const quiet = {
     ...deps, now,
     runHealth: quietHealth,
-    sendDigest: async () => 'none' as const,
+    recordDigest: async () => 'none' as const,
     workQueue: idleQueue,
   };
   await cronPost(jsonReq({ job_id: 'none' }), quiet);
@@ -397,7 +387,7 @@ test('controller ruling: a database error with a connection string in its messag
     res = await cronPost(req(`Bearer ${SECRET}`), {
       ...deps, workQueue: idleQueue,
       runHealth: async () => { throw leak; },
-      sendDigest: async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); },
+      recordDigest: async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); },
     });
   } finally {
     console.error = was;
@@ -483,7 +473,7 @@ test('v6.1.16 Task 16 N2 (v6.1.17 Task 3): every sweep boundary is pinned 1 ms e
   await sql()`INSERT INTO outcome_asks (installation_id, owner, program_id, asked_on) VALUES
     (991, 'i:991', 'cr99-at', '1999-05-02'), (991, 'i:991', 'cr99-old', '1999-05-01'), (991, 'i:991', 'cr99-young', '1999-05-03')`;
 
-  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue, sendDigest: async () => 'none' as const });
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue, recordDigest: async () => 'none' as const });
   const body = (await res.json()) as Body;
   assert.deepEqual(body.failed, []);
   assert.deepEqual(body.swept, {
@@ -513,7 +503,7 @@ test('sweep: sent_asks rows 31 days old go, 29 days stay', async () => {
   await sql()`DELETE FROM sent_asks WHERE installation_id = 992`;
   await sql()`INSERT INTO sent_asks (installation_id, owner, program_id, asked_on) VALUES
     (992, 'i:992', 'cr98-old', '1999-05-31'), (992, 'i:992', 'cr98-young', '1999-06-02')`;
-  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue, sendDigest: async () => 'none' as const });
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue, recordDigest: async () => 'none' as const });
   const body = (await res.json()) as Body;
   assert.deepEqual(body.failed, []);
   assert.equal(body.swept.sent_asks, 1);
@@ -525,7 +515,7 @@ test('sweep: sent_asks rows 31 days old go, 29 days stay', async () => {
 test('L30-14: a run that answers 200 stores its time, never moving it back; a 500 run and an owner trigger store nothing', async () => {
   await sql()`DELETE FROM cron_state`;
   const { lastRunAt } = await import('./cron');
-  const quiet = { ...deps, runHealth: quietHealth, workQueue: idleQueue, sendDigest: async () => 'none' as const };
+  const quiet = { ...deps, runHealth: quietHealth, workQueue: idleQueue, recordDigest: async () => 'none' as const };
   await cronPost(jsonReq({ job_id: 'none' }), quiet);
   assert.equal(await lastRunAt(), null);
   assert.equal((await cronPost(req(`Bearer ${SECRET}`), quiet)).status, 200);
@@ -540,7 +530,7 @@ test('L30-14: a run that answers 200 stores its time, never moving it back; a 50
       ...deps, now: later,
       runHealth: async () => { throw new Error('h'); },
       workQueue: async () => { throw new Error('q'); },
-      sendDigest: async () => { throw new Error('d'); },
+      recordDigest: async () => { throw new Error('d'); },
     }));
     assert.equal(res.status, 500);
   } finally {
@@ -567,7 +557,7 @@ test('L30-14, L30-18 (Review Focus 5): after 27 hours with no run, the run\'s di
   assert.equal(res.status, 200);
   assert.deepEqual(body.failed, []);
   assert.equal(body.health!.unreadable, 1);
-  assert.equal(body.digest, 'sent');
+  assert.equal(body.digest, 'recorded');
   const text = sent.at(-1)!.text;
   assert.ok(text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 03:15 UTC.'), text);
   assert.ok(text.includes('Programs the run could not read\n- cr-bad: its saved entry no longer reads, so it is not checked; correct the entry.'), text);
@@ -587,12 +577,12 @@ test('fix round 1 (M2): two runs on a day after a gap send one email: the second
   const run = (now: Date) => cronPost(req(`Bearer ${SECRET}`), { ...deps, now, runHealth: quietHealth, workQueue: idleQueue });
   const first = (await (await run(deps.now)).json()) as Body;
   const second = (await (await run(new Date(deps.now.getTime() + 10 * 60_000))).json()) as Body;
-  assert.deepEqual([first.digest, second.digest], ['sent', 'none']);
+  assert.deepEqual([first.digest, second.digest], ['recorded', 'none']);
   assert.equal(sent.length, 1);
   assert.ok(sent[0].text.includes('No daily run finished for 27 hours before this one; the last was 2026-11-03 02:50 UTC.'), sent[0].text);
   // The next day, with its run on time, there is no gap.
   const next = (await (await run(new Date(deps.now.getTime() + 24 * H))).json()) as Body;
-  assert.notEqual(next.digest, 'sent');
+  assert.notEqual(next.digest, 'recorded');
   assert.equal(sent.length, 1);
   await sql()`DELETE FROM cron_state`;
   await sql()`DELETE FROM owner_digests`;
@@ -613,7 +603,7 @@ test('L44-3: a same-day rerun whose link check fails mails nothing and moves no 
   })).json() as Promise<Body>);
   try {
     const g1 = await run(deps.now);
-    assert.equal(g1.digest, 'sent');
+    assert.equal(g1.digest, 'recorded');
     assert.match(sent[0].text, /Programs the run could not read\n- cr-l44b:/);
     assert.match(sent[0].text, /- Down Grants: down since today \(https:\/\/down\.example\/a\)/);
     const [s1] = await db`SELECT last_run_at, day_first_at, last_check_failed_at FROM cron_state`;
@@ -628,7 +618,7 @@ test('L44-3: a same-day rerun whose link check fails mails nothing and moves no 
     const d2 = new Date(deps.now.getTime() + 24 * H);
     assert.equal((await run(d2, true)).digest, 'no check');
     assert.equal((await db`SELECT day_first_at FROM cron_state`)[0].day_first_at.getTime(), deps.now.getTime());
-    assert.equal((await run(new Date(d2.getTime() + H))).digest, 'sent');
+    assert.equal((await run(new Date(d2.getTime() + H))).digest, 'recorded');
     assert.equal((await db`SELECT day_first_at FROM cron_state`)[0].day_first_at.getTime(), d2.getTime() + H);
     assert.equal(sent.length, 2);
     assert.doesNotMatch(sent[1].text, /link check failed/);
@@ -663,7 +653,7 @@ test('L44-10: a day whose only run failed its check: /api/stats says last_check_
     const st = await readStats(nov3);
     assert.deepEqual([st.last_run_at, st.last_check_ok], [nov2.toISOString(), false]);
     const nov4 = await run(deps.now);
-    assert.equal(nov4.digest, 'sent');
+    assert.equal(nov4.digest, 'recorded');
     assert.equal(sent.at(-1)!.text.split('\n\n')[1], 'The link check failed on Nov 3; this digest covers two days.');
     assert.equal((await readStats(deps.now)).last_check_ok, true);
   } finally {

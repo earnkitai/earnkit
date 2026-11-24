@@ -188,7 +188,8 @@ The pipeline, in order:
    re-check is not built yet. Each write row stores `found_by_query` and `found_by_source`. With the flag off, a new
    program, or a write changing `submission_url`, `chains`, `form` or `pool_source_url` whose links don't check out
    (`programs-pending.ts`), or a change to `submit`, `sign_in` or `min_tier`, is held `pending` and nothing applies it
-   (no email, no approve link). Everything live appears in the owner's daily digest with a revert link.
+   (no email, no approve link). Everything live appears in the owner's daily digest (`GET /api/programs/digest`, v3.8
+   E7) with the write id `POST /api/programs/revert` takes.
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
@@ -459,15 +460,17 @@ before the day's start (`cron_state.prev_run_at`, kept when a run crosses into a
 (`RETRY_AFTER_S`, job timeout 30 minutes); a missing `CRON_SECRET` fails the job unless the repo variable
 `EARNKIT_CRON_PAUSED` is `true` (v6.1.17 Task 3, L30-14); the next run retries. The owner's digest
 (`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
-change to live programs since the last digest, with revert links; nothing happened, nothing sent; v6.1.18 Task 5,
+change to live programs since the last digest, each with the write id to revert (v3.8 E7: a bearer read at
+`GET /api/programs/digest`, never mailed; `POST /api/programs/revert { write_id }` undoes one); nothing happened, nothing recorded; v6.1.18 Task 5,
 L18-5, v6.1.19 L42-7: when the previous UTC day had sends, a `{n} sent yesterday: {a} by agents, {d} drafted here,
 {r} from outside. {total} to date.` line (`total` the dated sends through the end of yesterday) with one
 `- {title}: {k} sent` line per program (L44-18; `- {title} ({id}): {k}` before v6.1.19), most first; a day with none
 adds nothing (v6.1.19 L44-9 carries in missed days, below); a send is dated by `sendTime` in
-`stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) answers `sent`,
-`none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
-`owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
-day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
+`stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) the run's step (`recordOwnerDigest`) answers `recorded`
+or `none` (nothing, or this body already recorded today); its key is
+`owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body recorded that
+day (`sent_at` is when it was recorded; the next day's window starts there). v3.8 E7 deleted `mail.ts` and
+`RESEND_API_KEY`: EarnKit emails no one. The owner triggers one screen job with the same route and a
 JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minutes), no probe, sweep or digest.
 
 v6.1.19 Task 6 (lane 44), the daily run round 3. A run whose link check failed (the walk threw, or `budget`) builds
@@ -478,7 +481,7 @@ mails once (an A, fail, A day is one email). `last_run_at` is null until a run f
 `last_check_ok` (false while the latest failed check is after `last_run_at`). The digest reads only stored rows: the
 unreadable list comes from `programs` (L44-20: a saved entry that no longer parses, by id, under `Programs the run
 could not read`; an upcoming program at its start with no form, by title, under `Programs to fix`, L44-13), and
-`sendOwnerDigest(now, mailer)` takes nothing from the run. The body, in order:
+`ownerDigest(now)` (reads only; `recordOwnerDigest` writes the day row) takes nothing from the run. The body, in order:
 - `The link check failed on {Nov 12}; this digest covers {two} days.` when the last failed check was on an earlier UTC
   day with no digest and after the last digest sent (L44-10);
 - the gap line, only when the true hours (rounded to the nearest) are over 26 (L44-12);
@@ -646,10 +649,9 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | Variable | Used for |
 |---|---|
 | `DATABASE_URL` | Postgres |
-| `EARNKIT_AUTH_SECRET` | Signs OAuth client ids and codes, and revert links (approve links deleted in v3.8 E6) |
+| `EARNKIT_AUTH_SECRET` | Signs OAuth client ids and codes (approve links deleted in v3.8 E6, revert links in E7) |
 | `EARNKIT_URL` | The public origin (required in production) |
 | `GITHUB_TOKEN` | Public repo reads (server token; unset means lower limits) |
-| `RESEND_API_KEY` | Owner emails (unset: no mail) |
 | `CRON_SECRET` | Bearer for `/api/cron` (unset: 503); also a GitHub repo secret |
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
@@ -1228,7 +1230,7 @@ name no result apart (`Ledger.no_result`: `5 sent, 1 won ($5,000), 1 rejected, 1
 applied rows only; L43-8), on /me and in find.
 
 **Environment (ten).** `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (also signs link codes, the sign-in state and the /me
-csrf), `EARNKIT_URL`, `GITHUB_TOKEN`, `RESEND_API_KEY`, `CRON_SECRET`, `EARNKIT_PROGRAMS_TOKEN`,
+csrf), `EARNKIT_URL`, `GITHUB_TOKEN`, `CRON_SECRET`, `EARNKIT_PROGRAMS_TOKEN`,
 `EARNKIT_PROGRAMS_API`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` (unset: `/link` says `Sign-in is not
 set up yet.` and the callback goes to `/link/failed`). Plus `EARNKIT_SCREEN_OUT`, local only.
 

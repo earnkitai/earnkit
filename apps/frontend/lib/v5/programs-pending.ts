@@ -1,10 +1,9 @@
 /**
  * The pending path of the programs write API while auto_live is off: whether a submission link checks out (on a
  * curated program's site for the program's chains, official_url a hint only). A held write is never mailed and has no
- * approve link (v3.8 E6: no person approves a program). Also the signed revert link (HMAC with EARNKIT_AUTH_SECRET,
- * 7 days) and the plain confirm page it opens.
+ * approve link (v3.8 E6: no person approves a program). The signed revert link and its confirm page are gone too
+ * (v3.8 E7: revert is a bearer POST by write id).
  */
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Db } from './db';
 import type { Program } from './program-file';
 import { STALE_DAYS } from './programs';
@@ -12,49 +11,7 @@ import { linkChecksOut, linkPlatformName, normalHost, registrableDomain, sameSit
 
 /** How long a held write is listed in GET /api/programs/writes and reused for an identical write. */
 export const PENDING_DAYS = 7;
-/** How long a revert link works (from the email that carries it). */
-export const REVERT_TTL_DAYS = 7;
-
 const DAY_MS = 86_400_000;
-
-/** EarnKit's public origin. */
-export const siteUrl = (): string => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
-
-// ---- signed links ----
-
-type Kind = 'program-revert';
-const macOf = (kind: Kind, writeId: string, expires: number, secret: string) =>
-  createHmac('sha256', secret).update(`${kind}:v1:${writeId}:${expires}`).digest('base64url');
-
-/** `<write id>.<expires, unix seconds>.<mac>`. Throws without the secret. */
-function signedToken(kind: Kind, writeId: string | number, expires: number, secret = process.env.EARNKIT_AUTH_SECRET): string {
-  if (!secret) throw new Error('EARNKIT_AUTH_SECRET is not set');
-  return `${writeId}.${expires}.${macOf(kind, String(writeId), expires, secret)}`;
-}
-
-const TOKEN = /^([1-9][0-9]{0,15})\.([1-9][0-9]{0,11})\.([A-Za-z0-9_-]{43})$/;
-export type LinkTarget = { writeId: string; expires: number };
-
-/** The write a token names, or null (malformed, changed, the other kind's token, no secret). Timing-safe; expiry is the caller's. */
-function signedTarget(kind: Kind, token: unknown, secret = process.env.EARNKIT_AUTH_SECRET): LinkTarget | null {
-  if (!secret || typeof token !== 'string' || token.length > 120) return null;
-  const m = token.match(TOKEN);
-  if (!m) return null;
-  const expires = Number(m[2]);
-  if (!Number.isSafeInteger(expires) || !Number.isSafeInteger(Number(m[1]))) return null;
-  const want = Buffer.from(macOf(kind, m[1]!, expires, secret));
-  const got = Buffer.from(m[3]!);
-  return want.length === got.length && timingSafeEqual(want, got) ? { writeId: m[1]!, expires } : null;
-}
-
-export const linkExpired = (t: LinkTarget, now: Date): boolean => now.getTime() / 1000 > t.expires;
-
-/** When a revert link mailed at `at` stops working (unix seconds). */
-export const revertExpiry = (at: Date): number => Math.floor(at.getTime() / 1000) + REVERT_TTL_DAYS * 86_400;
-export const revertToken = (writeId: string | number, expires: number): string => signedToken('program-revert', writeId, expires);
-export const revertTarget = (token: unknown): LinkTarget | null => signedTarget('program-revert', token);
-export const revertUrl = (writeId: string | number, expires: number): string =>
-  `${siteUrl()}/api/programs/revert?t=${encodeURIComponent(revertToken(writeId, expires))}`;
 
 // ---- does the submission link check out ----
 
@@ -136,45 +93,3 @@ export function officialUrlProblem(officialUrl: string | undefined): string | nu
   const platform = host && linkPlatformName(host);
   return platform ? `official_url: ${host} is on ${platform}, a shared or platform host; send the organizer's own site` : null;
 }
-
-// ---- the owner's confirm pages ----
-
-/** One line: control characters, line and paragraph separators and runs of whitespace become one space. Pure. */
-export const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\s]+/g, ' ').trim();
-
-export const escapeHtml = (s: string): string =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-
-const PAGE_HEADERS = {
-  'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'no-store',
-  'Referrer-Policy': 'no-referrer',
-  'X-Robots-Tag': 'noindex',
-  'X-Frame-Options': 'DENY',
-  // No script; the one form posts back to EarnKit; nobody can frame the button.
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-};
-const STYLE =
-  'body{margin:0;background:#000;color:#fff;font:400 1.0625rem/1.55 ui-sans-serif,system-ui,sans-serif}' +
-  'main{max-width:36rem;margin:0 auto;padding:64px 16px}h1{font-size:2rem;line-height:1.1;margin:0 0 16px}' +
-  'p{margin:12px 0 0;overflow-wrap:anywhere}button{margin-top:28px;min-height:48px;padding:0 24px;border:0;border-radius:999px;' +
-  'background:#2563eb;color:#fff;font:500 1rem/1 inherit;cursor:pointer}';
-
-/** A page around `inner` (already escaped HTML). */
-export const ownerPage = (inner: string, status = 200): Response =>
-  new Response(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-      `<meta name="robots" content="noindex"><title>EarnKit</title><style>${STYLE}</style></head><body><main>${inner}</main></body></html>`,
-    { status, headers: PAGE_HEADERS },
-  );
-
-/** A page of one plain line. */
-export const ownerLine = (text: string, status: number): Response => ownerPage(`<p>${escapeHtml(text)}</p>`, status);
-
-/** The confirm page: a title, plain lines and one button that POSTs back to `action` (an EarnKit path). */
-export const confirmPage = (title: string, lines: string[], action: string, button: string): Response =>
-  ownerPage(
-    `<h1>${escapeHtml(title)}</h1>` +
-      lines.map((l) => `<p>${escapeHtml(oneLine(l))}</p>`).join('') +
-      `<form method="post" action="${escapeHtml(action)}"><button type="submit">${escapeHtml(button)}</button></form>`,
-  );

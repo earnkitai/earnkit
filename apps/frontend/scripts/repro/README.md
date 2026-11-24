@@ -65,7 +65,7 @@ node --input-type=module -e "const m = await import('./apps/frontend/lib/v5/fixt
 # 2. A throwaway database copied from it.
 createdb -T ek_test_template_<key> ek_repro
 # 3. The dev server on a free port, no vendor keys, the same secrets as the pack; EARNKIT_URL is the REPRO_BASE_URL below.
-env -u RESEND_API_KEY -u GITHUB_TOKEN -u EARNKIT_PROGRAMS_TOKEN -u GITHUB_OAUTH_CLIENT_ID -u GITHUB_OAUTH_CLIENT_SECRET \
+env -u GITHUB_TOKEN -u EARNKIT_PROGRAMS_TOKEN -u GITHUB_OAUTH_CLIENT_ID -u GITHUB_OAUTH_CLIENT_SECRET \
   DATABASE_URL=postgresql://localhost:5432/ek_repro EARNKIT_URL=http://localhost:4597 \
   EARNKIT_AUTH_SECRET=journeys-local-secret-not-for-prod-0123456789abcdef CRON_SECRET=journeys-cron-secret \
   NODE_ENV=development pnpm --filter frontend exec next dev -p 4597

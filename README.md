@@ -59,7 +59,7 @@ apps/frontend/
   scripts/         db-migrate, programs-sync, v4-tables, record-repo-fixture, screen
 programs/          one JSON file per program (see programs/README.md)
 docs/              architecture guide, code map, design docs, the programs API
-.github/workflows/ the daily cron (program freshness probe, the screen queue and the owner digest)
+.github/workflows/ the daily cron (program freshness probe, the screen queue and recording the owner digest, read at GET /api/programs/digest)
 ```
 
 ## Local setup
@@ -81,7 +81,6 @@ Env (`apps/frontend/.env.local`):
 | `EARNKIT_AUTH_SECRET` | signs OAuth tokens, link codes and the /me form tokens (any random string locally) |
 | `EARNKIT_URL` | the public origin (production: `https://earnkit.com`) |
 | `GITHUB_TOKEN` | reads public repos with a higher rate limit (optional) |
-| `RESEND_API_KEY` | the owner's daily digest email (optional) |
 | `CRON_SECRET` | authorizes `POST /api/cron` |
 | `EARNKIT_PROGRAMS_TOKEN` | the programs write API (at least 32 characters; `EARNKIT_PROGRAMS_API=off` turns it off) |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: sign-in answers 503) |

@@ -12,7 +12,7 @@
  * in the server log); the answer is 200 with the list, 500 only when every step failed. A JSON body { job_id } is the
  * owner's trigger: that job's queue only. Bearer CRON_SECRET only (503 while it is unset). v6.1.19 (L44-3, L44-10): a
  * run whose link check failed (it threw, or past the budget) builds no digest (`digest: 'no check'`) and stores only
- * `cron_state.last_check_failed_at`; the next run that finishes its check mails, once.
+ * `cron_state.last_check_failed_at`; the next run that finishes its check records the digest, once (v3.8 E7: recorded for the GET read, never mailed).
  */
 import { sweepEvidence } from '../v6/evidence';
 import { sweepScreens } from '../v6/screen-jobs';
@@ -20,8 +20,7 @@ import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, w
 import { sql } from './db';
 import { bearerMatches, json, readBody } from './http';
 import { errorCode, errorWords, runHealth, type ErrorCode, type HealthRun, type LinkCheck } from './health';
-import type { Mailer } from './mail';
-import { sendOwnerDigest } from './owner-digest';
+import { recordOwnerDigest } from './owner-digest';
 import { programsChanged } from './programs-api';
 import { sweepWindows } from './rate-limit';
 import { sweepRepoCache } from './repo-facts';
@@ -52,13 +51,12 @@ export type CronDeps = {
   link?: LinkCheck;
   resolve?: Resolver;
   transport?: Transport;
-  mailer?: Mailer;
   now?: Date;
   /** Epoch ms for the budget (default Date.now); tests pass a fake clock. */
   clock?: () => number;
   limit?: number;
   runHealth?: typeof runHealth;
-  sendDigest?: typeof sendOwnerDigest;
+  recordDigest?: typeof recordOwnerDigest;
   workQueue?: typeof workQueue;
 };
 
@@ -131,7 +129,7 @@ async function storeLastRun(now: Date): Promise<void> {
 
 /**
  * v6.1.19 (L44-3, L44-10): a run whose link check failed stores only this time (never moved back): no `last_run_at`,
- * no `day_first_at`, so the next run that finishes its check measures the day and mails once.
+ * no `day_first_at`, so the next run that finishes its check measures the day and records the digest once.
  */
 async function storeCheckFailed(now: Date): Promise<void> {
   await sql()`INSERT INTO cron_state (id, last_check_failed_at) VALUES (true, ${now})
@@ -221,10 +219,10 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     : null;
 
   // v6.1.19 (L44-3, L44-20): the digest is built only by a run that finished its link check, from the stored rows (the
-  // unreadable list too); a run whose check failed (it threw, or had no time to start) mails nothing and says `no check`.
+  // unreadable list too); a run whose check failed (it threw, or had no time to start) records nothing and says `no check`.
   const checked = health !== null;
-  if (!checked) console.error('[cron] the link check did not finish, so no digest; the next run that finishes it mails');
-  const digest = checked ? await step('digest', () => (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer)) : 'no check';
+  if (!checked) console.error('[cron] the link check did not finish, so no digest; the next run that finishes it records the digest');
+  const digest = checked ? await step('digest', () => (deps.recordDigest ?? recordOwnerDigest)(now)) : 'no check';
 
   const whole = new Set(fails.filter((f) => f.id === null).map((f) => f.step));
   // A digest a failed check held back counts with the failed steps for the 500 rule.
