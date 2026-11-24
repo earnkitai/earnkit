@@ -18,6 +18,7 @@ import type { Db } from './db';
 import { ProgramFile, type Program } from './program-file';
 import { upsertProgram } from './programs';
 import { FETCH_TIMEOUT_MS, safeProbePage, visibleText } from './safe-fetch';
+import type { OffSiteLink } from './api-text';
 import { linkPlatformName, normalHost, registrableDomain } from './submit-hosts';
 
 /** The longest quote a write may send. */
@@ -137,6 +138,19 @@ export function quoteProblems(p: Pick<Program, 'pool_usd' | 'max_award_usd' | 'm
 export function linksOffPage(p: Pick<Program, 'submission_url' | 'form'>, pageUrl: string, links: string[]): string[] {
   const builder = [p.submission_url, ...(p.form?.url ? [p.form.url] : [])];
   return builder.filter((u) => !sameLink(u, pageUrl) && !links.some((l) => sameLink(l, u)));
+}
+
+/**
+ * v3.8 G-A (item 6): of the builder links off the source's site and the platform list (`offSiteLinks`), the refusals
+ * for those the official page does not vouch for: the page must link that exact URL (`sameLink`), and the page must be
+ * on the organizer's own site, not a submit, hosting or shared platform where other people's text and links appear
+ * (`linkPlatformName`). A linked one is allowed and, being on the page, is not information only either. Pure.
+ */
+export function offSiteUnlinked(off: OffSiteLink[], pageUrl: string, links: string[]): string[] {
+  const platform = linkPlatformName(new URL(pageUrl).hostname);
+  return off
+    .filter((l) => platform !== null || !links.some((x) => sameLink(x, l.url)))
+    .map((l) => (platform !== null ? `${l.problem}; the official page is on ${platform}, so its links do not vouch for it` : `${l.problem}, and the official page does not link it`));
 }
 
 export const domainOf = (url: string | undefined | null): string | null =>

@@ -1,0 +1,74 @@
+{
+  "action": "upsert",
+  "amount_quote": "€5,000 AI for good grant",
+  "deadline_quote": "Rolling submissions.",
+  "found_by_query": "soonami Venturethon 11 official page",
+  "found_by_source": "https://soonami.io/venturethon first listed in the 2026-11-02 application run, official page re-read 2026-11-24",
+  "program": {
+    "id": "soonami-venturethon-11",
+    "organizer": "soonami",
+    "title": "soonami Venturethon 11",
+    "description": "soonami Venturethon 11 is a remote, 10-working-day program for early-stage founders, solo or as a team. The edition starts 20 November 2026. Partner prizes listed on the official page are a 5,000 euro AI for good grant, a 1,000 euro best project prize, and a 1,000 euro student builders prize, with a special KPMG track. Applications are submitted on Foundance and screened on a rolling basis. The 10-day Venturethon does not take equity; a later twelve-week cohort is optional and separate.",
+    "source_url": "https://soonami.io/venturethon",
+    "submission_url": "https://app.foundance.org/events/soonami-venturethon-11",
+    "reward": "Partner prizes: 5,000 euro AI for good grant, 1,000 euro best project, 1,000 euro student builders",
+    "summary": "5,000 euro AI for good grant and other partner prizes, rolling submissions",
+    "category": "grant",
+    "starts_at": "2026-11-20T00:00:00Z",
+    "ends_at": null,
+    "verified_at": "2026-11-24",
+    "status": "active",
+    "existing_work": "allowed",
+    "needs_repo": false,
+    "chains": [],
+    "any_chain": true,
+    "chain_required": false,
+    "in_person": false,
+    "sign_in": "platform",
+    "platform_name": "Foundance",
+    "setup": [
+      "build a Foundance profile",
+      "submit the Foundance application form"
+    ],
+    "each_time": [
+      "who you are, what you are building, why now",
+      "a live pitch if selected"
+    ],
+    "rules": [
+      "Applications are screened on a rolling basis. One Foundance form starts the process.",
+      "If selected, you pitch live to the soonami CEO, CTO and CGO, then hear whether you have a seat in the edition starting 20 November 2026.",
+      "The 10-day Venturethon is remote, 10 working days, solo or as a team, with no equity. Equity only enters if you later sign the optional twelve-week cohort.",
+      "Partner prizes listed on the official page: 5,000 euro AI for good grant, 1,000 euro best project, 1,000 euro student builders, plus a KPMG track with mentoring and a demo day on 4 December.",
+      "The official page lists cash prizes as sponsored by Globumbus. Grant amounts are stated in euro; no USD figure is published on the page."
+    ],
+    "submission_requirements": [
+      {
+        "key": "who_you_are",
+        "label": "Who you are",
+        "type": "text",
+        "required": true,
+        "from": "builder",
+        "kind": "team",
+        "todo": "who you are"
+      },
+      {
+        "key": "what_youre_building",
+        "label": "What you are building",
+        "type": "text",
+        "required": true,
+        "from": "project",
+        "kind": "solution",
+        "todo": "what you are building"
+      },
+      {
+        "key": "why_now",
+        "label": "Why now",
+        "type": "text",
+        "required": true,
+        "from": "project",
+        "kind": "why_you",
+        "todo": "why this is the moment"
+      }
+    ]
+  }
+}
