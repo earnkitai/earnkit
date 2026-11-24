@@ -53,6 +53,36 @@ Success: `{ "ok": true, "id": "...", "result": "created" | "updated" | "unchange
 
 Waiting for the owner (202): `{ "ok": true, "id": "...", "result": "pending", "category": "grant", "live": false, "reason": "...", "owner_emailed": true }`. Nothing changed yet: a new program is not listed, and a live program keeps its current link, chains and form. The owner gets one email and approves it within 7 days. Sending the same body again stays one pending write and never emails twice. If `owner_emailed` is `false`, the email didn't go: send the same write again later (at most once an hour) to retry it.
 
+### Official-page check (the automated lane, v3.8)
+
+A write goes through this check instead of the link check and the owner's approval when you send any of the fields below, when the `auto_live` flag is on, or when the caller is the owner or a test account. If you send none of them, the write is handled exactly as described under "Link check".
+
+Send these beside `program` in the upsert body:
+
+- `amount_quote` and `deadline_quote` (required, 1 to 300 characters): words copied exactly from the official page (`official_url`, else `source_url`). EarnKit fetches that page (64 KB, 5 s, no redirect to another site). Each quote must be in the page's visible text, case kept; runs of spaces and line breaks count as one space. Hidden page text never counts. The amount quote must state one of the program's own amounts (`pool_usd`, `max_award_usd` or `min_award_usd`: `$10,000`, `10k`, `$1.5M`). The deadline quote must name `ends_at`'s day (`March 15, 2027`, `Mar 15`, `2027-03-15`; a day either side is allowed for time zones). When `ends_at` is null, it must say the program is rolling.
+- `found_by_query` and `found_by_source` (required, 1 to 300 characters): the search and the source (an X post, an Exa query) that found the program. Stored on the write.
+- `handle` (optional): the tracked X handle whose post named the program.
+- `evidence_url` (optional): a page EarnKit may fetch to tie the official page to the organizer.
+
+A passing write is live at once, with no approval. Success adds `"organizer": "confirmed" | "new"` and `"info_only": true | false`. A failing write is a 400 and nothing goes live. This lane never answers `pending`.
+
+You can't set organizer status: `new_organizer` and `info_only` inside `program` are refused. The organizer is **confirmed** when the official page's domain is one of these:
+
+- the profile domain recorded for `handle`
+- a domain of the organizer's earlier confirmed program
+- a domain linked from `evidence_url`, when that page is itself on a domain already confirmed for the organizer
+
+Otherwise the program is live as **new organizer**. It is listed with the label, but no agent ever sends it or connects a wallet to it; the builder applies with their own tap. Every later write re-runs the check, so the label clears by itself once one of the rules holds. Your word alone clears nothing. If `submission_url` (or `form.url`) is not linked from the fetched page and is not the page itself, the program is **information only**: listed, with no form prefill and no agent submit.
+
+### Tracked handles
+
+```
+POST /api/programs/write
+{ "action": "handle", "handle": "@someorg", "profile_domain": "someorg.xyz" }
+```
+
+Records the domain in that X account's own profile. Sending the same handle again with a new domain replaces it. Answers `{ "ok": true, "handle": "someorg", "profile_domain": "someorg.xyz", "result": "recorded" }`.
+
 ### Link check
 
 These writes wait for approval unless every link builders are sent to (`submission_url`, `form.url`, `pool_source_url`) checks out:

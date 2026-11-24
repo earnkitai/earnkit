@@ -20,10 +20,11 @@ export const FLAGS = [
 export type Flag = (typeof FLAGS)[number];
 
 /**
- * The flags a preview caller gets: the shipping flags whose code is on main. `auto_live` and `private_rows` have no
- * code yet, so the preview leaves them to `EARNKIT_FLAGS` like everything else.
+ * The flags a preview caller gets: the shipping flags whose code is on main. `auto_live` (E6r) sends an owner/test
+ * caller's program adds through the automated check; normal callers keep main's approval path. `private_rows` has no
+ * code yet, so the preview leaves it to `EARNKIT_FLAGS` like everything else.
  */
-export const PREVIEW_FLAGS: readonly Flag[] = ['install_signin', 'x_signin', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2'];
+export const PREVIEW_FLAGS: readonly Flag[] = ['auto_live', 'install_signin', 'x_signin', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2'];
 
 const preview = new AsyncLocalStorage<boolean>();
 /** Runs `fn` with the preview on or off for everything it awaits (the request's flag context). */
