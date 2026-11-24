@@ -177,6 +177,15 @@ The pipeline, in order:
 2. Approval: a new program, or a write changing `submission_url`, `chains`, `form` or `pool_source_url`, waits for
    the owner's one-click link (`programs-pending.ts`, signed with `EARNKIT_AUTH_SECRET`, 7 days). Everything else is
    live at once and appears in the owner's daily digest with a revert link.
+   v3.8 E6r: the automated lane skips this step. When `auto_live` is on, the writer sends the official-page check's
+   fields (Growth: `amount_quote`, `deadline_quote`, `found_by_*`, `handle`, `evidence_url`), or the caller is the
+   owner or a test-preview account (`lib/v6/preview-caller.ts`), `official-page.ts` fetches the official page. The
+   write goes live only if the quotes are on the page and name the record's amount and deadline; otherwise it is a 400.
+   A domain the check can't tie to the organizer is live as `new_organizer`, and a builder link not on the page makes
+   it `info_only`. Either label forces `submit: builder`, so find marks it `needs_click` and track refuses a standing
+   send. Writes are never held or mailed in this lane (`no-approval.test.ts`). Every other write keeps this step
+   until `auto_live` is on for everyone; a follow-up PR then deletes the approval path. Growth records handle domains
+   with `{"action":"handle"}` (`tracked_handles`).
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program

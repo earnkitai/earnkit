@@ -31,6 +31,7 @@ import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEv
 import { catalogPage } from './catalog-page';
 import { flagOn } from './flags';
 import { replyFieldsBudget } from './reply-fields';
+import { INFO_ONLY_NOTE, NEW_ORGANIZER_NOTE } from './official-page';
 import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, usersLookup, USERS_NOTE, USERS_RULE_NOTE, isUsersRuleSay, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
@@ -717,7 +718,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               ...(dropped ? [dropped] : []),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
-    ).concat(heldSince ? ["Claimed by another of the builder's agents: do not submit it."] : []).join('\n'),
+    ).concat(heldSince ? ["Claimed by another of the builder's agents: do not submit it."] : [])
+      // v3.8 E6 (decision 21): the label the official-page check set; the record already says the builder sends it.
+      .concat(p.new_organizer ? [NEW_ORGANIZER_NOTE] : [], p.info_only ? [INFO_ONLY_NOTE] : []).join('\n'),
     program: pub,
     fields,
     guide,

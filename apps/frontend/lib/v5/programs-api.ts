@@ -3,6 +3,13 @@
  * program, GET /api/programs/writes is its audit log, the approve and revert links apply or undo one
  * write. A create, a change to submission_url, chains, form or pool_source_url (unless every link
  * checks out, programs-pending.ts), or a change to submit, sign_in or min_tier waits for the owner. Audited.
+ *
+ * v3.8 E6r (decision 21): the automated lane. An upsert goes through the official-page check (official-page.ts: the
+ * quotes on the page, organizer status, information only) when `auto_live` is on, when the writer asks for it by sending
+ * the check's fields (Growth's writer: amount_quote, deadline_quote, found_by_*, handle, evidence_url), or when the
+ * caller is the owner or a test-preview account (lib/v6/preview-caller.ts). It goes live with no approval when the
+ * check passes and is refused when it fails. Every other write keeps the held lane above, approval email and link
+ * included, until auto_live is on for everyone (the approval path is deleted in a follow-up PR then).
  */
 import { readdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
@@ -13,6 +20,22 @@ import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
 import { sql, type Db } from './db';
 import { bearerMatches, json, readBody } from './http';
 import { ownerMailEnabled, type Mailer } from './mail';
+import { flagOn } from './flags';
+import {
+  FOUND_BY_MAX,
+  QUOTE_MAX,
+  handleKey,
+  labelled,
+  linksOffPage,
+  officialPageOf,
+  organizerStatus,
+  pageLinks,
+  pageText,
+  quoteProblems,
+  readOfficialPage,
+  type PageReader,
+} from './official-page';
+import { previewCaller } from '../v6/preview-caller';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
 import { dateStatus, getProgram, isOpenAt, upsertProgram } from './programs';
@@ -143,6 +166,10 @@ async function probeLink(url: string, probe: Probe): Promise<void> {
 
 export type WriteDeps = {
   mailer?: Mailer;
+  /** Reads the official page (and an evidence page) for the automated lane's check. Default safeProbePage, 5 s, 64 KB. */
+  readPage?: PageReader;
+  /** Whether the request is from the owner or a test-preview account. Default previewCaller. */
+  preview?: (request: Request) => Promise<boolean>;
   /** Resolves when the URL loads; throws when it doesn't. Default safeProbe. */
   probe?: Probe;
   now?: Date;
@@ -153,10 +180,11 @@ export type WriteDeps = {
   /** After a write changed a program. Default programsChanged. */
   onChange?: (id: string) => void;
 };
-type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit'>> & Pick<WriteDeps, 'mailer'>;
+type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit' | 'preview'>> & Pick<WriteDeps, 'mailer'>;
 
 const fullDeps = (deps: WriteDeps): Deps => ({
   mailer: deps.mailer,
+  readPage: deps.readPage ?? readOfficialPage,
   probe: deps.probe ?? ((u: string) => safeProbe(u, { timeoutMs: FETCH_TIMEOUT_MS })),
   now: deps.now ?? new Date(),
   programsDir: deps.programsDir === undefined ? findProgramsDir() : deps.programsDir,
@@ -165,26 +193,52 @@ const fullDeps = (deps: WriteDeps): Deps => ({
 
 type Result = 'created' | 'updated' | 'unchanged' | 'closed';
 
+const Quote = z.string().trim().min(1).max(QUOTE_MAX);
+const FoundBy = z.string().trim().min(1).max(FOUND_BY_MAX);
+/** An X handle: 1 to 15 letters, digits or underscores, an optional @. */
+const Handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, 'an X handle');
+const Domain = z.string().trim().toLowerCase().regex(/^(?=.{4,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/, 'a domain name');
+
+/** v3.8 E6r: the upsert fields only the automated lane reads; sending any of them asks for that lane. */
+const CHECK_FIELDS = ['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source', 'handle', 'evidence_url'] as const;
+
 const Envelope = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('upsert'), program: z.record(z.string(), z.unknown()) }).strict(),
+  z.object({
+    action: z.literal('upsert'),
+    program: z.record(z.string(), z.unknown()),
+    /** v3.8 E6: the official page's words for the amount and the deadline, copied exactly (required in the automated lane). */
+    amount_quote: Quote.optional(),
+    deadline_quote: Quote.optional(),
+    /** v3.8 E6: the search and the source that found this program (required in the automated lane), stored on the write row. */
+    found_by_query: FoundBy.optional(),
+    found_by_source: FoundBy.optional(),
+    /** v3.8 E6: the tracked X handle whose post named the program, and a page the API may read to tie the domain to the organizer. */
+    handle: Handle.optional(),
+    evidence_url: z.string().trim().url().max(2048).startsWith('https://').optional(),
+  }).strict(),
   z.object({ action: z.literal('close'), id: z.string(), reason: z.string().trim().min(1).max(CLOSE_REASON_MAX) }).strict(),
+  /** v3.8 E6: Growth records a tracked handle and the domain in its own X profile. */
+  z.object({ action: z.literal('handle'), handle: Handle, profile_domain: Domain }).strict(),
 ]);
+type UpsertEnvelope = Extract<z.infer<typeof Envelope>, { action: 'upsert' }>;
+type FoundBy = { found_by_query?: string | null; found_by_source?: string | null };
 
 const refused = (status: number, problems: string[]) => json({ ok: false, problems }, status);
 const safeId = (id: unknown): string | null => (typeof id === 'string' && API_ID.test(id) ? id : null);
 /** The record as stored and compared (undefined keys dropped). */
 const asJson = (p: Program) => JSON.parse(JSON.stringify(p)) as postgres.JSONValue;
 
-async function audit(db: Db, row: { program_id: string | null; action: string; result: string; reason?: string | null; body?: Program }) {
-  await db`INSERT INTO program_writes (program_id, action, result, reason, body)
-    VALUES (${row.program_id}, ${row.action}, ${row.result}, ${row.reason ?? null}, ${row.body ? db.json(asJson(row.body)) : null})`;
+async function audit(db: Db, row: { program_id: string | null; action: string; result: string; reason?: string | null; body?: Program } & FoundBy) {
+  await db`INSERT INTO program_writes (program_id, action, result, reason, body, found_by_query, found_by_source)
+    VALUES (${row.program_id}, ${row.action}, ${row.result}, ${row.reason ?? null}, ${row.body ? db.json(asJson(row.body)) : null},
+      ${row.found_by_query ?? null}, ${row.found_by_source ?? null})`;
 }
 
 /** A refused write, kept for the owner (the reason, never the body). Never throws. */
-async function auditRefusal(action: string, id: unknown, result: string, problems: string[]) {
+async function auditRefusal(action: string, id: unknown, result: string, problems: string[], found: FoundBy = {}) {
   const program_id = safeId(id);
   console.log(`[programs-api] ${action} ${program_id ?? '-'} ${result}`);
-  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000) }).catch((err: unknown) =>
+  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000), ...found }).catch((err: unknown) =>
     console.error(`[programs-api] audit write failed: ${errTag(err)}`),
   );
 }
@@ -241,15 +295,19 @@ function changedGate(old: Partial<Program>, p: Program): string | null {
   return GATE_FIELDS.find((f) => was[f] !== now[f]) ?? null;
 }
 
+/** An automated-lane write that passed the official-page check: the record as it goes live and why it carries its labels. */
+type Checked = { live: Program; reason: string | null };
+
 /**
  * The write transaction. The program row is locked and its source read again (a sync can't be
  * overwritten). A bot write that creates the program or changes submission_url, chains, form or
  * pool_source_url, and any of whose builder links (submission_url, form.url, pool_source_url)
  * doesn't check out, or that changes submit, sign_in or min_tier, is held as a pending program_writes row instead (an identical
  * pending body within APPROVE_TTL_DAYS is reused, so one email). An approval locks its pending row
- * and flips it to 'approved' in the same transaction (single use).
+ * and flips it to 'approved' in the same transaction (single use). A write that passed the automated lane's check
+ * (`checked`) is applied as labelled and never held.
  */
-async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied> {
+async function applyUpsert(p: Program, deps: Deps, mode: Mode, checked: Checked | null = null, found: FoundBy = {}): Promise<Applied> {
   return sql().begin(async (tx): Promise<Applied> => {
     if (mode.kind === 'approve') {
       const [w] = await tx<{ result: string }[]>`SELECT result FROM program_writes WHERE id = ${mode.writeId} FOR UPDATE`;
@@ -264,6 +322,12 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
     const [row] = await tx<{ source: string; file: Partial<Program> | null }[]>`
       SELECT source, file FROM programs WHERE id = ${p.id} FOR UPDATE`;
     if (row && row.source !== 'api') throw new Curated();
+    if (checked) {
+      // v3.8 E6r: the automated lane passed the official-page check, so the write goes live as labelled; nothing is held.
+      const result = await upsertProgram(checked.live, 'api', deps.now, tx);
+      await audit(tx, { program_id: p.id, action: 'upsert', result, reason: checked.reason, body: result === 'unchanged' ? undefined : checked.live, ...found });
+      return { kind: 'applied', result };
+    }
     const old = row?.file ?? null;
     const needsCheck =
       !old ||
@@ -302,26 +366,66 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
 /** Listed to builders now: open, or upcoming. */
 const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, now);
 
-async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<Response> {
+/**
+ * v3.8 E6: the official-page check for an automated-lane write. Refusal problems when the quotes, found-by fields or
+ * page fail (nothing goes live, nobody is mailed); else the record as it goes live, labelled new organizer and
+ * information only as the check found. The page's text is only searched, never stored or returned.
+ */
+async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise<{ problems: string[] } | Checked> {
+  const missing = (['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source'] as const)
+    .filter((k) => e[k] === undefined)
+    .map((k) => `${k}: required; ${k.endsWith('quote') ? "copy the official page's words exactly" : 'say which search and source found this program'}`);
+  if (missing.length > 0) return { problems: missing };
+  const url = officialPageOf(p);
+  let html: string;
+  try {
+    html = await deps.readPage(url);
+  } catch (err) {
+    return { problems: [`official page: ${url} doesn't load (${(err instanceof Error ? err.message : 'unknown error').slice(0, 160)})`] };
+  }
+  const quotes = quoteProblems(p, { amount_quote: e.amount_quote!, deadline_quote: e.deadline_quote! }, pageText(html));
+  if (quotes.length > 0) return { problems: quotes };
+  const off = linksOffPage(p, url, pageLinks(html, url));
+  const org = await organizerStatus(sql(), p, { handle: e.handle ?? null, evidenceUrl: e.evidence_url ?? null, read: deps.readPage });
+  const reasons = [
+    ...(org.status === 'new' ? [`new organizer: ${org.why}`] : []),
+    ...(off.length > 0 ? [`information only: ${off.join(', ')} not on the official page`] : []),
+  ];
+  return { live: labelled(p, { newOrganizer: org.status === 'new', infoOnly: off.length > 0 }), reason: reasons.length > 0 ? reasons.join('; ') : null };
+}
+
+/** An upsert. `automated` (v3.8 E6r) sends it through the official-page check; else main's lane, held writes mailed. */
+async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): Promise<Response> {
+  const raw = e.program;
+  const found: FoundBy = automated ? { found_by_query: e.found_by_query ?? null, found_by_source: e.found_by_source ?? null } : {};
   const forbidden = notWritableFields(raw);
   const parsed = ProgramFile.safeParse(raw);
   if (forbidden.length > 0 || !parsed.success) {
     const problems = [...forbidden, ...(parsed.success ? [] : programProblems(raw as Program, deps.now))];
-    await auditRefusal('upsert', raw.id, 'refused', problems);
+    await auditRefusal('upsert', raw.id, 'refused', problems, found);
     return refused(400, problems);
   }
   const p = parsed.data;
   const refusal = await writeRefusal(p, deps);
   if (refusal) {
-    await auditRefusal('upsert', p.id, refusal.result, refusal.problems);
+    await auditRefusal('upsert', p.id, refusal.result, refusal.problems, found);
     return refused(refusal.status, refusal.problems);
+  }
+  let checked: Checked | null = null;
+  if (automated) {
+    const c = await officialCheck(p, e, deps);
+    if ('problems' in c) {
+      await auditRefusal('upsert', p.id, 'refused', c.problems, found);
+      return refused(400, c.problems);
+    }
+    checked = c;
   }
   let out: Applied;
   try {
-    out = await applyUpsert(p, deps, { kind: 'write' });
+    out = await applyUpsert(p, deps, { kind: 'write' }, checked, found);
   } catch (err) {
     if (!(err instanceof Curated)) throw err;
-    await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)]);
+    await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)], found);
     return refused(409, [curatedLine(p.id)]);
   }
   if (out.kind === 'pending') {
@@ -343,7 +447,30 @@ async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<R
   const result = out.kind === 'applied' ? out.result : 'unchanged';
   console.log(`[programs-api] upsert ${p.id} ${result}`);
   if (result !== 'unchanged') deps.onChange(p.id);
-  return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, deps.now) });
+  const labels = checked ? { organizer: checked.live.new_organizer ? 'new' : 'confirmed', info_only: checked.live.info_only === true } : {};
+  return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, deps.now), ...labels });
+}
+
+/** v3.8 E6: records (or moves) a tracked X handle and the domain in its own profile. Audited. */
+async function handleAction(handle: string, domain: string): Promise<Response> {
+  const key = handleKey(handle);
+  await sql().begin(async (tx) => {
+    await tx`INSERT INTO tracked_handles (handle, profile_domain) VALUES (${key}, ${domain})
+      ON CONFLICT (handle) DO UPDATE SET profile_domain = EXCLUDED.profile_domain, at = now()`;
+    await audit(tx, { program_id: null, action: 'handle', result: 'recorded', reason: `@${key} ${domain}` });
+  });
+  console.log(`[programs-api] handle @${key} recorded`);
+  return json({ ok: true, handle: key, profile_domain: domain, result: 'recorded' });
+}
+
+/**
+ * v3.8 E6r: whether an upsert takes the automated lane: `auto_live` on, the writer sent any of the check's fields
+ * (Growth's writer asking for the check), or the caller is the owner or a test-preview account. Else main's lane.
+ */
+async function automatedLane(request: Request, e: UpsertEnvelope, preview: (request: Request) => Promise<boolean>): Promise<boolean> {
+  if (flagOn('auto_live')) return true;
+  if (CHECK_FIELDS.some((k) => e[k] !== undefined)) return true;
+  return preview(request);
 }
 
 /**
@@ -420,7 +547,9 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
       return refused(400, problems);
     }
     const e = envelope.data;
-    return e.action === 'upsert' ? await upsertAction(e.program, full) : await closeAction(e.id, e.reason, full);
+    if (e.action === 'handle') return await handleAction(e.handle, e.profile_domain);
+    if (e.action === 'close') return await closeAction(e.id, e.reason, full);
+    return await upsertAction(e, full, await automatedLane(request, e, deps.preview ?? previewCaller));
   } catch (err) {
     console.error(`[programs-api] write failed: ${errTag(err)}`);
     return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
@@ -435,8 +564,11 @@ export async function writesGet(request: Request, now = new Date()): Promise<Res
   const denied = authFailure(request);
   if (denied) return denied;
   try {
-    const writes = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null }[]>`
-      SELECT at, program_id, action, result, reason FROM program_writes ORDER BY id DESC LIMIT ${WRITES_MAX}`;
+    const rows = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null; found_by_query: string | null; found_by_source: string | null }[]>`
+      SELECT at, program_id, action, result, reason, found_by_query, found_by_source FROM program_writes ORDER BY id DESC LIMIT ${WRITES_MAX}`;
+    // v3.8 E6r: the found-by fields appear only on the automated lane's rows, so main's rows read as they did.
+    const writes = rows.map(({ found_by_query, found_by_source, ...w }) =>
+      found_by_query === null && found_by_source === null ? w : { ...w, found_by_query, found_by_source });
     const held = await sql()<{ at: Date; program_id: string | null; reason: string | null; title: unknown; submission_url: unknown; source_url: unknown }[]>`
       SELECT at, program_id, reason, body->'title' AS title, body->'submission_url' AS submission_url, body->'source_url' AS source_url
       FROM program_writes WHERE result = 'pending' AND at > ${new Date(now.getTime() - APPROVE_TTL_DAYS * DAY_MS)}

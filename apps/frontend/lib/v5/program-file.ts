@@ -309,6 +309,13 @@ export const ProgramFile = z
     prefers: z.array(z.string().refine((k) => isIntegrationKey(k) || isKnownChain(k), 'not an integration key or a known chain')).max(10).default([]),
     /** Owner-only: where a reviewer is reached. Never listed, guided or replied. */
     reviewers_contact: z.string().min(1).max(200).optional(),
+    /**
+     * v3.8 E6 (decision 21): set by the official-page check only, never by a writer. The official page's domain is not
+     * yet tied to the organizer: listed with the label, never submitted by an agent, never wallet-connected.
+     */
+    new_organizer: z.literal(true).optional(),
+    /** v3.8 E6: set by the check only. A builder link is not on the fetched official page: no prefill, no agent submit. */
+    info_only: z.literal(true).optional(),
   })
   .superRefine((p, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
