@@ -64,11 +64,15 @@ export function isDeployerFunded(first: Tx[], deployer: string | null, address: 
 const failNote = (e: unknown) =>
   e instanceof ExplorerError && e.status ? `not read: explorer ${e.status}` : 'not read: explorer unreachable';
 
-/** Reads one contract's rows through `explorer`. Never throws: what fails is null with a note. */
+/**
+ * Reads one contract's rows through `explorer`. Never throws: what fails is null with a note. `until` (v3.8 E17, the
+ * backtest): transactions after the cutoff are never counted, so no sender after it is sampled; the windows still count
+ * back from `now`.
+ */
 export async function readContract(
   chain: string,
   address: string,
-  o: { explorer: Explorer | null; repoAddresses: string[]; now: Date },
+  o: { explorer: Explorer | null; repoAddresses: string[]; now: Date; until?: Date },
 ): Promise<OnchainRows> {
   const a = address.toLowerCase();
   const rows: OnchainRows = {
@@ -96,9 +100,11 @@ export async function readContract(
 
     const since90 = new Date(o.now.getTime() - 90 * DAY);
     const since30 = o.now.getTime() - 30 * DAY;
-    const txs = await ex.txsTo(chain, a, since90, TX_MAX);
+    const read = await ex.txsTo(chain, a, since90, TX_MAX);
+    const cut = o.until?.getTime() ?? Infinity;
+    const txs = o.until ? read.filter((t) => Date.parse(t.at) <= cut) : read;
     rows.tx_90d = txs.length;
-    if (txs.length >= TX_MAX) notes.push(`counted the latest ${TX_MAX} transactions only`);
+    if (read.length >= TX_MAX) notes.push(o.until ? `read the latest ${TX_MAX} transactions only; fewer before the cutoff may be counted` : `counted the latest ${TX_MAX} transactions only`);
     const ok = txs.filter((t) => !t.is_error);
     const senders = [...new Set(ok.map((t) => t.from))];
     rows.senders_90d = senders.length;

@@ -40,6 +40,8 @@ export type Evidence = {
   notes: string[];
   /** When the repo block and each contract were read (earlier than read_at when cached). */
   read_times: { repo: string | null; onchain: string[] };
+  /** v3.8 E17: with a cutoff, the blocks read as they are today (no history to cut), so possibly leaked. Absent without one. */
+  leaked?: string[];
 };
 export type Subject = { repo_url?: string; live_url?: string; contracts?: { chain: string; address: string }[] };
 export type EvidenceDeps = {
@@ -54,6 +56,11 @@ export type EvidenceDeps = {
   cache?: boolean;
   /** The GitHub allowance, shared across a run's applicants (default: a fresh one for this read). */
   budget?: Budget;
+  /**
+   * v3.8 E17 (the backtest): the evidence cutoff. Commits and transactions after it are never counted, the cache is
+   * neither read nor written (its rows are as of their read), and the blocks with no history are named in `leaked`.
+   */
+  until?: Date;
 };
 
 type RepoBlock = {
@@ -339,11 +346,25 @@ export function countedBy(c: OnchainRows, from: ContractSource, since: string | 
   return { counted: true, counted_reason: 'listed by the applicant' };
 }
 
+/**
+ * v3.8 E17: what a cutoff read could not cut, by name, for the blocks that were read: the site and its domain, the
+ * repo's tree, releases, issues, fork share and starter match, its contributors and their account ages, and each
+ * contract's source and deployer. Commits and transactions are cut, so they are never named. Pure.
+ */
+export function leakedBlocks(b: Pick<RepoBlock, 'code'> | null, live: LiveRows, onchain: OnchainRows[]): string[] {
+  return [
+    ...(live.url ? ['site'] : []),
+    ...(b ? ['repo tree', 'releases', 'issues', ...(b.code.fork_of ? ['fork share'] : []), 'contributors'] : []),
+    ...(onchain.some((c) => c.is_contract != null) ? ['contract source'] : []),
+  ];
+}
+
 /** Reads every evidence block for a subject. Never throws for a failed read. */
 export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidence> {
   const now = o.now;
   const read_at = now.toISOString();
-  const useCache = o.cache !== false;
+  const useCache = o.cache !== false && !o.until;
+  const until = o.until;
   const reads = { github: 0, explorer: 0, site: 0 };
   const budget: Budget = o.budget ?? { remaining: null, stopped: false };
   const gh = budgeted(counted(o.gh ?? fetch, () => reads.github++), budget);
@@ -384,7 +405,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
     if (!block && !stop) {
       try {
         const read = await readRepo(key, { fetch: gh, token });
-        const g = { gh, token, now, budget };
+        const g = { gh, token, now, budget, ...(until && { until }) };
         const code = await readCode(read, g);
         // L15-7 (v6.1.14): an empty repo has nobody's commits to read.
         const team = code.empty
@@ -467,7 +488,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
       onchainTimes.push(hit.read_at.toISOString());
     } else {
       const explorer = (o.explorer ?? explorerFor)(t.chain, exFetch);
-      r = await readContract(t.chain, t.address, { explorer, repoAddresses, now });
+      r = await readContract(t.chain, t.address, { explorer, repoAddresses, now, ...(until && { until }) });
       onchainTimes.push(read_at);
       if (retryable(r.note)) partial = true;
       else if (explorer && useCache) await cachePut(ck, 'contract', r, null, now);
@@ -488,6 +509,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
     read_at,
     notes,
     read_times: { repo: repoReadAt, onchain: onchainTimes },
+    ...(until && { leaked: leakedBlocks(b, live, onchain) }),
   };
   e.rows = flattenRows(e);
   return e;
