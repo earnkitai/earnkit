@@ -23,6 +23,8 @@ export const METHODS_BY_ROUTE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/api\/programs\/write$/, 'POST'],
   [/^\/api\/(?:programs|programs\/writes|programs\/applications|stats|me\/signed-in)$/, 'GET, HEAD'],
   [/^\/auth\/github\/callback$/, 'GET, HEAD'],
+  // v3.8 E4: the install consent page and its form.
+  [/^\/install\/consent$/, 'GET, HEAD, POST'],
   [/^\/llms\.txt$/, 'GET, HEAD'],
 ];
 

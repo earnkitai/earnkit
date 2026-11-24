@@ -9,7 +9,7 @@ import { registerClient } from '../v5/oauth';
 import { deleteBuilder, linkInstallation, unlinkInstallation, upsertBuilder } from './builders';
 import { githubOAuthFetch } from './fixtures/github-oauth';
 import { signInstallState, signState, verifyInstallState, verifyState } from './github-auth';
-import { INSTALL_FAILED, INSTALL_SIGNIN_ENABLED, callbackGet } from './link-routes';
+import { INSTALL_FAILED, callbackGet } from './link-routes';
 import { clientNameReason, testReasonFor } from './people';
 
 after(() => sql().end());
@@ -19,7 +19,7 @@ const NOW = new Date('2026-11-13T12:00:00Z');
 const ENV = { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_AUTH_SECRET: SECRET, EARNKIT_URL: 'https://earnkit.test' };
 let saved: Record<string, string | undefined> = {};
 beforeEach(() => {
-  saved = Object.fromEntries([...Object.keys(ENV), 'EARNKIT_INSTALL_SIGNIN'].map((k) => [k, process.env[k]]));
+  saved = Object.fromEntries([...Object.keys(ENV), 'EARNKIT_FLAGS'].map((k) => [k, process.env[k]]));
   Object.assign(process.env, ENV);
 });
 afterEach(() => {
@@ -241,37 +241,23 @@ test('install sign-in off: authorize redirects straight to the client, anonymous
   assert.equal(new URL(r.headers.get('location')!).origin + new URL(r.headers.get('location')!).pathname, CB);
 });
 
-test('C1 (v6.1.21): EARNKIT_INSTALL_SIGNIN=github leaves authorize exactly as off, and logs that it is disabled', async () => {
-  assert.equal(INSTALL_SIGNIN_ENABLED, false);
+test('v3.8 E4 (was C1): EARNKIT_FLAGS=install_signin sends authorize to GitHub with a nonce cookie; unset stays anonymous', async () => {
   const { client_id } = await registerClient({ redirect_uris: [CB], client_name: 'Switch Agent' });
-  delete process.env.EARNKIT_INSTALL_SIGNIN;
+  delete process.env.EARNKIT_FLAGS;
   const off = await authorize(client_id);
-  process.env.EARNKIT_INSTALL_SIGNIN = 'github';
-  const warned: string[] = [];
-  const warn = console.warn;
-  console.warn = (m: string) => void warned.push(String(m));
-  let on: Response;
-  try {
-    on = await authorize(client_id);
-  } finally {
-    console.warn = warn;
-  }
-  assert.equal(on.status, off.status);
-  assert.equal(on.headers.get('set-cookie'), null);
-  const [a, b] = [new URL(off.headers.get('location')!), new URL(on.headers.get('location')!)];
-  assert.equal(b.origin + b.pathname, a.origin + a.pathname);
-  assert.deepEqual([...b.searchParams.keys()].sort(), [...a.searchParams.keys()].sort());
-  assert.equal(b.searchParams.get('state'), 's1');
-  // The code is anonymous: the exchange makes an installation with no builder.
-  assert.equal((await exchange(client_id, b.searchParams.get('code')!)).status, 200);
-  const [row] = await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE client_name = 'Switch Agent'`;
-  assert.equal(row.builder_id, null);
-  // Logged at most once a process, in one line (an earlier test may have logged it already).
-  assert.ok(warned.every((w) => w === '[install] install sign-in is disabled in this release'));
+  assert.equal(new URL(off.headers.get('location')!).origin, 'https://claude.ai');
+  assert.equal(off.headers.get('set-cookie'), null);
+  process.env.EARNKIT_FLAGS = 'install_signin';
+  const on = await authorize(client_id);
+  const to = new URL(on.headers.get('location')!);
+  assert.equal(to.origin + to.pathname, 'https://github.com/login/oauth/authorize');
+  assert.equal(to.searchParams.get('scope'), 'read:user');
+  assert.match(on.headers.get('set-cookie')!, /^(__Host-)?ek_install=[^;]+; Path=\/; HttpOnly.*SameSite=Lax/);
+  assert.ok(verifyInstallState(to.searchParams.get('state')!, SECRET, new Date()));
 });
 
-test('C1/M7 (v6.1.21): with the switch off an install state at the callback is unreachable: no sign-in, no code, no builder', async () => {
-  process.env.EARNKIT_INSTALL_SIGNIN = 'github';
+test('M7 (v6.1.21): with install_signin off (the rollback) an install state at the callback signs nobody in', async () => {
+  delete process.env.EARNKIT_FLAGS;
   const req = { client_id: 'c', redirect_uri: CB, state: 's', code_challenge: challenge };
   const state = signInstallState({ req, nonce: 'n1', exp: Date.now() + 60_000 }, SECRET);
   const gh = githubOAuthFetch({ id: 5151, login: 'victim', name: null, avatar_url: null });
@@ -281,47 +267,12 @@ test('C1/M7 (v6.1.21): with the switch off an install state at the callback is u
   const text = await r.text();
   assert.equal(text, INSTALL_FAILED);
   assert.doesNotMatch(text, /link/i);
+  assert.deepEqual(gh.calls, []);
   assert.equal((await sql()`SELECT count(*)::int AS c FROM builders WHERE login = 'victim'`)[0].c, 0);
 });
 
-test('dormant install sign-in (switch forced on in the test): GitHub first, then a code that links the installation', async () => {
-  process.env.EARNKIT_INSTALL_SIGNIN = 'github';
-  const { client_id } = await registerClient({ redirect_uris: [CB], client_name: 'Signed Agent' });
-  const r = await authorizeGet(
-    new Request(`https://earnkit.test/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id, redirect_uri: CB, code_challenge: challenge, code_challenge_method: 'S256', state: 's1' })}`),
-    { limit: async () => {}, installSignIn: true },
-  );
-  assert.equal(r.status, 302);
-  const to = new URL(r.headers.get('location')!);
-  assert.equal(to.origin, 'https://github.com');
-  const state = to.searchParams.get('state')!;
-  const cookie = r.headers.get('set-cookie')!.split(';')[0];
-  assert.match(cookie, /^(__Host-)?ek_install=/);
-  const cb = (c: string | null, gh: typeof fetch) =>
-    callbackGet(new Request(`https://earnkit.test/auth/github/callback?code=ghc&state=${encodeURIComponent(state)}`, { headers: { 'x-real-ip': ip(), ...(c ? { cookie: c } : {}) } }), { now: new Date(), gh, installSignIn: true });
-  const failed = async (res: Response) => {
-    assert.equal(res.status, 400);
-    assert.equal(await res.text(), INSTALL_FAILED);
-  };
-  // M7: no cookie, a stranger's, or a GitHub failure: the install failure page (it does not talk about linking), no code.
-  await failed(await cb(null, githubOAuthFetch({ id: 4242, login: 'newbie', name: null, avatar_url: null }).fetch));
-  await failed(await cb(`${cookie.split('=')[0]}=other`, githubOAuthFetch({ id: 4242, login: 'newbie', name: null, avatar_url: null }).fetch));
-  await failed(await cb(cookie, githubOAuthFetch({ id: 4242, login: 'newbie', name: null, avatar_url: null }, { fail: 'token' }).fetch));
-  const ok = await cb(cookie, githubOAuthFetch({ id: 4242, login: 'newbie', name: null, avatar_url: null }).fetch);
-  assert.equal(ok.status, 302);
-  const back = new URL(ok.headers.get('location')!);
-  assert.equal(back.origin + back.pathname, CB);
-  assert.equal(back.searchParams.get('state'), 's1');
-  const t = await exchange(client_id, back.searchParams.get('code')!);
-  assert.equal(t.status, 200);
-  const [row] = await sql()<{ id: number; builder_id: number | null; login: string }[]>`
-    SELECT i.id, i.builder_id, b.login FROM installations i JOIN builders b ON b.id = i.builder_id WHERE i.client_name = 'Signed Agent'`;
-  assert.equal(row.login, 'newbie');
-  assert.equal((await personOf(row.id)).builder_id, row.builder_id);
-});
-
 test('M3 (v6.1.21): a link that fails inside the exchange saves nothing and spends no code', async () => {
-  // The dormant sign-in names a builder that is gone by the exchange: the link fails, the whole install rolls back.
+  // The install sign-in names a builder that is gone by the exchange: the link fails, the whole install rolls back.
   const { client_id } = await registerClient({ redirect_uris: [CB], client_name: 'Gone Builder Agent' });
   const b = await upsertBuilder(user(9014, 'soon-gone'), NOW);
   const req = { client_id, redirect_uri: CB, state: 's1', code_challenge: challenge };
@@ -339,12 +290,12 @@ test('a link-code state is not accepted at the install callback', async () => {
 });
 
 test('sign-in github without a configured OAuth app falls back to the anonymous approval', async () => {
-  process.env.EARNKIT_INSTALL_SIGNIN = 'github';
+  process.env.EARNKIT_FLAGS = 'install_signin';
   delete process.env.GITHUB_OAUTH_CLIENT_ID;
   const { client_id } = await registerClient({ redirect_uris: [CB], client_name: 'Anon2' });
   const r = await authorizeGet(
     new Request(`https://earnkit.test/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id, redirect_uri: CB, code_challenge: challenge, code_challenge_method: 'S256', state: 's1' })}`),
-    { limit: async () => {}, installSignIn: true },
+    { limit: async () => {} },
   );
   assert.equal(new URL(r.headers.get('location')!).origin, 'https://claude.ai');
 });

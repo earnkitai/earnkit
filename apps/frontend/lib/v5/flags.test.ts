@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { FLAGS, flagOn, flagsOn } from './flags';
 
 test('the flag names of the v3.8 first ship, in order', () => {
-  assert.deepEqual([...FLAGS], ['auto_live', 'x_signin', 'private_rows', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2']);
+  assert.deepEqual([...FLAGS], ['auto_live', 'x_signin', 'private_rows', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2', 'install_signin']);
 });
 
 test('unset or empty EARNKIT_FLAGS turns every flag off', () => {
