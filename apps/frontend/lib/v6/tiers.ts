@@ -12,6 +12,11 @@ import type { OnchainRows } from './onchain';
 
 export const TIERS = ['used', 'live', 'building', 'unverified', 'flagged'] as const;
 export type Tier = (typeof TIERS)[number];
+/**
+ * The order a reviewer reads (v3.8 E18, one order for the CLI report and, with `screen_v2`, the screen tool's
+ * results): the strongest first, flagged before the ones with nothing to read.
+ */
+export const REVIEW_ORDER: readonly Tier[] = ['used', 'live', 'building', 'flagged', 'unverified'];
 export type Thresholds = {
   used_funded_senders: number;
   push_within_days: number;

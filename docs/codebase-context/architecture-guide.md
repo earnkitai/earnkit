@@ -2139,6 +2139,17 @@ The foreign keys have no ON DELETE action (the schema guard rejects it); `delete
 then entries explicitly.
 Design: `docs/design-docs-and-implementation-plans/v3.8-e17-backtest.md`.
 
+## v3.8 E18: order inside a tier (screen_v2)
+
+Behind `screen_v2`. `lib/v6/ordinal.ts` orders applicants inside each tier by points from verified evidence rows
+(log-scaled) with the top three reasons. It shows nothing below `ORDINAL_FLOOR` (10 applicants placed used, live or
+building in the job). `jobResults` adds `ordinal`, `ordinal_of`, `ordinal_reasons` and sorts by tier then ordinal. The
+CLI report adds `order in <tier>`. `lib/v6/packages.ts` reads npm and PyPI downloads for packages whose registry links
+the repo (`readEvidence({ packages })`, uncached; rows with basis `registry`). `tiers.ts` `REVIEW_ORDER` is the one
+reviewer order (flagged before unverified), which the tool's results use when the flag is on. Off, everything is
+main's. Reviewer-only; never in builder copy. Design:
+`docs/design-docs-and-implementation-plans/v3.8-e18-screen-v2.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the

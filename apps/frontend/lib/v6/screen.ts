@@ -12,6 +12,8 @@ import { safeProbePage } from '../v5/safe-fetch';
 import type { Budget } from './code';
 import { readLive } from './live';
 import { csvReport, markdownReport, ORDER, type ScreenRow } from './screen-report';
+import { flagOn } from '../v5/flags';
+import { ordinals } from './ordinal';
 import { reviewerLine } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Thresholds } from './tiers';
 
@@ -127,7 +129,7 @@ export async function run(argv: string[], d: RunDeps): Promise<RunResult> {
     try {
       evidence = await readEvidence(
         { ...(repo && { repo_url: repo }), ...(a.live_url && { live_url: a.live_url }), contracts: a.contracts },
-        { ...o, budget, now: d.now, cache },
+        { ...o, budget, now: d.now, cache, packages: flagOn('screen_v2', env) },
       );
       reads.github += evidence.reads.github;
       reads.explorer += evidence.reads.explorer;
@@ -157,7 +159,9 @@ export async function run(argv: string[], d: RunDeps): Promise<RunResult> {
   const csv = join(out, `${args.program}-${date}.csv`);
   try {
     mkdirSync(out, { recursive: true });
-    writeFileSync(md, markdownReport(args.program, rows, d.now));
+    // v3.8 E18: the order inside each tier, with screen_v2 on and at least ORDINAL_FLOOR applicants placed on read evidence.
+    const order = flagOn('screen_v2', env) ? ordinals(rows.map((r) => ({ ref: r.applicant.ref, tier: r.placement.tier, rows: r.evidence?.rows ?? [] }))) : new Map();
+    writeFileSync(md, markdownReport(args.program, rows, d.now, order));
     writeFileSync(csv, csvReport(rows));
   } catch {
     return { ...fail(`Could not write to ${out}.`), rows, reads };

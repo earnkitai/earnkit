@@ -15,12 +15,13 @@ import { type DepthRows, readDepth } from './depth';
 import { type Explorer, explorerFor } from './explorers';
 import { type LiveRows, type Rdap, rdapOrg, readLive } from './live';
 import { type OnchainRows, readContract } from './onchain';
+import { type PackageNames, packageNames, type PackageRows, readPackages } from './packages';
 import { readTeam, type TeamRows } from './team';
 
 export type Row = {
   key: string;
   value: string | number | boolean | string[] | number[] | null;
-  basis: 'github' | 'explorer' | 'rpc' | 'site' | 'record' | 'earnkit';
+  basis: 'github' | 'explorer' | 'rpc' | 'site' | 'record' | 'earnkit' | 'registry';
   read_at: string;
   note: string | null;
 };
@@ -42,6 +43,8 @@ export type Evidence = {
   read_times: { repo: string | null; onchain: string[] };
   /** v3.8 E17: with a cutoff, the blocks read as they are today (no history to cut), so possibly leaked. Absent without one. */
   leaked?: string[];
+  /** v3.8 E18: the repo's own npm and PyPI packages and their downloads; only when read with `packages` (screen_v2). */
+  packages?: PackageRows;
 };
 export type Subject = { repo_url?: string; live_url?: string; contracts?: { chain: string; address: string }[] };
 export type EvidenceDeps = {
@@ -61,6 +64,10 @@ export type EvidenceDeps = {
    * neither read nor written (its rows are as of their read), and the blocks with no history are named in `leaked`.
    */
   until?: Date;
+  /** v3.8 E18 (`screen_v2`): read the repo's own packages' downloads (never cached, never with `until`). Default off. */
+  packages?: boolean;
+  /** The registries' fetch (npm, PyPI, pypistats). Default fetch. */
+  pkgFetch?: typeof fetch;
 };
 
 type RepoBlock = {
@@ -75,6 +82,8 @@ type RepoBlock = {
   created_at: string | null;
   repo_addresses: string[];
   homepage: string | null;
+  /** v3.8 E18: the package names to look up; absent on blocks cached before, which read no packages. */
+  package_names?: PackageNames;
 };
 
 const DAY = 86_400_000;
@@ -423,6 +432,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
           created_at: read.repo.created_at ?? null,
           repo_addresses: addressesIn(read),
           homepage: read.repo.homepage?.trim() || null,
+          package_names: packageNames(read),
         };
         repoReadAt = read_at;
         // A budget stop, a failed tree, file or deploy-run read, or any other failed read: kept, never cached.
@@ -439,6 +449,11 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
       if (retryable(stop)) partial = true;
     }
   }
+
+  // ---- v3.8 E18: the repo's own packages (screen_v2 only; the registries have no history, so never with a cutoff) ----
+  const packages = o.packages && !until && key && block?.package_names
+    ? await readPackages(key, block.package_names, { gh, f: counted(o.pkgFetch ?? fetch, () => reads.site++) })
+    : undefined;
 
   // ---- the site ----
   const realProbe = o.probe ?? safeProbePage;
@@ -510,6 +525,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
     notes,
     read_times: { repo: repoReadAt, onchain: onchainTimes },
     ...(until && { leaked: leakedBlocks(b, live, onchain) }),
+    ...(packages && { packages }),
   };
   e.rows = flattenRows(e);
   return e;
@@ -566,5 +582,6 @@ export function flattenRows(e: Evidence): Row[] {
   add('code', e.code, 'github', repoAt);
   add('team', e.team, 'github', repoAt);
   add('depth', e.depth, 'github', repoAt);
+  add('packages', e.packages ?? null, 'registry', e.read_at);
   return rows;
 }

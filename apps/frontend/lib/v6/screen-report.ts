@@ -5,15 +5,16 @@
  */
 import type { Applicant } from './applicants';
 import type { Evidence } from './evidence';
-import type { Placement, Tier } from './tiers';
+import type { Ordinal } from './ordinal';
+import { type Placement, REVIEW_ORDER, type Tier } from './tiers';
 import { ruleWords } from './tier-words';
 import { cleanText } from '../v5/controls';
 
 /** `result` and `amount` (L22-12, v6.1.16): the program's outcome for the applicant and its money in the one format, when posted. */
 export type ScreenRow = { applicant: Applicant; evidence: Evidence | null; placement: Placement; line: string; result?: string | null; amount?: string | null };
 
-/** The order a reviewer reads: the strongest first, flagged before the ones with nothing to read. */
-export const ORDER: Tier[] = ['used', 'live', 'building', 'flagged', 'unverified'];
+/** The order a reviewer reads (tiers.ts REVIEW_ORDER, shared with the screen tool's results under `screen_v2`). */
+export const ORDER: Tier[] = [...REVIEW_ORDER];
 const NO_TIER = 'no tier';
 const tierOf = (r: ScreenRow) => r.placement.tier ?? NO_TIER;
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -37,9 +38,13 @@ function notRead(e: Evidence | null): string[] {
   return [...new Set(segs.filter((s) => /(^|\s)not read\b/.test(s)))];
 }
 
-/** The markdown report for `program` on `now`'s date. Pure. */
-export function markdownReport(program: string, rows: ScreenRow[], now: Date): string {
-  const groups = [...ORDER, NO_TIER].map((t) => ({ t, rows: rows.filter((r) => tierOf(r) === t) }));
+/**
+ * The markdown report for `program` on `now`'s date. v3.8 E18: with `ordinals` (screen_v2, and only above the floor),
+ * each tier is in that order and each applicant names its place in the tier and why. Pure.
+ */
+export function markdownReport(program: string, rows: ScreenRow[], now: Date, ordinals: Map<string, Ordinal> = new Map()): string {
+  const at = (r: ScreenRow) => ordinals.get(r.applicant.ref)?.ordinal ?? Number.MAX_SAFE_INTEGER;
+  const groups = [...ORDER, NO_TIER].map((t) => ({ t, rows: rows.filter((r) => tierOf(r) === t).sort((a, b) => at(a) - at(b)) }));
   const out: string[] = [`# ${program} screening, ${now.toISOString().slice(0, 10)}`, ''];
   out.push(
     `${rows.length} applicants, each placed by what EarnKit could read in public: the site, the public repo and mainnet contracts. Read ${now.toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
@@ -55,7 +60,9 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
     for (const r of g.rows) {
       const a = r.applicant;
       out.push(`### ${codeSpan(a.name)} (${codeSpan(a.ref)})`, '', r.line);
+      const o = ordinals.get(a.ref);
       const bullets = [
+        ...(o ? [`order in ${g.t}: ${o.ordinal} of ${o.of}${o.reasons.length ? `, ${o.reasons.join(', ')}` : ''}`] : []),
         // A flag's detail opens `because`; it is shown once, as the flag.
         ...r.placement.because.filter((b) => !r.placement.flags.some((f) => f.detail === b)),
         ...r.placement.flags.map((f) => `flag: ${ruleWords(f.rule)}, ${f.detail}`),
