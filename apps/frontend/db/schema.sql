@@ -563,6 +563,12 @@ CREATE TABLE IF NOT EXISTS people (
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS person_id int;
+-- v3.8 E3: verified sign-in. `verified_by` ('github') and `verified_at` are set only on a fresh OAuth callback
+-- (lib/v6/people.ts markVerified), never by a backfill: a legacy X sign-in (x_user_id) stays unverified.
+-- `account_created_at` is the verified account's own creation date (the provider's), for the age band. `review_mark`
+-- is the owner's hand mark on a person (set by SQL; NULL is unreviewed). Cleared when the builder is deleted.
+ALTER TABLE people ADD COLUMN IF NOT EXISTS verified_by text, ADD COLUMN IF NOT EXISTS verified_at timestamptz,
+  ADD COLUMN IF NOT EXISTS account_created_at timestamptz, ADD COLUMN IF NOT EXISTS review_mark text;
 CREATE INDEX IF NOT EXISTS installations_person ON installations (person_id);
 
 -- The tracker reads this view by column name (see the architecture guide): one row per person with an installation or a
@@ -626,7 +632,28 @@ SELECT
        WHEN p.github_login IS NOT NULL THEN 'github_claimed' END AS identity_source,
   (b.id IS NOT NULL OR p.x_user_id IS NOT NULL) AS identity_proven,
   (p.test_reason IS NOT NULL) AS is_test,
-  p.test_reason
+  p.test_reason,
+  -- v3.8 E3: appended only (the tracker reads SELECT *). Verified by a fresh OAuth sign-in; the latest-seen install's
+  -- client name; the record's filled blocks of six (lib/v6/record.ts completeness), NULL with no builder; the verified
+  -- (else legacy X) account's age band; the owner's review mark.
+  p.verified_by,
+  p.verified_at,
+  (array_agg(i.client_name ORDER BY i.last_seen_at DESC, i.id DESC) FILTER (WHERE i.client_name IS NOT NULL))[1] AS client_name,
+  CASE WHEN b.id IS NOT NULL THEN (
+    (SELECT count(*)::int FROM (VALUES (b.record->'person'), (b.record->'company'), (b.record->'docs'), (b.record->'traction')) v(o)
+      WHERE jsonb_typeof(v.o) = 'object' AND EXISTS (SELECT 1 FROM jsonb_each(v.o) e WHERE e.value NOT IN ('null'::jsonb, '[]'::jsonb)))
+    + (CASE WHEN jsonb_typeof(b.record->'projects') = 'array' AND jsonb_array_length(b.record->'projects') > 0 THEN 1 ELSE 0 END)
+    + (CASE WHEN EXISTS (
+        SELECT 1 FROM (SELECT b.record->'answers' AS o UNION ALL
+                       SELECT pr->'answers' FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.record->'projects') = 'array' THEN b.record->'projects' ELSE '[]'::jsonb END) pr) x
+        WHERE jsonb_typeof(x.o) = 'object' AND EXISTS (SELECT 1 FROM jsonb_each(x.o) e WHERE e.value NOT IN ('null'::jsonb, '[]'::jsonb)))
+      THEN 1 ELSE 0 END)) END AS record_blocks_filled,
+  CASE WHEN COALESCE(p.account_created_at, p.x_created_at) IS NULL THEN NULL
+       WHEN COALESCE(p.account_created_at, p.x_created_at) > now() - interval '30 days' THEN 'under_30d'
+       WHEN COALESCE(p.account_created_at, p.x_created_at) > now() - interval '1 year' THEN '30d_to_1y'
+       WHEN COALESCE(p.account_created_at, p.x_created_at) > now() - interval '3 years' THEN '1y_to_3y'
+       ELSE '3y_plus' END AS account_age_band,
+  p.review_mark
 FROM people p
 LEFT JOIN builders b ON b.id = p.builder_id
 LEFT JOIN installations i ON i.person_id = p.id

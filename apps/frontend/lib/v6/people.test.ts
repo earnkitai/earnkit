@@ -348,3 +348,55 @@ test('sign-in github without a configured OAuth app falls back to the anonymous 
   );
   assert.equal(new URL(r.headers.get('location')!).origin, 'https://claude.ai');
 });
+
+test('v3.8 E3: owner_people appends verified by and at, client, record blocks, account age band and review mark after test_reason, in that order', async () => {
+  const b = await upsertBuilder(user(9101, 'e3-view'), NOW);
+  const a1 = await install('Cursor');
+  const a2 = await install('Claude Code');
+  await linkInstallation(a1, b.id, NOW);
+  await linkInstallation(a2, b.id, NOW);
+  await sql()`UPDATE installations SET last_seen_at = ${NOW} WHERE id = ${a2}`;
+  await sql()`UPDATE installations SET last_seen_at = ${new Date(NOW.getTime() - 86_400_000)} WHERE id = ${a1}`;
+  await sql()`UPDATE people SET verified_by = 'github', verified_at = ${NOW}, account_created_at = now() - interval '400 days', review_mark = 'ok' WHERE builder_id = ${b.id}`;
+  const record = { person: { name: 'Ada' }, projects: [{ name: 'w', answers: { why: 'because' } }], company: {}, docs: { deck: null }, traction: { users: [] } };
+  await sql()`UPDATE builders SET record = ${sql().json(record)} WHERE id = ${b.id}`;
+  const cols = (await sql()<{ column_name: string }[]>`
+    SELECT column_name FROM information_schema.columns WHERE table_name = 'owner_people' ORDER BY ordinal_position`).map((c) => c.column_name);
+  const at = cols.indexOf('test_reason');
+  assert.deepEqual(cols.slice(at), ['test_reason', 'verified_by', 'verified_at', 'client_name', 'record_blocks_filled', 'account_age_band', 'review_mark']);
+  const [r] = await sql()<Record<string, unknown>[]>`SELECT * FROM owner_people WHERE earnkit_builder_id = ${b.id}`;
+  assert.equal(r.verified_by, 'github');
+  assert.equal(r.client_name, 'Claude Code');
+  // about you, a project, answers: three of six (an empty company, a null deck and no users are not filled).
+  assert.equal(r.record_blocks_filled, 3);
+  assert.equal(r.account_age_band, '1y_to_3y');
+  assert.equal(r.review_mark, 'ok');
+  const anon = await install(null);
+  const [n] = await sql()<Record<string, unknown>[]>`SELECT * FROM owner_people WHERE ${anon} = ANY(installation_ids)`;
+  assert.deepEqual([n.verified_by, n.verified_at, n.client_name, n.record_blocks_filled, n.account_age_band, n.review_mark], [null, null, null, null, null, null]);
+});
+
+test('v3.8 E3: record_blocks_filled agrees with completeness() on the stored record', async () => {
+  const { completeness, BuilderRecord } = await import('./record');
+  const { ANSWER_KINDS } = await import('../v5/program-file');
+  const KIND = ANSWER_KINDS[0];
+  const ANS = { text: 'Because it ships.', written_by: 'builder' };
+  const samples: Record<string, unknown>[] = [
+    {},
+    { person: { name: 'A' } },
+    { person: { name: 'A' }, company: { name: 'C' }, docs: { deck: 'https://x.test/d' }, traction: { waitlist: 10 }, answers: { [KIND]: ANS }, projects: [{ id: 'p' }] },
+    { projects: [{ id: 'p', answers: { [KIND]: ANS } }], docs: {}, company: { name: 'C' } },
+    { answers: { [KIND]: ANS } },
+  ];
+  let k = 0;
+  for (const raw of samples) {
+    const parsed = BuilderRecord.safeParse(raw);
+    if (!parsed.success) continue;
+    const b = await upsertBuilder(user(9200 + ++k, `e3-rec-${k}`), NOW);
+    await linkInstallation(await install(null), b.id, NOW);
+    await sql()`UPDATE builders SET record = ${sql().json(JSON.parse(JSON.stringify(parsed.data)))} WHERE id = ${b.id}`;
+    const [r] = await sql()<{ record_blocks_filled: number }[]>`SELECT record_blocks_filled FROM owner_people WHERE earnkit_builder_id = ${b.id}`;
+    assert.equal(r.record_blocks_filled, completeness(parsed.data).filled.length, JSON.stringify(raw));
+  }
+  assert.equal(k, samples.length, `only ${k} samples parsed`);
+});

@@ -10,7 +10,16 @@ import { listOpenPrograms, type ProgramRow } from './programs';
 export const STATS_KEYS = [
   'programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit',
   'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at', 'installs_real', 'people', 'people_real',
+  'installs_verified', 'people_verified', 'people_verified_active_7d', 'people_verified_applied', 'people_verified_won', 'applications_owner', 'won_owner',
 ] as const;
+/**
+ * v3.8 E3, the count ladder (plan section 19; definitions in docs/stats-definitions.md), appended so the old keys keep
+ * their order. A real row is one whose person has no `test_reason` (owner, dogfood, persona, repro, test); an
+ * application's person is its owner key's (`b:<builder>` the builder's person, `i:<installation>` the installation's).
+ * Verified: real, with `people.verified_at` (a fresh GitHub OAuth sign-in; never the legacy X backfill).
+ * `installs_active_7d`, `finds_7d`, the application and the win counts now count real rows only;
+ * `applications_owner` and `won_owner` count the owner's own, so the two split owner from real.
+ */
 /**
  * L22-1 (v6.1.16): `won_usd` is the US dollar part of the wins only; `won_other` sums each other currency (never
  * converted), and `won_without_amount` counts wins kept with no amount, so the three describe every win.
@@ -60,6 +69,14 @@ export const SENT = ['applied', 'won', 'rejected', 'no_result'];
 type Sql = ReturnType<typeof sql>;
 
 /**
+ * v3.8 E3: SQL over `applications a`: the test reason of the owner key's person, null for a real one or none. The cast
+ * sits inside CASE, so an owner key of any other shape is no person (real) and never an error.
+ */
+export const ownerReason = (db: Sql) => db`(SELECT p.test_reason FROM people p WHERE p.id = COALESCE(
+  (SELECT p2.id FROM people p2 WHERE p2.builder_id = CASE WHEN a.owner ~ '^b:[0-9]{1,9}$' THEN substr(a.owner, 3)::int END),
+  (SELECT i.person_id FROM installations i WHERE i.id = CASE WHEN a.owner ~ '^i:[0-9]{1,9}$' THEN substr(a.owner, 3)::int END)))`;
+
+/**
  * v6.1.19 Task 1 (L42-1, L42-2): SQL over `applications a`: when the send was made. `sent_at` when kept; else an agent's
  * row (`submitted_by` 'agent' or null, from before v6.1.9) reads its own `at`, as `applicationsOf` does; a builder's row
  * with no send time (a send made outside EarnKit, recorded with its win) has none: null. A result never moves it.
@@ -89,9 +106,10 @@ export const throughEarnkit = (db: Sql) => db`(COALESCE(a.submitted_by, 'agent')
       AND h.program_id = a.program_id AND COALESCE(h.project_id, '') IN (COALESCE(a.project_id, ''), '')
       AND h.status IN ('gap_done', 'unskip') AND h.at < ${sendTime(db)}))))`;
 
-/** Every send (applied or any result) with its send time (`sendTime`, null for an undated one) and `through` (throughEarnkit). */
+/** Every send (applied or any result) with its send time (v3.8 E3: and its owner's `reason`) (`sendTime`, null for an undated one) and `through` (throughEarnkit). */
 export const sendRows = (db: Sql) => db`
-  SELECT a.program_id, a.title, a.submitted_by, a.auto_applied, ${sendTime(db)} AS sent_time, ${throughEarnkit(db)} AS through
+  SELECT a.program_id, a.title, a.submitted_by, a.auto_applied, ${sendTime(db)} AS sent_time, ${throughEarnkit(db)} AS through,
+         ${ownerReason(db)} AS reason
   FROM applications a WHERE a.status = ANY(${SENT})`;
 
 /**
@@ -109,52 +127,79 @@ export const sendCounts = (db: Sql) => db`count(*) AS all, count(*) FILTER (WHER
  * with its own amounts (`earlier`: no send of its own), once per repo and program among the earlier wins (fix round 1,
  * Minor 3: the same partition, apart from this round's wins); an unmoved one is the row's own win and counts once.
  */
+/** v3.8 E3: each row carries its owner's `reason`, and real, owner and test rows are counted once apart. */
 const wonOnce = (db: ReturnType<typeof sql>) => db`
   SELECT status, at, amounts, amount_usd,
-         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won'), earlier ORDER BY at, owner) = 1) AS counted,
-         earlier
+         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, COALESCE(repo_id::text, repo_key), (status = 'won'), earlier, COALESCE(reason, '') ORDER BY at, owner) = 1) AS counted,
+         earlier, reason
   FROM (
-    SELECT owner, program_id, repo_key, repo_id, status, at, amounts, amount_usd, false AS earlier FROM applications
+    SELECT a.owner, a.program_id, a.repo_key, a.repo_id, a.status, a.at, a.amounts, a.amount_usd, false AS earlier, ${ownerReason(db)} AS reason FROM applications a
     UNION ALL
-    SELECT owner, program_id, repo_key, repo_id, 'won', (earlier_win->>'at')::timestamptz, NULLIF(earlier_win->'amounts', 'null'::jsonb), (earlier_win->>'amount_usd')::numeric, true
-    FROM applications WHERE earlier_win ? 'moved'
+    SELECT a.owner, a.program_id, a.repo_key, a.repo_id, 'won', (a.earlier_win->>'at')::timestamptz, NULLIF(a.earlier_win->'amounts', 'null'::jsonb), (a.earlier_win->>'amount_usd')::numeric, true, ${ownerReason(db)}
+    FROM applications a WHERE a.earlier_win ? 'moved'
   ) w`;
+
+/**
+ * v3.8 E3: SQL, the people who count: with an installation or a builder (as `people` counts them), not flagged, and
+ * verified by a fresh OAuth sign-in. `keys` are the owner keys their applications are filed under.
+ */
+const verifiedPeople = (db: Sql) => db`
+  SELECT p.id, array_remove(ARRAY['b:' || p.builder_id::text] || ARRAY(SELECT 'i:' || x.id::text FROM installations x WHERE x.person_id = p.id), NULL) AS keys
+  FROM people p
+  WHERE p.test_reason IS NULL AND p.verified_at IS NOT NULL
+    AND (p.builder_id IS NOT NULL OR EXISTS (SELECT 1 FROM installations x WHERE x.person_id = p.id))`;
 
 export async function readStats(now: Date = new Date()): Promise<Stats> {
   const db = sql();
   const week = new Date(now.getTime() - WEEK_MS);
-  const [open, [i], [a], [v]] = await Promise.all([
+  const [open, [i], [a], [v], [vp]] = await Promise.all([
     listOpenPrograms(now),
-    db<{ installs: string; real: string; people: string; people_real: string; active: string; finds: string }[]>`
+    db<{ installs: string; real: string; verified: string; people: string; people_real: string; active: string; finds: string }[]>`
+      WITH ii AS (
+        SELECT i.*, (p.test_reason IS NULL) AS is_real, (p.test_reason IS NULL AND p.verified_at IS NOT NULL) AS is_verified
+        FROM installations i LEFT JOIN people p ON p.id = i.person_id)
       SELECT count(*) AS installs,
-             count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM people p WHERE p.id = installations.person_id AND p.test_reason IS NOT NULL)) AS real,
+             count(*) FILTER (WHERE is_real) AS real,
+             count(*) FILTER (WHERE is_verified) AS verified,
              (SELECT count(*) FROM people p WHERE p.builder_id IS NOT NULL OR EXISTS (SELECT 1 FROM installations x WHERE x.person_id = p.id)) AS people,
              (SELECT count(*) FROM people p WHERE p.test_reason IS NULL AND (p.builder_id IS NOT NULL OR EXISTS (SELECT 1 FROM installations x WHERE x.person_id = p.id))) AS people_real,
-             count(*) FILTER (WHERE last_seen_at >= ${week}) AS active,
-             count(*) FILTER (WHERE last_find_at >= ${week}) AS finds
-      FROM installations`,
+             count(*) FILTER (WHERE is_real AND last_seen_at >= ${week}) AS active,
+             count(*) FILTER (WHERE is_real AND last_find_at >= ${week}) AS finds
+      FROM ii`,
     // L28-2 (v6.1.16 Task 14): a win counts once per repo (its GitHub id when known, fix round 1 M2, else its key) and program (its earliest win row), plus once per row
     // with no repo key; `counted` marks those rows.
-    db<{ sent: string; won: string; won_usd: string | null; won_none: string }[]>`
+    db<{ sent: string; won: string; won_usd: string | null; won_none: string; sent_owner: string; won_owner: string }[]>`
       WITH a AS (${wonOnce(db)})
-      SELECT count(*) FILTER (WHERE status = ANY(${SENT}) AND NOT earlier) AS sent,
-             count(*) FILTER (WHERE status = 'won' AND counted) AS won,
-             sum(COALESCE((amounts->>'USD')::numeric, CASE WHEN amounts IS NULL THEN amount_usd END)) FILTER (WHERE status = 'won' AND counted) AS won_usd,
-             count(*) FILTER (WHERE status = 'won' AND counted AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none
+      SELECT count(*) FILTER (WHERE reason IS NULL AND status = ANY(${SENT}) AND NOT earlier) AS sent,
+             count(*) FILTER (WHERE reason IS NULL AND status = 'won' AND counted) AS won,
+             sum(COALESCE((amounts->>'USD')::numeric, CASE WHEN amounts IS NULL THEN amount_usd END)) FILTER (WHERE reason IS NULL AND status = 'won' AND counted) AS won_usd,
+             count(*) FILTER (WHERE reason IS NULL AND status = 'won' AND counted AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none,
+             count(*) FILTER (WHERE reason = 'owner' AND status = ANY(${SENT}) AND NOT earlier) AS sent_owner,
+             count(*) FILTER (WHERE reason = 'owner' AND status = 'won' AND counted) AS won_owner
       FROM a`,
     // L42-1 (v6.1.19): the week counts sends by their send time, so a result today on an older send moves nothing,
     // and an undated send (outside EarnKit) is in no week.
     db<{ via: string; sent_week: string }[]>`
       WITH s AS (${sendRows(db)})
-      SELECT count(*) FILTER (WHERE COALESCE(submitted_by, 'agent') = 'agent' OR (submitted_by = 'builder' AND through)) AS via,
-             count(*) FILTER (WHERE sent_time >= ${week}) AS sent_week FROM s`,
+      SELECT count(*) FILTER (WHERE reason IS NULL AND (COALESCE(submitted_by, 'agent') = 'agent' OR (submitted_by = 'builder' AND through))) AS via,
+             count(*) FILTER (WHERE reason IS NULL AND sent_time >= ${week}) AS sent_week FROM s`,
+    // v3.8 E3: the verified rungs. Active: an installation of theirs seen this week. Applied: a send through EarnKit
+    // (agent or EarnKit's draft, as applications_via_earnkit). Won: a win, this round's or an earlier one kept.
+    db<{ people: string; active: string; applied: string; won: string }[]>`
+      WITH v AS (${verifiedPeople(db)})
+      SELECT count(*) AS people,
+             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM installations x WHERE x.person_id = v.id AND x.last_seen_at >= ${week})) AS active,
+             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM applications a WHERE a.owner = ANY(v.keys) AND a.status = ANY(${SENT})
+               AND (COALESCE(a.submitted_by, 'agent') = 'agent' OR (a.submitted_by = 'builder' AND ${throughEarnkit(db)})))) AS applied,
+             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM applications a WHERE a.owner = ANY(v.keys) AND (a.status = 'won' OR a.earlier_win ? 'moved'))) AS won
+      FROM v`,
   ]);
   const [run] = await db<{ last_run_at: Date | null; last_check_failed_at: Date | null }[]>`SELECT last_run_at, last_check_failed_at FROM cron_state WHERE id`;
   const failedAt = run?.last_check_failed_at ?? null;
   const other = await db<{ currency: string; amount: string }[]>`
     WITH w AS (${wonOnce(db)})
     SELECT e.key AS currency, sum(e.value::numeric) AS amount FROM w a, jsonb_each_text(a.amounts) e
-    WHERE a.status = 'won' AND a.counted AND a.amounts IS NOT NULL AND e.key <> 'USD' GROUP BY e.key ORDER BY e.key`;
+    WHERE a.reason IS NULL AND a.status = 'won' AND a.counted AND a.amounts IS NOT NULL AND e.key <> 'USD' GROUP BY e.key ORDER BY e.key`;
   return {
     programs_open: open.length,
     open_money_usd: openMoneyUsd(open),
@@ -174,6 +219,13 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
     installs_real: Number(i.real),
     people: Number(i.people),
     people_real: Number(i.people_real),
+    installs_verified: Number(i.verified),
+    people_verified: Number(vp.people),
+    people_verified_active_7d: Number(vp.active),
+    people_verified_applied: Number(vp.applied),
+    people_verified_won: Number(vp.won),
+    applications_owner: Number(a.sent_owner),
+    won_owner: Number(a.won_owner),
   };
 }
 

@@ -611,8 +611,8 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at, `first_failed_at` (v6.1.17: stale at 20 hours of failing); `submit_closed` (v6.1.18), `closed_round`, `closed_on` and `closed_since` (v6.1.19: the closed read, its page and its age) |
-| `people` | v6.1.21: one row per person behind installations (`installations.person_id`); `builder_id` once a builder is known, legacy X fields and `legacy_profile_id` (backfill), an unproven `github_login`, `test_reason` (NULL real; owner, dogfood, persona, repro, test) and its source (`unflagged` after a backfill `--unflag`); the app never deletes a row (the repro cleanups remove their own) |
-| `owner_people` (view) | v6.1.21: the owner's tracker (role `earnkit_ro`) reads it by column name: one row per person with an installation or a builder; `builder_id` is `people.id`, `slug` (builder login, X handle, else `i-<first installation>`), `installation_ids`, X and GitHub identity, `joined_at`, `last_seen_at`, `main_repo` (owner/repo of the last GitHub project key), `programs_applied` and `programs_won` from `applications` for `b:<builder>` and `i:<installation>`; every column v5/v6 cannot fill (wallet, points, referrals, streak, commit weeks, coin, score, `programs_accepted`, check-in, email opt-in) is a typed NULL, never 0 or false, so reports show it as unavailable; appended `person_key`, `earnkit_builder_id`, `identity_source` (`github_signin`, `x_signin_legacy`, `github_claimed` or NULL), `identity_proven`, `is_test`, `test_reason`. No tokens, emails or IPs. Dropped and recreated by `db:migrate`, then granted to `earnkit_ro` when that role exists |
+| `people` | v6.1.21: one row per person behind installations (`installations.person_id`); `builder_id` once a builder is known, legacy X fields and `legacy_profile_id` (backfill), an unproven `github_login`, `test_reason` (NULL real; owner, dogfood, persona, repro, test) and its source (`unflagged` after a backfill `--unflag`); the app never deletes a row (the repro cleanups remove their own) | v3.8 E3: `verified_by`, `verified_at` (set only by `markVerified` on a fresh GitHub OAuth callback; never backfilled; cleared by `deleteBuilder`), `account_created_at` (GitHub's account date), `review_mark` (the owner's hand mark, set by SQL).
+| `owner_people` (view) | v6.1.21: the owner's tracker (role `earnkit_ro`) reads it by column name: one row per person with an installation or a builder; `builder_id` is `people.id`, `slug` (builder login, X handle, else `i-<first installation>`), `installation_ids`, X and GitHub identity, `joined_at`, `last_seen_at`, `main_repo` (owner/repo of the last GitHub project key), `programs_applied` and `programs_won` from `applications` for `b:<builder>` and `i:<installation>`; every column v5/v6 cannot fill (wallet, points, referrals, streak, commit weeks, coin, score, `programs_accepted`, check-in, email opt-in) is a typed NULL, never 0 or false, so reports show it as unavailable; appended `person_key`, `earnkit_builder_id`, `identity_source` (`github_signin`, `x_signin_legacy`, `github_claimed` or NULL), `identity_proven`, `is_test`, `test_reason`. No tokens, emails or IPs. Dropped and recreated by `db:migrate`, then granted to `earnkit_ro` when that role exists | v3.8 E3: six columns appended after `test_reason`: `verified_by`, `verified_at`, `client_name`, `record_blocks_filled`, `account_age_band`, `review_mark` (see `docs/stats-definitions.md`); append only, the tracker reads `SELECT *`. `identity_proven` is not verified (it counts any past GitHub link and the legacy X backfill).
 | `cron_state` | v6.1.17 Task 3: one row, `last_run_at` of the last daily run that answered 200 and (v6.1.19) finished its link check (`/api/stats`, the digest's gap line); `last_check_failed_at` of the last run whose check failed (`last_check_ok`, the digest's opening line) |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
@@ -2014,6 +2014,20 @@ installations; `--reflag [--apply]` re-evaluates every person's reason from the 
 clears one; only a stronger one replaces it: owner over dogfood over test, persona and repro); `--unflag <b:id | i:id |
 p:id> [--apply]` clears one person's reason by hand (source `unflagged`; nothing automatic flags it again). All are
 dry runs unless `--apply`. The script reads the env lists from its own shell: export them before running.
+
+## v3.8 E3: verified sign-in and the count ladder
+
+Design: `design-docs-and-implementation-plans/v3.8-e3-verified-ladder-plan.md`; every count is defined in
+`docs/stats-definitions.md`. A successful GitHub OAuth callback (`callbackGet`, and the disabled `installCallback`)
+calls `markVerified` (`lib/v6/people.ts`): the builder row is locked, then the builder's person is upserted with
+`verified_by = 'github'`, `verified_at` and GitHub's account `created_at` (`exchangeCode` now returns it). Nothing
+else sets it, so legacy X rows and earlier sign-ins are unverified until the next sign-in. The owner's logins
+(`OWNER_LOGINS`: `jenil04`, `jenilt`) are always `owner` (source `OWNER_LOGINS`, in `ENV_SOURCES`).
+
+`/api/stats` appends `installs_verified`, `people_verified`, `people_verified_active_7d`, `people_verified_applied`,
+`people_verified_won`, `applications_owner`, `won_owner`. `installs_active_7d`, `finds_7d` and the application and win
+counts take real owners only (`ownerReason`: the owner key's person's `test_reason`); `wonOnce` dedupes within each
+class. `sendRows` carries `reason` too.
 
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 

@@ -6,7 +6,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 type Env = Record<string, string | undefined>;
-export type GitHubUser = { github_id: number; login: string; name: string | null; avatar_url: string | null };
+/** `created_at`: when the GitHub account was made (v3.8 E3, the age band); null when GitHub did not say. */
+export type GitHubUser = { github_id: number; login: string; name: string | null; avatar_url: string | null; created_at: Date | null };
 
 export class GitHubAuthError extends Error {
   constructor(message: string) {
@@ -89,6 +90,12 @@ async function call(f: typeof fetch, url: string, init: RequestInit, what: strin
   }
 }
 
+/** GitHub's account creation time, or null when absent or not a date. Pure. */
+const accountDate = (v: unknown): Date | null => {
+  const d = typeof v === 'string' ? new Date(v) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+};
+
 /** Trades GitHub's code for a token, then reads the user with it. */
 export async function exchangeCode(code: string, origin: string, env: Env, f: typeof fetch): Promise<GitHubUser> {
   const t = await call(f, 'https://github.com/login/oauth/access_token', {
@@ -103,12 +110,13 @@ export async function exchangeCode(code: string, origin: string, env: Env, f: ty
     headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'EarnKit' },
   }, 'user read');
   if (!u.ok) throw new GitHubAuthError(`GitHub user read failed (${u.status}).`);
-  const user = (await u.json().catch(() => null)) as { id?: unknown; login?: unknown; name?: unknown; avatar_url?: unknown } | null;
+  const user = (await u.json().catch(() => null)) as { id?: unknown; login?: unknown; name?: unknown; avatar_url?: unknown; created_at?: unknown } | null;
   if (typeof user?.id !== 'number' || typeof user.login !== 'string') throw new GitHubAuthError('GitHub user read had no id.');
   return {
     github_id: user.id,
     login: user.login,
     name: typeof user.name === 'string' ? user.name : null,
     avatar_url: typeof user.avatar_url === 'string' ? user.avatar_url : null,
+    created_at: accountDate(user.created_at),
   };
 }
