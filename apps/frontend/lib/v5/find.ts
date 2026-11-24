@@ -30,6 +30,7 @@ import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { catalogPage } from './catalog-page';
 import { flagOn } from './flags';
+import { replyFieldsBudget } from './reply-fields';
 import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, usersLookup, USERS_NOTE, USERS_RULE_NOTE, isUsersRuleSay, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
@@ -1109,10 +1110,13 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
 
 /** FR-5 (v6.1.17 deferred, v6.1.18): the cap find puts on every reply it returns. One program: FIND_CAP_ONE. The
  *  full list (`all`): slim fields under FIND_CAP_ALL. The default list: FIND_CAP_ALL with the ready programs' fields
- *  kept longest (`keepReady`, L35-9). Exported so the pin covers find's own call, not findReplyCap alone. Pure. */
+ *  kept longest (`keepReady`, L35-9). Exported so the pin covers find's own call, not findReplyCap alone. v3.8 E13 fix:
+ *  each cap leaves room for the `status` and `state` mcp.ts adds after (`replyFieldsBudget`, 0 with `reply_fields`
+ *  off). Pure, apart from the flag read. */
 export function capFind<T extends FindReply | ProgramReply>(reply: T, all: boolean): T {
-  if ('program' in reply) return findReplyCap(reply, FIND_CAP_ONE);
-  return (all ? findReplyCap(slimLists(reply as FindReply), FIND_CAP_ALL) : findReplyCap(reply as FindReply, FIND_CAP_ALL, true)) as T;
+  const budget = replyFieldsBudget();
+  if ('program' in reply) return findReplyCap(reply, FIND_CAP_ONE - budget);
+  return (all ? findReplyCap(slimLists(reply as FindReply), FIND_CAP_ALL - budget) : findReplyCap(reply as FindReply, FIND_CAP_ALL - budget, true)) as T;
 }
 
 /** L26-4 (v6.1.16 Task 12): a find reply's caps, serialized: the list (full or default) and one program. */

@@ -3899,6 +3899,53 @@ test('Review Focus 17 (L26-4): a one-program find is under 20 KB for each of the
   }
 });
 
+test('v3.8 E13 fix (reply_fields on): the full list stays under 30 KB and each over-cap program under 20 KB with status and state, unlinked and linked', async () => {
+  const { FIND_CAP_ALL, FIND_CAP_ONE } = await import('./find');
+  const flags = process.env.EARNKIT_FLAGS;
+  process.env.EARNKIT_FLAGS = 'reply_fields';
+  try {
+    const linked = await linkedWith(OWNER_RECORD, ['projects.earnkit.answers.problem']);
+    for (const c of [ctx(await installation()), { ...ctx(linked.id), builderId: linked.builderId, evidence: LIVE }]) {
+      for (const id of LANE_26_OVER) {
+        const r = await mcpCall(c, 'find', { program_id: id, project: FULL_PROJECT });
+        assert.equal(typeof r.reply!.status, 'string', id);
+        assert.ok(Buffer.byteLength(r.text) < FIND_CAP_ONE, `${id}: ${Buffer.byteLength(r.text)}`);
+      }
+      for (const filter of [{ all: true }, undefined]) {
+        const r = await mcpCall(c, 'find', { project: FULL_PROJECT, ...(filter && { filter }) });
+        assert.equal(typeof r.reply!.state, 'string', r.text.slice(0, 200));
+        assert.ok(Buffer.byteLength(r.text) < FIND_CAP_ALL, `${filter ? 'all' : 'default'}: ${Buffer.byteLength(r.text)}`);
+      }
+    }
+  } finally {
+    if (flags === undefined) delete process.env.EARNKIT_FLAGS;
+    else process.env.EARNKIT_FLAGS = flags;
+  }
+});
+
+test('v3.8 E13 fix: capFind leaves REPLY_FIELDS_BYTES for status and state with reply_fields on, and nothing off', async () => {
+  const { capFind, FIND_CAP_ALL } = await import('./find');
+  const { REPLY_FIELDS_BYTES, REPLY_STATES, REPLY_STATUSES, withReplyFields } = await import('./reply-fields');
+  // The budget is the longest status and state, comma included.
+  const longest = (xs: readonly string[]) => Math.max(...xs.map((x) => x.length));
+  assert.equal(REPLY_FIELDS_BYTES, ',"status":"","state":""'.length + longest(REPLY_STATUSES) + longest(REPLY_STATES));
+  const fields = (k: number, tag: string) => Array.from({ length: k }, (_, i) => ({ key: `${tag}${i}`, label: `F ${i}`, value: 'x'.repeat(2_000), from: 'agent' }));
+  const reply = { show_to_builder: 'Here.', agent_note: 'Note.', linked: false, ready: [], in_person: [], you_send: [], gaps: Array.from({ length: 8 }, (_, n) => ({ n: n + 1, program_id: `p${n}`, money: '$5,000', gap: { what: 'a fact' }, fields: fields(3, `p${n}`) })) };
+  const flags = process.env.EARNKIT_FLAGS;
+  try {
+    delete process.env.EARNKIT_FLAGS;
+    const off = capFind(reply as never, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(off)) <= FIND_CAP_ALL);
+    process.env.EARNKIT_FLAGS = 'reply_fields';
+    const on = capFind(reply as never, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(on)) <= FIND_CAP_ALL - REPLY_FIELDS_BYTES);
+    assert.ok(Buffer.byteLength(JSON.stringify(withReplyFields('find', on, {}))) <= FIND_CAP_ALL);
+  } finally {
+    if (flags === undefined) delete process.env.EARNKIT_FLAGS;
+    else process.env.EARNKIT_FLAGS = flags;
+  }
+});
+
 test('L35-9 (v6.1.17 Task 5, Task 1 re-review): a default reply over the 30 KB cap keeps the ready programs\' fields and empties the other lists\' first', async () => {
   const { capFind, findReplyCap, FIND_CAP_ALL, MORE_THAN_FITS } = await import('./find');
   const fields = (k: number, tag: string) => Array.from({ length: k }, (_, i) => ({ key: `${tag}${i}`, label: `F ${i}`, value: 'x'.repeat(4_000), from: 'agent', sources: ['s'] }));
