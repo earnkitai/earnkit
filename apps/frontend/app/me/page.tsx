@@ -5,6 +5,7 @@ import MeView from './MeView';
 import { ME_DESCRIPTION, ME_TITLE } from '../../lib/v5/site-copy';
 import { authSecret, isAnswerPath, meData, problemShown } from '../../lib/v6/me-view';
 import { draftOf, sessionBuilder, sessionToken } from '../../lib/v6/sessions';
+import { WITHDRAW_COPY, meConsent } from '../../lib/v6/consent';
 
 export const dynamic = 'force-dynamic';
 /** L27-21 (v6.1.16): noindex and no canonical (no `alternates`; the layout sets none). */
@@ -23,6 +24,9 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
   const token = sessionToken(cookie);
   const builder = token ? await sessionBuilder(cookie, now) : null;
   if (!token || !builder) redirect('/docs#record');
+  // v3.8 E12 (`form`): after sign-in, the one form first, until it is saved.
+  const { consent, start } = await meConsent(builder.id);
+  if (start) redirect('/me/start');
   const q = await searchParams;
   // Only a line /me's own handlers signed is shown; React escapes it. ?link= is the code GitHub sign-in came back with.
   const problem = problemShown('problem', one(q.problem), one(q.sig), builder.id, now, authSecret());
@@ -35,6 +39,19 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
       {/* L27-9, L27-10 (v6.1.16): `saved` and `at` name a section (unsigned: they only place `Saved.` and a signed line). */}
       {/* L35-24 (v6.1.17 Task 4): `open` names the one answer shown in full (unsigned: it only opens a row). */}
       <MeView data={data} problem={problem} note={note} saved={one(q.saved) ?? null} at={one(q.at) ?? null} open={openOf(one(q.open))} />
+      {/* v3.8 E12 (`form`): change the form's answers, or withdraw all of them at once. */}
+      {consent ? (
+        <section aria-label={WITHDRAW_COPY.title} className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 pb-8">
+          <h2 className="text-[20px]">{WITHDRAW_COPY.title}</h2>
+          <p className="text-[16px] leading-normal">{consent.fill || consent.submit || consent.list || consent.corpus ? WITHDRAW_COPY.on : WITHDRAW_COPY.off}</p>
+          <a href="/me/start" className="underline underline-offset-4">{WITHDRAW_COPY.change}</a>
+          <form method="post" action="/me/consent">
+            <input type="hidden" name="csrf" value={data.csrf} />
+            <input type="hidden" name="action" value="withdraw" />
+            <button type="submit" className="rounded border px-4 py-2">{WITHDRAW_COPY.button}</button>
+          </form>
+        </section>
+      ) : null}
       {/* L21-22 (v6.1.16): with a linked agent the install pill goes; the Ask line stays. */}
       <Footer linked={data.installations.length > 0} />
     </>
