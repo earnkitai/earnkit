@@ -118,6 +118,8 @@ const Policy = z.object({
   auto_apply: z.boolean().default(false), max_per_night: z.number().int().min(1).max(20).default(5),
   categories: z.array(z.enum(PROGRAM_CATEGORIES)).max(PROGRAM_CATEGORIES.length).transform((c) => [...new Set(c)]).default([...PROGRAM_CATEGORIES]), max_ask_usd: z.number().min(0).optional(),
   never: z.array(line(100)).max(50).default([]), agent_may_submit: z.boolean().default(true),
+  /** v3.8 E11: claims the builder never makes, one phrase each; the draft check refuses a draft holding one. */
+  never_claim: z.array(line(140)).max(50).optional(),
 }).strip();
 const LEAF_BLOCKS: Record<string, z.ZodObject> = { person: Person, company: Company, docs: Docs, traction: Traction, policy: Policy };
 /** The schema of one editable leaf, by its /me path (an answer's is its text's), or null. Pure. */

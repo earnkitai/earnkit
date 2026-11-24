@@ -26,6 +26,9 @@ import { amountsText, moneyAt, moneyOf as tileMoney, moneyText } from './program
 import { cleanText, quoteName } from './controls';
 import { flagOn } from './flags';
 import { TRACK_DESCRIPTION } from './tool-text';
+import { CheckInput, DraftFields, checkAndStore, draftGate, storeFinal } from '../v6/drafts';
+import type { DraftCheck } from '../v6/draft-check';
+import { EMPTY_RECORD } from '../v6/record';
 import { AFTER_SEND, BEFORE_SEND, LIST_MAX, ListInput, V2Fields, afterWrite, listTracked, splitV2, stageAfterSend, stageLine, type TrackedItem, type V2 } from '../v6/track-states';
 import { PRIVATE_LIMIT, PRIVATE_SAVED, PRIVATE_UPDATED, PrivateProgramInput, privateProgramOf, privateSavedNote, savePrivate, trackPrivate, type PrivateProgram } from '../v6/private-programs';
 
@@ -79,13 +82,20 @@ const AddPrivateInput = z.object({ action: z.literal('add_private'), private: Pr
 export function trackAdvertised(env: Record<string, string | undefined> = process.env): z.ZodObject {
   const priv = flagOn('private_rows', env);
   const v2 = flagOn('track_v2', env);
-  if (!priv && !v2) return TrackInput;
-  const actions = [...(priv ? ['add_private'] : []), ...(v2 ? ['list'] : [])] as [string, ...string[]];
+  const draft = flagOn('draft_check', env);
+  if (!priv && !v2 && !draft) return TrackInput;
+  const actions = [...(priv ? ['add_private'] : []), ...(v2 ? ['list'] : []), ...(draft ? ['check'] : [])] as [string, ...string[]];
   return TrackInput.extend({
     action: z.enum(actions).optional().describe([
       ...(priv ? ['add_private: save a program the catalog cannot list (apply by email, a page EarnKit cannot check), visible to this builder only; pass it in private'] : []),
       ...(v2 ? ['list: every tracked application, limit at a time; pass next_cursor as cursor until it is null'] : []),
+      ...(draft ? ['check: the draft check on fields (form key to text) for program_id, before an agent sends'] : []),
     ].join('. ')),
+    ...(draft ? {
+      fields: DraftFields.optional().describe('check only: the draft, form key to text'),
+      proof_links: z.array(z.string().url().max(500)).max(20).optional().describe('check only: links the draft may cite beyond the record'),
+      final: DraftFields.optional().describe("applied by the agent: the fields as sent, the text the check passed"),
+    } : {}),
     ...(priv ? { private: PrivateProgramInput.optional() } : {}),
     ...(v2 ? {
       status: z.enum([...TrackInput.shape.status.options, ...BEFORE_SEND, ...AFTER_SEND]),
@@ -103,15 +113,21 @@ export const PRIVATE_TRACK_TEXT =
 export const V2_TRACK_TEXT =
   " applied needs proof (proof.url: the confirmation page or entry link, or proof.confirmation: the confirmation message reference); held needs held_reason. found, registered and needs_build park a program before a send; interview and delivered follow a send and a win. action list reads every tracked application with its state and deadline in the builder's timezone.";
 
+/** v3.8 E11: the words `draft_check` adds. */
+export const DRAFT_TRACK_TEXT =
+  ' Before an agent sends, call track with action check, program_id and fields (form key to text); it lists unsupported numbers and links, length, filler and never-claim phrases. An agent\'s applied then needs final, the same text the check passed.';
+
 /** The track description by the flags on (`trackAdvertised`). Pure given `env`. */
 export const trackDescription = (env: Record<string, string | undefined> = process.env): string =>
-  TRACK_DESCRIPTION + (flagOn('private_rows', env) ? PRIVATE_TRACK_TEXT : '') + (flagOn('track_v2', env) ? V2_TRACK_TEXT : '');
+  TRACK_DESCRIPTION + (flagOn('private_rows', env) ? PRIVATE_TRACK_TEXT : '') + (flagOn('track_v2', env) ? V2_TRACK_TEXT : '') + (flagOn('draft_check', env) ? DRAFT_TRACK_TEXT : '');
 
 /** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
 type Result = {
   show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true; next?: NextReady; program_id?: string;
   /** v3.8 E9: track list's page. */
   applications?: TrackedItem[]; total?: number; next_cursor?: string | null;
+  /** v3.8 E11: track check's result. */
+  check?: DraftCheck;
 };
 /** L36-12 (v6.1.18): the next ready program after a send, so the next started needs no find. */
 /** L41-3 (v6.1.19): `rules` are the rules still to confirm when the next program is one yes away; empty when ready. */
@@ -466,6 +482,16 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // v3.8 E9: track list, and the v2 arguments read out (`track_v2` on). Off, both are unknown keys refused as before.
   const v2On = flagOn('track_v2');
   if (v2On && loose.args.action === 'list') return listAction(ctx, owner, loose.args, programs);
+  // v3.8 E11: the draft check, and an agent's send gated on it (`draft_check` on). Off, both are unknown keys.
+  const draftOn = flagOn('draft_check');
+  if (draftOn && loose.args.action === 'check') return checkAction(ctx, owner, loose.args, programs);
+  let final: Record<string, string> | undefined;
+  if (draftOn && loose.args.final !== undefined) {
+    const f = DraftFields.safeParse(loose.args.final);
+    if (!f.success) return { ...inputError(`Nothing was recorded. final: ${inputDetail(f.error)}`), ledger: await summary(owner, programs, ctx.now) };
+    final = f.data;
+    delete loose.args.final;
+  }
   // v3.8 E8: a private program save (`private_rows` on). Off, `action` is an unknown key and refused as before.
   if (flagOn('private_rows') && loose.args.action !== undefined) return addPrivate(ctx, owner, loose.args, programs);
   let v2: V2 | null = null;
@@ -521,8 +547,15 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // Another owner's private id reads as an unknown program, word for word. No catalog id starts with PRIVATE_PREFIX.
   const onPrivate = async (p: PrivateProgram): Promise<Result> =>
     withV2({ ...(await trackPrivate(ctx, owner, p, given)), ledger: await summary(owner, programs, ctx.now) }, p.id, p.title);
+  /** v3.8 E11: an agent's send of a catalog program needs a passing draft check of the text sent (`final`). */
+  const sendGate = async (p: typeof row, d: TrackIn): Promise<Result | null> => {
+    if (!draftOn || !p || d.status !== 'applied' || (d.submitted_by ?? 'agent') !== 'agent') return null;
+    const note = await draftGate(owner, p.id, final);
+    return note ? refused({ show_to_builder: '', agent_note: note, ledger: await summary(owner, programs, ctx.now) }) : null;
+  };
   /** v3.8 E9: after a write the ledger made, the stage, reason, proof and round on its row, and a parked stage's line. */
   const withV2 = async (r: Result, id: string, title: string): Promise<Result> => {
+    if (final && !r.refused && given.status === 'applied') await storeFinal(owner, id, final, r.application_id);
     if (!v2 || r.refused) return r;
     await afterWrite(owner, id, given.status, v2, r.application_id);
     return v2.stage ? { ...r, show_to_builder: stageLine(v2.stage, title) } : r;
@@ -549,7 +582,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   if (mineByTitle) return onPrivate(mineByTitle);
   const acted = !row && !sentRow
     ? await refuse(hole !== null ? LIST_GONE(hole) : unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
-    : await withV2(await act(ctx, owner, programs, refuse, known ? data : rest), row?.id ?? raw, row ? shortTitle(row.file.title, row.file.short_title) : raw);
+    : await sendGate(row, data) ?? await withV2(await act(ctx, owner, programs, refuse, known ? data : rest), row?.id ?? raw, row ? shortTitle(row.file.title, row.file.short_title) : raw);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, shortTitle(row.file.title, row.file.short_title)), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
@@ -562,6 +595,28 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const unread = [...problems, ...unknownProjectKeys(input && typeof input === 'object' ? (input as { project?: unknown }).project : undefined), ...(past > 0 ? [`fields_used: only the first ${FIELDS_KEPT} keys were read; ${past} more dropped`] : [])];
   const p = unread.length > 0 ? { ...p0, agent_note: `${p0.agent_note} ${unreadNote(unread)}` } : p0;
   return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+}
+
+/** v3.8 E11: `action: check`: the draft check on one catalog program's form, stored on the builder's unsent row. */
+async function checkAction(ctx: TrackContext, owner: string, args: Record<string, unknown>, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
+  const ledger = await summary(owner, programs, ctx.now);
+  const parsed = CheckInput.safeParse(args);
+  if (!parsed.success) return { ...inputError(`Nothing was checked. ${inputDetail(parsed.error)}`), ledger };
+  const name = programIdOf(parsed.data.program_id);
+  const row = (await getProgram(name)) ?? (await programByName(name, ctx.now, { strict: true })).row;
+  if (!row) return refused({ show_to_builder: '', agent_note: 'Nothing was checked: no catalog program by that id or name (a private program has no form to check against).', ledger });
+  const record = ctx.builderId !== null ? await getRecord(ctx.builderId) : EMPTY_RECORD;
+  const { check, stored } = await checkAndStore(owner, row.file, parsed.data.fields, record, { proof_links: parsed.data.proof_links, now: ctx.now });
+  const listed = check.problems.slice(0, 8).map((p) => `${p.field ? `${p.field}: ` : ''}${p.kind.replace(/_/g, ' ')} (${p.detail})`).join('; ');
+  return {
+    show_to_builder: '',
+    agent_note: [
+      check.pass ? 'The draft passed the check.' : `The draft did not pass: ${listed}${check.problems.length > 8 ? `; and ${check.problems.length - 8} more` : ''}.`,
+      'It reads numbers, links, length and listed phrases only, not whether prose is true.',
+      stored ? 'Stored on the application.' : 'Not stored: call track started on this program first.',
+    ].join(' '),
+    ledger, check,
+  };
 }
 
 /** v3.8 E9: `action: list`: one page of the owner's tracked applications (`listTracked`). */

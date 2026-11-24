@@ -2082,6 +2082,15 @@ goes to its catalog program (by id or link), else a private row, else stays unre
 is invented (no link, no zone for a date-only deadline, no dollar amount for credits). Design:
 `docs/design-docs-and-implementation-plans/v3.8-e10-track-import.md`.
 
+## v3.8 E11: the draft check
+
+Behind `draft_check`. `lib/v6/draft-check.ts` is a deterministic check of a draft against the program's form and the
+builder's record (length, required fields, unsupported numbers and links, filler, program named, `policy.never_claim`,
+traction labelled verified from EarnKit's usage line or builder-stated). `track action: check` stores the draft and
+result on the unsent row; an agent's `applied` must carry `final` whose hash is the passing check's, and the final hash
+is stored on the sent row. It catches numbers and links, not untrue prose. Design:
+`docs/design-docs-and-implementation-plans/v3.8-e11-draft-check.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the

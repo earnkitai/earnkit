@@ -697,3 +697,10 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS stage text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_reason text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS proof jsonb;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS round text;
+
+-- v3.8 E11 (plan item 7, cutover A8): the draft check's storage on the track row (lib/v6/drafts.ts): the checked
+-- draft's fields, the check's result (with the draft's hash), and the hash of the text finally sent. Additive and
+-- idempotent: three nullable columns, no backfill.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS draft_text jsonb;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS draft_check jsonb;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS final_hash text;
