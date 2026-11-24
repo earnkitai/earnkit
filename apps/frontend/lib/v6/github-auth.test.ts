@@ -43,8 +43,15 @@ test('exchangeCode returns the GitHub user over the fake', async () => {
   const u = await exchangeCode('gh-code', 'https://earnkit.com', ENV, f);
   assert.equal(signals.length, 2);
   assert.ok(signals.every((x) => x instanceof AbortSignal));
-  assert.deepEqual(u, { github_id: 77, login: 'ada', name: 'Ada L', avatar_url: 'https://avatars.githubusercontent.com/u/77' });
+  assert.deepEqual(u, { github_id: 77, login: 'ada', name: 'Ada L', avatar_url: 'https://avatars.githubusercontent.com/u/77', created_at: null });
   assert.deepEqual(gh.calls, ['POST https://github.com/login/oauth/access_token', 'GET https://api.github.com/user']);
+});
+
+test('v3.8 E3: exchangeCode keeps the account creation date GitHub gives, and null for a bad one', async () => {
+  const at = await exchangeCode('c', 'https://earnkit.com', ENV, githubOAuthFetch({ ...USER, created_at: '2019-03-04T05:06:07Z' }).fetch);
+  assert.equal(at.created_at?.toISOString(), '2019-03-04T05:06:07.000Z');
+  const bad = await exchangeCode('c', 'https://earnkit.com', ENV, githubOAuthFetch({ ...USER, created_at: 'soon' }).fetch);
+  assert.equal(bad.created_at, null);
 });
 
 test('exchangeCode throws GitHubAuthError on a 401 user read, a failed token and a missing id', async () => {

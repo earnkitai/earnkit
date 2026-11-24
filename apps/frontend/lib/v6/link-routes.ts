@@ -15,6 +15,7 @@ import { LINK_CONFIRM_LATER, LINK_SIGN_IN_PARTS, ME_ERRORS, ME_LINK_DENIED, ME_L
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signInstallState, signState, verifyInstallState, verifyState } from './github-auth';
 import { cookieOf, cookieValue, createSession, legacyClear } from './sessions';
+import { markVerified } from './people';
 
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
@@ -283,7 +284,9 @@ async function installCallback(request: Request, ghCode: string | null, pending:
   if (!pending || !nonce || !same(nonce, pending.nonce) || !ghCode) return installFailed();
   try {
     const user = await exchangeCode(ghCode, publicOrigin(request), process.env, deps.gh ?? fetch);
-    const builder = await upsertBuilder(user, new Date());
+    const at = new Date();
+    const builder = await upsertBuilder(user, at);
+    await markVerified({ builderId: builder.id, login: builder.login, by: 'github', at, accountCreatedAt: user.created_at });
     const back = await issueCode(pending.req, { builderId: builder.id }, publicOrigin(request));
     return new Response(null, { status: 302, headers: { Location: back.toString(), 'Set-Cookie': cookieOf(installCookie(), '', 0), 'Cache-Control': 'no-store' } });
   } catch (err) {
@@ -320,6 +323,8 @@ export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fe
       return toPage(FAILED_PATH);
     }
     const builder = await upsertBuilder(user, now);
+    // v3.8 E3: a fresh OAuth callback is the only thing that verifies a person.
+    await markVerified({ builderId: builder.id, login: builder.login, by: 'github', at: now, accountCreatedAt: user.created_at });
     const { cookie } = await createSession(builder.id, now);
     // Nothing is linked here: a link someone else sent would otherwise bind their agent on one click.
     const headers = new Headers({ Location: `/me?link=${encodeURIComponent(linked.code)}`, 'Cache-Control': 'no-store' });

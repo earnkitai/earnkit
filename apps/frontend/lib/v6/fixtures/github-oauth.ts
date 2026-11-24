@@ -2,7 +2,7 @@
  * A fetch fake for GitHub sign-in: the token exchange and the user read. `fail` makes one of them
  * answer 401; `calls` lists every request as "METHOD url", so a test can check what was asked.
  */
-export type GitHubUser = { id: number; login: string; name: string | null; avatar_url: string | null };
+export type GitHubUser = { id: number; login: string; name: string | null; avatar_url: string | null; created_at?: string };
 
 export function githubOAuthFetch(user: GitHubUser, o: { fail?: 'token' | 'user'; token?: string } = {}) {
   const token = o.token ?? 'gho_fake_token';

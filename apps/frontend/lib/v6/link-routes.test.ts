@@ -381,3 +381,42 @@ test('L25-1 (v6.1.16, fix round 1): the confirm page names "Claude Code (earnkit
   assert.match(html, /<h1[^>]*>Sign in to link <bdi>&quot;Claude Code&quot;<\/bdi>.<\/h1>/);
   assert.ok(!html.includes('(earnkit)'));
 });
+
+test('v3.8 E3: a fresh GitHub callback verifies the person (by, at, the account date); a failed one verifies nothing; delete clears it', async () => {
+  const gh = { ...USER, id: 31338, login: 'e3-verify', created_at: '2018-01-02T03:04:05Z' };
+  const failed = await createLinkCode(await install(), NOW);
+  const bad = await start(failed);
+  toPage(await callback(bad.state, bad.cookie, githubOAuthFetch(gh, { fail: 'user' }).fetch));
+  assert.equal((await sql()`SELECT 1 FROM people p JOIN builders b ON b.id = p.builder_id WHERE b.login = 'e3-verify'`).length, 0);
+  const code = await createLinkCode(await install(), NOW);
+  const { state, cookie } = await start(code);
+  assert.equal((await callback(state, cookie, githubOAuthFetch(gh).fetch)).status, 302);
+  const [p] = await sql()<{ builder_id: number; verified_by: string; verified_at: Date; account_created_at: Date; test_reason: string | null }[]>`
+    SELECT p.* FROM people p JOIN builders b ON b.id = p.builder_id WHERE b.login = 'e3-verify'`;
+  assert.equal(p.verified_by, 'github');
+  assert.equal(p.verified_at.toISOString(), NOW.toISOString());
+  assert.equal(p.account_created_at.toISOString(), '2018-01-02T03:04:05.000Z');
+  assert.equal(p.test_reason, null);
+  // A later sign-in moves verified_at; the one person is kept.
+  const again = await start(await createLinkCode(await install(), NOW));
+  const later = new Date(NOW.getTime() + 5 * MIN);
+  await callback(again.state, again.cookie, githubOAuthFetch(gh).fetch, later);
+  const rows = await sql()<{ verified_at: Date }[]>`SELECT verified_at FROM people WHERE builder_id = ${p.builder_id}`;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].verified_at.toISOString(), later.toISOString());
+  const [{ id: personId }] = await sql()<{ id: number }[]>`SELECT id FROM people WHERE builder_id = ${p.builder_id}`;
+  const { deleteBuilder } = await import('./builders');
+  await deleteBuilder(p.builder_id, later);
+  const [gone] = await sql()<{ builder_id: number | null; verified_by: string | null; verified_at: Date | null; account_created_at: Date | null }[]>`
+    SELECT builder_id, verified_by, verified_at, account_created_at FROM people WHERE id = ${personId}`;
+  assert.deepEqual(gone, { builder_id: null, verified_by: null, verified_at: null, account_created_at: null });
+});
+
+test('v3.8 E3: the owner (jenil04, jenilt) signs in verified and labelled owner, with no env list set', async () => {
+  delete process.env.EARNKIT_OWNER_LOGINS;
+  const { state, cookie } = await start(await createLinkCode(await install(), NOW));
+  await callback(state, cookie, githubOAuthFetch({ ...USER, id: 31339, login: 'Jenil04' }).fetch);
+  const [p] = await sql()<{ test_reason: string; test_reason_source: string; verified_by: string }[]>`
+    SELECT p.* FROM people p JOIN builders b ON b.id = p.builder_id WHERE b.login = 'Jenil04'`;
+  assert.deepEqual([p.test_reason, p.test_reason_source, p.verified_by], ['owner', 'OWNER_LOGINS', 'github']);
+});

@@ -13,9 +13,10 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at; v6.1.21: installs_real, people, people_real appended)', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd; v6.1.17: last_run_at; v6.1.18: applications_via_earnkit after applications_7d, read_at last; v6.1.19: last_check_ok after last_run_at; v6.1.21: installs_real, people, people_real appended; v3.8 E3: the verified ladder and the owner split appended)', async () => {
   const s = await readStats(NOW);
-  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at', 'installs_real', 'people', 'people_real']);
+  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'applications_via_earnkit', 'won', 'won_usd', 'won_other', 'won_without_amount', 'last_run_at', 'last_check_ok', 'read_at', 'installs_real', 'people', 'people_real',
+    'installs_verified', 'people_verified', 'people_verified_active_7d', 'people_verified_applied', 'people_verified_won', 'applications_owner', 'won_owner']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
 });
 
@@ -75,12 +76,12 @@ test('installs, finds and applications count what happened, with their windows',
   for (const [k, v] of Object.entries(now)) if (k !== 'last_run_at' && k !== 'read_at') assert.equal(typeof v, k === 'won_other' ? 'object' : k === 'last_check_ok' ? 'boolean' : 'number', k);
 });
 
-test('statsGet answers the eighteen keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
+test('statsGet answers the twenty-five keys, cached 10 minutes, and a failed read is a 503 that is never cached', async () => {
   const ok = await statsGet(() => readStats(NOW));
   assert.equal(ok.status, 200);
   // L36-4 (v6.1.18 Task 5): the header says the route's real cache.
   assert.equal(ok.headers.get('cache-control'), 'public, max-age=600');
-  assert.equal(Object.keys((await ok.json()) as object).length, 18);
+  assert.equal(Object.keys((await ok.json()) as object).length, 25);
   const bad = await statsGet(async () => {
     throw new Error('db down');
   });
@@ -328,4 +329,54 @@ test('L47-6 fix round 1 (Critical 1, Minor 3): a plain win once open counts the 
       VALUES (${`i:${i}`}, ${i}, 'zz-l47-repo', 'started', ${NOW}, 'https://github.com/l47/shared', ${sql().json({ amount_usd: usd, amounts: { USD: usd }, at: ago(5 - usd / 100).toISOString(), moved: true })})`;
   s = await readStats(NOW);
   assert.deepEqual([s.won - mid.won, s.won_usd - mid.won_usd], [1, 400]);
+});
+
+test('v3.8 E3: the ladder: verified needs a fresh sign-in and no flag; active, applied and won are verified rungs; test and owner rows leave the real counts', async () => {
+  const db = sql();
+  const before = await readStats(NOW);
+  let g = 0;
+  // A person with one installation: its reason, whether a fresh sign-in verified it, and when the install was last seen.
+  const person = async (reason: string | null, verified: boolean, seen: Date) => {
+    const [b] = await db<{ id: number }[]>`INSERT INTO builders (github_id, login) VALUES (${880_000 + ++g + Math.floor(Math.random() * 1e5)}, ${'e3-' + g}) RETURNING id`;
+    const [p] = await db<{ id: number }[]>`
+      INSERT INTO people (builder_id, test_reason, verified_by, verified_at) VALUES (${b.id}, ${reason}, ${verified ? 'github' : null}, ${verified ? ago(1) : null}) RETURNING id`;
+    const [i] = await db<{ id: number }[]>`
+      INSERT INTO installations (token_hash, person_id, builder_id, last_seen_at, last_find_at) VALUES (${'e3-' + Math.random()}, ${p.id}, ${b.id}, ${seen}, ${seen}) RETURNING id`;
+    return { b: b.id, i: i.id };
+  };
+  const app = (owner: string, installation: number, program: string, status: string, submittedBy: string | null = null) =>
+    db`INSERT INTO applications (owner, installation_id, program_id, status, submitted_by, amount_usd, at, sent_at) VALUES (${owner}, ${installation}, ${program}, ${status}, ${submittedBy}, ${status === 'won' ? 100 : null}, ${ago(2)}, ${ago(2)})`;
+  const active = await person(null, true, ago(1)); // verified, active, applied by agent, won
+  const idle = await person(null, true, ago(20)); // verified, not active, a builder's own send (not through EarnKit)
+  await person(null, false, ago(1)); // unflagged, never signed in again: real, not verified
+  const legacy = await person(null, false, ago(1)); // the legacy X backfill: proven X, never verified
+  await db`UPDATE people SET x_user_id = 'x-legacy' WHERE builder_id = ${legacy.b}`;
+  const owner = await person('owner', true, ago(1)); // the owner: verified, still never real
+  const persona = await person('persona', true, ago(1));
+  await app(`b:${active.b}`, active.i, 'e3-a', 'won');
+  await app(`i:${idle.i}`, idle.i, 'e3-b', 'applied', 'builder');
+  await app(`b:${owner.b}`, owner.i, 'e3-c', 'won');
+  await app(`b:${owner.b}`, owner.i, 'e3-d', 'applied');
+  await app(`i:${persona.i}`, persona.i, 'e3-e', 'applied');
+  // An owner key of an old or unknown shape is no person: real, and never an error.
+  await app('legacy-owner', active.i, 'e3-f', 'rejected');
+  const after = await readStats(NOW);
+  const d = (k: keyof typeof after) => (after[k] as number) - (before[k] as number);
+  assert.equal(d('installs'), 6);
+  assert.equal(d('installs_real'), 4);
+  assert.equal(d('installs_verified'), 2);
+  assert.equal(d('people_verified'), 2);
+  assert.equal(d('people_verified_active_7d'), 1);
+  assert.equal(d('people_verified_applied'), 1);
+  assert.equal(d('people_verified_won'), 1);
+  // The owner and the persona are in no real count; the owner's own are split out.
+  assert.equal(d('installs_active_7d'), 3);
+  assert.equal(d('finds_7d'), 3);
+  assert.equal(d('applications'), 3);
+  assert.equal(d('applications_7d'), 3);
+  assert.equal(d('applications_via_earnkit'), 2);
+  assert.equal(d('won'), 1);
+  assert.equal(d('won_usd'), 100);
+  assert.equal(d('applications_owner'), 2);
+  assert.equal(d('won_owner'), 1);
 });

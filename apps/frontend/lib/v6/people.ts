@@ -4,15 +4,23 @@
  * is not real (the owner, the dogfood agents, journey personas, repro scripts). Nothing automatic clears a reason; the
  * backfill's `--unflag` does, by hand. The app never deletes a row (the repro cleanups remove their own).
  */
-import type { Db } from '../v5/db';
+import { inTx, type Db } from '../v5/db';
 
 type Env = Record<string, string | undefined>;
 export const TEST_REASONS = ['owner', 'dogfood', 'persona', 'repro', 'test'] as const;
 export type TestReason = (typeof TEST_REASONS)[number];
 export type TestFlag = { reason: TestReason; source: string };
 
-/** The sources that are env lists (the owner's own word). Only these reach a builder's person at link (v6.1.21 I2). */
-export const ENV_SOURCES = ['EARNKIT_TEST_INSTALLATIONS', 'EARNKIT_OWNER_LOGINS', 'EARNKIT_DOGFOOD_LOGINS'] as const;
+/**
+ * v3.8 E3: the owner's own accounts (Jenil: GitHub jenil04, jenilt), always flagged `owner` whatever
+ * EARNKIT_OWNER_LOGINS holds, so the owner is counted once, labelled owner and kept out of every real count.
+ */
+export const OWNER_LOGINS = ['jenil04', 'jenilt'] as const;
+/** The source a built-in owner login leaves. */
+export const OWNER_BUILTIN = 'OWNER_LOGINS';
+
+/** The sources that are the owner's own word (the env lists and the built-in owner logins). Only these reach a builder's person at link (v6.1.21 I2). */
+export const ENV_SOURCES = ['EARNKIT_TEST_INSTALLATIONS', 'EARNKIT_OWNER_LOGINS', 'EARNKIT_DOGFOOD_LOGINS', OWNER_BUILTIN] as const;
 /** Whether a reason's source is one of the env lists. Pure. */
 export const fromEnvList = (source: string | null | undefined): boolean => (ENV_SOURCES as readonly string[]).includes(source ?? '');
 /** The source an `--unflag` leaves (reason NULL): nothing automatic flags that person again. */
@@ -58,7 +66,7 @@ export function clientNameReason(clientName: string | null | undefined): TestFla
 }
 
 /**
- * The env-list reason, or null: EARNKIT_TEST_INSTALLATIONS (installation ids) is `test`; EARNKIT_OWNER_LOGINS and
+ * The env-list reason, or null (v3.8 E3: the built-in `OWNER_LOGINS` count as owner too): EARNKIT_TEST_INSTALLATIONS (installation ids) is `test`; EARNKIT_OWNER_LOGINS and
  * EARNKIT_DOGFOOD_LOGINS (GitHub logins or X handles) are `owner` and `dogfood`, strongest first. The logins and handles
  * passed must be proven ones (a builder's GitHub login, a legacy X sign-in), never a claimed repo owner (v6.1.21 M4).
  * Unset variables flag nothing. Pure.
@@ -69,6 +77,7 @@ export function envListReason(
 ): TestFlag | null {
   const names = [who.githubLogin, who.xHandle].map((s) => (s ?? '').replace(/^@/, '').toLowerCase()).filter(Boolean);
   if (names.some((n) => list(env.EARNKIT_OWNER_LOGINS).includes(n))) return { reason: 'owner', source: 'EARNKIT_OWNER_LOGINS' };
+  if (names.some((n) => (OWNER_LOGINS as readonly string[]).includes(n))) return { reason: 'owner', source: OWNER_BUILTIN };
   if (names.some((n) => list(env.EARNKIT_DOGFOOD_LOGINS).includes(n))) return { reason: 'dogfood', source: 'EARNKIT_DOGFOOD_LOGINS' };
   const ids = [...(who.installationIds ?? []), ...(who.installationId != null ? [who.installationId] : [])].map(String);
   const testIds = list(env.EARNKIT_TEST_INSTALLATIONS);
@@ -137,4 +146,32 @@ export async function linkPerson(db: Db, installationId: number, builderId: numb
   const [p] = await db<{ id: number }[]>`INSERT INTO people (builder_id, test_reason, test_reason_source) VALUES (${builderId}, ${first?.reason ?? null}, ${first?.source ?? null}) RETURNING id`;
   await db`UPDATE installations SET person_id = ${p.id} WHERE id = ${installationId}`;
   await flagPerson(db, p.id, flag);
+}
+
+/** The providers a fresh OAuth sign-in verifies (v3.8 E3; X joins with E5). */
+export type VerifiedBy = 'github';
+
+/**
+ * v3.8 E3: a fresh OAuth callback verified this builder's account: their person (made here when they have none yet,
+ * flagged from the env lists by login) gets `verified_by`, `verified_at` and the account's own creation date. Only the
+ * callbacks call this; no backfill does, so a legacy X sign-in stays unverified. The builder row is locked first, as
+ * `linkPerson` does, so a link at the same time never makes a second person.
+ */
+export async function markVerified(
+  a: { builderId: number; login: string; by: VerifiedBy; at: Date; accountCreatedAt: Date | null },
+  env: Env = process.env,
+  db?: Db,
+): Promise<void> {
+  await inTx(db, async (tx) => {
+    const [b] = await tx`SELECT 1 FROM builders WHERE id = ${a.builderId} FOR UPDATE`;
+    if (!b) return;
+    const flag = envListReason({ githubLogin: a.login }, env);
+    const [p] = await tx<{ id: number }[]>`
+      INSERT INTO people (builder_id, test_reason, test_reason_source, verified_by, verified_at, account_created_at)
+      VALUES (${a.builderId}, ${flag?.reason ?? null}, ${flag?.source ?? null}, ${a.by}, ${a.at}, ${a.accountCreatedAt})
+      ON CONFLICT (builder_id) DO UPDATE SET verified_by = EXCLUDED.verified_by, verified_at = EXCLUDED.verified_at,
+        account_created_at = COALESCE(EXCLUDED.account_created_at, people.account_created_at)
+      RETURNING id`;
+    await flagPerson(tx, p.id, flag);
+  });
 }

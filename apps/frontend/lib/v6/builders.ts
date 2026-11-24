@@ -226,7 +226,8 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     // L28-10: a deleted record is nothing to read back.
     await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;
     // v6.1.21: people rows are never deleted; the person just loses its builder.
-    await tx`UPDATE people SET builder_id = NULL WHERE builder_id = ${id}`;
+    // v3.8 E3: and its verification, which was of the deleted account.
+    await tx`UPDATE people SET builder_id = NULL, verified_by = NULL, verified_at = NULL, account_created_at = NULL WHERE builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });
 }
