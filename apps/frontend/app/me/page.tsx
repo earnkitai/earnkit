@@ -6,6 +6,7 @@ import { ME_DESCRIPTION, ME_TITLE } from '../../lib/v5/site-copy';
 import { authSecret, isAnswerPath, meData, problemShown } from '../../lib/v6/me-view';
 import { draftOf, sessionBuilder, sessionToken } from '../../lib/v6/sessions';
 import { WITHDRAW_COPY, meConsent } from '../../lib/v6/consent';
+import { previewForCookie, withCallerFlags } from '../../lib/v6/flag-preview';
 
 export const dynamic = 'force-dynamic';
 /** L27-21 (v6.1.16): noindex and no canonical (no `alternates`; the layout sets none). */
@@ -16,11 +17,16 @@ type Query = { problem?: string | string[]; note?: string | string[]; sig?: stri
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const openOf = (v: string | undefined) => (v && isAnswerPath(v) ? v : null);
 
+/** v3.8 owner/test preview: the page renders in the /me session's flag context. */
 export default async function MePage({ searchParams }: { searchParams: Promise<Query> }) {
+  const cookie = (await headers()).get('cookie');
+  return withCallerFlags(() => previewForCookie(cookie), () => mePage(cookie, searchParams));
+}
+
+async function mePage(cookie: string | null, searchParams: Promise<Query>) {
   const now = new Date();
   // One parser for the session cookie (v6.1.7 B2): the first session cookie in the raw header under the current name
   // only (L43-3, v6.1.19: the old ek_me is never read in production), as the gate and every post read it.
-  const cookie = (await headers()).get('cookie');
   const token = sessionToken(cookie);
   const builder = token ? await sessionBuilder(cookie, now) : null;
   if (!token || !builder) redirect('/docs#record');

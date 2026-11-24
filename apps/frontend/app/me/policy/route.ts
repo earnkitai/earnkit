@@ -1,9 +1,10 @@
 import { policyPost } from '../../../lib/v6/me-routes';
 import { refuseFor, toMe } from '../../../lib/v5/route-methods';
+import { withSessionFlags } from '../../../lib/v6/flag-preview';
 
 /** Next passes a context as the second argument; the handler's second is its test deps. */
 export async function POST(request: Request) {
-  return policyPost(request);
+  return withSessionFlags(request, () => policyPost(request));
 }
 
 /** L31-1 (v6.1.16 Task 17): every method this route does not serve is 405 with its Allow (`METHODS_BY_ROUTE`). */

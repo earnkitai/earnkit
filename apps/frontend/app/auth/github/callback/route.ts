@@ -1,9 +1,10 @@
 import { callbackGet } from '../../../../lib/v6/link-routes';
 import { refuseFor } from '../../../../lib/v5/route-methods';
+import { withSessionFlags } from '../../../../lib/v6/flag-preview';
 
 /** Next passes a context as the second argument; callbackGet's second is its test deps. */
 export async function GET(request: Request) {
-  return callbackGet(request);
+  return withSessionFlags(request, () => callbackGet(request));
 }
 
 /** L31-1 (v6.1.16 Task 17): every method this route does not serve is 405 with its Allow (`METHODS_BY_ROUTE`). */

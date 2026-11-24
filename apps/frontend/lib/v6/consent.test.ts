@@ -61,9 +61,9 @@ test('off: /me is main\'s /me (no redirect to the form, no consent section), eve
 });
 
 test('off: GET /me/consent is 404 as on main; on, a 303 to /me', async () => {
-  assert.equal(consentGet().status, 404);
+  assert.equal((await consentGet(new Request('https://earnkit.test/me/consent'))).status, 404);
   process.env.EARNKIT_FLAGS = 'form';
-  const on = consentGet();
+  const on = await consentGet(new Request('https://earnkit.test/me/consent'));
   assert.equal(on.status, 303);
   assert.equal(on.headers.get('location'), '/me');
 });

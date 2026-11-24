@@ -652,7 +652,7 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: `/link` and the callback answer 503) |
 | `X_CLIENT_ID`, `X_CLIENT_SECRET` | v3.8 E5: the X OAuth 2.0 app (confidential client; the same app and variables the pre-v5 X sign-in used) for X sign-in at install; used only with the `install_signin` and `x_signin` flags. Callback URL `<origin>/x/callback` (the URI the X app already has registered) |
 | `EARNKIT_TEST_INSTALLATIONS`, `EARNKIT_OWNER_LOGINS`, `EARNKIT_DOGFOOD_LOGINS` | v6.1.21, optional comma lists (installation ids; GitHub logins or X handles, case-insensitive) that flag a person as a test (`people.test_reason` `test`, `owner`, `dogfood`); the logins match proven identities only (a builder's login, a legacy X sign-in), never a claimed repo owner. Set in Railway they flag new installs and links; for people that already exist, export them in the shell and run the backfill's `--reflag` (the script never sees Railway's variables). Unset flags nothing but the client-name patterns |
-| `EARNKIT_FLAGS` | v3.8 first ship: a comma list of feature flag names that are on (`lib/v5/flags.ts`: `auto_live`, `x_signin`, `private_rows`, `track_v2`, `draft_check`, `form`, `reply_fields`, `copy_v38`, `screen_v2`, `install_signin`). Unset or empty turns every flag off (the shipped behaviour); unknown names are ignored; trimmed, case-insensitive. Rollback is the list without the name and a restart. The test guard clears it. `install_signin` (v3.8 E4) turns on the install sign-in (needs the GitHub OAuth app): authorize goes to GitHub (`read:user`), then `/install/consent`; only Connect there issues a code that names the builder. Off is the anonymous approval, and turning it off is the rollback: a sign-in under way ends on the failed page |
+| `EARNKIT_FLAGS` | v3.8 first ship: a comma list of feature flag names that are on (`lib/v5/flags.ts`: `auto_live`, `x_signin`, `private_rows`, `track_v2`, `draft_check`, `form`, `reply_fields`, `copy_v38`, `screen_v2`, `install_signin`). Unset or empty turns every flag off (the shipped behaviour); unknown names are ignored; trimmed, case-insensitive. Rollback is the list without the name and a restart. The test guard clears it. `install_signin` (v3.8 E4) turns on the install sign-in (needs the GitHub OAuth app): authorize goes to GitHub (`read:user`), then `/install/consent`; only Connect there issues a code that names the builder. Off is the anonymous approval, and turning it off is the rollback: a sign-in under way ends on the failed page. v3.8 owner/test preview: an owner or test caller's request also gets every shipping flag (`PREVIEW_FLAGS`) with this unset; see "Owner/test flag preview" |
 | `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
 
 `lib/v5/no-v4.test.ts` fails if any code reads a variable outside this list.
@@ -2050,6 +2050,20 @@ gained/lost counts, verified (always 0: only a fresh OAuth sign-in sets it), the
 (builder login, claimed GitHub login, else @X handle; anything not handle-shaped prints `(no public handle)`) with
 old -> new values. Never an email, name, wallet, OAuth id, token or URL. Any error prints one `skipped: <code>` line;
 the script always exits 0, so it can never fail a deploy. Find it in the deploy logs by its label.
+
+## Owner/test flag preview (v3.8)
+
+Design: `design-docs-and-implementation-plans/v3.8-owner-test-flag-preview.md`. With `EARNKIT_FLAGS` unset, an owner or
+test caller's request runs with every shipping flag on (`PREVIEW_FLAGS`: install_signin, x_signin, track_v2,
+draft_check, form, reply_fields, copy_v38, screen_v2; not auto_live or private_rows, which have no code). `flags.ts`
+holds a per-request `AsyncLocalStorage` context; `lib/v6/flag-preview.ts` resolves the caller once per request: `/mcp`
+by the token's installation (its person, linked builder and the builder's person), the /me routes and pages, `/privacy`,
+`/oauth/authorize`, `/auth/github/callback`, `/auth/x`, `/x/callback` and `/install/consent` by the browser's /me
+session. A caller is a preview one when a person of theirs is flagged owner, test, persona or dogfood (not repro), or an
+env list names them (`envListReason`, the built-in owner logins included). No identity, a real builder, or a failed
+lookup: exactly `EARNKIT_FLAGS`. The install sign-in is previewed only for a browser that already holds an owner/test
+/me session; a fresh browser is unknown until it signs in. Cron, scripts and the screen worker have no caller. Nothing
+is stored, so the real counts still leave these people out.
 
 ## v3.8 E3: verified sign-in and the count ladder
 

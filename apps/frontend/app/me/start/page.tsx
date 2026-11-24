@@ -5,6 +5,7 @@ import { CARD_PANEL, H1_SITE, PAGE_COL } from '../../components/site/ui';
 import { flagOn } from '../../../lib/v5/flags';
 import { getRecord } from '../../../lib/v6/builders';
 import { CONSENT_ITEMS, START_COPY } from '../../../lib/v6/consent';
+import { previewForCookie, withCallerFlags } from '../../../lib/v6/flag-preview';
 import { authSecret, csrfToken, utcDay } from '../../../lib/v6/me-view';
 import { sessionBuilder, sessionToken } from '../../../lib/v6/sessions';
 
@@ -16,9 +17,14 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 /** v3.8 E12 (`form`): the one onboarding form after sign-in. Off: 404, as on main. */
 export default async function StartPage({ searchParams }: { searchParams: Promise<Query> }) {
+  const cookie = (await headers()).get('cookie');
+  // v3.8 owner/test preview: the page renders in the /me session's flag context.
+  return withCallerFlags(() => previewForCookie(cookie), () => startPage(cookie, searchParams));
+}
+
+async function startPage(cookie: string | null, searchParams: Promise<Query>) {
   if (!flagOn('form')) notFound();
   const now = new Date();
-  const cookie = (await headers()).get('cookie');
   const token = sessionToken(cookie);
   const builder = token ? await sessionBuilder(cookie, now) : null;
   if (!token || !builder) redirect('/docs#record');
