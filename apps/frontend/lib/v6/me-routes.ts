@@ -22,6 +22,8 @@ import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCo
 import { type MeField, agentList, authSecret, isAnswerPath, pendingApprovals, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
 import { type Draft, anySessionCookie, clearCookies, clearDraft, endSession, saveDraft, sessionBuilder, sessionState, sessionToken } from './sessions';
+import { flagOn } from '../v5/flags';
+import { CONSENT_SAVED, CONSENT_WITHDRAWN, UNDER_18_SAVED, consentOf, saveConsent, withdrawConsent } from './consent';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -659,6 +661,29 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
       : (await deniedCode(code)) ? noteAt(g, ME_LINK_DENIED)
       : problemAt(g, (await codeState(code, g.now)) === 'unknown' ? UNKNOWN_CODE : ME_ERRORS.linkExpired);
   return noteAt(g, ME_LINK_DONE(displayName(live?.client_name)));
+}
+
+/**
+ * v3.8 E12 (`form`): POST /me/consent: csrf and `action` save (the /me/start form: fill, submit, list, corpus ticks,
+ * adult yes or no, wallet) or withdraw (on /me). Off: 404. A missing age or long wallet goes back to the form by a fixed
+ * key (`?e=`), never with typed text.
+ */
+export async function consentPost(request: Request, deps: Deps = {}): Promise<Response> {
+  if (!flagOn('form')) return text(404, 'Not found.');
+  const g = await guard(request, deps);
+  if (g instanceof Response) return g;
+  if (g.form.get('action') === 'withdraw') {
+    await withdrawConsent(g.builder.id, g.now);
+    return noteAt(g, CONSENT_WITHDRAWN);
+  }
+  const age = g.form.get('adult');
+  const adult = age === 'yes' ? true : age === 'no' ? false : null;
+  const wallet = (g.form.get('wallet') ?? '').trim();
+  if (adult === null) return back('/me/start?e=adult');
+  if (Array.from(wallet).length > 120) return back('/me/start?e=wallet');
+  const c = consentOf({ fill: on(g.form.get('fill')), submit: on(g.form.get('submit')), list: on(g.form.get('list')), corpus: on(g.form.get('corpus')), adult, wallet }, g.now);
+  await saveConsent(g.builder.id, c, g.now);
+  return noteAt(g, adult ? CONSENT_SAVED : UNDER_18_SAVED);
 }
 
 /** POST /me/delete: csrf, confirm (the GitHub login). Removes everything theirs and the cookie. */

@@ -47,6 +47,8 @@ const APP_DIRS = new Set([
   'api/me', 'api/me/signed-in', 'guide-unavailable',
   'link', 'link/[code]', 'link/[code]/confirm', 'auth', 'auth/github', 'auth/github/callback',
   'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link', 'me/sent',
+  // v3.8 E12: the onboarding form, its post, and the privacy page.
+  'me/start', 'me/consent', 'privacy',
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

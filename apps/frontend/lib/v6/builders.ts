@@ -3,6 +3,7 @@
  * 'i:<installation>' to 'b:<builder>', so every agent of one builder shares one ledger.
  */
 import { inTx, sql, type Db } from '../v5/db';
+import { flagOn } from '../v5/flags';
 import { restoreEarlierSet } from './claims';
 import { linkPerson } from './people';
 import { type BuilderRecord, readRecord } from './record';
@@ -232,6 +233,11 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;
     // v6.1.21: people rows are never deleted; the person just loses its builder.
     // v3.8 E3: and its verification, which was of the deleted account.
+    // v3.8 E12 (L10, `form` on): delete on request clears the person too.
+    if (flagOn('form')) {
+      await tx`UPDATE installations SET person_id = NULL WHERE person_id IN (SELECT id FROM people WHERE builder_id = ${id})`;
+      await tx`DELETE FROM people WHERE builder_id = ${id}`;
+    }
     await tx`UPDATE people SET builder_id = NULL, verified_by = NULL, verified_at = NULL, account_created_at = NULL WHERE builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });

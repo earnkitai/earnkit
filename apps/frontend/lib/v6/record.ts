@@ -147,6 +147,12 @@ export const BuilderRecord = z.object({
   answers: Answers.prefault({}),
   policy: Policy.prefault({}),
   meta: z.record(line(200), Meta).default({}),
+  /** v3.8 E12: the onboarding form's answers (lib/v6/consent.ts). EarnKit's own: written by /me/consent only, never by
+   *  a patch (not a merge block, so an agent's `consent` is "not a field"). */
+  consent: z.object({
+    fill: z.boolean(), submit: z.boolean(), list: z.boolean(), corpus: z.boolean(), adult: z.boolean(),
+    wallet: line(120).optional(), at: line(40), version: line(20), withdrawn_at: line(40).optional(),
+  }).strip().optional(),
 }).strip();
 export type BuilderRecord = z.infer<typeof BuilderRecord>;
 export const EMPTY_RECORD: BuilderRecord = BuilderRecord.parse({});
