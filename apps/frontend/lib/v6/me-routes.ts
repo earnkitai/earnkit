@@ -661,13 +661,13 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   return noteAt(g, ME_LINK_DONE(displayName(live?.client_name)));
 }
 
-/** POST /me/delete: csrf, confirm (the GitHub login). Removes everything theirs and the cookie. */
+/** POST /me/delete: csrf, confirm (the GitHub login, or the X handle for an X-only builder, v3.8 E5). Removes everything theirs and the cookie. */
 export async function deletePost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   // L27-9 (v6.1.16): a refused delete comes back to the delete card with its line beside the form.
   // L43-4, L43-11 (v6.1.19): and keeps what was typed, so the box still shows it.
-  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) {
+  if ((g.form.get('confirm') ?? '').trim().replace(/^@/, '').toLowerCase() !== (g.builder.login ?? g.builder.x_handle ?? '').toLowerCase()) {
     await saveDraft(g.cookie, draftFrom(g.form, '/me/delete'), g.now);
     return problemAt(g, ME_ERRORS.confirm, 'delete');
   }

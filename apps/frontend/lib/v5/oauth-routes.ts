@@ -113,7 +113,7 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     const client = callerClient(request, deps.client);
     const checked = await checkAuthorize(new URL(request.url).searchParams, client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
-    if (installSignInOn()) return installSignIn(request, checked.req);
+    if (installSignInOn()) return await installSignIn(request, checked.req);
     return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });

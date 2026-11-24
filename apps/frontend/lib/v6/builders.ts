@@ -1,15 +1,22 @@
 /**
- * Builders: one row per GitHub account. Linking an installation moves its ledger from
+ * Builders: one row per GitHub account, or (v3.8 E5) per X account for a builder who signed in with X only; such a row
+ * has no GitHub id or login, so nothing that reads `login` (owner lists, team checks) ever mistakes an X handle for a
+ * GitHub login. Linking an installation moves its ledger from
  * 'i:<installation>' to 'b:<builder>', so every agent of one builder shares one ledger.
  */
 import { inTx, sql, type Db } from '../v5/db';
 import { restoreEarlierSet } from './claims';
 import { linkPerson } from './people';
 import { type BuilderRecord, readRecord } from './record';
+import type { XUser } from './x-auth';
 
-export type Builder = { id: number; github_id: number; login: string; name: string | null; avatar_url: string | null };
-type GitHubUser = Omit<Builder, 'id'>;
-type Row = Omit<Builder, 'github_id'> & { github_id: string | number };
+/** `github_id` and `login` are null only for an X-only builder (v3.8 E5); `x_user_id` and `x_handle` only for one. */
+export type Builder = { id: number; github_id: number | null; login: string | null; name: string | null; avatar_url: string | null; x_user_id: string | null; x_handle: string | null };
+type GitHubUser = { github_id: number; login: string; name: string | null; avatar_url: string | null };
+type Row = Omit<Builder, 'github_id'> & { github_id: string | number | null };
+
+/** The name a builder signs in as: their GitHub login, else @handle on X. Pure. */
+export const handleOf = (b: Pick<Builder, 'login' | 'x_handle'>): string => b.login ?? (b.x_handle ? `@${b.x_handle}` : '');
 
 /** The ledger owner: 'b:<builder>' when linked, else 'i:<installation>'. Pure. */
 export const ownerKey = (installationId: number, builderId: number | null): string =>
@@ -24,7 +31,9 @@ export class LinkRefused extends Error {
 }
 
 // github_id is a bigint, which postgres.js reads as a string.
-const builderOf = (r: Row): Builder => ({ id: r.id, github_id: Number(r.github_id), login: r.login, name: r.name, avatar_url: r.avatar_url });
+const builderOf = (r: Row): Builder => ({
+  id: r.id, github_id: r.github_id == null ? null : Number(r.github_id), login: r.login, name: r.name, avatar_url: r.avatar_url, x_user_id: r.x_user_id, x_handle: r.x_handle,
+});
 
 /** Creates the builder, or updates the one with this GitHub id (login, name and avatar can change). */
 export async function upsertBuilder(u: GitHubUser, now: Date): Promise<Builder> {
@@ -33,12 +42,23 @@ export async function upsertBuilder(u: GitHubUser, now: Date): Promise<Builder> 
     VALUES (${u.github_id}, ${u.login}, ${u.name}, ${u.avatar_url}, ${now}, ${now})
     ON CONFLICT (github_id) DO UPDATE
       SET login = EXCLUDED.login, name = EXCLUDED.name, avatar_url = EXCLUDED.avatar_url, last_seen_at = EXCLUDED.last_seen_at
-    RETURNING id, github_id, login, name, avatar_url`;
+    RETURNING id, github_id, login, name, avatar_url, x_user_id, x_handle`;
+  return builderOf(r);
+}
+
+/** v3.8 E5: creates the X-only builder, or updates the one with this X id (the handle, name and avatar can change). */
+export async function upsertXBuilder(u: XUser, now: Date): Promise<Builder> {
+  const [r] = await sql()<Row[]>`
+    INSERT INTO builders (x_user_id, x_handle, name, avatar_url, created_at, last_seen_at)
+    VALUES (${u.x_user_id}, ${u.handle}, ${u.name}, ${u.avatar_url}, ${now}, ${now})
+    ON CONFLICT (x_user_id) DO UPDATE
+      SET x_handle = EXCLUDED.x_handle, name = EXCLUDED.name, avatar_url = EXCLUDED.avatar_url, last_seen_at = EXCLUDED.last_seen_at
+    RETURNING id, github_id, login, name, avatar_url, x_user_id, x_handle`;
   return builderOf(r);
 }
 
 export async function getBuilder(id: number): Promise<Builder | null> {
-  const [r] = await sql()<Row[]>`SELECT id, github_id, login, name, avatar_url FROM builders WHERE id = ${id}`;
+  const [r] = await sql()<Row[]>`SELECT id, github_id, login, name, avatar_url, x_user_id, x_handle FROM builders WHERE id = ${id}`;
   return r ? builderOf(r) : null;
 }
 

@@ -119,12 +119,12 @@ const flagPerson = (db: Db, id: number, flag: TestFlag | null) =>
  * installation id checked here, or the old person's env-list reason); a client-name reason never does (v6.1.21 I2).
  */
 export async function linkPerson(db: Db, installationId: number, builderId: number, env: Env = process.env): Promise<void> {
-  const [b] = await db<{ login: string | null }[]>`SELECT login FROM builders WHERE id = ${builderId} FOR UPDATE`;
+  const [b] = await db<{ login: string | null; x_handle: string | null }[]>`SELECT login, x_handle FROM builders WHERE id = ${builderId} FOR UPDATE`;
   // A builder deleted since the code was issued: the link fails, and the caller's transaction with it (M3).
   if (!b) throw new Error(`linkPerson: builder ${builderId} does not exist`);
   const [inst] = await db<{ person_id: number | null }[]>`SELECT person_id FROM installations WHERE id = ${installationId}`;
   if (!inst) return;
-  const flag = envListReason({ githubLogin: b.login, installationId }, env);
+  const flag = envListReason({ githubLogin: b.login, xHandle: b.x_handle, installationId }, env);
   const [mine] = await db<{ id: number }[]>`SELECT id FROM people WHERE builder_id = ${builderId}`;
   const [old] = inst.person_id == null ? [] : await db<{ builder_id: number | null; test_reason: string | null; test_reason_source: string | null }[]>`
     SELECT builder_id, test_reason, test_reason_source FROM people WHERE id = ${inst.person_id}`;
@@ -148,8 +148,8 @@ export async function linkPerson(db: Db, installationId: number, builderId: numb
   await flagPerson(db, p.id, flag);
 }
 
-/** The providers a fresh OAuth sign-in verifies (v3.8 E3; X joins with E5). */
-export type VerifiedBy = 'github';
+/** The providers a fresh OAuth sign-in verifies (v3.8 E3; X with E5). */
+export type VerifiedBy = 'github' | 'x';
 
 /**
  * v3.8 E3: a fresh OAuth callback verified this builder's account: their person (made here when they have none yet,
@@ -158,14 +158,14 @@ export type VerifiedBy = 'github';
  * `linkPerson` does, so a link at the same time never makes a second person.
  */
 export async function markVerified(
-  a: { builderId: number; login: string; by: VerifiedBy; at: Date; accountCreatedAt: Date | null },
+  a: { builderId: number; login: string | null; xHandle?: string | null; by: VerifiedBy; at: Date; accountCreatedAt: Date | null },
   env: Env = process.env,
   db?: Db,
 ): Promise<void> {
   await inTx(db, async (tx) => {
     const [b] = await tx`SELECT 1 FROM builders WHERE id = ${a.builderId} FOR UPDATE`;
     if (!b) return;
-    const flag = envListReason({ githubLogin: a.login }, env);
+    const flag = envListReason({ githubLogin: a.login, xHandle: a.xHandle }, env);
     const [p] = await tx<{ id: number }[]>`
       INSERT INTO people (builder_id, test_reason, test_reason_source, verified_by, verified_at, account_created_at)
       VALUES (${a.builderId}, ${flag?.reason ?? null}, ${flag?.source ?? null}, ${a.by}, ${a.at}, ${a.accountCreatedAt})

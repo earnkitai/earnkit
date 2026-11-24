@@ -69,7 +69,7 @@ test('me refuses without a session', async () => {
     editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Mallory' }), deps),
     approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'approve' }), deps),
     policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '3' }), deps),
-    deletePost(post('/me/delete', { csrf, confirm: b.login }), deps),
+    deletePost(post('/me/delete', { csrf, confirm: b.login! }), deps),
     signoutPost(post('/me/signout', { csrf }), deps),
     unlinkPost(post('/me/unlink', { csrf, installation_id: '1' }), deps),
     linkPost(post('/me/link', { csrf, code: 'x'.repeat(22), action: 'link' }), deps),
@@ -612,7 +612,7 @@ test('L31-3 (v6.1.16 Task 17): every /me post needs a same-origin Origin or Refe
     [policyPost, '/me/policy', { csrf }],
     [unlinkPost, '/me/unlink', { csrf, installation_id: '1' }],
     [linkPost, '/me/link', { csrf, code: 'x', action: 'deny' }],
-    [deletePost, '/me/delete', { csrf, confirm: b.login }],
+    [deletePost, '/me/delete', { csrf, confirm: b.login! }],
     [signoutPost, '/me/signout', { csrf }],
   ];
   for (const [handler, path, form] of handlers)
@@ -641,7 +641,7 @@ test('L31-6 (v6.1.16 Task 17, controller ruling): with both cookies, sign-out en
       const { token } = await createSession(b.id, NOW);
       const cookie = `ek_me=${oldToken}; __Host-ek_me=${token}`;
       const csrf = csrfToken(b.id, DAY, SECRET, token);
-      const r = await handler(post(handler === deletePost ? '/me/delete' : '/me/signout', { csrf, confirm: b.login }, { cookie }), deps);
+      const r = await handler(post(handler === deletePost ? '/me/delete' : '/me/signout', { csrf, confirm: b.login! }, { cookie }), deps);
       assert.equal(r.status, 303);
       const set = r.headers.getSetCookie();
       assert.ok(set.includes('__Host-ek_me=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'), JSON.stringify(set));
@@ -677,7 +677,7 @@ test('L43-3: in production only __Host-ek_me is read; ek_me alone is signed out'
     for (const [handler, path, form] of [
       [editPost, '/me/edit', { csrf, path: 'person.name', value: 'Old Name' }],
       [policyPost, '/me/policy', { csrf }],
-      [deletePost, '/me/delete', { csrf, confirm: b.login }],
+      [deletePost, '/me/delete', { csrf, confirm: b.login! }],
       [signoutPost, '/me/signout', { csrf }],
     ] as const) {
       const r = await handler(post(path, form, { cookie }), deps);

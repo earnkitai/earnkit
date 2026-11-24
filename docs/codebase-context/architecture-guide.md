@@ -509,6 +509,7 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/install` | Permanent redirect to `/docs#install` (old links) |
 | `/terms` | What EarnKit reads, stores and never does; the record; what programs see |
 | `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
+| `/auth/x`, `/x/callback` | v3.8 E5 (`x_signin`): X sign-in on the install path; `/x/callback` is the X app's registered redirect URI |
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications (v6.1.19: `I sent it` posts to `/me/sent`), agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), `installs_real`, `people` and `people_real` (v6.1.21: not flagged as tests), and names no one |
@@ -642,6 +643,7 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: `/link` and the callback answer 503) |
+| `X_CLIENT_ID`, `X_CLIENT_SECRET` | v3.8 E5: the X OAuth 2.0 app (confidential client; the same app and variables the pre-v5 X sign-in used) for X sign-in at install; used only with the `install_signin` and `x_signin` flags. Callback URL `<origin>/x/callback` (the URI the X app already has registered) |
 | `EARNKIT_TEST_INSTALLATIONS`, `EARNKIT_OWNER_LOGINS`, `EARNKIT_DOGFOOD_LOGINS` | v6.1.21, optional comma lists (installation ids; GitHub logins or X handles, case-insensitive) that flag a person as a test (`people.test_reason` `test`, `owner`, `dogfood`); the logins match proven identities only (a builder's login, a legacy X sign-in), never a claimed repo owner. Set in Railway they flag new installs and links; for people that already exist, export them in the shell and run the backfill's `--reflag` (the script never sees Railway's variables). Unset flags nothing but the client-name patterns |
 | `EARNKIT_FLAGS` | v3.8 first ship: a comma list of feature flag names that are on (`lib/v5/flags.ts`: `auto_live`, `x_signin`, `private_rows`, `track_v2`, `draft_check`, `form`, `reply_fields`, `copy_v38`, `screen_v2`, `install_signin`). Unset or empty turns every flag off (the shipped behaviour); unknown names are ignored; trimmed, case-insensitive. Rollback is the list without the name and a restart. The test guard clears it. `install_signin` (v3.8 E4) turns on the install sign-in (needs the GitHub OAuth app): authorize goes to GitHub (`read:user`), then `/install/consent`; only Connect there issues a code that names the builder. Off is the anonymous approval, and turning it off is the rollback: a sign-in under way ends on the failed page |
 | `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
@@ -2017,6 +2019,15 @@ time)`, and 303s to the client with a code carrying `b`; `installOnce` links in 
 account on two installs is one builder and one person. This closes C1 of the PR #153 review: a link someone else built
 can walk a browser through GitHub's silent re-approval but cannot press Connect. Denied (GitHub's Cancel), Not now,
 expired and failed end on plain text pages (`INSTALL_PAGES`), each with one next step, and clear the cookie.
+
+v3.8 E5 adds X to the same path, behind the `x_signin` flag (with `install_signin`) and `X_CLIENT_ID`/`X_CLIENT_SECRET`,
+the same X app the pre-v5 X sign-in used
+(`xSignInOn`, `lib/v6/x-auth.ts`). Authorize then answers a chooser (GitHub or X, `chooser` in install-consent.ts).
+`GET /auth/x` (`lib/v6/x-routes.ts`) goes to X with PKCE S256 (verifier `xVerifier` = HMAC of the nonce, nothing
+stored) and scopes `users.read tweet.read`. `GET /x/callback` (`app/x/callback`, exactly the redirect URI the X app has registered since the pre-v5 X
+sign-in) reads `/2/users/me` and lands on the same consent
+page (`who.by = 'x'`). Connect makes an X-only builder (`upsertXBuilder`: `github_id` and `login` null, `x_user_id`
+unique, `x_handle`) verified by `x`. `login` is never set from an X handle. `handleOf` is what /me shows.
 
 `pnpm tsx apps/frontend/scripts/people-backfill.mts [--apply] [--since YYYY-MM-DD]` backfills people for older
 installations; `--reflag [--apply]` re-evaluates every person's reason from the env lists and client names (never

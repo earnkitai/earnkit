@@ -222,6 +222,19 @@ CREATE TABLE IF NOT EXISTS builders (
   created_at        timestamptz NOT NULL DEFAULT now(),
   last_seen_at      timestamptz NOT NULL DEFAULT now()
 );
+-- v3.8 E5: a builder who signed in with X only (lib/v6/builders.ts upsertXBuilder) has no GitHub id or login. Both
+-- columns lose NOT NULL (a no-op once dropped); every builder still has one account (builders_one_account), and a
+-- GitHub id always comes with its login. x_user_id is X's stable id, unique; x_handle can change.
+ALTER TABLE builders ALTER COLUMN github_id DROP NOT NULL;
+ALTER TABLE builders ALTER COLUMN login DROP NOT NULL;
+ALTER TABLE builders ADD COLUMN IF NOT EXISTS x_user_id text, ADD COLUMN IF NOT EXISTS x_handle text;
+CREATE UNIQUE INDEX IF NOT EXISTS builders_x_user_id ON builders (x_user_id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'builders_one_account') THEN
+    ALTER TABLE builders ADD CONSTRAINT builders_one_account CHECK (
+      (github_id IS NOT NULL OR x_user_id IS NOT NULL) AND ((github_id IS NULL) = (login IS NULL)) AND ((x_user_id IS NULL) = (x_handle IS NULL)));
+  END IF;
+END $$;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS builder_id int;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS linked_at timestamptz;
 -- v6.1.7 B10: set when the builder unlinks it on /me; the next find says so once and clears it.
@@ -563,7 +576,7 @@ CREATE TABLE IF NOT EXISTS people (
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS person_id int;
--- v3.8 E3: verified sign-in. `verified_by` ('github') and `verified_at` are set only on a fresh OAuth callback
+-- v3.8 E3: verified sign-in. `verified_by` ('github', or 'x' since E5) and `verified_at` are set only on a fresh OAuth callback
 -- (lib/v6/people.ts markVerified), never by a backfill: a legacy X sign-in (x_user_id) stays unverified.
 -- `account_created_at` is the verified account's own creation date (the provider's), for the age band. `review_mark`
 -- is the owner's hand mark on a person (set by SQL; NULL is unreviewed). Cleared when the builder is deleted.
@@ -578,11 +591,11 @@ DROP VIEW IF EXISTS owner_people;
 CREATE VIEW owner_people AS
 SELECT
   p.id AS builder_id,
-  COALESCE(b.login, p.x_handle, 'i-' || min(i.id)::text) AS slug,
+  COALESCE(b.login, b.x_handle, p.x_handle, 'i-' || min(i.id)::text) AS slug,
   false AS hidden,
   COALESCE(array_agg(i.id ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), ARRAY[]::int[]) AS installation_ids,
-  p.x_handle,
-  (p.x_user_id IS NOT NULL) AS x_proven,
+  COALESCE(b.x_handle, p.x_handle) AS x_handle,
+  (b.x_user_id IS NOT NULL OR p.x_user_id IS NOT NULL) AS x_proven,
   p.x_created_at,
   p.x_followers,
   COALESCE(b.login, p.github_login) AS github_login,
@@ -628,7 +641,8 @@ SELECT
   NULL::boolean AS email_opted_in,
   CASE WHEN p.builder_id IS NOT NULL THEN 'b:' || p.builder_id::text ELSE 'i:' || min(i.id)::text END AS person_key,
   p.builder_id AS earnkit_builder_id,
-  CASE WHEN b.id IS NOT NULL THEN 'github_signin' WHEN p.x_user_id IS NOT NULL THEN 'x_signin_legacy'
+  -- v3.8 E5: an X-only builder is 'x_signin' (a fresh X OAuth sign-in), apart from the legacy X rows.
+  CASE WHEN b.github_id IS NOT NULL THEN 'github_signin' WHEN b.x_user_id IS NOT NULL THEN 'x_signin' WHEN p.x_user_id IS NOT NULL THEN 'x_signin_legacy'
        WHEN p.github_login IS NOT NULL THEN 'github_claimed' END AS identity_source,
   (b.id IS NOT NULL OR p.x_user_id IS NOT NULL) AS identity_proven,
   (p.test_reason IS NOT NULL) AS is_test,
@@ -661,7 +675,7 @@ CROSS JOIN LATERAL (
   SELECT array_remove(ARRAY['b:' || p.builder_id::text] || COALESCE(array_agg('i:' || i2.id::text), ARRAY[]::text[]), NULL) AS keys
   FROM installations i2 WHERE i2.person_id = p.id
 ) k
-GROUP BY p.id, b.id, b.login, k.keys
+GROUP BY p.id, b.id, k.keys
 HAVING count(i.id) > 0 OR p.builder_id IS NOT NULL;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF;

@@ -36,7 +36,7 @@ test('upsert twice with the same github_id is one row with the new login', async
   const a = await upsertBuilder({ github_id: 4242, login: 'old', name: null, avatar_url: null }, NOW);
   const b = await upsertBuilder({ github_id: 4242, login: 'new', name: 'New', avatar_url: 'https://a/x.png' }, NOW);
   assert.equal(a.id, b.id);
-  assert.deepEqual(b, { id: a.id, github_id: 4242, login: 'new', name: 'New', avatar_url: 'https://a/x.png' });
+  assert.deepEqual(b, { id: a.id, github_id: 4242, login: 'new', name: 'New', avatar_url: 'https://a/x.png', x_user_id: null, x_handle: null });
   assert.equal((await sql()`SELECT count(*)::int AS n FROM builders WHERE github_id = 4242`)[0].n, 1);
   assert.deepEqual(await getBuilder(a.id), b);
   assert.equal(await getBuilder(2 ** 30), null);
