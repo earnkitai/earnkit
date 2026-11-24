@@ -22,6 +22,7 @@
     "db:migrate": "tsx apps/frontend/scripts/db-migrate.mts",
     "db:v4-tables": "tsx apps/frontend/scripts/v4-tables.mts",
     "test": "node apps/frontend/lib/v5/fixtures/test-db-template.mjs && tsx --test --import ./apps/frontend/lib/v5/fixtures/test-guard.ts \"apps/frontend/lib/v5/**/*.test.ts\" \"apps/frontend/lib/v6/**/*.test.ts\"",
+    "test:flags-on": "node apps/frontend/lib/v5/fixtures/test-db-template.mjs && tsx --test --import ./apps/frontend/lib/v5/fixtures/test-guard.ts --import ./apps/frontend/lib/v5/fixtures/flags-on.ts \"apps/frontend/lib/v5/**/*.test.ts\" \"apps/frontend/lib/v6/**/*.test.ts\"",
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync && (pnpm people:reflag-report || true)",
     "people:reflag-report": "tsx apps/frontend/scripts/people-backfill.mts --reflag-report",

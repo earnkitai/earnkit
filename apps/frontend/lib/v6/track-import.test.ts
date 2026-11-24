@@ -8,6 +8,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { sql } from '../v5/db';
+import { flagsOn } from '../v5/flags';
 import { upsertProgram } from '../v5/programs';
 import { programFixture } from '../v5/fixtures/program';
 import { main, targetOf } from './track-import';
@@ -32,31 +33,40 @@ const LINKED: [string, string][] = [
 const count = async (o: string) => (await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${o}`)[0].n as number;
 
 test('dry run by default: a plan and no writes; --apply writes it once; a second run is unchanged', async () => {
-  await upsertProgram(programFixture({ id: 'ti-catalog', title: 'Catalog Grant' }), 'file', NOW);
-  await upsertProgram(programFixture({ id: 'ti-linked', title: 'Linked Grant', submission_url: 'https://ti-link.example/apply' }), 'file', NOW);
-  const o = await owner();
-  const dry = await main(['--file', FILE, '--owner', o], quiet, NOW);
-  assert.equal(await count(o), 0);
-  assert.deepEqual(
-    { grants: dry.summary.grants, create: dry.summary.create, not_imported: dry.summary.not_imported, unresolved: dry.summary.unresolved, hard: dry.summary.hard_rows },
-    { grants: 10, create: 2, not_imported: 1, unresolved: 9, hard: 7 },
-  );
-  assert.equal(dry.lines.find((l) => l.grant === 'ti-catalog')?.program_id, 'ti-catalog');
-  assert.equal(dry.lines.find((l) => l.grant === 'some-other-id')?.program_id, 'ti-linked', 'matched by its link');
-  assert.equal(dry.lines.find((l) => l.grant === 'dup-of-catalog')?.action, 'not_imported');
-  assert.equal(dry.lines.find((l) => l.grant === 'stellar-scf-46')?.why, 'no catalog program: pass --map');
-  // v3.8 E8: with private_rows off, no line or summary field speaks of private rows.
-  assert.equal('private_rows' in dry.summary, false);
-  assert.ok(dry.lines.every((l) => !('private' in l)));
-  assert.ok(['delphi', 'ship-or-die'].every((g) => dry.lines.find((l) => l.grant === g)?.action === 'unresolved'));
+  // v3.8 flags-on suite: this plan is the private_rows-off one (unresolved until --map, no private fields; on is
+  // private-programs.test.ts), so private_rows alone is turned off here; every other flag stays as the run set it.
+  const saved = process.env.EARNKIT_FLAGS;
+  process.env.EARNKIT_FLAGS = flagsOn().filter((f) => f !== 'private_rows').join(',');
+  try {
+    await upsertProgram(programFixture({ id: 'ti-catalog', title: 'Catalog Grant' }), 'file', NOW);
+    await upsertProgram(programFixture({ id: 'ti-linked', title: 'Linked Grant', submission_url: 'https://ti-link.example/apply' }), 'file', NOW);
+    const o = await owner();
+    const dry = await main(['--file', FILE, '--owner', o], quiet, NOW);
+    assert.equal(await count(o), 0);
+    assert.deepEqual(
+      { grants: dry.summary.grants, create: dry.summary.create, not_imported: dry.summary.not_imported, unresolved: dry.summary.unresolved, hard: dry.summary.hard_rows },
+      { grants: 10, create: 2, not_imported: 1, unresolved: 9, hard: 7 },
+    );
+    assert.equal(dry.lines.find((l) => l.grant === 'ti-catalog')?.program_id, 'ti-catalog');
+    assert.equal(dry.lines.find((l) => l.grant === 'some-other-id')?.program_id, 'ti-linked', 'matched by its link');
+    assert.equal(dry.lines.find((l) => l.grant === 'dup-of-catalog')?.action, 'not_imported');
+    assert.equal(dry.lines.find((l) => l.grant === 'stellar-scf-46')?.why, 'no catalog program: pass --map');
+    // v3.8 E8: with private_rows off, no line or summary field speaks of private rows.
+    assert.equal('private_rows' in dry.summary, false);
+    assert.ok(dry.lines.every((l) => !('private' in l)));
+    assert.ok(['delphi', 'ship-or-die'].every((g) => dry.lines.find((l) => l.grant === g)?.action === 'unresolved'));
 
-  const applied = await main(['--file', FILE, '--owner', o, '--apply'], quiet, NOW);
-  assert.equal(applied.summary.create, 2);
-  assert.equal(await count(o), 2);
-  const again = await main(['--file', FILE, '--owner', o, '--apply'], quiet, NOW);
-  assert.equal(again.summary.unchanged, 2);
-  assert.equal(again.summary.create + again.summary.update, 0);
-  assert.equal(await count(o), 2);
+    const applied = await main(['--file', FILE, '--owner', o, '--apply'], quiet, NOW);
+    assert.equal(applied.summary.create, 2);
+    assert.equal(await count(o), 2);
+    const again = await main(['--file', FILE, '--owner', o, '--apply'], quiet, NOW);
+    assert.equal(again.summary.unchanged, 2);
+    assert.equal(again.summary.create + again.summary.update, 0);
+    assert.equal(await count(o), 2);
+  } finally {
+    if (saved === undefined) delete process.env.EARNKIT_FLAGS;
+    else process.env.EARNKIT_FLAGS = saved;
+  }
 });
 
 test('the hard rows land as the plan says; credits keep no dollar amount', async () => {

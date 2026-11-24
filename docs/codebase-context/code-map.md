@@ -74,6 +74,8 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 ## apps/frontend/lib/v5/fixtures (test support)
 
 - `apps/frontend/lib/v5/fixtures/test-guard.ts`: Preloaded by tests: clears vendor keys, blocks the network, one database per file
+- `apps/frontend/lib/v5/fixtures/flags-on.ts`: v3.8 flags-on suite: preloaded after test-guard by `pnpm test:flags-on`; sets `EARNKIT_FLAGS` to `PREVIEW_FLAGS` (no new variable)
+- `apps/frontend/lib/v5/fixtures/send.ts`: v3.8 flags-on suite: `track` as an agent calls it with the shipping flags on (proof with `track_v2`; check, started when needed, and `final` with `draft_check`), plain `track` flags off; `checkDraft`, `TEST_PROOF`
 - `apps/frontend/lib/v5/fixtures/test-db.ts`: Per-test-file database creation and cleanup
 - `apps/frontend/lib/v5/fixtures/test-db-template.mjs`: Builds the worktree's template database (schema twice, programs synced); the catalog sync runs at the tests' clock (`EARNKIT_SYNC_NOW`, 2026-11-04T12:00Z), so a close date passing in real time never changes the tests
 - `apps/frontend/lib/v5/fixtures/test-db-create.mjs`: Creates one test database from the template

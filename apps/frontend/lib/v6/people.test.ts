@@ -11,6 +11,7 @@ import { githubOAuthFetch } from './fixtures/github-oauth';
 import { signInstallState, signState, verifyInstallState, verifyState } from './github-auth';
 import { INSTALL_FAILED, callbackGet } from './link-routes';
 import { clientNameReason, testReasonFor } from './people';
+import { flagOn } from '../v5/flags';
 
 after(() => sql().end());
 
@@ -111,8 +112,14 @@ test('linking sets the builder on the person; a builder with a person takes the 
   assert.equal(await unlinkInstallation(a, b.id, NOW), true);
   assert.equal((await personOf(a)).id, pa);
   await deleteBuilder(b.id, NOW);
-  assert.equal((await sql()`SELECT builder_id FROM people WHERE id = ${pa}`)[0].builder_id, null);
-  assert.equal((await personOf(a)).id, pa);
+  // v3.8 flags-on suite: with `form` on, delete also deletes the person row and unpoints its installations (v3.8-e12-*.md); off is main's.
+  if (flagOn('form')) {
+    assert.deepEqual([...(await sql()`SELECT builder_id FROM people WHERE id = ${pa}`)], []);
+    assert.equal(await personOf(a), undefined);
+  } else {
+    assert.equal((await sql()`SELECT builder_id FROM people WHERE id = ${pa}`)[0].builder_id, null);
+    assert.equal((await personOf(a)).id, pa);
+  }
 });
 
 test('I2 (v6.1.21): a first link of a name-flagged installation makes the builder a fresh, unflagged person', async () => {
@@ -236,6 +243,7 @@ const callback = (state: string, cookie: string | null, gh: typeof fetch) =>
   callbackGet(new Request(`https://earnkit.test/auth/github/callback?code=ghc&state=${encodeURIComponent(state)}`, { headers: { 'x-real-ip': ip(), ...(cookie ? { cookie } : {}) } }), { now: new Date(), gh });
 
 test('install sign-in off: authorize redirects straight to the client, anonymous', async () => {
+  delete process.env.EARNKIT_FLAGS; // v3.8 flags-on suite: the subject is install_signin off; afterEach restores it
   const { client_id } = await registerClient({ redirect_uris: [CB], client_name: 'Anon Agent' });
   const r = await authorize(client_id);
   assert.equal(new URL(r.headers.get('location')!).origin + new URL(r.headers.get('location')!).pathname, CB);

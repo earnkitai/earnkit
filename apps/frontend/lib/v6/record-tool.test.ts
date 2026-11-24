@@ -1,6 +1,7 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
+import { copy } from '../v5/copy'; // v3.8 flags-on suite: the sign-in line is in the copy table (E14/E15)
 import { programFixture } from '../v5/fixtures/program';
 import { mcpCall } from '../v5/fixtures/mcp-call';
 import { connectInstallation, markNextNeeds, saveInstallation } from '../v5/installations';
@@ -65,7 +66,7 @@ test('unlinked and configured: the sign-in link, and nothing saved', async () =>
   assert.match(link, /\/link\/[A-Za-z0-9_-]{16,}$/);
   assert.ok(link.startsWith('https://earnkit.test/link/'), link);
   // R8: a set while unlinked says the fact was not saved and what to do; get keeps the plain sign-in line.
-  assert.equal(r.reply!.show_to_builder, `Not saved. Sign in once at ${link}, then tell me again.`);
+  assert.equal(r.reply!.show_to_builder, copy().notSavedSignIn(link));
   assert.equal(r.isError, true);
   assert.equal(again.isError, false);
   assert.equal(again.reply!.show_to_builder, `Sign in once at ${link} and I remember you.`);

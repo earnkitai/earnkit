@@ -6,7 +6,7 @@ import { COPY_V37, copy } from './copy';
 import { z } from 'zod';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { DELETED_NOTICE, shortTitle } from '../v6/reply-words';
-import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
+import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim, stillLinked } from '../v6/claims';
 import { INFO_ONLY_SEND, NEW_ORGANIZER_SEND } from './official-page';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
@@ -551,6 +551,9 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   /** v3.8 E11: an agent's send of a catalog program needs a passing draft check of the text sent (`final`). */
   const sendGate = async (p: typeof row, d: TrackIn): Promise<Result | null> => {
     if (!draftOn || !p || d.status !== 'applied' || (d.submitted_by ?? 'agent') !== 'agent') return null;
+    // v3.8 flags-on suite (T5-F4, R10, L17-9): an agent unlinked meanwhile (its claim and check gone with the link) is
+    // refused by the ledger, writing nothing, with the line that the form went out; the gate never hides that line.
+    if (!(await stillLinked(sql(), owner, ctx.installationId))) return null;
     const note = await draftGate(owner, p.id, final);
     return note ? refused({ show_to_builder: '', agent_note: note, ledger: await summary(owner, programs, ctx.now) }) : null;
   };
@@ -586,7 +589,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   if (mineByTitle) return onPrivate(mineByTitle);
   const acted = !row && !sentRow
     ? await refuse(hole !== null ? LIST_GONE(hole) : unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
-    : await sendGate(row, data) ?? await withV2(await act(ctx, owner, programs, refuse, known ? data : rest), row?.id ?? raw, row ? shortTitle(row.file.title, row.file.short_title) : raw);
+    : await withV2(await act(ctx, owner, programs, refuse, known ? data : rest, draftOn ? () => sendGate(row, data) : undefined), row?.id ?? raw, row ? shortTitle(row.file.title, row.file.short_title) : raw);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, shortTitle(row.file.title, row.file.short_title)), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
@@ -769,6 +772,7 @@ async function act(
   programs: Awaited<ReturnType<typeof listOpenPrograms>>,
   refuse: (note: string, agentNote?: string) => Promise<Result>,
   given: TrackIn,
+  gate?: () => Promise<Result | null>,
 ): Promise<Result> {
   // L45-10 (v6.1.19): an item copied with spaces, hidden characters or another case is the program's own item.
   const gapProgram = given.status === 'gap_done' && given.item !== undefined ? await getProgram(given.program_id) : null;
@@ -940,6 +944,13 @@ async function act(
   const ownClaim = own?.status === 'started' && own.claimed_by === ctx.installationId && own.claimed_at !== null
     && own.claimed_at.getTime() > ctx.now.getTime() - CLAIM_HOURS * 3_600_000;
   if (((i.status === 'applied' && sender === 'agent' && !ownClaim) || i.status === 'held') && (await notMine())) return notYours();
+  // v3.8 flags-on suite: E11's draft gate (track's sendGate) after every check above that refuses with its own line and
+  // writes nothing (in person L29-7, a rule, not your repo); a send already sent here is the ledger's to refuse with
+  // its line (L28-10: Already sent on ...), which the gate's empty line never hides.
+  if (gate && i.status === 'applied' && !(row && (await sentHere(owner, row.id, appKey)))) {
+    const g = await gate();
+    if (g) return g;
+  }
   // L28-3: a send the builder made with a repo that is not theirs is kept (L23-3), under the project's name only, so it
   // never matches a screen row for that repo and never takes the repo's place.
   let offRepo: string | null = null;

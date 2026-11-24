@@ -9,6 +9,7 @@ import { answerFor, mergeRecord } from './record';
 import { createSession, draftOf, sessionBuilder } from './sessions';
 import { claim } from './claims';
 import { isApproved } from './record';
+import { copy } from '../v5/copy';
 
 after(() => sql().end());
 
@@ -452,7 +453,8 @@ test('B10: /me/unlink sets unlinked_at, and that agent\'s next find says it was 
   const line = `This agent was unlinked from your account. Sign in once at ${link} to link it again.`;
   assert.equal(first.linked_notice, line);
   // v6.1.17 Task 1 fix round 1 (I3): the ask stays last, the notice before it.
-  assert.ok(first.show_to_builder.endsWith(`${line}\n\nTell me what you build, or its repo link, and I match it.`), first.show_to_builder);
+  // v3.8 flags-on suite: the closing after the unlink notice is the copy table's (E15 openAskUnlinked).
+  assert.ok(first.show_to_builder.endsWith(`${line}\n\n${copy().openAskUnlinked}`), first.show_to_builder);
   assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${inst}`)[0].unlinked_at, null);
   const second = (await find({ ...ctx, now: new Date(NOW.getTime() + 120_000) }, {})) as { linked_notice: string | null };
   assert.equal(second.linked_notice, null);

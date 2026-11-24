@@ -6,7 +6,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { saveInstallation } from './installations';
-import { upsertProgram } from './programs';
+import { getProgram, upsertProgram } from './programs';
+import { flagOn } from './flags';
+import { TEST_PROOF } from './fixtures/send';
 import { programFixture } from './fixtures/program';
 import { LIMITS, windowStart } from './rate-limit';
 import { ruleItem } from './eligibility';
@@ -66,12 +68,28 @@ function refused(r: Awaited<ReturnType<Awaited<ReturnType<typeof agent>>['call']
 
 const p = (id: string, over: Record<string, unknown> = {}) => upsertProgram(programFixture({ id, title: id, ...over }), 'file', NOW);
 
+/** v3.8 flags-on suite: an applied with the proof track_v2 needs (E9); flags off, the arguments as given. */
+const proved = (args: Record<string, unknown>) => (flagOn('track_v2') ? { ...args, proof: TEST_PROOF } : args);
+/** v3.8 flags-on suite: an agent's send as fixtures/send makes it over MCP: with draft_check (E11) a started, a passing
+ * check of the form's required fields, then the applied with them as final; flags off, the applied as given. */
+async function send(a: Awaited<ReturnType<typeof agent>>, args: Record<string, unknown>) {
+  if (!flagOn('draft_check') || args.submitted_by === 'builder') return a.call('track', proved(args));
+  const row = (await getProgram(String(args.program_id)))!;
+  const final = Object.fromEntries(row.file.submission_requirements.filter((r) => r.required && r.type !== 'file').map((r) => [r.key, row.file.title]));
+  const { status: _s, ...rest } = args;
+  void _s;
+  await a.call('track', { ...rest, status: 'started' });
+  const checked = await a.call('track', { action: 'check', program_id: args.program_id, fields: final });
+  assert.equal(checked.isError, false, checked.text);
+  return a.call('track', { ...proved(args), final });
+}
+
 test('track and find: an unknown program and a common word ask which; nothing is written', async () => {
   const a = await agent();
   // L1j-2 (v6.1.17): the name it was given.
-  refused(await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' }), 'I do not know a program called "zz-no-such-thing". Say its full name.');
+  refused(await a.call('track', proved({ program_id: 'zz-no-such-thing', status: 'applied' })), 'I do not know a program called "zz-no-such-thing". Say its full name.');
   refused(await a.call('track', { program_id: 'next', status: 'started' }), 'I do not know a program called "next". Say its full name.');
-  const r = await a.call('track', { program_id: 'zz-no-such-thing', status: 'applied' });
+  const r = await a.call('track', proved({ program_id: 'zz-no-such-thing', status: 'applied' }));
   assert.equal(r.reply!.agent_note, 'Nothing was recorded. program_id takes the id or the name; a list number maps to the id in the JSON.');
   refused(await a.call('find', { program_id: 'zz-no-such-thing' }), 'I do not know a program called "zz-no-such-thing". Say its full name.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${a.id}`)[0].n, 0);
@@ -80,26 +98,28 @@ test('track and find: an unknown program and a common word ask which; nothing is
 test('track: already sent, both forms; the in-person send; the unconfirmed rule; held over a send', async () => {
   const a = await agent();
   await p('rf-sent');
-  const sent = await a.call('track', { program_id: 'rf-sent', status: 'applied', submitted_by: 'builder' });
+  const sent = await send(a, { program_id: 'rf-sent', status: 'applied', submitted_by: 'builder' });
   assert.equal(sent.isError, false, sent.text);
   assert.equal(sent.reply!.show_to_builder, 'Sent rf-sent.');
   refused(await a.call('track', { program_id: 'rf-sent', status: 'started' }), 'rf-sent was already sent.');
-  refused(await a.call('track', { program_id: 'rf-sent', status: 'applied', submitted_by: 'builder' }), /^Already sent on [^.]+\.$/);
-  refused(await a.call('track', { program_id: 'rf-sent', status: 'held' }), 'That one was already sent; nothing to hold.');
+  refused(await a.call('track', proved({ program_id: 'rf-sent', status: 'applied', submitted_by: 'builder' })), /^Already sent on [^.]+\.$/);
+  refused(await a.call('track', { program_id: 'rf-sent', status: 'held', ...(flagOn('track_v2') ? { held_reason: 'needs_yes' } : {}) }), // v3.8 flags-on suite: a hold carries its reason (E9)
+    'That one was already sent; nothing to hold.');
   // L29-7: an agent's send on an in-person program.
   await p('rf-room', { in_person: true, title: 'Room Summit' });
-  refused(await a.call('track', { program_id: 'rf-room', status: 'applied' }), 'Room Summit is applied for in person; nothing to send.');
+  refused(await a.call('track', proved({ program_id: 'rf-room', status: 'applied' })), 'Room Summit is applied for in person; nothing to send.');
   // L29-8: a rule not confirmed for the last find's project, with no project passed.
   await p('rf-rule', { eligibility: [{ kind: 'rule', note: 'a team of two or more' }] });
   await a.call('find', { project: { name: 'Rule App', description: 'An app.' } });
   refused(await a.call('track', { program_id: 'rf-rule', status: 'started' }), 'rf-rule needs one yes from you first: a team of two or more. Say yes if that is you.');
-  refused(await a.call('track', { program_id: 'rf-rule', status: 'applied', fields_used: ['project_name'] }), 'rf-rule needs one yes from you first: a team of two or more. Say yes if that is you.');
+  // v3.8 flags-on suite: the draft gate (E11) runs after the rule's yes, so the builder hears it in both runs.
+  refused(await a.call('track', proved({ program_id: 'rf-rule', status: 'applied', fields_used: ['project_name'] })), 'rf-rule needs one yes from you first: a team of two or more. Say yes if that is you.');
   const rows = await sql()`SELECT program_id FROM applications WHERE installation_id = ${a.id} AND program_id IN ('rf-room', 'rf-rule')`;
   assert.equal(rows.length, 0);
   // Confirmed, the same send goes through.
   const done = await a.call('track', { program_id: 'rf-rule', status: 'gap_done', item: ruleItem('a team of two or more') });
   assert.equal(done.isError, false, done.text);
-  const ok = await a.call('track', { program_id: 'rf-rule', status: 'applied', fields_used: ['project_name'] });
+  const ok = await send(a, { program_id: 'rf-rule', status: 'applied', fields_used: ['project_name'] });
   assert.equal(ok.isError, false, ok.text);
   assert.equal(ok.reply!.show_to_builder, 'Sent rf-rule.');
 });
@@ -108,7 +128,7 @@ test('track: a send outside the standing approval is recorded and answered isErr
   const a = await linked();
   await saveRecord(a.builderId, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 5, categories: ['grant'] } }, 'builder', NOW).record, NOW);
   await p('rf-bounty', { category: 'bounty' });
-  const r = await a.call('track', { program_id: 'rf-bounty', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
+  const r = await send(a, { program_id: 'rf-bounty', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   refused(r, 'Sent, but outside your standing approval: bounties are not in your categories.');
   assert.match(r.reply!.agent_note, /^Recorded as applied, not under standing approval\./);
 });
@@ -138,7 +158,7 @@ test('unreadable input on every tool: isError, no builder text, the fix in the n
   }
   // L29-21: any case reads; L29-23: submitted_by defaults to agent and a missing fields_used is said.
   await p('rf-case');
-  const ok = await a.call('track', { program_id: 'rf-case', status: 'APPLIED' });
+  const ok = await send(a, { program_id: 'rf-case', status: 'APPLIED' });
   assert.equal(ok.isError, false, ok.text);
   assert.match(ok.reply!.agent_note, /Pass fields_used next time; nothing was checked against your record\./);
   const [row] = await sql()`SELECT submitted_by FROM applications WHERE installation_id = ${a.id} AND program_id = 'rf-case'`;

@@ -4,6 +4,8 @@ import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { claim } from '../v6/claims';
+import { copy } from './copy';
+import { flagOn } from './flags';
 import { BESIDE_NOTE, CONFIRMED, EARLIER_RESULT, WIN_KEPT, paymentKeyOf, storedPaymentKeys, askOutcome, askSent, sentAsksDue, SENT_ASK_AFTER_HOURS, SENT_ASK_EVERY_DAYS, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf, applicationsLine, CANT_CONFIRM_REPO } from './ledger';
 
 after(() => sql().end());
@@ -103,7 +105,7 @@ test('a win has an amount above 0 (v6.1.7, B8); L25-13, L22-6 (v6.1.16): cents a
   await prog('l-whole');
   await record(o(i), 'l-whole', 'applied', { now: NOW });
   for (const amount_usd of [0, -1, Number.NaN, undefined]) {
-    assert.deepEqual(await record(o(i), 'l-whole', 'won', { amount_usd, now: NOW }), { ok: false, note: 'Tell me how much you won.' });
+    assert.deepEqual(await record(o(i), 'l-whole', 'won', { amount_usd, now: NOW }), { ok: false, note: copy().wholeDollars, ...(flagOn('copy_v38') ? { agent_note: copy().wholeDollarsNote } : {}) }); // v3.8 flags-on suite: ask 15 moves to the agent
   }
   assert.equal((await record(o(i), 'l-whole', 'won', { amount_usd: 1234.56, now: NOW })).ok, true);
   const [row] = await sql()`SELECT amount_usd, amounts FROM applications WHERE owner = ${o(i)} AND program_id = 'l-whole'`;
@@ -283,10 +285,10 @@ test('gap_done refuses an item that is not one of the program\'s, names the real
   const i = await install();
   await prog('l-gap-arc', { eligibility: [{ kind: 'chain', value: 'arc' }] });
   const r = await record(o(i), 'l-gap-arc', 'gap_done', { item: 'nope', now: NOW });
-  assert.deepEqual(r, { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc', 'repo'] });
+  assert.deepEqual(r, { ok: false, note: copy().whichChange, items: ['chain:arc', 'repo'] });
   // users only when the program has a users item (v6.1.7, C27); without an item the keys come back too (C11).
-  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { item: 'users', now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc', 'repo'] });
-  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc', 'repo'] });
+  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { item: 'users', now: NOW }), { ok: false, note: copy().whichChange, items: ['chain:arc', 'repo'] });
+  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { now: NOW }), { ok: false, note: copy().whichChange, items: ['chain:arc', 'repo'] });
   assert.deepEqual(await counts(i), { apps: 0, hist: 0 });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc', ''))], []);
   assert.equal((await record(o(i), 'l-gap-arc', 'gap_done', { item: 'chain:arc', now: NOW })).ok, true);
@@ -749,7 +751,8 @@ test('v6.1.16 Task 15 N4 (v6.1.17): a win sent outside EarnKit has no send date:
 
 test('I3 (v6.1.17 Task 5): ten untied strangers at once, each a find with the victim\'s repo racing a send and a started by name, land 0 rows on the repo; the victim\'s sends go through', async () => {
   const { find } = await import('./find');
-  const { track } = await import('./track');
+  // v3.8 flags-on suite: the sends as an agent makes them with the shipping flags (proof, the draft check); the subject is the repo tie.
+  const { track } = await import('./fixtures/send');
   const { linkInstallation, upsertBuilder } = await import('../v6/builders');
   const key = 'i3v/app';
   const facts = {
