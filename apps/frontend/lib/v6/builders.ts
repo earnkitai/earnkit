@@ -243,6 +243,9 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     // v6.1.16 Task 9: the results-question markers and the promised sends go with the account.
     await tx`DELETE FROM outcome_asks WHERE owner = ${owner}`;
     await tx`DELETE FROM sent_asks WHERE owner = ${owner}`;
+    // v3.8 E17: their backtest entries and scores (children first; the foreign keys carry no ON DELETE action).
+    await tx`DELETE FROM backtest_scores WHERE entry_id IN (SELECT id FROM backtest_entries WHERE builder_id = ${id})`;
+    await tx`DELETE FROM backtest_entries WHERE builder_id = ${id}`;
     await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted', promised = NULL, promised_at = NULL WHERE builder_id = ${id}`;
     // L28-10: a deleted record is nothing to read back.
     await tx`UPDATE installations SET former_builder_id = NULL WHERE former_builder_id = ${id}`;

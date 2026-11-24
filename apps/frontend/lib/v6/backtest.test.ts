@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from '../v5/db';
 import { main, METHOD_VERSION, reportLines, RoundFile, type Scored, scoreRound, verdictOf } from './backtest';
+import { deleteBuilder, upsertBuilder } from './builders';
 import { type Budget, readCode } from './code';
 import type { Explorer, Tx } from './explorers';
 import { evidence } from './fixtures/evidence-builder';
@@ -14,6 +15,8 @@ import { place, TIERS } from './tiers';
 
 after(() => sql().end());
 beforeEach(async () => {
+  await sql()`DELETE FROM backtest_scores`;
+  await sql()`DELETE FROM backtest_entries`;
   await sql()`DELETE FROM backtest_rounds`;
   await sql()`DELETE FROM evidence_cache`;
 });
@@ -145,6 +148,18 @@ test('--apply stores the round under METHOD_VERSION; a rerun keeps every score; 
   writeFileSync(file, JSON.stringify({ ...body, until: '2026-07-31T00:00:00Z' }));
   await assert.rejects(main(['--file', file, '--apply'], () => {}, deps), /stored with cutoff/);
   assert.equal((await sql()`SELECT 1 FROM backtest_scores`).length, 2);
+});
+
+test('deleteBuilder removes their stored entry and its score; the other entries of the round stay', async () => {
+  const b = await upsertBuilder({ github_id: 970_000 + Math.floor(Math.random() * 10_000), login: 'backtest-user', name: null, avatar_url: null }, new Date());
+  const dir = mkdtempSync(join(tmpdir(), 'backtest-'));
+  const file = join(dir, 'round.json');
+  writeFileSync(file, JSON.stringify({ program_id: 'demo', round: 'r2', until: UNTIL.toISOString(), entries: [{ ref: '1', name: 'Ours', won: false, builder_id: b.id }, { ref: '2', name: 'Other', won: true }] }));
+  const deps = { evidence: { probe: fakeSite().probe, rdap: fakeRdap().rdap }, now: new Date('2026-11-24T00:00:00Z') };
+  assert.equal((await main(['--file', file, '--apply'], () => {}, deps)).stored?.written, 2);
+  await deleteBuilder(b.id);
+  assert.deepEqual((await sql()<{ name: string }[]>`SELECT name FROM backtest_entries`).map((r) => r.name), ['Other']);
+  assert.equal((await sql()`SELECT 1 FROM backtest_scores`).length, 1);
 });
 
 test('a round file with a cutoff without a zone, or repeated refs, is refused', () => {

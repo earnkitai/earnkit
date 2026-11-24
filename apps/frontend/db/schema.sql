@@ -699,10 +699,11 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS final_hash text;
 
 -- v3.8 E17 (plan item 12, section 18): the backtest's private dataset (lib/v6/backtest.ts, scripts/backtest.mts). A
 -- past round (program, round, the evidence cutoff), its entries from public winner lists and galleries (`builder_id`
--- only for an EarnKit user, so a delete removes their rows), and one score per entry per method version: the tier,
--- flags and reasons as placed on evidence cut at `until`, hit or miss against the outcome, and the blocks that could
--- not be cut. A score is never rewritten under the same method version. Nothing here is read by the app. Additive and
--- idempotent: three new tables, no backfill.
+-- only for an EarnKit user; deleteBuilder removes their entries and scores), and one score per entry per method
+-- version: the tier, flags and reasons as placed on evidence cut at `until`, hit or miss against the outcome, and the
+-- blocks that could not be cut. A score is never rewritten under the same method version. Nothing here is read by the
+-- app. Additive and idempotent: three new tables, no backfill. The foreign keys carry no ON DELETE action (the schema
+-- guard rejects DELETE anywhere in a statement); every delete is explicit, children first.
 CREATE TABLE IF NOT EXISTS backtest_rounds (
   id          bigserial PRIMARY KEY,
   program_id  text NOT NULL,
@@ -714,18 +715,18 @@ CREATE TABLE IF NOT EXISTS backtest_rounds (
 );
 CREATE TABLE IF NOT EXISTS backtest_entries (
   id          bigserial PRIMARY KEY,
-  round_id    bigint NOT NULL REFERENCES backtest_rounds(id) ON DELETE CASCADE,
+  round_id    bigint NOT NULL REFERENCES backtest_rounds(id),
   ref         text NOT NULL,
   name        text NOT NULL,
   subject     jsonb NOT NULL,
   won         boolean NOT NULL,
-  builder_id  int REFERENCES builders(id) ON DELETE CASCADE,
+  builder_id  int REFERENCES builders(id),
   source_url  text,
   UNIQUE (round_id, ref)
 );
 CREATE TABLE IF NOT EXISTS backtest_scores (
   id              bigserial PRIMARY KEY,
-  entry_id        bigint NOT NULL REFERENCES backtest_entries(id) ON DELETE CASCADE,
+  entry_id        bigint NOT NULL REFERENCES backtest_entries(id),
   method_version  text NOT NULL,
   tier            text,
   flags           jsonb NOT NULL DEFAULT '[]'::jsonb,

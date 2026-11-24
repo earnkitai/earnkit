@@ -2135,6 +2135,8 @@ with no history are named in `Evidence.leaked`), `place` runs as of that day, an
 (used, live, building) agrees with the outcome. The printed report gives a non-user hit or miss only, never a tier,
 flag or reason. `--apply` stores the round, entries and one score per entry per `METHOD_VERSION` in `backtest_rounds`,
 `backtest_entries` and `backtest_scores` (never rewritten under the same version). Nothing the app serves reads them.
+The foreign keys have no ON DELETE action (the schema guard rejects it); `deleteBuilder` deletes a builder's scores
+then entries explicitly.
 Design: `docs/design-docs-and-implementation-plans/v3.8-e17-backtest.md`.
 
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
