@@ -2126,7 +2126,8 @@ unknown and old tool names, the route's too-deep and not-an-object answers) beco
 `copy()` returns `COPY_V38` when `copy_v38` is on: the plan 23.3 style and no ask for anything EarnKit or the agent
 can find (the 15 delegable asks, listed in the design doc). A removed ask becomes an agent note (`...Note` keys, empty
 on main). Line parsers that key on wording (`isDoUsersSay`, `isUsersRuleSay`, `SIGNED_USERS`, `asksSignIn`,
-`usersDraft`) accept both tables. `builderRulesV2` (fixtures) is the check for new copy. Design:
+`usersDraft`) accept both tables. After an unlink the open list closes on `openAskUnlinked`, since the notice already
+carries the sign-in. `builderRulesV2` (fixtures) is the check for new copy. Design:
 `docs/design-docs-and-implementation-plans/v3.8-e15-copy-v38.md`.
 
 ## v3.8 E16: install docs and the sign-in limit

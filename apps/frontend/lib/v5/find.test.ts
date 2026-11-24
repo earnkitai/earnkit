@@ -9,7 +9,8 @@ import { guideText } from './guide';
 import { replayFetch } from './fixtures/github';
 import { openCatalogProgram } from './fixtures/program';
 import { mcpCall as mcpCallRaw } from './fixtures/mcp-call';
-import { builderRules } from './fixtures/builder-rules';
+import { builderRules, builderRulesV2 } from './fixtures/builder-rules';
+import { COPY_V38 } from './copy';
 
 /** v6.1.20 review I5: every find reply this file gets (gated or not), walked by the contract at the end. */
 const findReplies: string[] = [];
@@ -2567,6 +2568,22 @@ test('B10: the first find after an unlink says so with the sign-in link, once; t
   await unlinkInstallation(third.id, third.builderId, NOW);
   const bare = await mcpCall({ ...ctx(third.id, later), linkUrl: async () => null }, 'find', { project: PROJECT });
   assert.equal(bare.reply!.linked_notice, 'This agent was unlinked from your account.');
+});
+
+test('v3.8 E15 (copy_v38): after an unlink the open list says sign in once, in the notice', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const link = 'https://earnkit.test/link/abcdefghijklmnop';
+  const other = await linkedWith(OWNER_RECORD);
+  await unlinkInstallation(other.id, other.builderId, NOW);
+  process.env.EARNKIT_FLAGS = 'copy_v38';
+  try {
+    const list = await mcpCall({ ...ctx(other.id, new Date(NOW.getTime() + H)), linkUrl: async () => link }, 'find', {});
+    const show = list.reply!.show_to_builder as string;
+    assert.ok(show.endsWith(`Sign in once at ${link} to link it again.\n\n${COPY_V38.openAskUnlinked}`), show);
+    builderRulesV2(show, { needsBuilder: true });
+  } finally {
+    delete process.env.EARNKIT_FLAGS;
+  }
 });
 
 test('C12: a name saved with record, then find in the same session: read fresh; name and email are two items', async () => {

@@ -768,7 +768,9 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const appsLine = applicationsLine(applications, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const ask = name ? copy().describeName(name) : ctx.builderId === null ? copy().openAsk : copy().openAskLinked;
+  // v3.8 E15: after an unlink the notice carries the sign-in link, so the closing does not ask it again.
+  const signInShown = link !== null && notice !== null && notice.includes(link);
+  const ask = name ? copy().describeName(name) : ctx.builderId !== null ? copy().openAskLinked : signInShown ? copy().openAskUnlinked : copy().openAsk;
   // v6.1.20: one opening with the count, then the nearest five (or every one in the full list), each a sentence.
   const count = `${programs.length} program${programs.length === 1 ? '' : 's'}`;
   const opening = all || programs.length <= OPEN_SHOWN ? `Open now: ${count}, nearest first:` : `Open now: ${count}. The ${OPEN_SHOWN === 5 ? 'five' : OPEN_SHOWN} nearest:`;

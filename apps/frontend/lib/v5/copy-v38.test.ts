@@ -12,6 +12,8 @@ import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
 import { track } from './track';
 import { find } from './find';
+import { DOCS_DELETE, DOCS_NEXT, DOCS_SEES } from './site-copy';
+import { INSTALL_PAGES } from '../v6/install-consent';
 
 after(() => sql().end());
 afterEach(() => {
@@ -101,7 +103,7 @@ test('every new line passes builderRules v2: short, no semicolons, dashes, excla
   ];
   for (const line of all(COPY_V38)) builderRulesV2(line, { needsBuilder: true, maxSentences: 3 });
   // The lines that need nothing from the builder end on what EarnKit did or will do.
-  for (const line of [COPY_V38.openAskLinked, COPY_V38.usersCheck, COPY_V38.whichChange, COPY_V38.won('$3,000', 'One Grant'), COPY_V38.nextNoted])
+  for (const line of [COPY_V38.openAskLinked, COPY_V38.openAskUnlinked, COPY_V38.usersCheck, COPY_V38.whichChange, COPY_V38.won('$3,000', 'One Grant'), COPY_V38.nextNoted])
     builderRulesV2(line, { needsBuilder: false, maxSentences: 2 });
 });
 
@@ -179,4 +181,10 @@ test('flag off end to end: the same calls give main\'s lines', async () => {
   await upsertProgram(programFixture({ id: 'cv38-off', title: 'Off Grant', eligibility: [{ kind: 'rule', note: 'a first-time founder' }] }), 'file', NOW);
   assert.equal((await track(c, { program_id: 'cv38-off', status: 'gap_done' })).show_to_builder, 'Which change did you finish on Off Grant?');
   assert.ok((await find(c, {})).show_to_builder.endsWith(COPY_V37.openAsk));
+});
+
+test('E16 install copy (site copy, not flagged) passes builderRules v2', () => {
+  for (const t of [...DOCS_NEXT.lines, DOCS_SEES.can, DOCS_SEES.cannot, DOCS_DELETE.text, INSTALL_PAGES.limited.text]) {
+    builderRulesV2(t, { needsBuilder: false });
+  }
 });

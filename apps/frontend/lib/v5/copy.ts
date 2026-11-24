@@ -16,6 +16,8 @@ export const COPY_V37 = {
   openAsk: 'Tell me what you build, or its repo link, and I match it.',
   /** The same, signed in (v3.8 E15: main has one line for both). */
   openAskLinked: 'Tell me what you build, or its repo link, and I match it.',
+  /** The same, signed out after an unlink whose notice already carries the sign-in link (v3.8 E15: main has one line). */
+  openAskUnlinked: 'Tell me what you build, or its repo link, and I match it.',
   /** v3.8 E15: the agent's part of the open and no-project closings (main: none). */
   openNote: '',
   /** The same with only a project name. */
@@ -115,6 +117,8 @@ export const COPY_V38: CopyTable = {
   // Ask 1: what you build or its repo link. Signed out the one ask is sign-in, signed in the agent passes the project.
   openAsk: "Sign in and I'll look at what you build and show you what you can apply to.",
   openAskLinked: "Next I'll check the project you're in and show you what fits.",
+  // The unlink notice already says to sign in, so the closing does not say it twice (builderRules: one sign-in sentence).
+  openAskUnlinked: "Once it's linked again, I'll look at what you build and show you what you can apply to.",
   openNote: 'Call find with the project you are in: its repo_url and every fact you can read. Ask the builder what they build only when no project is open.',
   // Ask 2: a project name with no repo.
   describeName: (name: string) => `Next I'll read ${name} and show you what fits.`,
