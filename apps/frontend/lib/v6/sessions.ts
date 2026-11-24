@@ -69,6 +69,14 @@ export async function hasSession(cookieHeader: string | null, now: Date): Promis
   return Boolean(r);
 }
 
+/** The live session's builder id, read only (no last_seen_at write), or null (v3.8 owner/test preview, `lib/v6/flag-preview.ts`). */
+export async function sessionBuilderId(cookieHeader: string | null, now: Date): Promise<number | null> {
+  const token = tokenOf(cookieHeader);
+  if (!token) return null;
+  const [r] = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM sessions WHERE token_hash = ${hash(token)} AND expires_at > ${now}`;
+  return r?.builder_id ?? null;
+}
+
 /**
  * Ends the database session behind each session cookie present (L31-6 controller ruling, v6.1.16 Task 17): the
  * current name and, for one release, the old ek_me, which may hold another token.

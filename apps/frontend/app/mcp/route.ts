@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { BodyTimeoutError, CORS, bodyTimedOut, json, notAllowed, preflight } from '../../lib/v5/http';
 import { connectInstallation, type Caller } from '../../lib/v5/installations';
 import { createMcpServer } from '../../lib/v5/mcp';
+import { previewForInstallation, withCallerFlags } from '../../lib/v6/flag-preview';
 import { answerOldTools } from '../../lib/v5/old-tools';
 import { publicOrigin, resourceOf } from '../../lib/v5/oauth';
 import { clientIp } from '../../lib/v5/rate-limit';
@@ -117,8 +118,7 @@ async function scrubbed(request: Request): Promise<{ request: Request | null; id
  * The hosted EarnKit MCP server (Streamable HTTP, stateless, a server per request). Requires an
  * installation token. Tool calls are rate limited per installation and per client IP (mcp.ts).
  */
-async function handle(incoming: Request) {
-  let request = incoming;
+async function handle(request: Request): Promise<Response> {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   let caller: Caller | null = null;
   try {
@@ -135,6 +135,14 @@ async function handle(incoming: Request) {
       'WWW-Authenticate': `Bearer resource_metadata="${metadata}"`,
     });
   }
+  // v3.8 owner/test preview: the rest of the request runs in the installation's flag context.
+  const known = caller;
+  return withCallerFlags(() => previewForInstallation(known.id), () => serve(request, known));
+}
+
+/** The request of a known installation: Accept, the scrub, then the transport. */
+async function serve(incoming: Request, caller: Caller): Promise<Response> {
+  let request = incoming;
   // L19-3: 406 only when Accept names neither JSON nor the event stream.
   const accept = servedAccept(request.headers.get('accept'));
   if (accept === null) return json({ error: 'not_acceptable', error_description: 'Accept application/json.' }, 406);
