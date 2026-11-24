@@ -18,7 +18,7 @@ import { placesOf } from './amount';
 import { sql } from './db';
 import { BESIDE_NOTE } from './ledger';
 import { ownerMail, type Mailer } from './mail';
-import { ProgramFile } from './program-file';
+import { PRIVATE_PREFIX, PRIVATE_SHOWN, ProgramFile } from './program-file';
 import { movedByDate, UNREADABLE_FIX, type Unreadable } from './health';
 import { listListedPrograms } from './programs';
 import { findProgramsDir, revertPlan } from './programs-api';
@@ -199,6 +199,9 @@ async function revertLinkFor(id: string, now: Date, failures: Set<string>, asWri
   }
 }
 
+/** v3.8 E8: a builder's private program (lib/v6/private-programs.ts) is counted in the digest but never named. */
+const PRIVATE_LIKE = `${PRIVATE_PREFIX}%`;
+
 /**
  * L18-5 (v6.1.18 Task 5, fix round 1): the sends of the UTC day before `dayStart` (by `sendTime`, stats.ts), and
  * every send before `dayStart`, so the block never changes within the digest's day (a same-day rerun builds the same body).
@@ -222,7 +225,9 @@ async function digestApplications(dayStart: Date, lastDay: string | null): Promi
     SELECT ${sendCounts(db)}, (SELECT count(*) FROM s WHERE sent_time < ${dayStart}) AS total FROM d`;
   const rows = await db<{ id: string; title: string | null; sent: string }[]>`
     WITH s AS (${sendRows(db)})
-    SELECT program_id AS id, max(title) AS title, count(*) AS sent FROM s WHERE sent_time >= ${from} AND sent_time < ${dayStart} GROUP BY program_id`;
+    SELECT CASE WHEN program_id LIKE ${PRIVATE_LIKE} THEN ${PRIVATE_SHOWN.id} ELSE program_id END AS id,
+           CASE WHEN bool_or(program_id LIKE ${PRIVATE_LIKE}) THEN ${PRIVATE_SHOWN.title} ELSE max(title) END AS title, count(*) AS sent
+    FROM s WHERE sent_time >= ${from} AND sent_time < ${dayStart} GROUP BY 1`;
   return {
     sent: Number(t.all), agent: Number(t.agent), drafted: Number(t.drafted), reported: Number(t.reported), total: Number(t.total),
     byProgram: rows.map((r) => ({ id: r.id, title: r.title ?? r.id, sent: Number(r.sent) })),
@@ -246,7 +251,7 @@ async function digestResults(since: Date, now: Date): Promise<DigestResults> {
       SELECT h.*, row_number() OVER (PARTITION BY h.owner, h.program_id, COALESCE(h.project_id, ''), h.status, (h.payment_key IS NULL) ORDER BY h.at DESC, h.id DESC) AS n
       FROM application_history h
       WHERE h.status IN ('won', 'rejected') AND h.at > ${since} AND h.at <= ${now} AND h.note IS DISTINCT FROM ${BESIDE_NOTE})
-    SELECT h.status, COALESCE(p.file->>'title', (SELECT a.title FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.title IS NOT NULL LIMIT 1), h.program_id) AS title,
+    SELECT h.status, CASE WHEN h.program_id LIKE ${PRIVATE_LIKE} THEN ${PRIVATE_SHOWN.title} ELSE COALESCE(p.file->>'title', (SELECT a.title FROM applications a WHERE a.owner = h.owner AND a.program_id = h.program_id AND a.title IS NOT NULL LIMIT 1), h.program_id) END AS title,
            h.currency, sum(h.amount) AS amount
     FROM r h LEFT JOIN programs p ON p.id = h.program_id
     WHERE (h.status = 'won' AND (h.payment_key IS NOT NULL OR h.n = 1))

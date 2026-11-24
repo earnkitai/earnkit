@@ -748,3 +748,15 @@ CREATE TABLE IF NOT EXISTS tracked_handles (
   profile_domain text NOT NULL,
   at             timestamptz NOT NULL DEFAULT now()
 );
+
+-- v3.8 E8 (plan item 5, cutover A3): private program rows, visible only to the owner who saved them (lib/v6/private-programs.ts).
+-- A table of their own, so no public read of `programs` can list one. Additive and idempotent: one new table, no
+-- foreign keys (an account's link and delete move or remove its rows in code, lib/v6/builders.ts).
+CREATE TABLE IF NOT EXISTS private_programs (
+  owner      text NOT NULL,                -- 'b:<builder id>' or 'i:<installation id>', as applications.owner
+  id         text NOT NULL,                -- 'private-<slug>'
+  file       jsonb NOT NULL,               -- what the builder gave: title, url, organizer, reward, ends_at, tz, note
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner, id)
+);

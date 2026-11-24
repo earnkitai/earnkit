@@ -6,8 +6,8 @@
  * `--apply` writes the same plan in one transaction and is idempotent (a second run finds every row unchanged).
  *
  * A grant goes to the catalog program with its id, else the one whose source or submission link is the grant's url,
- * else it is unresolved until `--map` names its catalog program (private rows for programs outside the catalog come
- * with E8, `private_rows`, which is held; this branch writes catalog rows only). The known hard rows (`HARD_ROWS`) override the export's stage;
+ * else it is unresolved until `--map` names its catalog program. v3.8 E8: with `private_rows` on, a grant with no catalog
+ * program but an https link becomes a private row of the owner's (`private-<slug>`) instead. The known hard rows (`HARD_ROWS`) override the export's stage;
  * the two rows the export lacks (Delphi, Ship or Die) carry no link in any source, so they are imported only when the
  * run names their program (`--map delphi=<program id or https link>`); otherwise the summary lists them unresolved.
  * Nothing is invented: no link, no amount, no deadline zone. A date-only deadline is kept as words in the note, never
@@ -16,6 +16,9 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { type Db, sql } from '../v5/db';
+import { flagOn } from '../v5/flags';
+import { PRIVATE_PREFIX } from '../v5/program-file';
+import { privateIdOf, privateRowsIn, putPrivate, type PrivateProgramIn } from './private-programs';
 import { newApplicationId } from './claims';
 
 const Grant = z.object({
@@ -98,9 +101,12 @@ export type Line = {
   grant: string; name: string; program_id: string | null;
   action: 'create' | 'update' | 'unchanged' | 'not_imported' | 'unresolved';
   status?: string; stage?: string | null; why?: string; hard?: true;
+  /** v3.8 E8 (`private_rows` on): the line is a private row of the owner's, not a catalog program. */
+  private?: true;
 };
-export type Summary = { as_of: string; grants: number; create: number; update: number; unchanged: number; not_imported: number; unresolved: number; hard_rows: number };
-type Planned = Line & { target?: Target };
+/** `private_rows` (v3.8 E8): the private rows the run creates or updates; only with the flag on. */
+export type Summary = { as_of: string; grants: number; create: number; update: number; unchanged: number; not_imported: number; unresolved: number; private_rows?: number; hard_rows: number };
+type Planned = Line & { target?: Target; file?: PrivateProgramIn };
 
 const slugUrl = (u: string | null | undefined) => (u ? u.trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase() : '');
 
@@ -116,6 +122,8 @@ export async function plan(db: Db, owner: string, file: z.infer<typeof ExportFil
     ORDER BY program_id, at DESC`;
   const have = new Map(existing.map((r) => [r.program_id, r]));
   const hard = new Map(HARD_ROWS.map((h) => [h.id, h]));
+  const privateOn = flagOn('private_rows');
+  const privateIds = new Set(privateOn ? (await privateRowsIn(db, owner)).map((p) => p.id) : []);
 
   const items: { g: Grant | null; id: string; name: string; target: Target | null; hard: boolean }[] = file.grants.map((g) => {
     const h = hard.get(g.id);
@@ -134,27 +142,43 @@ export async function plan(db: Db, owner: string, file: z.infer<typeof ExportFil
     }
     const mapped = map[it.id];
     const url = mapped?.startsWith('https://') ? mapped : it.g?.url ?? null;
-    const programId = mapped && !mapped.startsWith('https://') ? mapped : ids.has(it.id) ? it.id : byUrl.get(slugUrl(url)) ?? null;
+    let programId = mapped && !mapped.startsWith('https://') ? mapped : ids.has(it.id) ? it.id : byUrl.get(slugUrl(url)) ?? null;
+    let priv: PrivateProgramIn | undefined;
     if (programId && !ids.has(programId)) {
       lines.push({ grant: it.id, name: it.name, program_id: programId, action: 'unresolved', why: '--map names no catalog program', ...hardMark });
       continue;
     }
-    if (!programId) {
+    if (!programId && !privateOn) {
       lines.push({ grant: it.id, name: it.name, program_id: null, action: 'unresolved', why: 'no catalog program: pass --map', ...hardMark });
       continue;
     }
+    if (!programId) {
+      // v3.8 E8: no catalog program, so a private row from what the export gives (its name, link, organizer, reward).
+      if (!url || !/^https:\/\//i.test(url)) {
+        lines.push({ grant: it.id, name: it.name, program_id: null, action: 'unresolved', why: 'no catalog program and no https link: pass --map', ...hardMark });
+        continue;
+      }
+      programId = privateIdOf(it.name);
+      priv = {
+        title: it.name.slice(0, 120), url, ...(it.g?.org ? { organizer: it.g.org.slice(0, 80) } : {}),
+        reward: it.target.kind === 'credits' ? 'Credits' : it.g?.amount_usd ? `$${it.g.amount_usd.toLocaleString('en-US')} cash` : undefined,
+      };
+      if (priv.reward === undefined) delete priv.reward;
+    }
+    const privMark = priv ? { private: true as const } : {};
     if (seen.has(programId)) {
-      lines.push({ grant: it.id, name: it.name, program_id: programId, action: 'not_imported', why: 'another grant in the export is this program', ...hardMark });
+      lines.push({ grant: it.id, name: it.name, program_id: programId, action: 'not_imported', why: 'another grant in the export is this program', ...privMark, ...hardMark });
       continue;
     }
     seen.add(programId);
     const t = it.target;
     const cur = have.get(programId);
     const same = cur && cur.status === t.status && !!cur.held_at === t.held && (cur.stage ?? null) === t.stage
-      && (cur.amount_usd === null ? null : Number(cur.amount_usd)) === t.amount_usd && (cur.note ?? '') === t.note;
+      && (cur.amount_usd === null ? null : Number(cur.amount_usd)) === t.amount_usd && (cur.note ?? '') === t.note
+      && (priv ? privateIds.has(programId) : true);
     lines.push({
       grant: it.id, name: it.name, program_id: programId, action: !cur ? 'create' : same ? 'unchanged' : 'update',
-      status: t.held ? 'held' : t.status, stage: t.stage, target: t, ...hardMark,
+      status: t.held ? 'held' : t.status, stage: t.stage, target: t, file: priv, ...privMark, ...hardMark,
     });
   }
   const count = (a: Line['action']) => lines.filter((l) => l.action === a).length;
@@ -162,6 +186,7 @@ export async function plan(db: Db, owner: string, file: z.infer<typeof ExportFil
     summary: {
       as_of: file.as_of, grants: file.grants.length, create: count('create'), update: count('update'), unchanged: count('unchanged'),
       not_imported: count('not_imported'), unresolved: count('unresolved'),
+      ...(privateOn ? { private_rows: lines.filter((l) => l.private && (l.action === 'create' || l.action === 'update')).length } : {}),
       hard_rows: lines.filter((l) => l.hard).length,
     },
     lines,
@@ -173,6 +198,7 @@ async function applyPlan(tx: Db, owner: string, installationId: number, lines: P
   for (const l of lines) {
     if ((l.action !== 'create' && l.action !== 'update') || !l.target || !l.program_id) continue;
     const t = l.target;
+    if (l.file) await putPrivate(tx, owner, l.program_id, l.file, now);
     const sentAt = t.sent_on ? new Date(`${t.sent_on}T00:00:00Z`) : null;
     const amounts = t.amount_usd !== null ? tx.json({ USD: t.amount_usd }) : null;
     const proof = t.status === 'applied' || t.status === 'won' || t.status === 'rejected' ? tx.json({ confirmation: `Jenil AI ledger ${l.grant}${t.sent_on ? `, submitted ${t.sent_on}` : ''}` }) : null;
@@ -218,7 +244,7 @@ export async function main(argv: string[], out: (s: string) => void = console.lo
   argv.forEach((a, i) => {
     if (a !== '--map') return;
     const [k, v] = (argv[i + 1] ?? '').split('=');
-    if (!k || !v) throw new Error('--map takes grant=program_id or grant=https://link');
+    if (!k || !v || (flagOn('private_rows') && v.toLowerCase().startsWith(PRIVATE_PREFIX))) throw new Error('--map takes grant=program_id or grant=https://link');
     map[k] = v;
   });
   const file = ExportFile.parse(JSON.parse(readFileSync(path, 'utf8')));
@@ -232,7 +258,7 @@ export async function main(argv: string[], out: (s: string) => void = console.lo
   };
   if (apply) await sql().begin(work);
   else await sql().begin('read only', async (tx) => { await work(tx); throw new DryRun(); }).catch((e) => { if (!(e instanceof DryRun)) throw e; });
-  const lines: Line[] = result.lines.map(({ target: _t, ...l }) => l);
+  const lines: Line[] = result.lines.map(({ target: _t, file: _f, ...l }) => l);
   out(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', owner, ...result.summary }, null, 2));
   for (const l of lines) out(JSON.stringify(l));
   return { summary: result.summary, lines };

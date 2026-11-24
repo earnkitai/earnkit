@@ -43,6 +43,9 @@ export const LIMITS = {
   cimdFetchHost: { limit: 300, windowSeconds: 3_600 },
   /** screen jobs, per reviewer ('b:<builder>'), per UTC day: counted once the call passed every other refusal. */
   screenJobs: { limit: 10, windowSeconds: 86_400 },
+  /** v3.8 E8: new private program rows, per owner ('b:<builder>' or 'i:<installation>'), per UTC day; an update of a
+   *  row already saved is free. */
+  privateRows: { limit: 20, windowSeconds: 86_400 },
   /** v3.8 E16 (plan L9): Connect presses on the install consent page, per IP an hour (sign-in attempts). */
   installConsent: { limit: 30, windowSeconds: 3_600 },
 } as const;

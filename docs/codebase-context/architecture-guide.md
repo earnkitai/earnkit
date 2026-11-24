@@ -2374,3 +2374,21 @@ the one-program users closing, `hasContracts`).
   address-only audit row (`addressOnly`) moves after every row with real changes and a stated award (`addressLast`);
   it stays in the full list. Arkanoid's default is back to Base Builder Grant and FLOSS/fund at rows 3 and 4.
 - **M3.** On the not-your-repo gate, which drops the draft Say, the in-person row loses `, so I can draft it today`.
+
+## v3.8 E8: private program rows and program flags
+
+Behind `private_rows`. A program that cannot pass the official-page check is saved by the builder's agent through
+`track` `action: add_private` into its own table, `private_programs` (owner, id), never `programs`: every public read
+(lists, guides, sitemap, llms.txt, find's catalog, GET /api/programs) reads `programs` only, so a private row cannot
+leak by a missing filter, and `private-programs.test.ts` checks each read anyway plus that only `private-programs.ts`
+and `builders.ts` name the table. Ids start `private-` (`PRIVATE_PREFIX`), which `ProgramFile` refuses for a catalog
+id. Track on a private row records the builder's own send only (`submitted_by: builder`); an agent's send is refused,
+so it is never submitted by an agent. New rows are limited per owner a day (`LIMITS.privateRows`). The owner digest
+and GET /api/programs/applications count private applications under one unnamed `Private programs` entry. Link moves
+the rows, delete removes them (in code: the table has no foreign keys, so the schema guard needs no allowlist entry).
+With the flag on, the E9 to E11 paths know private rows too: `withV2` applies the v2 rules to them, `afterSendAction`
+(interview, delivered) and `listTracked` resolve an own private id, and the track import turns a grant with no
+catalog program but an https link into a private row. Flag off, none of these lookups runs. Program flags
+(`reward_kind`, `application_kyc`, `payout_kyc`, `wallet_prompt`, `attestation`, `no_automation`) are optional data on
+the record, read by agents from find's `program`; nothing acts on them yet. Design:
+`docs/design-docs-and-implementation-plans/v3.8-e8r-private-rows.md`.
