@@ -12,10 +12,11 @@ import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, hit, uncountHit } from './rate-limit'
 import { MAX_ARG_DEPTH, tooDeep } from './secrets';
 import { TOO_DEEP_NOTE, inputError, isRefused, lenient } from './tool-input';
 import pkg from '../../package.json';
-import { TrackInput, track } from './track';
+import { track, trackAdvertised, trackDescription } from './track';
+import { withCatalog } from './catalog-page';
 import { RecordAdvertised, recordTool } from '../v6/record-tool';
 import { ScreenInput, screenTool } from '../v6/screen-tool';
-import { SERVER_INSTRUCTIONS, FIND_DESCRIPTION, TRACK_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION } from './tool-text';
+import { SERVER_INSTRUCTIONS, FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION } from './tool-text';
 
 /** `builderId`: the installation's linked builder, or null. `ip`: the caller's address as a rate-limit key, when the route knows it. */
 export type McpContext = {
@@ -96,13 +97,13 @@ export function createMcpServer(ctx: McpContext): McpServer {
       annotations: { readOnlyHint: true },
       description: FIND_DESCRIPTION,
       // L13-4 (v6.1.14): registered leniently like the others; find reads its arguments itself (findInputOf).
-      inputSchema: lenient(FindArgs),
+      inputSchema: lenient(withCatalog(FindArgs)),
     },
     (args) => run(ctx, 'find', args, () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh, evidence: ctx.evidence, linkUrl: ctx.linkUrl }, args)),
   );
   server.registerTool(
     'track',
-    { title: 'Track an application', description: TRACK_DESCRIPTION, inputSchema: lenient(TrackInput) },
+    { title: 'Track an application', description: trackDescription(), inputSchema: lenient(trackAdvertised()) },
     (args) => run(ctx, 'track', args, () => track({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   server.registerTool(

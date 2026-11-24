@@ -2049,6 +2049,20 @@ else sets it, so legacy X rows and earlier sign-ins are unverified until the nex
 counts take real owners only (`ownerReason`: the owner key's person's `test_reason`); `wonOnce` dedupes within each
 class. `sendRows` carries `reason` too.
 
+## v3.8 E9: the track state machine
+
+Behind `track_v2`; off, track and find are word for word main's (the tool schemas too). The ledger's stored status is
+unchanged; `applications.stage`, `held_reason`, `proof` and `round` sit beside it (`lib/v6/track-states.ts`).
+`stateOf` reads a row as found, started, registered, held, needs_build, applied, interview, won, rejected, no_result,
+delivered, skipped or closed_past_deadline; a stage counts only while its row's status still matches, so the ledger's
+later writes supersede it without touching it. track refuses applied without `proof` and held without `held_reason`
+before anything is written; found, registered and needs_build go through the ledger's hold path and then set the
+stage; interview and delivered need an applied and a won row. `track action: list` and `find catalog` page with a
+cursor, and a full read equals the database count (A4). `trackAdvertised` / `trackDescription` (track.ts) and
+`withCatalog` (catalog-page.ts) give the MCP tool schemas by flag. Deadlines are shown in the builder's
+`person.timezone`. Dedup stays program x canonical project (identity index); no unique index on round. Design:
+`docs/design-docs-and-implementation-plans/v3.8-e9-track-states.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the

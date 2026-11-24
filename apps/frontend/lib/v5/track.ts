@@ -23,6 +23,9 @@ import { PaymentKeyInput, inputDetail, inputError, readLoosely, refuse as refuse
 import { AMOUNT_DOT, AMOUNT_UNREAD, KNOWN_CURRENCIES, TELL_AMOUNT, UNKNOWN_CURRENCY, isUnknownCurrency, readAmount, type UnknownCurrency } from './amount';
 import { amountsText, moneyAt, moneyOf as tileMoney, moneyText } from './programs-read';
 import { cleanText, quoteName } from './controls';
+import { flagOn } from './flags';
+import { TRACK_DESCRIPTION } from './tool-text';
+import { AFTER_SEND, BEFORE_SEND, LIST_MAX, ListInput, V2Fields, afterWrite, listTracked, splitV2, stageAfterSend, stageLine, type TrackedItem, type V2 } from '../v6/track-states';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
@@ -62,8 +65,37 @@ export const TrackInput = z
   })
   .strict();
 
+/**
+ * v3.8: the track arguments advertised to agents, by the flags on. Flag off is `TrackInput` itself, so the tool list is
+ * unchanged. `track_v2` (E9) adds `action: list` with `limit` and `cursor`, the five new statuses, `held_reason`,
+ * `proof`, `round` and `application_id`; then program_id and status are not required (an action names neither). Pure
+ * given `env`.
+ */
+export function trackAdvertised(env: Record<string, string | undefined> = process.env): z.ZodObject {
+  if (!flagOn('track_v2', env)) return TrackInput;
+  return TrackInput.extend({
+    action: z.enum(['list']).optional().describe('list: every tracked application, limit at a time; pass next_cursor as cursor until it is null'),
+    status: z.enum([...TrackInput.shape.status.options, ...BEFORE_SEND, ...AFTER_SEND]),
+    ...V2Fields,
+    limit: z.number().int().min(1).max(LIST_MAX).optional().describe('list only: rows per page'),
+    cursor: z.string().max(400).optional().describe("list only: the last page's next_cursor"),
+  }).partial({ program_id: true, status: true });
+}
+
+/** v3.8 E9: the words `track_v2` adds. */
+export const V2_TRACK_TEXT =
+  " applied needs proof (proof.url: the confirmation page or entry link, or proof.confirmation: the confirmation message reference); held needs held_reason. found, registered and needs_build park a program before a send; interview and delivered follow a send and a win. action list reads every tracked application with its state and deadline in the builder's timezone.";
+
+/** The track description by the flags on (`trackAdvertised`). Pure given `env`. */
+export const trackDescription = (env: Record<string, string | undefined> = process.env): string =>
+  TRACK_DESCRIPTION + (flagOn('track_v2', env) ? V2_TRACK_TEXT : '');
+
 /** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
-type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true; next?: NextReady };
+type Result = {
+  show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string; refused?: true; next?: NextReady;
+  /** v3.8 E9: track list's page. */
+  applications?: TrackedItem[]; total?: number; next_cursor?: string | null;
+};
 /** L36-12 (v6.1.18): the next ready program after a send, so the next started needs no find. */
 /** L41-3 (v6.1.19): `rules` are the rules still to confirm when the next program is one yes away; empty when ready. */
 type NextReady = {
@@ -414,6 +446,16 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // L12-4, L13-4 (v6.1.14): read leniently first, as find reads its arguments: a null project is no project (the
   // last find's), a string one is dropped and named, a numeric id is its text.
   const loose = readLoosely(input, TRACK_LOOSE);
+  // v3.8 E9: track list, and the v2 arguments read out (`track_v2` on). Off, both are unknown keys refused as before.
+  let v2: V2 | null = null;
+  if (flagOn('track_v2')) {
+    if (loose.args.action === 'list') return listAction(ctx, owner, loose.args, programs);
+    const split = splitV2(loose.args);
+    if (split.error) return { ...inputError(split.error), ledger: await summary(owner, programs, ctx.now) };
+    loose.args = split.base;
+    v2 = split.v2;
+    if (v2.stage === 'interview' || v2.stage === 'delivered') return afterSendAction(ctx, owner, loose.args, v2, programs);
+  }
   const parsed = TrackInput.safeParse(caseFolded(loose.args));
   if (!parsed.success) {
     // L31-5 (v6.1.16 Task 17): a win whose only unread arguments are its amount gets the one bad-amount line.
@@ -455,6 +497,12 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // not one of the last list's is never matched against titles (only an exact id), so it never writes by a title word.
   // L45-14 (v6.1.19): EarnKit's own program page link is that program's id.
   given.program_id = programIdOf(given.program_id);
+  /** v3.8 E9: after a write the ledger made, the stage, reason, proof and round on its row, and a parked stage's line. */
+  const withV2 = async (r: Result, id: string, title: string): Promise<Result> => {
+    if (!v2 || r.refused) return r;
+    await afterWrite(owner, id, given.status, v2, r.application_id);
+    return v2.stage ? { ...r, show_to_builder: stageLine(v2.stage, title) } : r;
+  };
   const listed = (await getProgram(given.program_id)) ? null : listRef(given.program_id, await lastListIds(ctx.installationId));
   if (listed) given.program_id = listed;
   const raw = given.program_id;
@@ -472,7 +520,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const hole = !row && !sentRow && numberish ? listMiss(raw, await lastListIds(ctx.installationId)) : null;
   const acted = !row && !sentRow
     ? await refuse(hole !== null ? LIST_GONE(hole) : unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
-    : await act(ctx, owner, programs, refuse, known ? data : rest);
+    : await withV2(await act(ctx, owner, programs, refuse, known ? data : rest), row?.id ?? raw, row ? shortTitle(row.file.title, row.file.short_title) : raw);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, shortTitle(row.file.title, row.file.short_title)), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
@@ -485,6 +533,35 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const unread = [...problems, ...unknownProjectKeys(input && typeof input === 'object' ? (input as { project?: unknown }).project : undefined), ...(past > 0 ? [`fields_used: only the first ${FIELDS_KEPT} keys were read; ${past} more dropped`] : [])];
   const p = unread.length > 0 ? { ...p0, agent_note: `${p0.agent_note} ${unreadNote(unread)}` } : p0;
   return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+}
+
+/** v3.8 E9: `action: list`: one page of the owner's tracked applications (`listTracked`). */
+async function listAction(ctx: TrackContext, owner: string, args: Record<string, unknown>, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
+  const ledger = await summary(owner, programs, ctx.now);
+  const parsed = ListInput.safeParse(args);
+  if (!parsed.success) return { ...inputError(`Nothing was read. ${inputDetail(parsed.error)}`), ledger };
+  const page = await listTracked(owner, ctx.builderId, parsed.data, ctx.now);
+  if ('error' in page) return { ...inputError(page.error), ledger };
+  const more = page.next_cursor ? ' Call track list with cursor next_cursor for the next page.' : '';
+  return {
+    show_to_builder: '',
+    agent_note: `${page.items.length} of ${page.total} tracked applications; deadlines shown in ${page.zone}.${more}`,
+    ledger, applications: page.items, total: page.total, next_cursor: page.next_cursor,
+  };
+}
+
+/** v3.8 E9: interview or delivered on a sent (or won) application, by program id or name. */
+async function afterSendAction(ctx: TrackContext, owner: string, args: Record<string, unknown>, v2: V2, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
+  const ledger = () => summary(owner, programs, ctx.now);
+  const name = typeof args.program_id === 'string' ? programIdOf(args.program_id) : '';
+  const extra = Object.keys(args).filter((k) => k !== 'program_id' && k !== 'status' && k !== 'note');
+  if (!name || extra.length > 0) return { ...inputError(`Nothing was recorded. ${!name ? 'program_id: required' : `${extra.join(', ')}: not read with ${v2.stage}`}`), ledger: await ledger() };
+  const row = (await getProgram(name)) ?? (await programByName(name, ctx.now, { strict: true })).row;
+  const id = row?.id ?? name;
+  const title = row ? shortTitle(row.file.title, row.file.short_title) : name;
+  const done = await stageAfterSend(owner, id, title, v2.stage as 'interview' | 'delivered', v2);
+  if (!done.ok) return refused({ show_to_builder: done.show, agent_note: done.note, ledger: await ledger() });
+  return { show_to_builder: stageLine(v2.stage!, title), agent_note: `Recorded ${v2.stage} on ${id}.`, ledger: await ledger() };
 }
 
 /**

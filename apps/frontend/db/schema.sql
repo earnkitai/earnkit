@@ -680,3 +680,12 @@ HAVING count(i.id) > 0 OR p.builder_id IS NOT NULL;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF;
 END $$;
+
+-- v3.8 E9 (plan item 6, cutover A6, A9): the track state machine (lib/v6/track-states.ts). The stored status is
+-- unchanged; `stage` (found, registered, needs_build on a held row; interview on an applied one; delivered on a won
+-- one), `held_reason`, `proof` (applied: confirmation page or link, or message reference) and `round` sit beside it.
+-- Additive and idempotent: four nullable columns, no backfill.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS stage text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_reason text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS proof jsonb;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS round text;
