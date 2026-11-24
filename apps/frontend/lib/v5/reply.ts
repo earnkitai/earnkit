@@ -264,7 +264,7 @@ export function doUsersOf(gaps: GapProgram[]): { program: GapProgram; verb: stri
 /** L38-3 (v6.1.18): the closing that answers the users question and makes the change in one yes. Pure. */
 export const doUsersClosing = (verb: string, title: string): string => copy().doUsersClosing(verb, title);
 /** Fix round 1 (M3): whether a Say is that closing, so the agent note names it only then. Pure. */
-export const isDoUsersSay = (say: string): boolean => /Do real people use it\? Say yes and I .+, then apply to /.test(say);
+export const isDoUsersSay = (say: string): boolean => /Do real people use it\? Say yes and I .+, then apply to |Say yes and I'll .+, check it has real users, then apply to /.test(say);
 /** L38-3 (v6.1.18): the agent's part of that yes. */
 export const DO_USERS_NOTE = "When the closing offers a change with the users question, a yes is both: make that change, push, call track with gap_done and the gap's item, then call find again with users: true.";
 /** T3-R1 (v6.1.13): the code-in-a-repo step of a grant for existing code (eligibility's NEEDS_CODE). Pure. */
@@ -627,17 +627,16 @@ export function usersLookup(g: GapProgram, o: { linked: boolean; link: string | 
   const real = all.filter((x) => x.kind !== 'rule');
   if (real.length === 0 || !real.every(usersQuestion)) return null;
   const rule = usersRuleOf(g);
-  const ask = rule ? `Do real people use it, and ${rule.question}?` : 'Do real people use it?';
   const more = g.setup.length > 0 || all.some((x) => !!x.setup);
   const then = more || (rule && !o.linked) ? 'check' : o.draftOnly ? 'draft it for you to send' : 'apply';
   const offer: OfferKind = then === 'check' ? 'look_again' : then === 'apply' ? 'apply' : 'draft';
-  return { text: o.linked ? `${ask} Say yes and I ${then}.` : `${ask} Say yes, sign in${o.link ? ` at ${o.link}` : ''}, and I ${then}.`, offer };
+  return { text: copy().usersLookup({ rule: rule ? rule.question : null, linked: o.linked, link: o.link, then }), offer };
 }
 /** Review I4 (v6.1.23): the users-and-rule question's one yes is both answers. */
 export const USERS_RULE_NOTE = (items: string[]): string =>
   `A yes to "Do real people use it, and ...?" answers both: call track with gap_done and item ${items.join(', then item ')}, then call find again with users: true; never ask the rule again.`;
 /** Review I4 (v6.1.23): whether a closing is the users-and-rule question. Pure. */
-export const isUsersRuleSay = (say: string): boolean => /Do real people use it, and [^?]+\? Say yes\b/.test(say);
+export const isUsersRuleSay = (say: string): boolean => /Do real people use it, and [^?]+\? Say yes\b|real people use it\. [^?]+\? Say yes\b/.test(say);
 /** Review I4 (v6.1.23): the rule items a users-and-rule row's yes confirms. Pure. */
 export const usersRuleItems = (g: GapProgram): string[] => [g.gap, ...g.also].filter((x) => x.kind === 'rule').map((x) => x.item);
 /** L29-19 (v6.1.16 Task 15): one way to pass the users yes. */
@@ -748,9 +747,9 @@ export function closingLine(o: {
     if (o.firstRule !== null) return { text: `Nothing is ready yet. ${ruleSay(o.firstRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
     // L1n-2 (v6.1.23): a row that still needs users never closes on its rule alone: one question asks both.
     if (o.stepRule != null && o.usersRule) {
-      const ask = `Do real people use it, and ${o.usersRule.question}?`;
-      if (o.linked === false) return { text: `Nothing is ready yet. ${ask} Say yes, sign in, and I check.`, offer: 'look_again' };
-      return o.usersRule.more ? { text: `Nothing is ready yet. ${ask} Say yes and I check.`, offer: 'look_again' } : { text: `Nothing is ready yet. ${ask} Say yes and I apply.`, offer: 'apply' };
+      const ask = (linked: boolean, then: string) => `Nothing is ready yet. ${copy().usersLookup({ rule: o.usersRule!.question, linked, link: null, then })}`;
+      if (o.linked === false) return { text: ask(false, 'check'), offer: 'look_again' };
+      return o.usersRule.more ? { text: ask(true, 'check'), offer: 'look_again' } : { text: ask(true, 'apply'), offer: 'apply' };
     }
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
     if (o.stepRule != null) return { text: `Nothing is ready yet. ${ruleSay(o.stepRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
@@ -1183,7 +1182,8 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // has no sign-in line; the link stays in the JSON for the agent, and a send with a repo is gated by find (`signInFirst`).
   // Fix round 1 (I2): judged on the Say the reply ends on; the full view ends on the default view's.
   const endsOn = o.all && o.defaultSay !== undefined ? o.defaultSay : closingOf.text;
-  const asksSignIn = !r.linked && /Do real people use it(?:, and [^?]+)?\? Say yes, sign in\b/.test(endsOn);
+  // v3.8 E15: the new copy's users line is the sign-in itself (`USERS_V38`).
+  const asksSignIn = !r.linked && (/Do real people use it(?:, and [^?]+)?\? Say yes, sign in\b/.test(endsOn) || /^(Nothing is ready yet\. )?Sign in and I'll check whether real people use it/.test(endsOn));
   // Fix round 1 (I1): only when the closing keeps the reply's Say (no not-sent, started or sent line says it first).
   const notSent = notSentLine(r, now);
   // v6.1.16 Task 9 N4 (v6.1.17): a program the not-sent line names gets no started line too.
@@ -1203,6 +1203,9 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
   // Task 2 (v6.1.16.1, Task 1 leftover): with the unlinked notice too, the closing still carries the link and the
   // notice keeps only its first sentence, so the reply has one sign-in sentence.
   if (asksSignIn && r.sign_in) closingOf.text = closingOf.text.replace(/Say yes, sign in, and I (check|apply)\./, (_m, v: string) => usersUnlinkedAt(r.sign_in!, v as 'check' | 'apply').replace(/^Do real people use it\? /, ''));
+  // v3.8 E15: the same for the new copy, whose users line is the sign-in itself.
+  if (asksSignIn && r.sign_in && copy() !== COPY_V37)
+    closingOf.text = closingOf.text.replace(copy().usersUnlinkedApply, copy().usersUnlinkedAt(r.sign_in, 'apply')).replace(copy().usersUnlinked, copy().usersUnlinkedAt(r.sign_in, 'check'));
   // L46-5 (v6.1.20): signed out, a rule yes carries the sign-in in one sentence, never a second sign-in line.
   const ruleSignIn = !r.linked && !proofRow && !asksSignIn && !sayFirst && tonight === 0 && closingOf.offer === 'rule' && !!r.sign_in;
   if (ruleSignIn) closingOf.text = `${NOTHING_READY} ${signInThen(`Sign in at ${r.sign_in}`, closingOf.text.replace(/^Nothing is ready yet\. /, ''))}`;
@@ -1842,15 +1845,15 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === CONTRACT_ADDRESS.item))) lines.push(CONTRACT_ADDRESS_NOTE);
   // L36-13 (v6.1.18): the demo video link goes in the project.
-  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(DEMO_NOTE);
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'demo_video'))) lines.push(copy().demoNote);
   // L29-19 (v6.1.16 Task 15): one way.
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
-    lines.push(`"Do real people use it" is a question, not work: ask the builder once. ${USERS_NOTE}${o.say !== undefined && isDoUsersSay(o.say) ? ` ${DO_USERS_NOTE}` : ''}`);
+    lines.push(`${copy().usersNoteLead} ${USERS_NOTE}${o.say !== undefined && isDoUsersSay(o.say) ? ` ${DO_USERS_NOTE}` : ''}`);
   // Review I4 (v6.1.23): the users-and-rule question's yes settles the rule too.
   const usersRuleRow = o.say !== undefined && isUsersRuleSay(o.say) ? r.gaps.find((g) => usersRuleOf(g) !== null) : undefined;
   if (usersRuleRow) lines.push(USERS_RULE_NOTE(usersRuleItems(usersRuleRow)));
   if (r.gaps.some((g) => [g.gap, ...g.also].some(startedQuestion)))
-    lines.push('"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at in the project next time, or, when they started after the program\'s start, call track with gap_done and that gap\'s item. Never invent the date.');
+    lines.push(copy().startedNote);
   // L29-26 (v6.1.16 Task 15): the default view's left-out lines, and what "say more" is.
   if ((o.hidden ?? []).length > 0) lines.push('Not shown to the builder:', ...o.hidden!);
   // L18-1 (v6.1.18): `more` is the count on the builder's more line (rank cap and line budget together).
@@ -1858,7 +1861,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   else if ((o.hidden ?? []).length > 0) lines.push('When the builder says more, call find with filter.all.');
   // L23-4 (v6.1.16): the builder text asks; the agent passes the answers on.
   if (r.ask_outcome.length > 0)
-    lines.push(`The reply asks how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
+    lines.push(copy().outcomeNote(r.ask_outcome.map((a) => a.title)));
   // L18-4 (v6.1.18 Task 4): the sent question's answer is the agent's to record.
   if (sentAsked) lines.push(sentAsked);
   if (r.not_sent && r.not_sent.programs.length > 0)

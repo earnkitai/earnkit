@@ -2121,6 +2121,14 @@ unknown and old tool names, the route's too-deep and not-an-object answers) beco
 `copy()`, read at call time by find, reply, track, ledger, record and screen. The old constant names are aliases of
 `COPY_V37`. Design: `docs/design-docs-and-implementation-plans/v3.8-e14-copy-extraction.md`.
 
+## v3.8 E15: the new copy (`copy_v38`)
+
+`copy()` returns `COPY_V38` when `copy_v38` is on: the plan 23.3 style and no ask for anything EarnKit or the agent
+can find (the 15 delegable asks, listed in the design doc). A removed ask becomes an agent note (`...Note` keys, empty
+on main). Line parsers that key on wording (`isDoUsersSay`, `isUsersRuleSay`, `SIGNED_USERS`, `asksSignIn`,
+`usersDraft`) accept both tables. `builderRulesV2` (fixtures) is the check for new copy. Design:
+`docs/design-docs-and-implementation-plans/v3.8-e15-copy-v38.md`.
+
 ## v3.8 E16: install docs and the sign-in limit
 
 /docs#install and llms.txt share `DOCS_NEXT` (three lines), `DOCS_SEES` and `DOCS_DELETE` (site-copy.ts), so a builder

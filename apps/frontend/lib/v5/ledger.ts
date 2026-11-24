@@ -25,7 +25,7 @@ import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, restoreEarlierSet, s
 import { identityFor, projectKeyOf, type Project } from './project-input';
 import { readAgrees, repoKey as repoPathOf } from './repo-facts';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
-import { amountsOverCap, overCap, roundIn, underADollar, underADollarLine } from './amount';
+import { amountsOverCap, overCap, roundIn, underADollar } from './amount';
 import { cleanText, quoteName } from './controls';
 
 /**
@@ -449,7 +449,7 @@ export async function record(
   const given = o.amount ?? (o.amount_usd !== undefined ? { value: o.amount_usd, currency: 'USD' } : undefined);
   const noAmount = status === 'won' && o.amountNotGiven === true && given === undefined;
   if (status === 'won' && !noAmount && !(given && typeof given.value === 'number' && Number.isFinite(given.value) && given.value > 0))
-    return { ok: false, note: copy().wholeDollars };
+    return { ok: false, note: copy().wholeDollars, ...(copy().wholeDollarsNote ? { agent_note: copy().wholeDollarsNote } : {}) };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
     const keys = gapItems(program);
@@ -590,7 +590,7 @@ export async function record(
     const overNote = { ok: false, note: OVER_CAP(cap) } as const;
     // L45-3 (v6.1.19), fix round 1 (M1): under one dollar in the currency the win is kept in (the win's own when none
     // was named), so a further 100 over a JPY win is weighed as JPY.
-    if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: underADollarLine(currency) } as const;
+    if (givenValue !== null && underADollar(givenValue, currency)) return { ok: false, note: copy().underADollar(currency), ...(copy().wholeDollarsNote ? { agent_note: copy().wholeDollarsNote } : {}) } as const;
     if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && !newRound && kept === null && status === 'won' && money !== null;
