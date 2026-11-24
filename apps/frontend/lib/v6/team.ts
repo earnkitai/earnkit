@@ -59,7 +59,7 @@ async function contributorList(fullName: string, o: { gh: typeof fetch; token?: 
  */
 export async function readTeam(
   fullName: string,
-  o: { gh: typeof fetch; token?: string; now: Date; budget: Budget },
+  o: { gh: typeof fetch; token?: string; now: Date; budget: Budget; until?: Date },
   x: { fork?: ForkRef | null; drop?: string[] } = {},
 ): Promise<TeamRows> {
   const notes: string[] = [];

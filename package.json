@@ -27,6 +27,7 @@
     "people:reflag-report": "tsx apps/frontend/scripts/people-backfill.mts --reflag-report",
     "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
     "screen": "tsx apps/frontend/scripts/screen.mts",
+    "backtest": "tsx apps/frontend/scripts/backtest.mts",
     "og:image": "tsx apps/frontend/scripts/og-image.mts"
   },
   "pnpm": {

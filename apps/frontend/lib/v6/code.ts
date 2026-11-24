@@ -46,7 +46,12 @@ export function starterMaintainers(name: string | null): string[] {
   const b = name ? STARTERS.find((x) => x.name === name) : undefined;
   return (b?.maintainers ?? []).map((m) => m.toLowerCase());
 }
-export type GhRead = { gh: typeof fetch; token?: string; now: Date; budget: Budget };
+/**
+ * `until` (v3.8 E17, the backtest): the evidence cutoff. Commits after it are never asked for and never counted, and the
+ * push date is the newest commit at or before it; the windows still count back from `now` (the backtest sets both to
+ * the round's deadline). Absent, nothing is cut.
+ */
+export type GhRead = { gh: typeof fetch; token?: string; now: Date; budget: Budget; until?: Date };
 
 /** Under this many requests left in the hour, readers stop: what other tools need stays available. */
 export const BUDGET_FLOOR = 500;
@@ -237,11 +242,16 @@ const loginOf = (c: CommitRow) => {
  */
 export function readCommitWindow(full: string, o: GhRead, fork: ForkRef | null = null): Promise<CommitWindow> {
   const since = since90(o.now);
-  return memo(windows, o.budget, `${full.toLowerCase()} ${o.now.toISOString().slice(0, 10)} ${fork ? 'fork' : 'all'}`, async (): Promise<CommitWindow> => {
+  const until = o.until?.toISOString() ?? null;
+  const cut = o.until?.getTime() ?? Infinity;
+  const key = `${full.toLowerCase()} ${o.now.toISOString().slice(0, 10)} ${fork ? 'fork' : 'all'}${until ? ` until ${until}` : ''}`;
+  return memo(windows, o.budget, key, async (): Promise<CommitWindow> => {
     const dates: string[] = [];
     const authors: string[] = [];
     let count = 0;
     const take = (c: CommitRow) => {
+      // E17: GitHub is asked for nothing after the cutoff; a commit dated after it (or undated) is still never counted.
+      if (until && !(Date.parse(dateOf(c) ?? '') <= cut)) return;
       count++;
       const d = dateOf(c);
       if (d) dates.push(d);
@@ -259,7 +269,7 @@ export function readCommitWindow(full: string, o: GhRead, fork: ForkRef | null =
       return { ok: true, count, dates, authors, capped, cap: cmp.value.commits.length };
     }
     for (let page = 1; page <= COMMIT_PAGES; page++) {
-      const p = await ghList<CommitRow>(`/repos/${full}/commits?since=${since}&per_page=100${page > 1 ? `&page=${page}` : ''}`, o);
+      const p = await ghList<CommitRow>(`/repos/${full}/commits?since=${since}${until ? `&until=${until}` : ''}&per_page=100${page > 1 ? `&page=${page}` : ''}`, o);
       if (!p.ok) return { ok: false, why: p.why };
       p.value.rows.forEach(take);
       if (p.value.rows.length < 100) return { ok: true, count, dates, authors, capped: false, cap: COMMIT_PAGES * 100 };
@@ -304,6 +314,16 @@ async function answeredIssues(full: string, since: string, o: GhRead): Promise<G
   }
 }
 
+/**
+ * E17: the push date as of `until`: the repo's own when it is not later, else the newest commit read at or before the
+ * cutoff, else null (nothing pushed in the window before it). Without `until`, the repo's. Pure.
+ */
+function pushedBy(pushed: string | null, window: CommitWindow, until: Date | undefined): string | null {
+  if (!until || (pushed && Date.parse(pushed) <= until.getTime())) return pushed;
+  if (!window.ok || window.dates.length === 0) return null;
+  return window.dates.reduce((a, d) => (Date.parse(d) > Date.parse(a) ? d : a));
+}
+
 /** Reads the code rows for a repo already read by readRepo. Never throws. */
 export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   const notes: string[] = [];
@@ -318,7 +338,7 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   if (repo.size === 0 && read.tree.length === 0) {
     return {
       fork_of: repo.fork && repo.parent ? repo.parent.full_name : null, template_overlap: null, template_name: null, own_share: null, commits_own: null,
-      files_own: null, first_commit_at: null, last_push_at: repo.pushed_at ?? null, commits_90d: 0, commits_60d: 0, active_weeks_90d: 0, releases: null,
+      files_own: null, first_commit_at: null, last_push_at: pushedBy(repo.pushed_at ?? null, { ok: false, why: 'empty' }, o.until), commits_90d: 0, commits_60d: 0, active_weeks_90d: 0, releases: null,
       has_tests: null, has_ci: null, issues_open: null, issues_answered_90d: null, empty: true, note: null,
     };
   }
@@ -371,7 +391,7 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
     commits_own,
     files_own: matched?.files_own ?? null,
     first_commit_at: read.first_commit_at,
-    last_push_at: repo.pushed_at ?? null,
+    last_push_at: pushedBy(repo.pushed_at ?? null, window, o.until),
     commits_90d,
     commits_60d,
     active_weeks_90d: window.ok ? activeWeeks(window.dates, o.now) : null,

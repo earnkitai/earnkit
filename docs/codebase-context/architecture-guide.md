@@ -2127,6 +2127,18 @@ unknown and old tool names, the route's too-deep and not-an-object answers) beco
 installs from llms.txt alone. `LIMITS.installConsent` (30 an hour per IP) guards the install consent Connect press;
 over it is `INSTALL_PAGES.limited`. Design: `docs/design-docs-and-implementation-plans/v3.8-e16-limits-install-docs.md`.
 
+## v3.8 E17: the backtest
+
+`scripts/backtest.mts` (lib/v6/backtest.ts) scores a past round from public data on evidence cut at its deadline:
+`readEvidence` takes `until` (commits and transactions after it are never counted, the cache is skipped, and blocks
+with no history are named in `Evidence.leaked`), `place` runs as of that day, and each entry is a hit when the pick
+(used, live, building) agrees with the outcome. The printed report gives a non-user hit or miss only, never a tier,
+flag or reason. `--apply` stores the round, entries and one score per entry per `METHOD_VERSION` in `backtest_rounds`,
+`backtest_entries` and `backtest_scores` (never rewritten under the same version). Nothing the app serves reads them.
+The foreign keys have no ON DELETE action (the schema guard rejects it); `deleteBuilder` deletes a builder's scores
+then entries explicitly.
+Design: `docs/design-docs-and-implementation-plans/v3.8-e17-backtest.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the
