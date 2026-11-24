@@ -1,8 +1,7 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import type { Mailer } from './mail';
-import { dailyOwnerText, digestKey, sendOwnerDigest } from './owner-digest';
+import { dailyOwnerText, digestKey, ownerDigest, recordOwnerDigest } from './owner-digest';
 import { runHealth, type LinkCheck } from './health';
 import { cimdFixture } from './fixtures/cimd';
 import { programFixture } from './fixtures/program';
@@ -12,30 +11,24 @@ after(() => sql().end());
 
 const NOW = new Date('2026-11-04T06:15:00Z');
 const pageOf = (html: string, dead: string[] = []): LinkCheck => async (u) => (dead.includes(u) ? { ok: false, why: '4xx' } : { ok: true, page: html });
-let sent: Parameters<Mailer>[0][] = [];
-const mailer: Mailer = async (m) => {
-  sent.push(m);
-};
+/** v3.8 E7: the digests the daily run recorded (nothing is mailed), with their record key. */
+let sent: { text: string; key: string }[] = [];
+const sendOwnerDigest = (now: Date) => recordOwnerDigest(now, (d) => sent.push({ text: d.text!, key: d.key! }));
 beforeEach(() => {
   sent = [];
-  process.env.RESEND_API_KEY = 're_test';
-  process.env.EARNKIT_AUTH_SECRET = 's'.repeat(40);
-  process.env.EARNKIT_URL = 'https://earnkit.test';
+
 });
 afterEach(() => {
-  delete process.env.RESEND_API_KEY;
-  delete process.env.EARNKIT_AUTH_SECRET;
-  delete process.env.EARNKIT_URL;
 });
 
 test('dailyOwnerText: null when all four lists are empty', () => {
   assert.equal(dailyOwnerText('2026-11-04', [], { closed: [], failing: [], changed: [] }), null);
 });
 
-test('dailyOwnerText: lists each group in plain words, with revert links', () => {
+test('dailyOwnerText: lists each group in plain words, one line per item, with the write id to revert', () => {
   const text = dailyOwnerText(
     '2026-11-04',
-    [{ id: 'a', title: 'Alpha Grants', fields: ['ends_at', 'max_award_usd', 'submission_requirements', 'submission_url'], revertUrl: 'https://earnkit.test/r?t=1' }],
+    [{ id: 'a', title: 'Alpha Grants', fields: ['ends_at', 'max_award_usd', 'submission_requirements', 'submission_url'], writeId: '41' }],
     {
       closed: [{ id: 'b', title: 'Beta' }],
       failing: [{ id: 'c', title: 'Gamma', url: 'https://gamma.example/apply' }],
@@ -46,31 +39,34 @@ test('dailyOwnerText: lists each group in plain words, with revert links', () =>
   assert.match(text, /Gamma.*https:\/\/gamma\.example\/apply/);
   assert.match(text, /Delta.*https:\/\/delta\.example\/p/);
   assert.match(text, /Alpha Grants: deadline, amount, requirements, submission link/);
-  assert.match(text, /https:\/\/earnkit\.test\/r\?t=1/);
+  assert.match(text, /^- Alpha Grants: deadline, amount, requirements, submission link \(revert: write 41\)$/m);
   assert.doesNotMatch(text, /—/);
 });
 
-test('sendOwnerDigest: nothing happened sends nothing', async () => {
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+test('recordOwnerDigest: nothing happened sends nothing', async () => {
+  assert.equal(await sendOwnerDigest(NOW), 'none');
   assert.equal(sent.length, 0);
 });
 
-test('sendOwnerDigest: a page change appears, once per day, with the day key', async () => {
+test('recordOwnerDigest: a page change appears, recorded once per day, with the day key; the read changes nothing', async () => {
   await upsertProgram(programFixture({ id: 'od-page', title: 'Page Grants', source_url: 'https://od.example/p' }), 'file', NOW);
   await runHealth(new Date(NOW.getTime() - 86_400_000), { link: pageOf('<p>one</p>') });
   await runHealth(NOW, { link: pageOf('<p>two</p>') });
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(NOW), 'recorded');
   // v6.1.16 Task 16: the same body is sent once a day; the key carries its hash.
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+  assert.equal(await sendOwnerDigest(NOW), 'none');
   assert.equal(sent.length, 1);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM owner_digests WHERE day = '2026-11-04'`)[0]!.n, 1);
-  assert.equal(sent[0]!.idempotencyKey, digestKey('2026-11-04', sent[0]!.text));
-  assert.match(sent[0]!.idempotencyKey, /^owner-digest:2026-11-04:[0-9a-f]{16}$/);
-  assert.equal(sent[0]!.subject, 'EarnKit programs: 2026-11-04');
+  assert.equal(sent[0]!.key, digestKey('2026-11-04', sent[0]!.text));
+  assert.match(sent[0]!.key, /^owner-digest:2026-11-04:[0-9a-f]{16}$/);
+  const read = await ownerDigest(NOW);
+  assert.equal(read.text, sent[0]!.text);
+  assert.equal(read.recorded, true);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM owner_digests WHERE day = '2026-11-04'`)[0]!.n, 1);
   assert.match(sent[0]!.text, /Page Grants.*https:\/\/od\.example\/p/);
 });
 
-test('sendOwnerDigest: link failures, deadline closes and a revertable api change', async () => {
+test('recordOwnerDigest: link failures, deadline closes and a revertable api change', async () => {
   await upsertProgram(programFixture({ id: 'od-dead', title: 'Dead Link Grants', submission_url: 'https://od.example/dead' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'od-ended', title: 'Ended Grants', ends_at: '2026-11-01T00:00:00Z' }), 'file', NOW);
   const api = programFixture({ id: 'od-api', title: 'Api Grants' });
@@ -79,25 +75,17 @@ test('sendOwnerDigest: link failures, deadline closes and a revertable api chang
   await sql()`INSERT INTO program_writes (program_id, action, result, reason, body) VALUES ('od-api', 'upsert', 'updated', '', ${sql().json(JSON.parse(JSON.stringify({ ...api, ends_at: '2027-01-01T00:00:00Z' })))})`;
   await upsertProgram({ ...api, ends_at: '2027-01-01T00:00:00Z' }, 'api', NOW);
   await runHealth(NOW, { link: pageOf('<p>x</p>', ['https://od.example/dead']) });
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(NOW), 'recorded');
   const text = sent[0]!.text;
   assert.match(text, /Dead Link Grants.*https:\/\/od\.example\/dead/);
   assert.match(text, /Ended Grants/);
   assert.match(text, /Api Grants: deadline/);
-  assert.match(text, /https:\/\/earnkit\.test\/api\/programs\/revert\?t=/);
+  const [w] = await sql()<{ id: string }[]>`SELECT id FROM program_writes WHERE program_id = 'od-api' AND result = 'updated'`;
+  assert.match(text, new RegExp(`Api Grants: deadline \\(revert: write ${w!.id}\\)`));
   assert.doesNotMatch(text, /Ended Grants: status/);
 });
 
-test('sendOwnerDigest: no RESEND_API_KEY sends nothing and says mail off (L30-5)', async () => {
-  delete process.env.RESEND_API_KEY;
-  await upsertProgram(programFixture({ id: 'od-nokey', title: 'No Key Grants', source_url: 'https://nokey.example/p' }), 'file', NOW);
-  await runHealth(new Date(NOW.getTime() - 3_600_000), { link: pageOf('<p>a</p>') });
-  await runHealth(NOW, { link: pageOf('<p>b</p>') });
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'mail off');
-  assert.equal(sent.length, 0);
-});
-
-test('sendOwnerDigest: covers changes since the last digest, not the UTC day', async () => {
+test('recordOwnerDigest: covers changes since the last digest, not the UTC day', async () => {
   const later = new Date('2026-11-06T06:15:00Z');
   const at = (iso: string) => new Date(iso);
   await upsertProgram(programFixture({ id: 'od-win-a', title: 'Covered Grants' }), 'file', at('2026-11-05T01:00:00Z'));
@@ -105,29 +93,16 @@ test('sendOwnerDigest: covers changes since the last digest, not the UTC day', a
   await upsertProgram(programFixture({ id: 'od-win-b', title: 'Evening Grants' }), 'file', at('2026-11-05T01:00:00Z'));
   await upsertProgram({ ...programFixture({ id: 'od-win-b', title: 'Evening Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', at('2026-11-05T20:00:00Z'));
   await sql()`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-05', '2026-11-05T06:15:00Z')`;
-  assert.equal(await sendOwnerDigest(later, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(later), 'recorded');
   assert.match(sent[0]!.text, /Evening Grants: deadline/);
   assert.doesNotMatch(sent[0]!.text, /Covered Grants/);
 });
 
-test('sendOwnerDigest: marks a missing secret and an old write on the change line', async () => {
-  const when = new Date('2026-11-08T06:15:00Z');
-  const api = programFixture({ id: 'od-rl', title: 'Link Grants' });
-  await upsertProgram(api, 'api', new Date('2026-11-07T08:00:00Z'));
-  const ins = (b: unknown, res: string) => sql()`INSERT INTO program_writes (program_id, action, result, reason, body) VALUES ('od-rl', 'upsert', ${res}, '', ${sql().json(JSON.parse(JSON.stringify(b)))})`;
-  await ins(api, 'created');
-  await ins({ ...api, ends_at: '2027-01-01T00:00:00Z' }, 'updated');
-  await upsertProgram({ ...api, ends_at: '2027-01-01T00:00:00Z' }, 'api', new Date('2026-11-07T09:00:00Z'));
-  await sql()`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-07', '2026-11-07T06:15:00Z')`;
-  delete process.env.EARNKIT_AUTH_SECRET;
-  assert.equal(await sendOwnerDigest(when, mailer), 'sent');
-  assert.match(sent[0]!.text, /Link Grants: deadline \(no revert link\)/);
+test('recordOwnerDigest: a file program has no write to revert', async () => {
   // A file program has no applied write to revert.
   await upsertProgram(programFixture({ id: 'od-file', title: 'File Grants' }), 'file', new Date('2026-11-09T01:00:00Z'));
   await upsertProgram({ ...programFixture({ id: 'od-file', title: 'File Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', new Date('2026-11-09T02:00:00Z'));
-  process.env.EARNKIT_AUTH_SECRET = 's'.repeat(40);
-  sent = [];
-  assert.equal(await sendOwnerDigest(new Date('2026-11-09T06:15:00Z'), mailer), 'sent');
+  assert.equal(await sendOwnerDigest(new Date('2026-11-09T06:15:00Z')), 'recorded');
   assert.match(sent[0]!.text, /File Grants: deadline \(not revertable\)/);
 });
 
@@ -136,14 +111,14 @@ test('v6.1.16 Task 16: two runs on one UTC day: the same body sends once, a chan
   await upsertProgram(programFixture({ id: 'od-k1', title: 'Key One Grants' }), 'file', new Date('2026-11-19T01:00:00Z'));
   await upsertProgram({ ...programFixture({ id: 'od-k1', title: 'Key One Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', new Date('2026-11-20T01:00:00Z'));
   await sql()`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-19', '2026-11-19T06:15:00Z')`;
-  assert.equal(await sendOwnerDigest(day, mailer), 'sent');
-  assert.equal(await sendOwnerDigest(new Date('2026-11-20T07:00:00Z'), mailer), 'none');
+  assert.equal(await sendOwnerDigest(day), 'recorded');
+  assert.equal(await sendOwnerDigest(new Date('2026-11-20T07:00:00Z')), 'none');
   assert.equal(sent.length, 1);
   await upsertProgram(programFixture({ id: 'od-k2', title: 'Key Two Grants' }), 'file', new Date('2026-11-20T07:10:00Z'));
   await upsertProgram({ ...programFixture({ id: 'od-k2', title: 'Key Two Grants' }), ends_at: '2027-02-01T00:00:00Z' }, 'file', new Date('2026-11-20T07:20:00Z'));
-  assert.equal(await sendOwnerDigest(new Date('2026-11-20T08:00:00Z'), mailer), 'sent');
+  assert.equal(await sendOwnerDigest(new Date('2026-11-20T08:00:00Z')), 'recorded');
   assert.equal(sent.length, 2);
-  assert.notEqual(sent[1]!.idempotencyKey, sent[0]!.idempotencyKey);
+  assert.notEqual(sent[1]!.key, sent[0]!.key);
   assert.match(sent[1]!.text, /Key One Grants[\s\S]*Key Two Grants/);
 });
 
@@ -153,7 +128,7 @@ test('v6.1.16 Task 16 (L30-1): a program the run opened at its start date is nam
   await sql()`DELETE FROM programs WHERE id <> 'od-open'`;
   const r = await runHealth(at, { link: pageOf('<p>x</p>') });
   assert.deepEqual(r.opened, ['od-open']);
-  assert.equal(await sendOwnerDigest(at, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(at), 'recorded');
   assert.match(sent[0]!.text, /Opened because the start date came\n- Opening Grants \(od-open\)/);
   assert.doesNotMatch(sent[0]!.text, /Opening Grants: status/);
 });
@@ -171,14 +146,14 @@ test('L30-14, L44-12: with no daily run for 27 hours the digest names the gap fi
   assert.deepEqual(runGap(new Date(NOW.getTime() - 26 * H - 31 * 60_000), NOW), { hours: 27, last: new Date(NOW.getTime() - 26 * H - 31 * 60_000) });
   assert.deepEqual(runGap(new Date(NOW.getTime() - 27 * H - 40 * 60_000), NOW)?.hours, 28);
   await sql()`DELETE FROM cron_state`;
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+  assert.equal(await sendOwnerDigest(NOW), 'none');
   await sql()`INSERT INTO cron_state (id, last_run_at) VALUES (true, ${new Date(NOW.getTime() - 27 * H)})`;
   try {
-    assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(NOW), 'recorded');
     assert.equal(sent.length, 1);
     assert.equal(sent[0].text, 'EarnKit programs: 2026-11-04\n\nNo daily run finished for 27 hours before this one; the last was 2026-11-03 03:15 UTC.\n');
     await sql()`UPDATE cron_state SET last_run_at = ${new Date(NOW.getTime() - 24 * H)}`;
-    assert.equal(await sendOwnerDigest(new Date(NOW.getTime() + 60_000), mailer), 'none');
+    assert.equal(await sendOwnerDigest(new Date(NOW.getTime() + 60_000)), 'none');
   } finally {
     await sql()`DELETE FROM cron_state`;
   }
@@ -192,7 +167,7 @@ test('L30-18, L35-18, L44-13, L44-20: from the stored rows, a saved entry that n
   await db`UPDATE programs SET file = jsonb_set(file, '{title}', '7'::jsonb) WHERE id = 'od-parse'`;
   try {
     // No run passed anything: the digest reads the programs table.
-    assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(NOW), 'recorded');
     const text = sent[0].text;
     assert.ok(text.includes([
       'Programs the run could not read',
@@ -207,7 +182,7 @@ test('L30-18, L35-18, L44-13, L44-20: from the stored rows, a saved entry that n
       assert.doesNotMatch(line, /[\u2014\u2013]|submission_requirements|starts_at|\.json|programs\//);
     }
     // The same day, the same list: sent once.
-    assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+    assert.equal(await sendOwnerDigest(NOW), 'none');
   } finally {
     await db`DELETE FROM programs WHERE id IN ('od-parse', 'od-form')`;
     await db`DELETE FROM owner_digests`;
@@ -251,18 +226,18 @@ test("L18-5c: the digest's applications block counts the previous UTC day's send
     await ins(`i:${ia.id}`, ia.id, 'od-f', 'won', y(7), new Date('2026-11-02T00:00:00Z'), 'agent', 'Older', 'app_od9');
     const day = new Date('2026-12-20T06:15:00Z');
     const want = 'EarnKit programs: 2026-12-20\n\n4 sent yesterday: 2 by agents, 1 drafted here, 1 from outside. 6 to date.\n- Alpha Grants: 2 sent\n- Beta Prize: 1 sent\n- Delta Fund: 1 sent\n';
-    assert.equal(await sendOwnerDigest(day, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(day), 'recorded');
     assert.equal(sent[0].text, want);
     // A send today changes neither yesterday's block nor the all-time number: the same-day rerun builds the same hash.
     await ins(`i:${ia.id}`, ia.id, 'od-c2', 'applied', new Date('2026-12-20T07:00:00Z'), new Date('2026-12-20T07:00:00Z'), 'agent', 'Today', 'app_od6');
-    assert.equal(await sendOwnerDigest(new Date('2026-12-20T09:00:00Z'), mailer), 'none');
+    assert.equal(await sendOwnerDigest(new Date('2026-12-20T09:00:00Z')), 'none');
     assert.equal(sent.length, 1);
     // Two days on with no digest between (none on Dec 21 or 22): v6.1.19 (L44-9) the Dec 20 send no digest reported is
     // carried in. Before, it was never reported.
-    assert.equal(await sendOwnerDigest(new Date('2026-12-23T06:15:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(new Date('2026-12-23T06:15:00Z')), 'recorded');
     assert.equal(sent[1].text, 'EarnKit programs: 2026-12-23\n\n0 sent yesterday (and 1 on Dec 20, missed). 7 to date.\n');
     // The next day, nothing new: nothing to say.
-    assert.equal(await sendOwnerDigest(new Date('2026-12-24T06:15:00Z'), mailer), 'none');
+    assert.equal(await sendOwnerDigest(new Date('2026-12-24T06:15:00Z')), 'none');
     assert.equal(sent.length, 2);
   } finally {
     await db`DELETE FROM application_history WHERE program_id LIKE 'od-%'`;
@@ -307,7 +282,7 @@ test('L39-5: the daily run reads the closed phrase on a submission page that ans
   const link: LinkCheck = async (u) => ({ ok: true, page: u === 'https://shut.example/form' ? CLOSED_FORM : '<p>Apply here. Applications are open.</p>' });
   const run = await runHealth(NOW, { link });
   assert.deepEqual(run.stale, []);
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(NOW), 'recorded');
   const text = sent[0]!.text;
   assert.match(text, /Forms that say they are closed\n- Shut Form Grants: the form says it is closed, since today \(https:\/\/shut\.example\/form\)/);
   assert.doesNotMatch(text, /Open Form Grants/);
@@ -321,7 +296,7 @@ test('v6.1.18 final fix (M1): an upcoming program whose form says it is closed i
   await runHealth(NOW, { link });
   const [soon] = await sql()`SELECT submit_closed FROM program_health WHERE program_id = 'od-soon'`;
   assert.equal(soon?.submit_closed, true, 'the upcoming form was read as closed');
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(NOW), 'recorded');
   const text = sent[0]!.text;
   assert.match(text, /- Shut Now Grants: the form says it is closed, since today \(https:\/\/shut2\.example\/form\)/);
   assert.doesNotMatch(text, /Next Round Grants/);
@@ -335,7 +310,7 @@ test('L39-5 fix round 1: a forms.gle-style link that redirects to a closed form 
     : { status: 200, contentType: 'text/html', body: u.hostname === 'docs.google.com' ? CLOSED_FORM : '<p>About the grants.</p>' }));
   const run = await runHealth(NOW, { resolve: site.resolve, transport: site.transport });
   assert.deepEqual([run.stale, run.failed], [[], []]);
-  assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+  assert.equal(await sendOwnerDigest(NOW), 'recorded');
   assert.match(sent[0]!.text, /Forms that say they are closed\n- Gle Form Grants: the form says it is closed, since today \(https:\/\/forms\.gle\/xyz\)/);
 });
 
@@ -375,11 +350,11 @@ test('L44-2, L44-11: an outside win is a result, never a send on any day, and a 
     await db`INSERT INTO application_history (owner, installation_id, program_id, status, at, source) VALUES (${owner}, ${inst.id}, 'od-bare', 'won', ${at('2026-11-10T11:00:00Z')}, 'screen')`;
     const out = await record(owner, 'od-out', 'won', { installationId: inst.id, amount_usd: 2000, outsideWin: true, now: at('2026-11-10T12:00:00Z') });
     assert.equal(out.ok && out.outside, true);
-    assert.equal(await sendOwnerDigest(at('2026-11-11T06:15:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(at('2026-11-11T06:15:00Z')), 'recorded');
     assert.equal(sent[0].text, 'EarnKit programs: 2026-11-11\n\nResults: won at Bare Award; $2,000 won at Outside Grants; $5,000 won at Won Prize; No Fund said no.\n');
     // A further payment a week later: a result again, still no send.
     assert.equal((await record(owner, 'od-out', 'won', { installationId: inst.id, amount_usd: 500, payment: { key: 'od-pay-1' }, now: at('2026-11-17T12:00:00Z') })).ok, true);
-    assert.equal(await sendOwnerDigest(at('2026-11-18T06:15:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(at('2026-11-18T06:15:00Z')), 'recorded');
     assert.equal(sent[1].text, 'EarnKit programs: 2026-11-18\n\nResults: $500 won at Outside Grants.\n');
     assert.doesNotMatch(sent.map((m) => m.text).join('\n'), /sent yesterday|\bi:\d|od-l44/);
   } finally {
@@ -409,7 +384,7 @@ const resultsCase = async (name: string, steps: (rec: (status: 'won' | 'rejected
       assert.equal(r.ok, true, JSON.stringify(r));
       return r;
     });
-    assert.equal(await sendOwnerDigest(new Date('2026-11-11T06:15:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-11T06:15:00Z')), 'recorded');
     return sent.at(-1)!.text;
   } finally {
     await db`DELETE FROM application_history WHERE owner = ${owner}`;
@@ -459,15 +434,15 @@ test('L44-9: sends on days no digest went out are carried into the next line; at
     await send('od-m2', '2026-11-09T12:00:00Z');
     for (const p of ['od-m3', 'od-m4', 'od-m5']) await send(p, '2026-11-10T12:00:00Z');
     for (const p of ['od-m6', 'od-m7']) await send(p, '2026-11-11T12:00:00Z');
-    assert.equal(await sendOwnerDigest(new Date('2026-11-12T06:15:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-12T06:15:00Z')), 'recorded');
     assert.ok(sent[0].text.includes('2 sent yesterday: 2 by agents, 0 drafted here, 0 from outside (and 1 on Nov 9, 3 on Nov 10, missed). 7 to date.\n- od-m6: 1 sent\n- od-m7: 1 sent'), sent[0].text);
     // The same day: the same body.
-    assert.equal(await sendOwnerDigest(new Date('2026-11-12T09:00:00Z'), mailer), 'none');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-12T09:00:00Z')), 'none');
     // A last digest 20 days back carries only the 14 days before today.
     await db`DELETE FROM owner_digests`;
     await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-10-23', ${new Date('2026-10-23T06:15:00Z')})`;
     await send('od-m0', '2026-10-25T12:00:00Z');
-    assert.equal(await sendOwnerDigest(new Date('2026-11-12T06:15:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-12T06:15:00Z')), 'recorded');
     assert.match(sent[1].text, /\(and 1 on Nov 8, 1 on Nov 9, 3 on Nov 10, missed\)\. 8 to date\./);
   } finally {
     await db`DELETE FROM applications WHERE installation_id = ${inst.id}`;
@@ -482,16 +457,16 @@ test('L44-10: after a day whose link check failed with no digest, the next diges
   try {
     await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-11', ${new Date('2026-11-11T06:15:00Z')})`;
     await db`INSERT INTO cron_state (id, last_run_at, last_check_failed_at) VALUES (true, ${new Date('2026-11-11T06:15:00Z')}, ${new Date('2026-11-12T06:15:00Z')})`;
-    assert.equal(await sendOwnerDigest(new Date('2026-11-13T06:20:00Z'), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-13T06:20:00Z')), 'recorded');
     assert.equal(sent[0].text.split('\n\n')[1], 'The link check failed on Nov 12; this digest covers two days.');
     // A failure on a day a digest already went out (a rerun after it) says nothing.
     await resetDigest();
     await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-12', ${new Date('2026-11-12T06:15:00Z')})`;
     await db`INSERT INTO cron_state (id, last_run_at, last_check_failed_at) VALUES (true, ${new Date('2026-11-12T06:15:00Z')}, ${new Date('2026-11-12T07:15:00Z')})`;
-    assert.equal(await sendOwnerDigest(new Date('2026-11-13T06:15:00Z'), mailer), 'none');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-13T06:15:00Z')), 'none');
     // A failure today: the digest is today's, no line.
     await db`UPDATE cron_state SET last_check_failed_at = ${new Date('2026-11-13T05:00:00Z')}`;
-    assert.equal(await sendOwnerDigest(new Date('2026-11-13T06:15:00Z'), mailer), 'none');
+    assert.equal(await sendOwnerDigest(new Date('2026-11-13T06:15:00Z')), 'none');
   } finally {
     await resetDigest();
   }
@@ -507,7 +482,7 @@ test('L44-7, L44-8: one round closed is named on its first day only; a failing l
     : { ok: true, page: u.endsWith('/form') ? '<p>Round 1 applications are closed. Round 2 is open now: apply below.</p>' : '<p>About</p>' });
   try {
     await runHealth(NOW, { link });
-    assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(NOW), 'recorded');
     assert.ok(sent[0].text.includes('Forms that say they are closed\n- Round Grants: the form says one round is closed (https://round.example/form); check it.'), sent[0].text);
     assert.ok(sent[0].text.includes('- Dead Grants: down since today (https://dead.example/about)'), sent[0].text);
     // Thirteen days on: the round line is gone; the dead program has left the list.
@@ -515,7 +490,7 @@ test('L44-7, L44-8: one round closed is named on its first day only; a failing l
     await db`UPDATE programs SET stale_since = ${new Date(NOW.getTime() - 13 * 86_400_000)} WHERE id = 'od-dead'`;
     const later = new Date(NOW.getTime() + 86_400_000);
     await runHealth(later, { link });
-    assert.equal(await sendOwnerDigest(later, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(later), 'recorded');
     assert.doesNotMatch(sent[1].text, /Round Grants/);
     assert.ok(sent[1].text.includes('- Dead Grants (not listed): down 14 days (https://dead.example/about)'), sent[1].text);
   } finally {
@@ -534,10 +509,10 @@ test('fix round 1 (I1): the round line never comes back on a later day when a do
   const day = (n: number) => new Date(NOW.getTime() + n * 86_400_000);
   try {
     await runHealth(NOW, { link: async (u) => ({ ok: true, page: u.endsWith('/form') ? form : '<p>About</p>' }) });
-    assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(NOW), 'recorded');
     assert.match(sent[0].text, /one round is closed/);
     await runHealth(day(3), { link: async (u) => (u.endsWith('/about') ? { ok: false, why: '4xx' } : { ok: true, page: form }) });
-    assert.equal(await sendOwnerDigest(day(3), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(day(3)), 'recorded');
     assert.match(sent[1].text, /Links that did not load\n- Round Four Grants: down since today \(https:\/\/r4\.example\/about\)/);
     assert.doesNotMatch(sent[1].text, /one round is closed|Forms that say/);
   } finally {
@@ -557,7 +532,7 @@ test('fix round 1 (I2): ages count UTC days: a run 5 seconds earlier the next da
   try {
     await runHealth(first, { link });
     await runHealth(next, { link });
-    assert.equal(await sendOwnerDigest(next, mailer), 'sent');
+    assert.equal(await sendOwnerDigest(next), 'recorded');
     assert.ok(sent[0].text.includes('- Age Grants: down 1 day (https://age.example/about)'), sent[0].text);
     assert.ok(sent[0].text.includes('- Age Grants: the form says it is closed, 1 day (https://age.example/form)'), sent[0].text);
   } finally {
@@ -578,10 +553,10 @@ test('fix round 2: a round that began on a day no digest covered is named once i
     await db`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-03', ${new Date('2026-11-03T06:15:00Z')})`;
     await runHealth(NOW, { link });
     await runHealth(day(1), { link });
-    assert.equal(await sendOwnerDigest(day(1), mailer), 'sent');
+    assert.equal(await sendOwnerDigest(day(1)), 'recorded');
     assert.equal(sent[0].text.match(/Round Day Grants: the form says one round is closed \(https:\/\/rd\.example\/form\); check it\./g)?.length, 1, sent[0].text);
     await runHealth(day(2), { link });
-    assert.equal(await sendOwnerDigest(day(2), mailer), 'none');
+    assert.equal(await sendOwnerDigest(day(2)), 'none');
     assert.equal(sent.length, 1);
   } finally {
     await db`DELETE FROM programs WHERE id LIKE 'od-%'`;

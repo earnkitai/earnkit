@@ -1,6 +1,6 @@
 # EarnKit programs API (for the Grok Bot)
 
-The owner pastes this into the Grok Bot's instructions. The bot researches programs that pay builders for software and writes them to EarnKit. A write that passes every check is live at once: on the site, in `GET /api/programs` and in every builder's agent. One exception: a new program, or a write that changes `submission_url`, `chains`, `form` or `pool_source_url`, goes live only when its links check out (see "Link check"). Otherwise it waits for the owner's one-click approval.
+The owner pastes this into the Grok Bot's instructions. The bot researches programs that pay builders for software and writes them to EarnKit. A write that passes every check is live at once: on the site, in `GET /api/programs` and in every builder's agent. No person approves a program. When the `auto_live` flag is on (`EARNKIT_FLAGS`), when you send any of the check fields below, or when the caller is the owner or a test account, the gate is the official-page check: the page must hold your quoted amount and deadline word for word (see "Official-page check"). With the flag off, a new program, or a write that changes `submission_url`, `chains`, `form` or `pool_source_url`, goes live only when its links check out (see "Link check"); otherwise it is held as `pending`, and nothing applies a held write: no email, no approve link.
 
 ## Owner setup (once)
 
@@ -10,7 +10,7 @@ Run this in your own terminal (not in a Claude session). It prints the token onc
 T=$(openssl rand -hex 32); echo "$T"; railway variables --project ae726253-edb5-4c47-b308-854be7cf36b1 --service earnkit --environment production --set "EARNKIT_PROGRAMS_TOKEN=$T"
 ```
 
-Paste the printed token into the Grok Bot as `EARNKIT_PROGRAMS_TOKEN`. Without the token (or with `EARNKIT_PROGRAMS_API=off`) the write, log and approve routes answer 404. Approve and revert links need `EARNKIT_AUTH_SECRET`; the owner's emails need `RESEND_API_KEY`.
+Paste the printed token into the Grok Bot as `EARNKIT_PROGRAMS_TOKEN`. Without the token (or with `EARNKIT_PROGRAMS_API=off`) the write and log routes answer 404. The same token gates the owner's digest read and revert (below). EarnKit sends no email.
 
 ## What to research
 
@@ -34,7 +34,9 @@ All bodies are JSON. Base URL: `https://earnkit.com`.
 |---|---|---|
 | `POST /api/programs/write` | `Authorization: Bearer <token>` | Add, update or close one program |
 | `GET /api/programs` | none | What is listed now. `?category=grant\|hackathon\|investment\|bounty`, `?status=active\|upcoming` |
-| `GET /api/programs/writes` | `Authorization: Bearer <token>` | Your last 100 writes: `{ at, program_id, action, result, reason }`, and `pending`: the writes waiting for the owner `{ at, program_id, reason, title, submission_url, source_url, expires_at }` |
+| `GET /api/programs/digest` | `Authorization: Bearer <token>` | The owner's daily digest as a read (no email): `{ day, lines, changes: [{ program_id, title, fields, write_id, note? }], health, applications, results, recorded }`; `lines` is one line per item, and a revertable change's line ends `(revert: write <id>)` |
+| `POST /api/programs/revert` | `Authorization: Bearer <token>` | `{ "write_id": "<id>" }` undoes that applied write once: `{ ok, id, result: "reverted" \| "closed" }`; 409 `{ ok: false, error, state }` when it can't (`done`, `superseded`, `curated`, `no_earlier`), 404 for no such applied write, 400 for a bad body |
+| `GET /api/programs/writes` | `Authorization: Bearer <token>` | Your last 100 writes: `{ at, program_id, action, result, reason }`, each with `found_by_query` and `found_by_source`, and `pending`: the writes held in the last 7 days `{ at, program_id, reason, title, submission_url, source_url }` |
 
 `GET /api/programs` returns up to 200 programs: `{ id, title, organizer, category, chains, any_chain, money, status, closes_at, closes_in, source_url, submission_url, source }`. Sorted by category, then soonest close (rolling last), then the larger award. `source` is `file` (curated by the owner) or `api` (yours). It is cached for up to a minute.
 
@@ -51,28 +53,22 @@ Same id again updates it. A body identical to what is stored answers `unchanged`
 
 Success: `{ "ok": true, "id": "...", "result": "created" | "updated" | "unchanged", "category": "grant", "live": true }`. `live` is true while the program is upcoming, or active and not past `ends_at`.
 
-Waiting for the owner (202): `{ "ok": true, "id": "...", "result": "pending", "category": "grant", "live": false, "reason": "...", "owner_emailed": true }`. Nothing changed yet: a new program is not listed, and a live program keeps its current link, chains and form. The owner gets one email and approves it within 7 days. Sending the same body again stays one pending write and never emails twice. If `owner_emailed` is `false`, the email didn't go: send the same write again later (at most once an hour) to retry it.
+With `auto_live` on, success also says `"organizer": "confirmed" | "new"` and `"info_only": true | false`.
 
-### Official-page check (the automated lane, v3.8)
+Held (202, `auto_live` off only): `{ "ok": true, "id": "...", "result": "pending", "category": "grant", "live": false, "reason": "..." }`. Nothing changed: a new program is not listed, and a live program keeps its current link, chains and form. Nobody is emailed and nothing applies it; sending the same body again stays one pending write.
 
-A write goes through this check instead of the link check and the owner's approval when you send any of the fields below, when the `auto_live` flag is on, or when the caller is the owner or a test account. If you send none of them, the write is handled exactly as described under "Link check".
+### Official-page check (`auto_live` on)
 
 Send these beside `program` in the upsert body:
 
-- `amount_quote` and `deadline_quote` (required, 1 to 300 characters): words copied exactly from the official page (`official_url`, else `source_url`). EarnKit fetches that page (64 KB, 5 s, no redirect to another site). Each quote must be in the page's visible text, case kept; runs of spaces and line breaks count as one space. Hidden page text never counts. The amount quote must state one of the program's own amounts (`pool_usd`, `max_award_usd` or `min_award_usd`: `$10,000`, `10k`, `$1.5M`). The deadline quote must name `ends_at`'s day (`March 15, 2027`, `Mar 15`, `2027-03-15`; a day either side is allowed for time zones). When `ends_at` is null, it must say the program is rolling.
+- `amount_quote` and `deadline_quote` (required, 1 to 300 characters): words copied exactly from the official page (`official_url`, else `source_url`). EarnKit fetches that page (64 KB, 5 s, no redirect to another site) and needs each quote in the page's visible text, case kept, with runs of spaces and line breaks read as one space. The amount quote must state one of the program's own amounts (`pool_usd`, `max_award_usd` or `min_award_usd`: `$10,000`, `10k`, `$1.5M`); the deadline quote must name `ends_at`'s day (`March 15, 2027`, `Mar 15`, `2027-03-15`; a day either side is allowed for time zones), or, when `ends_at` is null, say the program is rolling. A failed quote is a 400 and nothing goes live. Hidden page text never counts.
 - `found_by_query` and `found_by_source` (required, 1 to 300 characters): the search and the source (an X post, an Exa query) that found the program. Stored on the write.
 - `handle` (optional): the tracked X handle whose post named the program.
 - `evidence_url` (optional): a page EarnKit may fetch to tie the official page to the organizer.
 
-A passing write is live at once, with no approval. Success adds `"organizer": "confirmed" | "new"` and `"info_only": true | false`. A failing write is a 400 and nothing goes live. This lane never answers `pending`.
+Organizer status is set by EarnKit, never by you (`new_organizer` and `info_only` in `program` are refused). The organizer is **confirmed** when the official page's domain is the profile domain recorded for `handle`, a domain of the organizer's earlier confirmed program, or linked from `evidence_url` when that page is itself on a domain already confirmed for the organizer. Otherwise the program is live as **new organizer**: listed with the label, but no agent ever sends it or connects a wallet to it; the builder applies with their own tap. Every later write re-runs the check, so the label clears by itself once one of those holds. Your word alone clears nothing.
 
-You can't set organizer status: `new_organizer` and `info_only` inside `program` are refused. The organizer is **confirmed** when the official page's domain is one of these:
-
-- the profile domain recorded for `handle`
-- a domain of the organizer's earlier confirmed program
-- a domain linked from `evidence_url`, when that page is itself on a domain already confirmed for the organizer
-
-Otherwise the program is live as **new organizer**. It is listed with the label, but no agent ever sends it or connects a wallet to it; the builder applies with their own tap. Every later write re-runs the check, so the label clears by itself once one of the rules holds. Your word alone clears nothing. If `submission_url` (or `form.url`) is not linked from the fetched page and is not the page itself, the program is **information only**: listed, with no form prefill and no agent submit.
+If `submission_url` (or `form.url`) is not linked from the fetched page (and is not the page itself), the program is **information only**: listed, but no form prefill and no agent submit.
 
 ### Tracked handles
 
@@ -81,11 +77,11 @@ POST /api/programs/write
 { "action": "handle", "handle": "@someorg", "profile_domain": "someorg.xyz" }
 ```
 
-Records the domain in that X account's own profile. Sending the same handle again with a new domain replaces it. Answers `{ "ok": true, "handle": "someorg", "profile_domain": "someorg.xyz", "result": "recorded" }`.
+Records the domain in that X account's own profile (sending a handle again moves it). Answers `{ "ok": true, "handle": "someorg", "profile_domain": "someorg.xyz", "result": "recorded" }`.
 
-### Link check
+### Link check (`auto_live` off)
 
-These writes wait for approval unless every link builders are sent to (`submission_url`, `form.url`, `pool_source_url`) checks out:
+These writes are held unless every link builders are sent to (`submission_url`, `form.url`, `pool_source_url`) checks out:
 
 - a new program;
 - a change to `submission_url`;
@@ -94,18 +90,13 @@ These writes wait for approval unless every link builders are sent to (`submissi
 - a change to `pool_source_url`;
 - a change to `submit`, `sign_in` or `min_tier` on a live program (held for the owner whatever the links).
 
-A link checks out when it is on the site of a live program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and API programs whose current link the owner approved. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
+A link checks out when it is on the site of a live program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and API programs whose current link the owner approved before v3.8. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
 
 `official_url` (optional) is the organizer's own home page (`https://www.base.org/`). It is a hint: it counts when it is itself on a curated site. It is refused on a shared, hosting or platform host (`evil.vercel.app`, `github.io`, `forms.gle`).
 
 A link on a form, submit, hosting or shared platform (Google Forms, Typeform, Tally, Airtable, Questbook, DoraHacks, Devfolio, HackQuest, ETHGlobal, Buidlbox, Gitcoin, Superteam, Karma GAP, Taikai, Akindo, github.io, vercel.app, notion.site and the like) never checks out on its own: those programs always wait for the owner once.
 
-Any other change to a live program (reward, amounts, deadline, text, requirements, eligibility, past rounds) is live at once. The owner gets one email a day listing the day's changes, each with a revert link. A revert puts the program back as it was before that write (or closes it, if that write created it; or re-opens it, if that write closed it). Only a program's latest change can be reverted. A revert shows in `GET /api/programs/writes` as action `revert`.
-
-The owner's agent can read the same digest and revert without the email (v3.8):
-
-- `GET /api/programs/digest` (`Authorization: Bearer <token>`) returns `{ day, lines, changes: [{ program_id, title, fields, write_id, note? }], health, applications, results, mailed }`. `lines` has one item per line, and a change that can be reverted ends with `(revert: write <id>)`. Reading it changes nothing.
-- `POST /api/programs/revert` (`Authorization: Bearer <token>`) with body `{ "write_id": "<id>" }` reverts that write once. It answers 200 `{ "ok": true, "id": "...", "result": "reverted" | "closed" }`; 404 when no applied write has that id; 409 `{ "ok": false, "error": "...", "state": "done" | "superseded" | "curated" | "no_earlier" }`; 400 for a bad body.
+Any other change to a live program (reward, amounts, deadline, text, requirements, eligibility, past rounds) is live at once. The owner's daily digest lists the day's changes (`GET /api/programs/digest`), each with the write id a revert takes. A revert (`POST /api/programs/revert`) puts the program back as it was before that write (or closes it, if that write created it; or re-opens it, if that write closed it). Only a program's latest change can be reverted. A revert shows in `GET /api/programs/writes` as action `revert`.
 
 ### Fields you can send
 
@@ -189,7 +180,7 @@ Amounts above the caps are refused with `larger amounts need a curated file`: te
 
 ### Full example
 
-This is the committed `base-builder-grants` file, plus `official_url`. That id is curated, so sending it exactly answers 409. Under a new id it answers `pending`, because its form is on `forms.gle`. Use your program's own id and facts.
+This is the committed `base-builder-grants` file, plus `official_url`. That id is curated, so sending it exactly answers 409. Under a new id, with `auto_live` off, it answers `pending`, because its form is on `forms.gle`. Use your program's own id and facts.
 
 ```json
 {
@@ -258,8 +249,8 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 
 | Status | Meaning | What to do |
 |---|---|---|
-| 202 | `pending`: the link didn't check out; the owner approves it | Nothing, unless `owner_emailed` is `false`: then send the same write again later. Watch `pending` in `GET /api/programs/writes` |
-| 400 | A check failed: a missing or not-allowed field, an unknown chain, a text or URL rule, a stale `verified_at`, a past `ends_at`, a link that doesn't load (`source_url: doesn't load (...)`), or `id: no program <id>` on close | Fix each listed problem and resend. A `submission_url` host problem can't be fixed: skip the program and tell the owner |
+| 202 | `pending` (`auto_live` off): the link didn't check out; it is held and nothing applies it | Nothing. It shows in `pending` in `GET /api/programs/writes` |
+| 400 | A check failed: a quote not on the official page or not naming the program's amount or deadline, the official page not loading, a missing or not-allowed field, an unknown chain, a text or URL rule, a stale `verified_at`, a past `ends_at`, a link that doesn't load (`source_url: doesn't load (...)`), or `id: no program <id>` on close | Fix each listed problem and resend. A `submission_url` host problem can't be fixed: skip the program and tell the owner |
 | 401 | Wrong or missing token | Check the `Authorization: Bearer` header |
 | 404 | The API is off (no token set, or `EARNKIT_PROGRAMS_API=off`) | Ask the owner |
 | 409 | `<id> is curated by EarnKit; send a new id or ask the owner` | Use a different id, or tell the owner |
@@ -267,4 +258,4 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 | 429 | Over 120 writes this hour | Wait for `Retry-After` seconds |
 | 503 | EarnKit is busy | Retry after `Retry-After` seconds |
 
-Every write (created, updated, unchanged, closed, pending, and `approved` or `superseded` once the owner acts; action `revert` with result `reverted` or `closed` when the owner reverts one) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.
+Every write (created, updated, unchanged, closed, pending; `approved` and `superseded` only on writes from before v3.8; action `handle` with result `recorded`; action `revert` with result `reverted` or `closed` when the owner reverts one) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.

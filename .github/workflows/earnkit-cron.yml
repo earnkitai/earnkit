@@ -1,5 +1,5 @@
 # EarnKit's one daily job: the freshness probe of every listed program (links, page changes,
-# status moves by date), the sweeps, the screen queue's share and the owner's daily digest email. Free tier: one short job a day.
+# status moves by date), the sweeps, the screen queue's share and the owner's daily digest (recorded for GET /api/programs/digest; EarnKit sends no email). Free tier: one short job a day.
 # Needs the repo secret CRON_SECRET (same value as on Railway).
 name: EarnKit cron
 on:
@@ -24,7 +24,7 @@ jobs:
           CRON_URL: https://earnkit.com/api/cron
           RETRY_AFTER_S: 600
         run: |
-          # v6.1.17 Task 3 (L30-14): EarnKit is live, so a missing secret fails the job (and emails the owner) instead of
+          # v6.1.17 Task 3 (L30-14): EarnKit is live, so a missing secret fails the job (GitHub's own failed-run notice, not an EarnKit email) instead of
           # skipping green every day. Only a deliberate pause skips.
           if [ -z "$CRON_SECRET" ]; then
             if [ "$CRON_PAUSED" = "true" ]; then echo "::notice::the cron is paused (EARNKIT_CRON_PAUSED); skipping."; exit 0; fi
@@ -47,7 +47,7 @@ jobs:
             sleep "$RETRY_AFTER_S"
             post
           fi
-          # A run that answers 4xx or 5xx, or no answer within 540 s, fails the job, and the failed run emails the owner.
+          # A run that answers 4xx or 5xx, or no answer within 540 s, fails the job, and GitHub notifies the repo owner of the failed run (GitHub's mail, not EarnKit's).
           if [ "$rc" -ne 0 ] || [ "$code" -ge 400 ]; then
             echo "::error::the run answered ${code} (curl exit ${rc})."
             cat body.json 2>/dev/null || true; echo

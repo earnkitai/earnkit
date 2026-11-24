@@ -5,7 +5,7 @@
  */
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { perFileDatabase } from './test-db';
-const CLEARED = ['RESEND_API_KEY', 'GITHUB_TOKEN', 'EARNKIT_PROGRAMS_TOKEN', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_FLAGS', 'X_CLIENT_ID', 'X_CLIENT_SECRET'];
+const CLEARED = ['GITHUB_TOKEN', 'EARNKIT_PROGRAMS_TOKEN', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_FLAGS', 'X_CLIENT_ID', 'X_CLIENT_SECRET'];
 for (const name of CLEARED) delete process.env[name];
 // One database per test file (test-db.ts); a no-op outside a test-runner child.
 perFileDatabase();

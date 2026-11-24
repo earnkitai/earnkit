@@ -1,16 +1,14 @@
 /**
- * The owner's programs write API (the Grok Bot): POST /api/programs/write upserts or closes an API
- * program, GET /api/programs/writes is its audit log, the approve and revert links apply or undo one
- * write. A create, a change to submission_url, chains, form or pool_source_url (unless every link
- * checks out, programs-pending.ts), or a change to submit, sign_in or min_tier waits for the owner. Audited.
+ * The owner's programs write API (Growth's writer): POST /api/programs/write upserts or closes an API program (or
+ * records a tracked handle), GET /api/programs/writes is its audit log, GET /api/programs/digest the owner's daily
+ * digest (owner-digest.ts), POST /api/programs/revert undoes one write. All under the programs bearer token. Audited.
  *
- * v3.8 E6r (decision 21): the automated lane. An upsert goes through the official-page check (official-page.ts: the
- * quotes on the page, organizer status, information only) when `auto_live` is on, when the writer asks for it by sending
- * the check's fields (Growth's writer: amount_quote, deadline_quote, found_by_*, handle, evidence_url), or when the
- * caller is the owner or a test account (main's flag preview, lib/v6/flag-preview.ts, puts `auto_live` on for them in
- * their own requests; the route runs in their flag context). It goes live with no approval when the
- * check passes and is refused when it fails. Every other write keeps the held lane above, approval email and link
- * included, until auto_live is on for everyone (the approval path is deleted in a follow-up PR then).
+ * v3.8 E6 (decision 21): no person approves a program. In the automated lane (`automatedLane`: `auto_live` on, for
+ * everyone or, through main's flag preview, in an owner/test caller's own request; or the writer sent the check's
+ * fields) an upsert goes live at once when the official-page check passes (official-page.ts: the quotes on the page, organizer status, information only) and is
+ * refused when it fails. Otherwise a create, a change to submission_url, chains, form or pool_source_url
+ * (unless every link checks out, programs-pending.ts), or a change to submit, sign_in or min_tier is held as a
+ * pending row that nothing applies: no email, no approve link.
  */
 import { readdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
@@ -20,7 +18,6 @@ import { z } from 'zod';
 import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
 import { sql, type Db } from './db';
 import { bearerMatches, json, readBody } from './http';
-import { ownerMailEnabled, type Mailer } from './mail';
 import { flagOn } from './flags';
 import {
   FOUND_BY_MAX,
@@ -38,28 +35,11 @@ import {
 } from './official-page';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
-import { dateStatus, getProgram, isOpenAt, upsertProgram } from './programs';
-import {
-  APPROVE_TTL_DAYS,
-  approveExpiry,
-  approveTarget,
-  confirmPage,
-  escapeHtml,
-  linkAnchors,
-  linkExpired,
-  linkLines,
-  mailPending,
-  officialUrlProblem,
-  ownerLine,
-  ownerPage,
-  pendingReason,
-  revertTarget,
-  uncheckedLink,
-  type LinkTarget,
-} from './programs-pending';
+import { dateStatus, isOpenAt, upsertProgram } from './programs';
+import { PENDING_DAYS, linkAnchors, officialUrlProblem, pendingReason, uncheckedLink } from './programs-pending';
 import { findProgramsDir } from './programs-dir';
-import { ownerDigest } from './owner-digest';
 import { revalidateCatalog } from './programs-read';
+import { ownerDigest } from './owner-digest';
 import { RateLimitError, enforce } from './rate-limit';
 import { BUILDER_OWN_NOTE } from './ledger';
 import { SENT, sendCounts, sendRows, sendTime, throughEarnkit } from './stats';
@@ -76,8 +56,6 @@ export const API_AWARD_MAX_USD = 5_000_000;
 export const API_POOL_MAX_USD = 50_000_000;
 export const WRITES_MAX = 100;
 export const curatedLine = (id: string): string => `${id} is curated by EarnKit; send a new id or ask the owner`;
-/** The mark a pending write's reason carries while its owner email hasn't gone. */
-export const MAIL_FAILED = '; owner email not sent yet';
 
 const DAY_MS = 86_400_000;
 /** UTC+14 is the earliest zone: a bot's "today" there is never refused as the future. */
@@ -165,8 +143,7 @@ async function probeLink(url: string, probe: Probe): Promise<void> {
 }
 
 export type WriteDeps = {
-  mailer?: Mailer;
-  /** Reads the official page (and an evidence page) for the automated lane's check. Default safeProbePage, 5 s, 64 KB. */
+  /** Reads the official page (and an evidence page) for the auto_live check. Default safeProbePage, 5 s, 64 KB. */
   readPage?: PageReader;
   /** Resolves when the URL loads; throws when it doesn't. Default safeProbe. */
   probe?: Probe;
@@ -178,10 +155,9 @@ export type WriteDeps = {
   /** After a write changed a program. Default programsChanged. */
   onChange?: (id: string) => void;
 };
-type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit'>> & Pick<WriteDeps, 'mailer'>;
+type Deps = Required<Omit<WriteDeps, 'limit'>>;
 
 const fullDeps = (deps: WriteDeps): Deps => ({
-  mailer: deps.mailer,
   readPage: deps.readPage ?? readOfficialPage,
   probe: deps.probe ?? ((u: string) => safeProbe(u, { timeoutMs: FETCH_TIMEOUT_MS })),
   now: deps.now ?? new Date(),
@@ -197,17 +173,14 @@ const FoundBy = z.string().trim().min(1).max(FOUND_BY_MAX);
 const Handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, 'an X handle');
 const Domain = z.string().trim().toLowerCase().regex(/^(?=.{4,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/, 'a domain name');
 
-/** v3.8 E6r: the upsert fields only the automated lane reads; sending any of them asks for that lane. */
-const CHECK_FIELDS = ['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source', 'handle', 'evidence_url'] as const;
-
 const Envelope = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('upsert'),
     program: z.record(z.string(), z.unknown()),
-    /** v3.8 E6: the official page's words for the amount and the deadline, copied exactly (required in the automated lane). */
+    /** v3.8 E6: the official page's words for the amount and the deadline, copied exactly (required with auto_live). */
     amount_quote: Quote.optional(),
     deadline_quote: Quote.optional(),
-    /** v3.8 E6: the search and the source that found this program (required in the automated lane), stored on the write row. */
+    /** v3.8 E6: the search and the source that found this program (required with auto_live), stored on the write row. */
     found_by_query: FoundBy.optional(),
     found_by_source: FoundBy.optional(),
     /** v3.8 E6: the tracked X handle whose post named the program, and a page the API may read to tie the domain to the organizer. */
@@ -219,6 +192,16 @@ const Envelope = z.discriminatedUnion('action', [
   z.object({ action: z.literal('handle'), handle: Handle, profile_domain: Domain }).strict(),
 ]);
 type UpsertEnvelope = Extract<z.infer<typeof Envelope>, { action: 'upsert' }>;
+
+/** v3.8 E6r: the upsert fields only the automated lane reads; sending any of them asks for that lane. */
+const CHECK_FIELDS = ['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source', 'handle', 'evidence_url'] as const;
+
+/**
+ * v3.8 E6r: whether an upsert takes the automated lane (the official-page check): `auto_live` on (for everyone, or in an
+ * owner/test caller's request through the flag preview), or the writer sent any of the check's fields (Growth's
+ * writer). Else the held lane.
+ */
+const automatedLane = (e: UpsertEnvelope): boolean => flagOn('auto_live') || CHECK_FIELDS.some((k) => e[k] !== undefined);
 type FoundBy = { found_by_query?: string | null; found_by_source?: string | null };
 
 const refused = (status: number, problems: string[]) => json({ ok: false, problems }, status);
@@ -275,15 +258,9 @@ class Curated extends Error {}
 
 type Applied =
   | { kind: 'applied'; result: Exclude<Result, 'closed'> }
-  | { kind: 'pending'; write: { id: string; at: Date }; fresh: boolean; reason: string }
-  | { kind: 'not_pending'; state: string };
-/** A bot's write (the link check applies), or the owner's approval of pending write `writeId`. */
-type Mode = { kind: 'write' } | { kind: 'approve'; writeId: string };
+  | { kind: 'pending'; reason: string };
 
-/** Results that make an older pending write stale (approving it would undo them). */
-const NEWER_RESULTS = ['created', 'updated', 'approved', 'closed', 'pending', 'reverted'];
-
-/** Fields whose change is held for the owner like a form change: they decide who may submit and who qualifies. */
+/** Fields whose change is held like a form change while auto_live is off: they decide who may submit and who qualifies. */
 const GATE_FIELDS = ['submit', 'sign_in', 'min_tier'] as const;
 
 /** The first gate field whose value differs between the live record and the write, or null. Pure. */
@@ -293,35 +270,22 @@ function changedGate(old: Partial<Program>, p: Program): string | null {
   return GATE_FIELDS.find((f) => was[f] !== now[f]) ?? null;
 }
 
-/** An automated-lane write that passed the official-page check: the record as it goes live and why it carries its labels. */
+/** An auto_live write that passed the official-page check: the record as it goes live and why it carries its labels. */
 type Checked = { live: Program; reason: string | null };
 
 /**
- * The write transaction. The program row is locked and its source read again (a sync can't be
- * overwritten). A bot write that creates the program or changes submission_url, chains, form or
- * pool_source_url, and any of whose builder links (submission_url, form.url, pool_source_url)
- * doesn't check out, or that changes submit, sign_in or min_tier, is held as a pending program_writes row instead (an identical
- * pending body within APPROVE_TTL_DAYS is reused, so one email). An approval locks its pending row
- * and flips it to 'approved' in the same transaction (single use). A write that passed the automated lane's check
- * (`checked`) is applied as labelled and never held.
+ * The write transaction. The program row is locked and its source read again (a sync can't be overwritten). A write
+ * that passed the official-page check (`checked`, auto_live on) is applied as labelled. Otherwise (auto_live off) a
+ * write that creates the program or changes submission_url, chains, form or pool_source_url, and any of whose builder
+ * links (submission_url, form.url, pool_source_url) doesn't check out, or that changes submit, sign_in or min_tier, is
+ * held as a pending program_writes row that nothing applies (an identical pending body within PENDING_DAYS is reused).
  */
-async function applyUpsert(p: Program, deps: Deps, mode: Mode, checked: Checked | null = null, found: FoundBy = {}): Promise<Applied> {
+async function applyUpsert(p: Program, deps: Deps, checked: Checked | null, found: FoundBy): Promise<Applied> {
   return sql().begin(async (tx): Promise<Applied> => {
-    if (mode.kind === 'approve') {
-      const [w] = await tx<{ result: string }[]>`SELECT result FROM program_writes WHERE id = ${mode.writeId} FOR UPDATE`;
-      if (w?.result !== 'pending') return { kind: 'not_pending', state: w?.result ?? 'missing' };
-      const [newer] = await tx<{ id: string }[]>`
-        SELECT id FROM program_writes WHERE program_id = ${p.id} AND id > ${mode.writeId} AND result IN ${tx(NEWER_RESULTS)} LIMIT 1`;
-      if (newer) {
-        await tx`UPDATE program_writes SET result = 'superseded' WHERE id = ${mode.writeId}`;
-        return { kind: 'not_pending', state: 'superseded' };
-      }
-    }
     const [row] = await tx<{ source: string; file: Partial<Program> | null }[]>`
       SELECT source, file FROM programs WHERE id = ${p.id} FOR UPDATE`;
     if (row && row.source !== 'api') throw new Curated();
     if (checked) {
-      // v3.8 E6r: the automated lane passed the official-page check, so the write goes live as labelled; nothing is held.
       const result = await upsertProgram(checked.live, 'api', deps.now, tx);
       await audit(tx, { program_id: p.id, action: 'upsert', result, reason: checked.reason, body: result === 'unchanged' ? undefined : checked.live, ...found });
       return { kind: 'applied', result };
@@ -333,30 +297,22 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode, checked: Checked 
       !sameSet(old.chains ?? [], p.chains) ||
       !isDeepStrictEqual(old.form ?? null, (asJson(p) as { form?: unknown }).form ?? null) ||
       (old.pool_source_url ?? null) !== (p.pool_source_url ?? null);
-    const unchecked = mode.kind === 'write' && needsCheck ? uncheckedLink(p, await linkAnchors(tx, p, deps.now)) : null;
-    const gate = mode.kind === 'write' && old ? changedGate(old, p) : null;
+    const unchecked = needsCheck ? uncheckedLink(p, await linkAnchors(tx, p, deps.now)) : null;
+    const gate = old ? changedGate(old, p) : null;
     if (unchecked || gate) {
-      // Two identical writes at once still make one pending row and one email.
+      // Two identical writes at once still make one pending row.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`program-pending:${p.id}`}))`;
       const reason = unchecked ? pendingReason(unchecked.url, p.official_url, unchecked.field) : `${gate} changed, which decides who can enter`;
-      const [same] = await tx<{ id: string; at: Date; reason: string | null }[]>`
-        SELECT id, at, reason FROM program_writes
+      const [same] = await tx<{ id: string }[]>`
+        SELECT id FROM program_writes
         WHERE program_id = ${p.id} AND result = 'pending' AND body = ${tx.json(asJson(p))}
-          AND at > ${new Date(deps.now.getTime() - APPROVE_TTL_DAYS * DAY_MS)}
+          AND at > ${new Date(deps.now.getTime() - PENDING_DAYS * DAY_MS)}
         ORDER BY id DESC LIMIT 1`;
-      // A pending write whose owner email failed sends it again (same idempotency key).
-      if (same) return { kind: 'pending', write: same, fresh: (same.reason ?? '').endsWith(MAIL_FAILED), reason };
-      const [w] = await tx<{ id: string; at: Date }[]>`
-        INSERT INTO program_writes (program_id, action, result, reason, body)
-        VALUES (${p.id}, 'upsert', 'pending', ${reason}, ${tx.json(asJson(p))})
-        RETURNING id, at`;
-      return { kind: 'pending', write: w!, fresh: true, reason };
+      if (!same) await audit(tx, { program_id: p.id, action: 'upsert', result: 'pending', reason, body: p, ...found });
+      return { kind: 'pending', reason };
     }
     const result = await upsertProgram(p, 'api', deps.now, tx);
-    if (mode.kind === 'approve') {
-      await tx`UPDATE program_writes SET result = 'approved' WHERE id = ${mode.writeId}`;
-      await audit(tx, { program_id: p.id, action: 'upsert', result, reason: `approved write ${mode.writeId}`, body: p });
-    } else await audit(tx, { program_id: p.id, action: 'upsert', result, body: result === 'unchanged' ? undefined : p });
+    await audit(tx, { program_id: p.id, action: 'upsert', result, body: result === 'unchanged' ? undefined : p, ...found });
     return { kind: 'applied', result };
   });
 }
@@ -365,9 +321,9 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode, checked: Checked 
 const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, now);
 
 /**
- * v3.8 E6: the official-page check for an automated-lane write. Refusal problems when the quotes, found-by fields or
- * page fail (nothing goes live, nobody is mailed); else the record as it goes live, labelled new organizer and
- * information only as the check found. The page's text is only searched, never stored or returned.
+ * v3.8 E6: the official-page check for an auto_live write. Refusal problems when the quotes, found-by fields or page
+ * fail (nothing goes live, nobody is mailed); else the record as it goes live, labelled new organizer and information
+ * only as the check found. The page's text is only searched, never stored or returned.
  */
 async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise<{ problems: string[] } | Checked> {
   const missing = (['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source'] as const)
@@ -392,7 +348,6 @@ async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise
   return { live: labelled(p, { newOrganizer: org.status === 'new', infoOnly: off.length > 0 }), reason: reasons.length > 0 ? reasons.join('; ') : null };
 }
 
-/** An upsert. `automated` (v3.8 E6r) sends it through the official-page check; else main's lane, held writes mailed. */
 async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): Promise<Response> {
   const raw = e.program;
   const found: FoundBy = automated ? { found_by_query: e.found_by_query ?? null, found_by_source: e.found_by_source ?? null } : {};
@@ -420,7 +375,7 @@ async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): 
   }
   let out: Applied;
   try {
-    out = await applyUpsert(p, deps, { kind: 'write' }, checked, found);
+    out = await applyUpsert(p, deps, checked, found);
   } catch (err) {
     if (!(err instanceof Curated)) throw err;
     await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)], found);
@@ -428,21 +383,9 @@ async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): 
   }
   if (out.kind === 'pending') {
     console.log(`[programs-api] upsert ${p.id} pending`);
-    let emailed = !out.fresh;
-    if (out.fresh && ownerMailEnabled()) {
-      try {
-        await mailPending(out.write, p, out.reason, deps.mailer);
-        emailed = true;
-        await sql()`UPDATE program_writes SET reason = ${out.reason} WHERE id = ${out.write.id} AND result = 'pending'`;
-      } catch (err) {
-        // The write stays pending and says so; the same write sent again retries the email.
-        console.error(`[programs-api] pending mail failed: ${errTag(err)}`);
-        await sql()`UPDATE program_writes SET reason = ${out.reason + MAIL_FAILED} WHERE id = ${out.write.id} AND result = 'pending'`;
-      }
-    }
-    return json({ ok: true, id: p.id, result: 'pending', category: categoryOf(p), live: false, reason: out.reason, owner_emailed: emailed }, 202);
+    return json({ ok: true, id: p.id, result: 'pending', category: categoryOf(p), live: false, reason: out.reason }, 202);
   }
-  const result = out.kind === 'applied' ? out.result : 'unchanged';
+  const result = out.result;
   console.log(`[programs-api] upsert ${p.id} ${result}`);
   if (result !== 'unchanged') deps.onChange(p.id);
   const labels = checked ? { organizer: checked.live.new_organizer ? 'new' : 'confirmed', info_only: checked.live.info_only === true } : {};
@@ -460,13 +403,6 @@ async function handleAction(handle: string, domain: string): Promise<Response> {
   console.log(`[programs-api] handle @${key} recorded`);
   return json({ ok: true, handle: key, profile_domain: domain, result: 'recorded' });
 }
-
-/**
- * v3.8 E6r: whether an upsert takes the automated lane: `auto_live` on (for everyone, or in an owner/test caller's
- * request through the flag preview), or the writer sent any of the check's fields (Growth's writer asking for the
- * check). Else main's lane.
- */
-const automatedLane = (e: UpsertEnvelope): boolean => flagOn('auto_live') || CHECK_FIELDS.some((k) => e[k] !== undefined);
 
 /**
  * Sets a program's status to closed, in the record and the column, with a program_changes row.
@@ -553,20 +489,17 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
 
 /**
  * GET /api/programs/writes: the last WRITES_MAX program_writes rows, newest first, never a body;
- * and `pending`, the writes waiting for approval whose link still works, with title and links.
+ * and `pending`, the writes held in the last PENDING_DAYS (auto_live off; nothing applies them), with title and links.
  */
 export async function writesGet(request: Request, now = new Date()): Promise<Response> {
   const denied = authFailure(request);
   if (denied) return denied;
   try {
-    const rows = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null; found_by_query: string | null; found_by_source: string | null }[]>`
+    const writes = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null; found_by_query: string | null; found_by_source: string | null }[]>`
       SELECT at, program_id, action, result, reason, found_by_query, found_by_source FROM program_writes ORDER BY id DESC LIMIT ${WRITES_MAX}`;
-    // v3.8 E6r: the found-by fields appear only on the automated lane's rows, so main's rows read as they did.
-    const writes = rows.map(({ found_by_query, found_by_source, ...w }) =>
-      found_by_query === null && found_by_source === null ? w : { ...w, found_by_query, found_by_source });
     const held = await sql()<{ at: Date; program_id: string | null; reason: string | null; title: unknown; submission_url: unknown; source_url: unknown }[]>`
       SELECT at, program_id, reason, body->'title' AS title, body->'submission_url' AS submission_url, body->'source_url' AS source_url
-      FROM program_writes WHERE result = 'pending' AND at > ${new Date(now.getTime() - APPROVE_TTL_DAYS * DAY_MS)}
+      FROM program_writes WHERE result = 'pending' AND at > ${new Date(now.getTime() - PENDING_DAYS * DAY_MS)}
       ORDER BY id DESC LIMIT ${WRITES_MAX}`;
     const text = (v: unknown) => (typeof v === 'string' ? v : null);
     const pending = held.map((w) => ({
@@ -576,7 +509,6 @@ export async function writesGet(request: Request, now = new Date()): Promise<Res
       title: text(w.title),
       submission_url: text(w.submission_url),
       source_url: text(w.source_url),
-      expires_at: new Date(approveExpiry(new Date(w.at)) * 1000),
     }));
     return json({ ok: true, writes, pending });
   } catch (err) {
@@ -697,139 +629,19 @@ export async function applicationsGet(request: Request): Promise<Response> {
   }
 }
 
-// ---- approve ----
-
-export const APPROVE_TEXT = {
-  title: 'Approve this program?',
-  note: 'It goes live on EarnKit when you approve. Check the links first.',
-  button: 'Approve',
-  bad: 'This link is not valid.',
-  expired: 'This link has expired. Ask the bot to send the program again.',
-  done: 'This write was already handled.',
-  superseded: 'A newer write for this program came in, so this one was not applied.',
-  approved: 'Approved. The program is live.',
-  refused: 'This write no longer passes the checks, so nothing changed:',
-  busy: BUSY,
-} as const;
-
-const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t') ?? '';
-
-/** The token's write, or the failure page. The signature is checked before any database read. */
-function checkLink(target: LinkTarget | null, now: Date, expired: string): { t: LinkTarget } | { fail: Response } {
-  if (!target) return { fail: ownerLine(APPROVE_TEXT.bad, 400) };
-  if (linkExpired(target, now)) return { fail: ownerLine(expired, 410) };
-  return { t: target };
-}
-
-type ApproveOutcome =
-  | { kind: 'applied'; id: string; result: Exclude<Result, 'closed'> }
-  | { kind: 'not_pending'; state: string }
-  | { kind: 'refused'; problems: string[] };
-
-/** Applies pending write `writeId`: the write's checks again (verified_at as of the write), then the write transaction. */
-async function approveWrite(writeId: string, deps: Deps): Promise<ApproveOutcome> {
-  const [w] = await sql()<{ result: string; action: string; at: Date; body: unknown }[]>`
-    SELECT result, action, at, body FROM program_writes WHERE id = ${writeId}`;
-  if (!w || w.result !== 'pending' || w.action !== 'upsert') return { kind: 'not_pending', state: w?.result ?? 'missing' };
-  const parsed = ProgramFile.safeParse(w.body);
-  if (!parsed.success) return { kind: 'refused', problems: programProblems(w.body as Program, deps.now) };
-  const p = parsed.data;
-  const refusal = await writeRefusal(p, deps, new Date(w.at));
-  if (refusal) return { kind: 'refused', problems: refusal.problems };
-  let out: Applied;
-  try {
-    out = await applyUpsert(p, deps, { kind: 'approve', writeId });
-  } catch (err) {
-    if (err instanceof Curated) return { kind: 'refused', problems: [curatedLine(p.id)] };
-    throw err;
-  }
-  if (out.kind === 'not_pending') return out;
-  if (out.kind !== 'applied') throw new Error('an approval never holds');
-  console.log(`[programs-api] approve ${p.id} ${out.result}`);
-  if (out.result !== 'unchanged') deps.onChange(p.id);
-  return { kind: 'applied', id: p.id, result: out.result };
-}
-
-/** GET /api/programs/approve?t=: the confirm page. It changes nothing (mail scanners open links). */
-export async function approveGet(request: Request, now = new Date()): Promise<Response> {
-  if (!programsApiOn()) return notFound();
-  const token = tokenOf(request);
-  const c = checkLink(approveTarget(token), now, APPROVE_TEXT.expired);
-  if ('fail' in c) return c.fail;
-  try {
-    const [w] = await sql()<{ result: string; action: string; body: unknown; reason: string | null }[]>`
-      SELECT result, action, body, reason FROM program_writes WHERE id = ${c.t.writeId}`;
-    if (!w || w.action !== 'upsert') return ownerLine(APPROVE_TEXT.bad, 400);
-    if (w.result !== 'pending') return ownerLine(w.result === 'superseded' ? APPROVE_TEXT.superseded : APPROVE_TEXT.done, 409);
-    const parsed = ProgramFile.safeParse(w.body);
-    if (!parsed.success) return ownerLine(APPROVE_TEXT.bad, 400);
-    const p = parsed.data;
-    const current = await getProgram(p.id);
-    const lines = [
-      `Program: ${p.title} (${p.id})`,
-      `Organizer: ${p.organizer}`,
-      // The pending body's links, not the live program's.
-      ...linkLines(p, w.reason),
-      `Source page: ${p.source_url}`,
-      `Reward: ${p.summary}`,
-      ...(p.form ? [`Form: ${p.form.platform}, ${Object.keys(p.form.fields ?? {}).length} field ids`] : []),
-      current ? 'This changes a live program.' : 'This adds a new program.',
-      APPROVE_TEXT.note,
-    ];
-    return confirmPage(APPROVE_TEXT.title, lines, `/api/programs/approve?t=${encodeURIComponent(token)}`, APPROVE_TEXT.button);
-  } catch (err) {
-    console.error(`[programs-api] approve page failed: ${errTag(err)}`);
-    return ownerLine(APPROVE_TEXT.busy, 503);
-  }
-}
-
-/** POST /api/programs/approve?t=: the approval. Single use: a replay finds the write no longer pending. */
-export async function approvePost(request: Request, deps: Omit<WriteDeps, 'mailer' | 'limit'> = {}): Promise<Response> {
-  if (!programsApiOn()) return notFound();
-  const full = fullDeps(deps);
-  const c = checkLink(approveTarget(tokenOf(request)), full.now, APPROVE_TEXT.expired);
-  if ('fail' in c) return c.fail;
-  try {
-    const out = await approveWrite(c.t.writeId, full);
-    if (out.kind === 'applied') return ownerLine(APPROVE_TEXT.approved, 200);
-    if (out.kind === 'refused')
-      return ownerPage([APPROVE_TEXT.refused, ...out.problems.slice(0, 10)].map((l) => `<p>${escapeHtml(l)}</p>`).join(''), 400);
-    if (out.state === 'missing') return ownerLine(APPROVE_TEXT.bad, 400);
-    return ownerLine(out.state === 'superseded' ? APPROVE_TEXT.superseded : APPROVE_TEXT.done, 409);
-  } catch (err) {
-    console.error(`[programs-api] approve failed: ${errTag(err)}`);
-    return ownerLine(APPROVE_TEXT.busy, 503);
-  }
-}
-
 // ---- revert ----
 
-export const REVERT_TEXT = {
-  title: 'Revert this change?',
-  undo: 'The program goes back to how it was before this change.',
-  close: 'This change created the program, so reverting closes it.',
-  button: 'Revert',
-  bad: 'This link is not valid.',
-  expired: 'This link has expired. Change the program with the bot instead.',
-  done: 'This change was already reverted.',
-  superseded: 'A later change replaced this one, so it can no longer be reverted. Revert the later one.',
-  curated: 'EarnKit curates this program now, so the bot change is gone already.',
-  noEarlier: "EarnKit has no earlier copy of this program, so it can't revert this change.",
-  reverted: 'Reverted. The program is back to how it was.',
-  closed: 'Reverted. The program is closed.',
-  busy: BUSY,
+/** What POST /api/programs/revert answers when it cannot revert, by state: plain words for the owner's agent. */
+export const NOT_REVERTABLE = {
+  missing: 'No applied write has that id.',
+  done: 'That write was already reverted.',
+  superseded: 'A later change replaced that write, so it can no longer be reverted. Revert the later one.',
+  curated: 'EarnKit curates this program now, so the API change is gone already.',
+  no_earlier: "EarnKit has no earlier copy of this program, so it can't revert that write.",
 } as const;
+type NotRevertable = keyof typeof NOT_REVERTABLE;
 
-type NotRevertable = 'missing' | 'done' | 'superseded' | 'curated' | 'no_earlier';
-const NOT_REVERTABLE: Record<NotRevertable, [string, number]> = {
-  missing: [REVERT_TEXT.bad, 400],
-  done: [REVERT_TEXT.done, 409],
-  superseded: [REVERT_TEXT.superseded, 409],
-  curated: [REVERT_TEXT.curated, 409],
-  no_earlier: [REVERT_TEXT.noEarlier, 409],
-};
-
-/** The writes a revert link can undo: applied upserts (a bot's or an approval's) and closes. */
+/** The writes a revert can undo: applied upserts (a bot's or an approval's) and closes. */
 const appliedSql = (db: Db) => db`((action = 'upsert' AND result IN ('created', 'updated')) OR (action = 'close' AND result = 'closed'))`;
 
 /** The program's state just before write `writeId`: the last applied body before it (closed when a close came after it), or null. */
@@ -901,67 +713,14 @@ export async function revertWrite(writeId: string, deps: RevertDeps = {}): Promi
   return out;
 }
 
-/**
- * GET /api/programs/revert?t=: the confirm page; it changes nothing. The signed token alone
- * decides, so the link works while the API is off (the owner's way back from a bad write).
- */
-export async function revertGet(request: Request, now = new Date(), programsDir?: string | null): Promise<Response> {
-  const token = tokenOf(request);
-  const c = checkLink(revertTarget(token), now, REVERT_TEXT.expired);
-  if ('fail' in c) return c.fail;
-  try {
-    const plan = await revertPlan(sql(), c.t.writeId, programsDir === undefined ? findProgramsDir() : programsDir, false);
-    if (plan.kind === 'no') return ownerLine(...NOT_REVERTABLE[plan.state]);
-    return confirmPage(
-      REVERT_TEXT.title,
-      [`Program: ${plan.title} (${plan.id})`, plan.does === 'close' ? REVERT_TEXT.close : REVERT_TEXT.undo],
-      `/api/programs/revert?t=${encodeURIComponent(token)}`,
-      REVERT_TEXT.button,
-    );
-  } catch (err) {
-    console.error(`[programs-api] revert page failed: ${errTag(err)}`);
-    return ownerLine(REVERT_TEXT.busy, 503);
-  }
-}
-
-/**
- * POST /api/programs/revert. With an Authorization header (v3.8 E7r), the owner's agent reverts by write id under the
- * programs bearer (`revertByWrite`). Without one, the signed link's revert as before: `?t=`, single use, a replay finds
- * the revert row and does nothing.
- */
-export async function revertPost(request: Request, deps: RevertDeps = {}): Promise<Response> {
-  if (request.headers.has('authorization')) return revertByWrite(request, deps);
-  const now = deps.now ?? new Date();
-  const c = checkLink(revertTarget(tokenOf(request)), now, REVERT_TEXT.expired);
-  if ('fail' in c) return c.fail;
-  try {
-    const out = await revertWrite(c.t.writeId, { ...deps, now });
-    if (out.kind === 'no') return ownerLine(...NOT_REVERTABLE[out.state]);
-    return ownerLine(out.closed ? REVERT_TEXT.closed : REVERT_TEXT.reverted, 200);
-  } catch (err) {
-    console.error(`[programs-api] revert failed: ${errTag(err)}`);
-    return ownerLine(REVERT_TEXT.busy, 503);
-  }
-}
-
-// ---- the owner's reads by bearer (v3.8 E7r, plan 23.2) ----
-
-/** What POST /api/programs/revert by write id answers when it cannot revert, by state. */
-export const NOT_REVERTABLE_BY_WRITE: Record<NotRevertable, string> = {
-  missing: 'No applied write has that id.',
-  done: 'That write was already reverted.',
-  superseded: 'A later change replaced that write, so it can no longer be reverted. Revert the later one.',
-  curated: 'EarnKit curates this program now, so the API change is gone already.',
-  no_earlier: "EarnKit has no earlier copy of this program, so it can't revert that write.",
-};
 const WRITE_ID = /^[1-9][0-9]{0,15}$/;
 
 /**
- * POST /api/programs/revert `{ "write_id": "<id>" }` under the programs bearer: undoes that applied write once
- * (`revertWrite`). 200 `{ ok, id, result: 'reverted' | 'closed' }`; 404 when no applied write has the id; 409 with the
- * state when it cannot (done, superseded, curated, no_earlier); 400 for a bad body. 404 while the API is off.
+ * POST /api/programs/revert `{ "write_id": "<id>" }`, programs bearer (v3.8 E7: no signed link, no confirm page): undoes
+ * that applied write once (`revertWrite`). 200 `{ ok, id, result: 'reverted' | 'closed' }`; 409 with the reason when it
+ * cannot (`NOT_REVERTABLE`); 400 for a bad body.
  */
-async function revertByWrite(request: Request, deps: RevertDeps): Promise<Response> {
+export async function revertPost(request: Request, deps: RevertDeps = {}): Promise<Response> {
   const denied = authFailure(request);
   if (denied) return denied;
   const text = await readBody(request, 1024, () => json({ ok: false, error: 'the body came too slowly' }, 408));
@@ -976,7 +735,7 @@ async function revertByWrite(request: Request, deps: RevertDeps): Promise<Respon
   if (typeof writeId !== 'string' || !WRITE_ID.test(writeId)) return json({ ok: false, error: 'write_id: the id of an applied write (from the digest)' }, 400);
   try {
     const out = await revertWrite(writeId, deps);
-    if (out.kind === 'no') return json({ ok: false, error: NOT_REVERTABLE_BY_WRITE[out.state], state: out.state }, out.state === 'missing' ? 404 : 409);
+    if (out.kind === 'no') return json({ ok: false, error: NOT_REVERTABLE[out.state], state: out.state }, out.state === 'missing' ? 404 : 409);
     return json({ ok: true, id: out.id, result: out.closed ? 'closed' : 'reverted' });
   } catch (err) {
     console.error(`[programs-api] revert failed: ${errTag(err)}`);
@@ -985,8 +744,8 @@ async function revertByWrite(request: Request, deps: RevertDeps): Promise<Respon
 }
 
 /**
- * GET /api/programs/digest, programs bearer (v3.8 E7r, plan 23.2 owner read): the day's digest as plain data plus one
- * line per item (`lines`, the digest text by line, the title line left out). Reads only; the daily email is unchanged.
+ * GET /api/programs/digest, programs bearer (v3.8 E7, plan 23.2 owner read): the day's digest as plain data plus one
+ * line per item (`lines`, the digest text split by line). Reads only; the daily run records the day.
  */
 export async function digestGet(request: Request, now = new Date()): Promise<Response> {
   const denied = authFailure(request);
@@ -997,11 +756,11 @@ export async function digestGet(request: Request, now = new Date()): Promise<Res
       ok: true,
       day: d.day,
       lines: d.text === null ? [] : d.text.trim().split('\n').slice(1).filter((l) => l.trim() !== ''),
-      changes: d.changes.map((c) => ({ program_id: c.id, title: c.title, fields: c.fields, write_id: c.writeId ?? null, ...(c.revertNote ? { note: c.revertNote } : {}) })),
+      changes: d.changes.map((c) => ({ program_id: c.id, title: c.title, fields: c.fields, write_id: c.writeId, ...(c.revertNote ? { note: c.revertNote } : {}) })),
       health: d.health,
       applications: d.applications,
       results: d.results,
-      mailed: d.sent,
+      recorded: d.recorded,
     });
   } catch (err) {
     console.error(`[programs-api] digest failed: ${errTag(err)}`);
