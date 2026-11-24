@@ -3,6 +3,7 @@
  * moved since the last find, and the ledger; or one program's details; or, with no project, the
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
+import { USERS_V38 } from './copy';
 import { COPY_V37, copy } from './copy';
 import { z } from 'zod';
 import { cleanText, quoteName } from './controls';
@@ -689,7 +690,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     show_to_builder: show.length > 1 ? paragraphs(show.slice(0, -1), show.at(-1)) : show.join('\n'),
     agent_note: (open
       ? !project
-        ? ['Call find with the project for whether you fit.']
+        ? ['Call find with the project for whether you fit.', ...(copy().openNote ? [copy().openNote] : [])]
         : verdict?.status === 'no'
           ? ['It does not fit this project: draft nothing and submit nothing unless the builder asks again with a project it fits.']
           : [
@@ -704,7 +705,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               // L46-10 (v6.1.22, ruling 2): the audit programs' contract address goes in the project.
               ...(real.some((g) => g.item === CONTRACT_ADDRESS.item) ? [CONTRACT_ADDRESS_NOTE] : []),
               // L1n-7 (v6.1.23): the users question's yes; review I4: with a rule beside it, the one yes is both.
-              ...(/^Do real people use it\b/.test(show.at(-1) ?? '') ? [USERS_NOTE] : []),
+              ...(/^Do real people use it\b/.test(show.at(-1) ?? '') || USERS_V38.test(show.at(-1) ?? '') ? [...(copy().usersOneNote ? [copy().usersOneNote] : []), USERS_NOTE] : []),
               ...(isUsersRuleSay(show.at(-1) ?? '') && verdict ? [USERS_RULE_NOTE(verdict.gaps.filter((x) => x.kind === 'rule').map((x) => x.item))] : []),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
               ...(step ? [MANIFEST_NOTE] : []),
@@ -767,7 +768,9 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const appsLine = applicationsLine(applications, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const ask = name ? copy().describeName(name) : copy().openAsk;
+  // v3.8 E15: after an unlink the notice carries the sign-in link, so the closing does not ask it again.
+  const signInShown = link !== null && notice !== null && notice.includes(link);
+  const ask = name ? copy().describeName(name) : ctx.builderId !== null ? copy().openAskLinked : signInShown ? copy().openAskUnlinked : copy().openAsk;
   // v6.1.20: one opening with the count, then the nearest five (or every one in the full list), each a sentence.
   const count = `${programs.length} program${programs.length === 1 ? '' : 's'}`;
   const opening = all || programs.length <= OPEN_SHOWN ? `Open now: ${count}, nearest first:` : `Open now: ${count}. The ${OPEN_SHOWN === 5 ? 'five' : OPEN_SHOWN} nearest:`;
@@ -803,6 +806,8 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
       ...(all && !appsLine && shown.length > 0 ? [openNumbersNote(shown.map((r) => r.id))] : []),
       ...(sentNoteOpen ? [`${sentNoteOpen} Pass the project each was started for.`] : []),
+      // v3.8 E15: the agent passes the project it is in; the builder is not asked (empty on main's copy).
+      ...(copy().openNote ? [copy().openNote] : []),
     ].join('\n'),
     since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, applications, ask_outcome: [], ask_sent: sentShown, as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
@@ -822,7 +827,7 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
  */
 export function openListLines(before: string[], sentAsk: string | null, n: number, action: string, asks: boolean): string[] {
   if (!sentAsk) return [...before, action];
-  if (asks) return [...before, sentAsk, `Say ${n === 1 ? 'sent' : 'which you sent'}, or ${lowerFirst(action)}`];
+  if (asks) return [...before, sentAsk, copy().sentOr(n, lowerFirst(action))];
   return [...before, action, `${sentAsk} ${sentSay(n)}`];
 }
 
@@ -921,7 +926,7 @@ export const APPLY_OFFER = /^(Say yes\b.*\bI (also )?apply\b|Say yes again and I
 const TAIL_OFFER = / Say yes\b.*\b(I (also )?|then )apply\b.*$/;
 /** Whether the builder text offers an apply anywhere. Pure. */
 // v6.1.20 polish (3): the users yes that already carries its sign-in ("Say yes, sign in at {link}, and I apply.") is gated.
-const SIGNED_USERS = /Say yes, sign in\b/;
+const SIGNED_USERS = /Say yes, sign in\b|^Sign in (and|here: \S+\. Then) I'll check whether real people use it/;
 /** v6.1.20 review C1, I1, M6: every apply wording EarnKit writes, in a closing, a ready row or the opening (not the
  *  not-yours sentence "I apply only with repos you commit to"). */
 const APPLY_WORDS = /\bI (also )?apply\b(?! only with)|\bthen apply\b|\bapply to\b|\bI send (it|them) under your standing approval\b|\bApplying now to\b|\bstart the in-person applications\b|^Say do\b|, or say do \d+\b|\bSay yes to apply\b/;
@@ -1240,7 +1245,9 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // so no agent writes and pushes a funding file for a send the gate holds back.
   const offHost = !repoKey(project!.repo_url);
   // v6.1.20 re-review O3: off GitHub no sign-in confirms the repo, so the users yes drafts for the builder to send.
-  const usersDraft = (t: string) => t.replace(/(Do real people use it(?:, and [^?]+)?\? Say yes(?:, sign in(?: at \S+)?,)? and I) apply\./, '$1 draft it for you to send.');
+  // v3.8 E15: the new copy's users line (`USERS_V38`) the same way.
+  const usersDraft = (t: string) => t.replace(/(Do real people use it(?:, and [^?]+)?\? Say yes(?:, sign in(?: at \S+)?,)? and I) apply\./, '$1 draft it for you to send.')
+    .replace(/(I'll check whether real people use it),? (then|and) apply if they do\./, '$1, then draft it for you to send if they do.');
   const drafted = offHost && usersDraft(given.show_to_builder) !== given.show_to_builder;
   if (drafted) await markOffer(ctx.installationId, 'draft', ctx.now);
   const r = withoutSteps(drafted ? { ...given, show_to_builder: usersDraft(given.show_to_builder) } : given);

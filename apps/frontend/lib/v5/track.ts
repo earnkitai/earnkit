@@ -21,7 +21,7 @@ import { codeChecked, evaluate, itemKey, licenseRead, repoGaps, unlikely } from 
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { PaymentKeyInput, inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
-import { AMOUNT_DOT, AMOUNT_UNREAD, KNOWN_CURRENCIES, TELL_AMOUNT, UNKNOWN_CURRENCY, isUnknownCurrency, readAmount, type UnknownCurrency } from './amount';
+import { AMOUNT_DOT, AMOUNT_UNREAD, KNOWN_CURRENCIES, UNKNOWN_CURRENCY, isUnknownCurrency, readAmount, type UnknownCurrency } from './amount';
 import { amountsText, moneyAt, moneyOf as tileMoney, moneyText } from './programs-read';
 import { cleanText, quoteName } from './controls';
 import { flagOn } from './flags';
@@ -497,8 +497,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     // L45-15 (v6.1.19): an argument of the wrong type is the agent's slip: the builder is asked for the amount, the
     // agent hears which argument; a number below 0 is the builder's amount, unread.
     if (amountOnly && parsed.error.issues.some((x) => x.code !== 'too_small'))
-      return refuse(TELL_AMOUNT, `Nothing was recorded. ${amountArgNote(parsed.error.issues.map((x) => String(x.path[0])))} Convert words like 5k to 5000.`);
-    if (amountOnly) return refuse(AMOUNT_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)} Convert words like 5k to 5000.`);
+      return refuse(copy().tellAmount, `Nothing was recorded. ${amountArgNote(parsed.error.issues.map((x) => String(x.path[0])))} Convert words like 5k to 5000.`);
+    if (amountOnly) return refuse(copy().amountUnread, `Nothing was recorded. ${inputDetail(parsed.error)} Convert words like 5k to 5000.`);
     // L29-10 (v6.1.16 Task 15): an input error has no builder text; the note says what to fix.
     const dropped = loose.problems.length > 0 ? ` ${loose.problems.join('; ')}.` : '';
     return { ...inputError(`Nothing was recorded. ${inputDetail(parsed.error)}${dropped}`), ledger: await summary(owner, programs, ctx.now) };
@@ -518,7 +518,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
       : d.currency !== undefined && d.amount_usd === undefined && d.amount === undefined ? 'currency goes with amount; send the amount too.'
       : d.amount_usd !== undefined && d.currency !== undefined && d.currency.trim().toUpperCase() !== 'USD' ? 'amount_usd is US dollars; send amount with currency for another currency.'
       : null;
-    if (slip) return refuse(TELL_AMOUNT, `Nothing was recorded. ${slip}`);
+    if (slip) return refuse(copy().tellAmount, `Nothing was recorded. ${slip}`);
   }
   const read = parsed.data.project === undefined ? null : parseProject(parsed.data.project, ctx.now, { partial: true });
   const projectProblems = read?.ok ? read.problems : [];
@@ -941,7 +941,7 @@ async function act(
   // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
   // L22-6 (v6.1.16): a win's amount through the shared reader; any other status ignores it, as before.
   const amount = i.status === 'won' ? trackAmount(i) : null;
-  if (amount === 'bad') return refuse(AMOUNT_UNREAD, 'Nothing was recorded. Send amount_usd as a number (5000 or 1234.56; convert 5k to 5000), or amount with currency for another currency.');
+  if (amount === 'bad') return refuse(copy().amountUnread, 'Nothing was recorded. Send amount_usd as a number (5000 or 1234.56; convert 5k to 5000), or amount with currency for another currency.');
   if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
   // L45-20 (v6.1.19): a program that has not opened has no win to record, unless it came from outside EarnKit.
   if (i.status === 'won' && i.outside !== true) {
@@ -1022,7 +1022,7 @@ async function act(
           ? ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']
           : codeChecked(i.item!)
             // F6 (v6.1.12): no repo to check; the builder says when it is up.
-            ? [copy().tellWhenLive, 'When the builder says it is live, call find again with its repo or live link.']
+            ? [copy().tellWhenLive, copy().tellWhenLiveNote]
           : ['Tracked.', 'Call find again; that step counts as done.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
