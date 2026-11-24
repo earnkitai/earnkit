@@ -44,6 +44,8 @@ const APP_DIRS = new Set([
   '.well-known', '.well-known/oauth-authorization-server', '.well-known/oauth-protected-resource',
   '.well-known/oauth-protected-resource/[[...path]]',
   'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/applications', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
+  // v3.8 E7r: the owner's digest as a read (programs bearer).
+  'api/programs/digest',
   'api/stats', 'api/cron',
   // v6.1.17 Task 4: the header's signed-in check, and the page a guide goes to when its ids cannot be read.
   'api/me', 'api/me/signed-in', 'guide-unavailable',

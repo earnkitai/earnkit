@@ -23,7 +23,7 @@ export const METHODS_BY_ROUTE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/api\/programs\/(?:approve|revert)$/, 'GET, HEAD, POST'],
   [/^\/api\/programs\/reviewers$/, 'POST, OPTIONS'],
   [/^\/api\/programs\/write$/, 'POST'],
-  [/^\/api\/(?:programs|programs\/writes|programs\/applications|stats|me\/signed-in)$/, 'GET, HEAD'],
+  [/^\/api\/(?:programs|programs\/writes|programs\/applications|programs\/digest|stats|me\/signed-in)$/, 'GET, HEAD'],
   [/^\/auth\/github\/callback$/, 'GET, HEAD'],
   // v3.8 E5: X sign-in's start, and its callback at the URI the X app has registered.
   [/^\/auth\/x$/, 'GET, HEAD'],

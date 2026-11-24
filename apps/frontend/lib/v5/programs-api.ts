@@ -35,6 +35,7 @@ import {
   type LinkTarget,
 } from './programs-pending';
 import { findProgramsDir } from './programs-dir';
+import { ownerDigest } from './owner-digest';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
 import { BUILDER_OWN_NOTE } from './ledger';
@@ -796,8 +797,13 @@ export async function revertGet(request: Request, now = new Date(), programsDir?
   }
 }
 
-/** POST /api/programs/revert?t=: the revert. Single use: a replay finds the revert row and does nothing. */
+/**
+ * POST /api/programs/revert. With an Authorization header (v3.8 E7r), the owner's agent reverts by write id under the
+ * programs bearer (`revertByWrite`). Without one, the signed link's revert as before: `?t=`, single use, a replay finds
+ * the revert row and does nothing.
+ */
 export async function revertPost(request: Request, deps: RevertDeps = {}): Promise<Response> {
+  if (request.headers.has('authorization')) return revertByWrite(request, deps);
   const now = deps.now ?? new Date();
   const c = checkLink(revertTarget(tokenOf(request)), now, REVERT_TEXT.expired);
   if ('fail' in c) return c.fail;
@@ -808,5 +814,70 @@ export async function revertPost(request: Request, deps: RevertDeps = {}): Promi
   } catch (err) {
     console.error(`[programs-api] revert failed: ${errTag(err)}`);
     return ownerLine(REVERT_TEXT.busy, 503);
+  }
+}
+
+// ---- the owner's reads by bearer (v3.8 E7r, plan 23.2) ----
+
+/** What POST /api/programs/revert by write id answers when it cannot revert, by state. */
+export const NOT_REVERTABLE_BY_WRITE: Record<NotRevertable, string> = {
+  missing: 'No applied write has that id.',
+  done: 'That write was already reverted.',
+  superseded: 'A later change replaced that write, so it can no longer be reverted. Revert the later one.',
+  curated: 'EarnKit curates this program now, so the API change is gone already.',
+  no_earlier: "EarnKit has no earlier copy of this program, so it can't revert that write.",
+};
+const WRITE_ID = /^[1-9][0-9]{0,15}$/;
+
+/**
+ * POST /api/programs/revert `{ "write_id": "<id>" }` under the programs bearer: undoes that applied write once
+ * (`revertWrite`). 200 `{ ok, id, result: 'reverted' | 'closed' }`; 404 when no applied write has the id; 409 with the
+ * state when it cannot (done, superseded, curated, no_earlier); 400 for a bad body. 404 while the API is off.
+ */
+async function revertByWrite(request: Request, deps: RevertDeps): Promise<Response> {
+  const denied = authFailure(request);
+  if (denied) return denied;
+  const text = await readBody(request, 1024, () => json({ ok: false, error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
+  let writeId: unknown;
+  try {
+    writeId = (JSON.parse(text ?? '') as { write_id?: unknown } | null)?.write_id;
+  } catch {
+    writeId = undefined;
+  }
+  if (typeof writeId === 'number') writeId = String(writeId);
+  if (typeof writeId !== 'string' || !WRITE_ID.test(writeId)) return json({ ok: false, error: 'write_id: the id of an applied write (from the digest)' }, 400);
+  try {
+    const out = await revertWrite(writeId, deps);
+    if (out.kind === 'no') return json({ ok: false, error: NOT_REVERTABLE_BY_WRITE[out.state], state: out.state }, out.state === 'missing' ? 404 : 409);
+    return json({ ok: true, id: out.id, result: out.closed ? 'closed' : 'reverted' });
+  } catch (err) {
+    console.error(`[programs-api] revert failed: ${errTag(err)}`);
+    return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
+  }
+}
+
+/**
+ * GET /api/programs/digest, programs bearer (v3.8 E7r, plan 23.2 owner read): the day's digest as plain data plus one
+ * line per item (`lines`, the digest text by line, the title line left out). Reads only; the daily email is unchanged.
+ */
+export async function digestGet(request: Request, now = new Date()): Promise<Response> {
+  const denied = authFailure(request);
+  if (denied) return denied;
+  try {
+    const d = await ownerDigest(now);
+    return json({
+      ok: true,
+      day: d.day,
+      lines: d.text === null ? [] : d.text.trim().split('\n').slice(1).filter((l) => l.trim() !== ''),
+      changes: d.changes.map((c) => ({ program_id: c.id, title: c.title, fields: c.fields, write_id: c.writeId ?? null, ...(c.revertNote ? { note: c.revertNote } : {}) })),
+      health: d.health,
+      applications: d.applications,
+      results: d.results,
+      mailed: d.sent,
+    });
+  } catch (err) {
+    console.error(`[programs-api] digest failed: ${errTag(err)}`);
+    return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
   }
 }

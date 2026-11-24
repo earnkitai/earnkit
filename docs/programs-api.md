@@ -72,6 +72,11 @@ A link on a form, submit, hosting or shared platform (Google Forms, Typeform, Ta
 
 Any other change to a live program (reward, amounts, deadline, text, requirements, eligibility, past rounds) is live at once. The owner gets one email a day listing the day's changes, each with a revert link. A revert puts the program back as it was before that write (or closes it, if that write created it; or re-opens it, if that write closed it). Only a program's latest change can be reverted. A revert shows in `GET /api/programs/writes` as action `revert`.
 
+The owner's agent can read the same digest and revert without the email (v3.8):
+
+- `GET /api/programs/digest` (`Authorization: Bearer <token>`) returns `{ day, lines, changes: [{ program_id, title, fields, write_id, note? }], health, applications, results, mailed }`. `lines` has one item per line, and a change that can be reverted ends with `(revert: write <id>)`. Reading it changes nothing.
+- `POST /api/programs/revert` (`Authorization: Bearer <token>`) with body `{ "write_id": "<id>" }` reverts that write once. It answers 200 `{ "ok": true, "id": "...", "result": "reverted" | "closed" }`; 404 when no applied write has that id; 409 `{ "ok": false, "error": "...", "state": "done" | "superseded" | "curated" | "no_earlier" }`; 400 for a bad body.
+
 ### Fields you can send
 
 Every program field except `logo` and `reviewers_contact` (the owner adds logos by file). Any other field is refused: `logo: the API can't set logo; the owner adds it by file`, `<field>: not a program field`.

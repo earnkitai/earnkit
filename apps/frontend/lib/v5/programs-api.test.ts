@@ -8,7 +8,7 @@ import { record } from './ledger';
 import { secretMatches } from './http';
 import { programsListGet, watchCatalogRevalidation } from './programs-read';
 import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
-import { applicationsGet, parseSince, programsApiOn, approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { applicationsGet, parseSince, programsApiOn, approveGet, approvePost, programsChanged, digestGet, revertGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
@@ -625,4 +625,59 @@ test('L42-6, L42-2: agent is the installation that recorded the send, not the on
     await db`DELETE FROM installations WHERE token_hash IN ('l42-a', 'l42-b')`;
     await db`DELETE FROM builders WHERE github_id = 918420`;
   }
+});
+
+// ---- v3.8 E7r: the owner's digest as a read, revert by bearer; the email and the signed link unchanged ----
+
+const bearerRevert = (writeId: unknown, auth = `Bearer ${TOKEN}`) =>
+  revertPost(new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: auth }, body: JSON.stringify({ write_id: writeId }) }));
+
+test('v3.8 E7r: GET /api/programs/digest is a bearer read; a revertable change names its write id, which the bearer revert takes once', async () => {
+  const get = (auth = `Bearer ${TOKEN}`) => digestGet(new Request('https://earnkit.com/api/programs/digest', { headers: { authorization: auth } }));
+  assert.equal((await get('Bearer wrong')).status, 401);
+  const p = body({ id: 'api-digest', title: 'Digest Grants' });
+  await write(p);
+  await approve('api-digest');
+  await write({ ...p, reward: 'Up to $7,000 per grant', max_award_usd: 7000 });
+  sent = [];
+  const digestsBefore = (await sql()`SELECT count(*)::int AS n FROM owner_digests`)[0]!.n;
+  const res = await get();
+  assert.equal(res.status, 200);
+  const out = (await res.json()) as { ok: boolean; lines: string[]; changes: { program_id: string; write_id: string | null }[]; mailed: boolean };
+  const change = out.changes.find((c) => c.program_id === 'api-digest')!;
+  assert.match(change.write_id!, /^\d+$/);
+  assert.ok(out.lines.includes(`- Digest Grants: amount (revert: write ${change.write_id})`), out.lines.join('\n'));
+  assert.ok(out.lines.every((l) => !l.includes('/api/programs/revert?t=')));
+  // A read: nothing recorded, nothing mailed.
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM owner_digests`)[0]!.n, digestsBefore);
+  assert.deepEqual(sent, []);
+
+  assert.equal((await bearerRevert(change.write_id, 'Bearer wrong')).status, 401);
+  const ok = await bearerRevert(change.write_id);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { ok: true, id: 'api-digest', result: 'reverted' });
+  assert.equal((await getProgram('api-digest'))?.file.max_award_usd, 5000);
+  const again = await bearerRevert(change.write_id);
+  assert.equal(again.status, 409);
+  assert.equal(((await again.json()) as { state: string }).state, 'done');
+  assert.equal((await bearerRevert('x')).status, 400);
+  assert.equal((await bearerRevert('999999999')).status, 404);
+});
+
+test('v3.8 E7r: without an Authorization header, revert is the signed link exactly as before', async () => {
+  const p = body({ id: 'api-link-revert', title: 'Link Revert Grants' });
+  await write(p);
+  await approve('api-link-revert');
+  await write({ ...p, reward: 'Up to $8,000 per grant', max_award_usd: 8000 });
+  const w = await appliedWrite('api-link-revert', 'updated');
+  const t = encodeURIComponent(revertToken(w.id, revertExpiry(new Date())));
+  const res = await revertPost(new Request(`https://earnkit.com/api/programs/revert?t=${t}`, { method: 'POST' }));
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type') ?? '', /text\/html/);
+  assert.equal((await getProgram('api-link-revert'))?.file.max_award_usd, 5000);
+});
+
+test('v3.8 E7r: the digest is 404 while the API is off', async () => {
+  delete process.env.EARNKIT_PROGRAMS_TOKEN;
+  assert.equal((await digestGet(new Request('https://earnkit.com/api/programs/digest'))).status, 404);
 });
