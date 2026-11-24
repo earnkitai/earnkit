@@ -2065,8 +2065,9 @@ the script always exits 0, so it can never fail a deploy. Find it in the deploy 
 ## Owner/test flag preview (v3.8)
 
 Design: `design-docs-and-implementation-plans/v3.8-owner-test-flag-preview.md`. With `EARNKIT_FLAGS` unset, an owner or
-test caller's request runs with every shipping flag on (`PREVIEW_FLAGS`: auto_live, install_signin, x_signin,
-track_v2, draft_check, form, reply_fields, copy_v38, screen_v2; not private_rows, which has no code). `auto_live` (E6r)
+test caller's request runs with every shipping flag on (`PREVIEW_FLAGS`: auto_live, private_rows, install_signin,
+x_signin, track_v2, draft_check, form, reply_fields, copy_v38, screen_v2: every flag). `private_rows` (E8r) lets their
+track save and list private program rows. `auto_live` (E6r)
 sends an owner/test session's program writes through the automated check; `/api/programs/write` resolves the caller by
 the /me session. `flags.ts`
 holds a per-request `AsyncLocalStorage` context; `lib/v6/flag-preview.ts` resolves the caller once per request: `/mcp`
