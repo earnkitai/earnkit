@@ -174,9 +174,21 @@ The pipeline, in order:
 1. Research: the owner's Grok Bot writes through `POST /api/programs/write` (instructions in `docs/programs-api.md`).
    `programs-api.ts` validates (`program-checks.ts`, `api-text.ts`, `untrusted-text.ts`, `confusables.ts`) and
    upserts, closes, or holds the write pending.
-2. Approval: a new program, or a write changing `submission_url`, `chains`, `form` or `pool_source_url`, waits for
-   the owner's one-click link (`programs-pending.ts`, signed with `EARNKIT_AUTH_SECRET`, 7 days). Everything else is
-   live at once and appears in the owner's daily digest with a revert link.
+2. Gate, no human step (v3.8 E6, decision 21; no person approves a program and `no-approval.test.ts` fails if an
+   approval path returns). With the `auto_live` flag on, `official-page.ts` fetches the official page (official_url,
+   else source_url; `safeProbePage`, 64 KB, page text is data) and the write goes live only if the page's visible
+   text holds the caller's `amount_quote` and `deadline_quote` verbatim (whitespace folded) and the quotes name the
+   record's amount and ends_at day; a failure is a 400, audited, mailed to no one. `organizerStatus` then labels the
+   record: confirmed when the page's registrable domain is a `tracked_handles` profile domain for the sent handle, an
+   earlier confirmed program's domain for the same organizer, or linked from an evidence page on such a domain;
+   otherwise `new_organizer: true`. A builder link not on the page sets `info_only: true` (and drops `form`). Either
+   label forces `submit: builder`, so find blocks it as needs-a-click (never on the standing-approval list), track
+   refuses it as a standing send (`NEW_ORGANIZER_SEND`, `INFO_ONLY_SEND`), and find's agent note forbids an agent
+   submit and any wallet connection. Every later write re-runs the check, so the label clears itself; a weekly
+   re-check is not built yet. Each write row stores `found_by_query` and `found_by_source`. With the flag off, a new
+   program, or a write changing `submission_url`, `chains`, `form` or `pool_source_url` whose links don't check out
+   (`programs-pending.ts`), or a change to `submit`, `sign_in` or `min_tier`, is held `pending` and nothing applies it
+   (no email, no approve link). Everything live appears in the owner's daily digest with a revert link.
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
@@ -512,7 +524,7 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications (v6.1.19: `I sent it` posts to `/me/sent`), agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), `installs_real`, `people` and `people_real` (v6.1.21: not flagged as tests), and names no one |
-| `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
+| `/api/programs/write`, `writes`, `revert` | The owner's program API (v3.8 E6: `approve` deleted; `write` also takes `action: handle`) |
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
@@ -634,7 +646,7 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | Variable | Used for |
 |---|---|
 | `DATABASE_URL` | Postgres |
-| `EARNKIT_AUTH_SECRET` | Signs OAuth client ids and codes, approve and revert links |
+| `EARNKIT_AUTH_SECRET` | Signs OAuth client ids and codes, and revert links (approve links deleted in v3.8 E6) |
 | `EARNKIT_URL` | The public origin (required in production) |
 | `GITHUB_TOKEN` | Public repo reads (server token; unset means lower limits) |
 | `RESEND_API_KEY` | Owner emails (unset: no mail) |

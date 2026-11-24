@@ -1,8 +1,12 @@
 /**
- * The owner's programs write API (the Grok Bot): POST /api/programs/write upserts or closes an API
- * program, GET /api/programs/writes is its audit log, the approve and revert links apply or undo one
- * write. A create, a change to submission_url, chains, form or pool_source_url (unless every link
- * checks out, programs-pending.ts), or a change to submit, sign_in or min_tier waits for the owner. Audited.
+ * The owner's programs write API (Growth's writer): POST /api/programs/write upserts or closes an API program (or
+ * records a tracked handle), GET /api/programs/writes is its audit log, the revert link undoes one write. Audited.
+ *
+ * v3.8 E6 (decision 21): no person approves a program. With the `auto_live` flag on, an upsert goes live at once when
+ * the official-page check passes (official-page.ts: the quotes on the page, organizer status, information only) and is
+ * refused when it fails. With the flag off, a create, a change to submission_url, chains, form or pool_source_url
+ * (unless every link checks out, programs-pending.ts), or a change to submit, sign_in or min_tier is held as a
+ * pending row that nothing applies: no email, no approve link.
  */
 import { readdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
@@ -12,23 +16,31 @@ import { z } from 'zod';
 import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
 import { sql, type Db } from './db';
 import { bearerMatches, json, readBody } from './http';
-import { ownerMailEnabled, type Mailer } from './mail';
+import { flagOn } from './flags';
+import {
+  FOUND_BY_MAX,
+  QUOTE_MAX,
+  handleKey,
+  labelled,
+  linksOffPage,
+  officialPageOf,
+  organizerStatus,
+  pageLinks,
+  pageText,
+  quoteProblems,
+  readOfficialPage,
+  type PageReader,
+} from './official-page';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
-import { dateStatus, getProgram, isOpenAt, upsertProgram } from './programs';
+import { dateStatus, isOpenAt, upsertProgram } from './programs';
 import {
-  APPROVE_TTL_DAYS,
-  approveExpiry,
-  approveTarget,
+  PENDING_DAYS,
   confirmPage,
-  escapeHtml,
   linkAnchors,
   linkExpired,
-  linkLines,
-  mailPending,
   officialUrlProblem,
   ownerLine,
-  ownerPage,
   pendingReason,
   revertTarget,
   uncheckedLink,
@@ -52,8 +64,6 @@ export const API_AWARD_MAX_USD = 5_000_000;
 export const API_POOL_MAX_USD = 50_000_000;
 export const WRITES_MAX = 100;
 export const curatedLine = (id: string): string => `${id} is curated by EarnKit; send a new id or ask the owner`;
-/** The mark a pending write's reason carries while its owner email hasn't gone. */
-export const MAIL_FAILED = '; owner email not sent yet';
 
 const DAY_MS = 86_400_000;
 /** UTC+14 is the earliest zone: a bot's "today" there is never refused as the future. */
@@ -141,7 +151,8 @@ async function probeLink(url: string, probe: Probe): Promise<void> {
 }
 
 export type WriteDeps = {
-  mailer?: Mailer;
+  /** Reads the official page (and an evidence page) for the auto_live check. Default safeProbePage, 5 s, 64 KB. */
+  readPage?: PageReader;
   /** Resolves when the URL loads; throws when it doesn't. Default safeProbe. */
   probe?: Probe;
   now?: Date;
@@ -152,10 +163,10 @@ export type WriteDeps = {
   /** After a write changed a program. Default programsChanged. */
   onChange?: (id: string) => void;
 };
-type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit'>> & Pick<WriteDeps, 'mailer'>;
+type Deps = Required<Omit<WriteDeps, 'limit'>>;
 
 const fullDeps = (deps: WriteDeps): Deps => ({
-  mailer: deps.mailer,
+  readPage: deps.readPage ?? readOfficialPage,
   probe: deps.probe ?? ((u: string) => safeProbe(u, { timeoutMs: FETCH_TIMEOUT_MS })),
   now: deps.now ?? new Date(),
   programsDir: deps.programsDir === undefined ? findProgramsDir() : deps.programsDir,
@@ -164,26 +175,49 @@ const fullDeps = (deps: WriteDeps): Deps => ({
 
 type Result = 'created' | 'updated' | 'unchanged' | 'closed';
 
+const Quote = z.string().trim().min(1).max(QUOTE_MAX);
+const FoundBy = z.string().trim().min(1).max(FOUND_BY_MAX);
+/** An X handle: 1 to 15 letters, digits or underscores, an optional @. */
+const Handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, 'an X handle');
+const Domain = z.string().trim().toLowerCase().regex(/^(?=.{4,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/, 'a domain name');
+
 const Envelope = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('upsert'), program: z.record(z.string(), z.unknown()) }).strict(),
+  z.object({
+    action: z.literal('upsert'),
+    program: z.record(z.string(), z.unknown()),
+    /** v3.8 E6: the official page's words for the amount and the deadline, copied exactly (required with auto_live). */
+    amount_quote: Quote.optional(),
+    deadline_quote: Quote.optional(),
+    /** v3.8 E6: the search and the source that found this program (required with auto_live), stored on the write row. */
+    found_by_query: FoundBy.optional(),
+    found_by_source: FoundBy.optional(),
+    /** v3.8 E6: the tracked X handle whose post named the program, and a page the API may read to tie the domain to the organizer. */
+    handle: Handle.optional(),
+    evidence_url: z.string().trim().url().max(2048).startsWith('https://').optional(),
+  }).strict(),
   z.object({ action: z.literal('close'), id: z.string(), reason: z.string().trim().min(1).max(CLOSE_REASON_MAX) }).strict(),
+  /** v3.8 E6: Growth records a tracked handle and the domain in its own X profile. */
+  z.object({ action: z.literal('handle'), handle: Handle, profile_domain: Domain }).strict(),
 ]);
+type UpsertEnvelope = Extract<z.infer<typeof Envelope>, { action: 'upsert' }>;
+type FoundBy = { found_by_query?: string | null; found_by_source?: string | null };
 
 const refused = (status: number, problems: string[]) => json({ ok: false, problems }, status);
 const safeId = (id: unknown): string | null => (typeof id === 'string' && API_ID.test(id) ? id : null);
 /** The record as stored and compared (undefined keys dropped). */
 const asJson = (p: Program) => JSON.parse(JSON.stringify(p)) as postgres.JSONValue;
 
-async function audit(db: Db, row: { program_id: string | null; action: string; result: string; reason?: string | null; body?: Program }) {
-  await db`INSERT INTO program_writes (program_id, action, result, reason, body)
-    VALUES (${row.program_id}, ${row.action}, ${row.result}, ${row.reason ?? null}, ${row.body ? db.json(asJson(row.body)) : null})`;
+async function audit(db: Db, row: { program_id: string | null; action: string; result: string; reason?: string | null; body?: Program } & FoundBy) {
+  await db`INSERT INTO program_writes (program_id, action, result, reason, body, found_by_query, found_by_source)
+    VALUES (${row.program_id}, ${row.action}, ${row.result}, ${row.reason ?? null}, ${row.body ? db.json(asJson(row.body)) : null},
+      ${row.found_by_query ?? null}, ${row.found_by_source ?? null})`;
 }
 
 /** A refused write, kept for the owner (the reason, never the body). Never throws. */
-async function auditRefusal(action: string, id: unknown, result: string, problems: string[]) {
+async function auditRefusal(action: string, id: unknown, result: string, problems: string[], found: FoundBy = {}) {
   const program_id = safeId(id);
   console.log(`[programs-api] ${action} ${program_id ?? '-'} ${result}`);
-  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000) }).catch((err: unknown) =>
+  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000), ...found }).catch((err: unknown) =>
     console.error(`[programs-api] audit write failed: ${errTag(err)}`),
   );
 }
@@ -222,15 +256,9 @@ class Curated extends Error {}
 
 type Applied =
   | { kind: 'applied'; result: Exclude<Result, 'closed'> }
-  | { kind: 'pending'; write: { id: string; at: Date }; fresh: boolean; reason: string }
-  | { kind: 'not_pending'; state: string };
-/** A bot's write (the link check applies), or the owner's approval of pending write `writeId`. */
-type Mode = { kind: 'write' } | { kind: 'approve'; writeId: string };
+  | { kind: 'pending'; reason: string };
 
-/** Results that make an older pending write stale (approving it would undo them). */
-const NEWER_RESULTS = ['created', 'updated', 'approved', 'closed', 'pending', 'reverted'];
-
-/** Fields whose change is held for the owner like a form change: they decide who may submit and who qualifies. */
+/** Fields whose change is held like a form change while auto_live is off: they decide who may submit and who qualifies. */
 const GATE_FIELDS = ['submit', 'sign_in', 'min_tier'] as const;
 
 /** The first gate field whose value differs between the live record and the write, or null. Pure. */
@@ -240,29 +268,26 @@ function changedGate(old: Partial<Program>, p: Program): string | null {
   return GATE_FIELDS.find((f) => was[f] !== now[f]) ?? null;
 }
 
+/** An auto_live write that passed the official-page check: the record as it goes live and why it carries its labels. */
+type Checked = { live: Program; reason: string | null };
+
 /**
- * The write transaction. The program row is locked and its source read again (a sync can't be
- * overwritten). A bot write that creates the program or changes submission_url, chains, form or
- * pool_source_url, and any of whose builder links (submission_url, form.url, pool_source_url)
- * doesn't check out, or that changes submit, sign_in or min_tier, is held as a pending program_writes row instead (an identical
- * pending body within APPROVE_TTL_DAYS is reused, so one email). An approval locks its pending row
- * and flips it to 'approved' in the same transaction (single use).
+ * The write transaction. The program row is locked and its source read again (a sync can't be overwritten). A write
+ * that passed the official-page check (`checked`, auto_live on) is applied as labelled. Otherwise (auto_live off) a
+ * write that creates the program or changes submission_url, chains, form or pool_source_url, and any of whose builder
+ * links (submission_url, form.url, pool_source_url) doesn't check out, or that changes submit, sign_in or min_tier, is
+ * held as a pending program_writes row that nothing applies (an identical pending body within PENDING_DAYS is reused).
  */
-async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied> {
+async function applyUpsert(p: Program, deps: Deps, checked: Checked | null, found: FoundBy): Promise<Applied> {
   return sql().begin(async (tx): Promise<Applied> => {
-    if (mode.kind === 'approve') {
-      const [w] = await tx<{ result: string }[]>`SELECT result FROM program_writes WHERE id = ${mode.writeId} FOR UPDATE`;
-      if (w?.result !== 'pending') return { kind: 'not_pending', state: w?.result ?? 'missing' };
-      const [newer] = await tx<{ id: string }[]>`
-        SELECT id FROM program_writes WHERE program_id = ${p.id} AND id > ${mode.writeId} AND result IN ${tx(NEWER_RESULTS)} LIMIT 1`;
-      if (newer) {
-        await tx`UPDATE program_writes SET result = 'superseded' WHERE id = ${mode.writeId}`;
-        return { kind: 'not_pending', state: 'superseded' };
-      }
-    }
     const [row] = await tx<{ source: string; file: Partial<Program> | null }[]>`
       SELECT source, file FROM programs WHERE id = ${p.id} FOR UPDATE`;
     if (row && row.source !== 'api') throw new Curated();
+    if (checked) {
+      const result = await upsertProgram(checked.live, 'api', deps.now, tx);
+      await audit(tx, { program_id: p.id, action: 'upsert', result, reason: checked.reason, body: result === 'unchanged' ? undefined : checked.live, ...found });
+      return { kind: 'applied', result };
+    }
     const old = row?.file ?? null;
     const needsCheck =
       !old ||
@@ -270,30 +295,22 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
       !sameSet(old.chains ?? [], p.chains) ||
       !isDeepStrictEqual(old.form ?? null, (asJson(p) as { form?: unknown }).form ?? null) ||
       (old.pool_source_url ?? null) !== (p.pool_source_url ?? null);
-    const unchecked = mode.kind === 'write' && needsCheck ? uncheckedLink(p, await linkAnchors(tx, p, deps.now)) : null;
-    const gate = mode.kind === 'write' && old ? changedGate(old, p) : null;
+    const unchecked = needsCheck ? uncheckedLink(p, await linkAnchors(tx, p, deps.now)) : null;
+    const gate = old ? changedGate(old, p) : null;
     if (unchecked || gate) {
-      // Two identical writes at once still make one pending row and one email.
+      // Two identical writes at once still make one pending row.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`program-pending:${p.id}`}))`;
       const reason = unchecked ? pendingReason(unchecked.url, p.official_url, unchecked.field) : `${gate} changed, which decides who can enter`;
-      const [same] = await tx<{ id: string; at: Date; reason: string | null }[]>`
-        SELECT id, at, reason FROM program_writes
+      const [same] = await tx<{ id: string }[]>`
+        SELECT id FROM program_writes
         WHERE program_id = ${p.id} AND result = 'pending' AND body = ${tx.json(asJson(p))}
-          AND at > ${new Date(deps.now.getTime() - APPROVE_TTL_DAYS * DAY_MS)}
+          AND at > ${new Date(deps.now.getTime() - PENDING_DAYS * DAY_MS)}
         ORDER BY id DESC LIMIT 1`;
-      // A pending write whose owner email failed sends it again (same idempotency key).
-      if (same) return { kind: 'pending', write: same, fresh: (same.reason ?? '').endsWith(MAIL_FAILED), reason };
-      const [w] = await tx<{ id: string; at: Date }[]>`
-        INSERT INTO program_writes (program_id, action, result, reason, body)
-        VALUES (${p.id}, 'upsert', 'pending', ${reason}, ${tx.json(asJson(p))})
-        RETURNING id, at`;
-      return { kind: 'pending', write: w!, fresh: true, reason };
+      if (!same) await audit(tx, { program_id: p.id, action: 'upsert', result: 'pending', reason, body: p, ...found });
+      return { kind: 'pending', reason };
     }
     const result = await upsertProgram(p, 'api', deps.now, tx);
-    if (mode.kind === 'approve') {
-      await tx`UPDATE program_writes SET result = 'approved' WHERE id = ${mode.writeId}`;
-      await audit(tx, { program_id: p.id, action: 'upsert', result, reason: `approved write ${mode.writeId}`, body: p });
-    } else await audit(tx, { program_id: p.id, action: 'upsert', result, body: result === 'unchanged' ? undefined : p });
+    await audit(tx, { program_id: p.id, action: 'upsert', result, body: result === 'unchanged' ? undefined : p, ...found });
     return { kind: 'applied', result };
   });
 }
@@ -301,48 +318,88 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
 /** Listed to builders now: open, or upcoming. */
 const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, now);
 
-async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<Response> {
+/**
+ * v3.8 E6: the official-page check for an auto_live write. Refusal problems when the quotes, found-by fields or page
+ * fail (nothing goes live, nobody is mailed); else the record as it goes live, labelled new organizer and information
+ * only as the check found. The page's text is only searched, never stored or returned.
+ */
+async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise<{ problems: string[] } | Checked> {
+  const missing = (['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source'] as const)
+    .filter((k) => e[k] === undefined)
+    .map((k) => `${k}: required; ${k.endsWith('quote') ? "copy the official page's words exactly" : 'say which search and source found this program'}`);
+  if (missing.length > 0) return { problems: missing };
+  const url = officialPageOf(p);
+  let html: string;
+  try {
+    html = await deps.readPage(url);
+  } catch (err) {
+    return { problems: [`official page: ${url} doesn't load (${(err instanceof Error ? err.message : 'unknown error').slice(0, 160)})`] };
+  }
+  const quotes = quoteProblems(p, { amount_quote: e.amount_quote!, deadline_quote: e.deadline_quote! }, pageText(html));
+  if (quotes.length > 0) return { problems: quotes };
+  const off = linksOffPage(p, url, pageLinks(html, url));
+  const org = await organizerStatus(sql(), p, { handle: e.handle ?? null, evidenceUrl: e.evidence_url ?? null, read: deps.readPage });
+  const reasons = [
+    ...(org.status === 'new' ? [`new organizer: ${org.why}`] : []),
+    ...(off.length > 0 ? [`information only: ${off.join(', ')} not on the official page`] : []),
+  ];
+  return { live: labelled(p, { newOrganizer: org.status === 'new', infoOnly: off.length > 0 }), reason: reasons.length > 0 ? reasons.join('; ') : null };
+}
+
+async function upsertAction(e: UpsertEnvelope, deps: Deps): Promise<Response> {
+  const raw = e.program;
+  const found: FoundBy = { found_by_query: e.found_by_query ?? null, found_by_source: e.found_by_source ?? null };
   const forbidden = notWritableFields(raw);
   const parsed = ProgramFile.safeParse(raw);
   if (forbidden.length > 0 || !parsed.success) {
     const problems = [...forbidden, ...(parsed.success ? [] : programProblems(raw as Program, deps.now))];
-    await auditRefusal('upsert', raw.id, 'refused', problems);
+    await auditRefusal('upsert', raw.id, 'refused', problems, found);
     return refused(400, problems);
   }
   const p = parsed.data;
   const refusal = await writeRefusal(p, deps);
   if (refusal) {
-    await auditRefusal('upsert', p.id, refusal.result, refusal.problems);
+    await auditRefusal('upsert', p.id, refusal.result, refusal.problems, found);
     return refused(refusal.status, refusal.problems);
+  }
+  let checked: Checked | null = null;
+  if (flagOn('auto_live')) {
+    const c = await officialCheck(p, e, deps);
+    if ('problems' in c) {
+      await auditRefusal('upsert', p.id, 'refused', c.problems, found);
+      return refused(400, c.problems);
+    }
+    checked = c;
   }
   let out: Applied;
   try {
-    out = await applyUpsert(p, deps, { kind: 'write' });
+    out = await applyUpsert(p, deps, checked, found);
   } catch (err) {
     if (!(err instanceof Curated)) throw err;
-    await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)]);
+    await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)], found);
     return refused(409, [curatedLine(p.id)]);
   }
   if (out.kind === 'pending') {
     console.log(`[programs-api] upsert ${p.id} pending`);
-    let emailed = !out.fresh;
-    if (out.fresh && ownerMailEnabled()) {
-      try {
-        await mailPending(out.write, p, out.reason, deps.mailer);
-        emailed = true;
-        await sql()`UPDATE program_writes SET reason = ${out.reason} WHERE id = ${out.write.id} AND result = 'pending'`;
-      } catch (err) {
-        // The write stays pending and says so; the same write sent again retries the email.
-        console.error(`[programs-api] pending mail failed: ${errTag(err)}`);
-        await sql()`UPDATE program_writes SET reason = ${out.reason + MAIL_FAILED} WHERE id = ${out.write.id} AND result = 'pending'`;
-      }
-    }
-    return json({ ok: true, id: p.id, result: 'pending', category: categoryOf(p), live: false, reason: out.reason, owner_emailed: emailed }, 202);
+    return json({ ok: true, id: p.id, result: 'pending', category: categoryOf(p), live: false, reason: out.reason }, 202);
   }
-  const result = out.kind === 'applied' ? out.result : 'unchanged';
+  const result = out.result;
   console.log(`[programs-api] upsert ${p.id} ${result}`);
   if (result !== 'unchanged') deps.onChange(p.id);
-  return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, deps.now) });
+  const labels = checked ? { organizer: checked.live.new_organizer ? 'new' : 'confirmed', info_only: checked.live.info_only === true } : {};
+  return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, deps.now), ...labels });
+}
+
+/** v3.8 E6: records (or moves) a tracked X handle and the domain in its own profile. Audited. */
+async function handleAction(handle: string, domain: string): Promise<Response> {
+  const key = handleKey(handle);
+  await sql().begin(async (tx) => {
+    await tx`INSERT INTO tracked_handles (handle, profile_domain) VALUES (${key}, ${domain})
+      ON CONFLICT (handle) DO UPDATE SET profile_domain = EXCLUDED.profile_domain, at = now()`;
+    await audit(tx, { program_id: null, action: 'handle', result: 'recorded', reason: `@${key} ${domain}` });
+  });
+  console.log(`[programs-api] handle @${key} recorded`);
+  return json({ ok: true, handle: key, profile_domain: domain, result: 'recorded' });
 }
 
 /**
@@ -419,7 +476,8 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
       return refused(400, problems);
     }
     const e = envelope.data;
-    return e.action === 'upsert' ? await upsertAction(e.program, full) : await closeAction(e.id, e.reason, full);
+    if (e.action === 'handle') return await handleAction(e.handle, e.profile_domain);
+    return e.action === 'upsert' ? await upsertAction(e, full) : await closeAction(e.id, e.reason, full);
   } catch (err) {
     console.error(`[programs-api] write failed: ${errTag(err)}`);
     return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });
@@ -428,17 +486,17 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
 
 /**
  * GET /api/programs/writes: the last WRITES_MAX program_writes rows, newest first, never a body;
- * and `pending`, the writes waiting for approval whose link still works, with title and links.
+ * and `pending`, the writes held in the last PENDING_DAYS (auto_live off; nothing applies them), with title and links.
  */
 export async function writesGet(request: Request, now = new Date()): Promise<Response> {
   const denied = authFailure(request);
   if (denied) return denied;
   try {
-    const writes = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null }[]>`
-      SELECT at, program_id, action, result, reason FROM program_writes ORDER BY id DESC LIMIT ${WRITES_MAX}`;
+    const writes = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null; found_by_query: string | null; found_by_source: string | null }[]>`
+      SELECT at, program_id, action, result, reason, found_by_query, found_by_source FROM program_writes ORDER BY id DESC LIMIT ${WRITES_MAX}`;
     const held = await sql()<{ at: Date; program_id: string | null; reason: string | null; title: unknown; submission_url: unknown; source_url: unknown }[]>`
       SELECT at, program_id, reason, body->'title' AS title, body->'submission_url' AS submission_url, body->'source_url' AS source_url
-      FROM program_writes WHERE result = 'pending' AND at > ${new Date(now.getTime() - APPROVE_TTL_DAYS * DAY_MS)}
+      FROM program_writes WHERE result = 'pending' AND at > ${new Date(now.getTime() - PENDING_DAYS * DAY_MS)}
       ORDER BY id DESC LIMIT ${WRITES_MAX}`;
     const text = (v: unknown) => (typeof v === 'string' ? v : null);
     const pending = held.map((w) => ({
@@ -448,7 +506,6 @@ export async function writesGet(request: Request, now = new Date()): Promise<Res
       title: text(w.title),
       submission_url: text(w.submission_url),
       source_url: text(w.source_url),
-      expires_at: new Date(approveExpiry(new Date(w.at)) * 1000),
     }));
     return json({ ok: true, writes, pending });
   } catch (err) {
@@ -569,109 +626,13 @@ export async function applicationsGet(request: Request): Promise<Response> {
   }
 }
 
-// ---- approve ----
-
-export const APPROVE_TEXT = {
-  title: 'Approve this program?',
-  note: 'It goes live on EarnKit when you approve. Check the links first.',
-  button: 'Approve',
-  bad: 'This link is not valid.',
-  expired: 'This link has expired. Ask the bot to send the program again.',
-  done: 'This write was already handled.',
-  superseded: 'A newer write for this program came in, so this one was not applied.',
-  approved: 'Approved. The program is live.',
-  refused: 'This write no longer passes the checks, so nothing changed:',
-  busy: BUSY,
-} as const;
-
 const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t') ?? '';
 
 /** The token's write, or the failure page. The signature is checked before any database read. */
 function checkLink(target: LinkTarget | null, now: Date, expired: string): { t: LinkTarget } | { fail: Response } {
-  if (!target) return { fail: ownerLine(APPROVE_TEXT.bad, 400) };
+  if (!target) return { fail: ownerLine(REVERT_TEXT.bad, 400) };
   if (linkExpired(target, now)) return { fail: ownerLine(expired, 410) };
   return { t: target };
-}
-
-type ApproveOutcome =
-  | { kind: 'applied'; id: string; result: Exclude<Result, 'closed'> }
-  | { kind: 'not_pending'; state: string }
-  | { kind: 'refused'; problems: string[] };
-
-/** Applies pending write `writeId`: the write's checks again (verified_at as of the write), then the write transaction. */
-async function approveWrite(writeId: string, deps: Deps): Promise<ApproveOutcome> {
-  const [w] = await sql()<{ result: string; action: string; at: Date; body: unknown }[]>`
-    SELECT result, action, at, body FROM program_writes WHERE id = ${writeId}`;
-  if (!w || w.result !== 'pending' || w.action !== 'upsert') return { kind: 'not_pending', state: w?.result ?? 'missing' };
-  const parsed = ProgramFile.safeParse(w.body);
-  if (!parsed.success) return { kind: 'refused', problems: programProblems(w.body as Program, deps.now) };
-  const p = parsed.data;
-  const refusal = await writeRefusal(p, deps, new Date(w.at));
-  if (refusal) return { kind: 'refused', problems: refusal.problems };
-  let out: Applied;
-  try {
-    out = await applyUpsert(p, deps, { kind: 'approve', writeId });
-  } catch (err) {
-    if (err instanceof Curated) return { kind: 'refused', problems: [curatedLine(p.id)] };
-    throw err;
-  }
-  if (out.kind === 'not_pending') return out;
-  if (out.kind !== 'applied') throw new Error('an approval never holds');
-  console.log(`[programs-api] approve ${p.id} ${out.result}`);
-  if (out.result !== 'unchanged') deps.onChange(p.id);
-  return { kind: 'applied', id: p.id, result: out.result };
-}
-
-/** GET /api/programs/approve?t=: the confirm page. It changes nothing (mail scanners open links). */
-export async function approveGet(request: Request, now = new Date()): Promise<Response> {
-  if (!programsApiOn()) return notFound();
-  const token = tokenOf(request);
-  const c = checkLink(approveTarget(token), now, APPROVE_TEXT.expired);
-  if ('fail' in c) return c.fail;
-  try {
-    const [w] = await sql()<{ result: string; action: string; body: unknown; reason: string | null }[]>`
-      SELECT result, action, body, reason FROM program_writes WHERE id = ${c.t.writeId}`;
-    if (!w || w.action !== 'upsert') return ownerLine(APPROVE_TEXT.bad, 400);
-    if (w.result !== 'pending') return ownerLine(w.result === 'superseded' ? APPROVE_TEXT.superseded : APPROVE_TEXT.done, 409);
-    const parsed = ProgramFile.safeParse(w.body);
-    if (!parsed.success) return ownerLine(APPROVE_TEXT.bad, 400);
-    const p = parsed.data;
-    const current = await getProgram(p.id);
-    const lines = [
-      `Program: ${p.title} (${p.id})`,
-      `Organizer: ${p.organizer}`,
-      // The pending body's links, not the live program's.
-      ...linkLines(p, w.reason),
-      `Source page: ${p.source_url}`,
-      `Reward: ${p.summary}`,
-      ...(p.form ? [`Form: ${p.form.platform}, ${Object.keys(p.form.fields ?? {}).length} field ids`] : []),
-      current ? 'This changes a live program.' : 'This adds a new program.',
-      APPROVE_TEXT.note,
-    ];
-    return confirmPage(APPROVE_TEXT.title, lines, `/api/programs/approve?t=${encodeURIComponent(token)}`, APPROVE_TEXT.button);
-  } catch (err) {
-    console.error(`[programs-api] approve page failed: ${errTag(err)}`);
-    return ownerLine(APPROVE_TEXT.busy, 503);
-  }
-}
-
-/** POST /api/programs/approve?t=: the approval. Single use: a replay finds the write no longer pending. */
-export async function approvePost(request: Request, deps: Omit<WriteDeps, 'mailer' | 'limit'> = {}): Promise<Response> {
-  if (!programsApiOn()) return notFound();
-  const full = fullDeps(deps);
-  const c = checkLink(approveTarget(tokenOf(request)), full.now, APPROVE_TEXT.expired);
-  if ('fail' in c) return c.fail;
-  try {
-    const out = await approveWrite(c.t.writeId, full);
-    if (out.kind === 'applied') return ownerLine(APPROVE_TEXT.approved, 200);
-    if (out.kind === 'refused')
-      return ownerPage([APPROVE_TEXT.refused, ...out.problems.slice(0, 10)].map((l) => `<p>${escapeHtml(l)}</p>`).join(''), 400);
-    if (out.state === 'missing') return ownerLine(APPROVE_TEXT.bad, 400);
-    return ownerLine(out.state === 'superseded' ? APPROVE_TEXT.superseded : APPROVE_TEXT.done, 409);
-  } catch (err) {
-    console.error(`[programs-api] approve failed: ${errTag(err)}`);
-    return ownerLine(APPROVE_TEXT.busy, 503);
-  }
 }
 
 // ---- revert ----

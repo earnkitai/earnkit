@@ -666,3 +666,14 @@ HAVING count(i.id) > 0 OR p.builder_id IS NOT NULL;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF;
 END $$;
+
+-- v3.8 E6 (decision 21): which search and source found each program write, and the X handles Growth tracks with the
+-- domain in each handle's own profile (the official-page check confirms an organizer whose page is on that domain).
+-- Additive and idempotent: two nullable columns and one new table.
+ALTER TABLE program_writes ADD COLUMN IF NOT EXISTS found_by_query text;
+ALTER TABLE program_writes ADD COLUMN IF NOT EXISTS found_by_source text;
+CREATE TABLE IF NOT EXISTS tracked_handles (
+  handle         text PRIMARY KEY,
+  profile_domain text NOT NULL,
+  at             timestamptz NOT NULL DEFAULT now()
+);

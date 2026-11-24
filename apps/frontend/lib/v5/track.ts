@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
 import { DELETED_NOTICE, shortTitle } from '../v6/reply-words';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
+import { INFO_ONLY_SEND, NEW_ORGANIZER_SEND } from './official-page';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, blockersOf, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { wantsManifest } from './funding-manifest';
@@ -575,6 +576,9 @@ export async function unvouchedAtSend(ctx: TrackContext, i: TrackIn, row: Progra
  * that closed is judged as it stood at its close: the ledger says whether the send came too late.
  */
 async function notApprovedAtSend(ctx: TrackContext, owner: string, i: TrackIn, row: ProgramRowOf, projectKey: string): Promise<string | null> {
+  // v3.8 E6 (decision 21): a new organizer or an information-only program is never sent under standing approval.
+  if (row.file.new_organizer) return NEW_ORGANIZER_SEND;
+  if (row.file.info_only) return INFO_ONLY_SEND;
   const { facts, rec, unvouched } = await sendCheck(ctx, i, row, projectKey);
   if (requiredLeftOut(row, i.fields_used).length > 0 || unvouched.length > 0) return REQUIRED_MISSING;
   const ends = row.file.ends_at ? Date.parse(row.file.ends_at) : null;

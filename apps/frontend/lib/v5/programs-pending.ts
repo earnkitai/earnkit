@@ -1,21 +1,19 @@
 /**
- * The pending path of the programs write API: whether a submission link checks out (on a curated
- * program's site for the program's chains, official_url a hint only), the owner's one email per
- * pending write, the signed approve and revert links (HMAC with EARNKIT_AUTH_SECRET, 7 days), and
- * the owner's plain confirm pages those links open.
+ * The pending path of the programs write API while auto_live is off: whether a submission link checks out (on a
+ * curated program's site for the program's chains, official_url a hint only). A held write is never mailed and has no
+ * approve link (v3.8 E6: no person approves a program). Also the signed revert link (HMAC with EARNKIT_AUTH_SECRET,
+ * 7 days) and the plain confirm page it opens.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Db } from './db';
-import { ownerMail, type Mailer } from './mail';
 import type { Program } from './program-file';
 import { STALE_DAYS } from './programs';
 import { linkChecksOut, linkPlatformName, normalHost, registrableDomain, sameSite } from './submit-hosts';
 
-/** How long an approve link works. */
-export const APPROVE_TTL_DAYS = 7;
+/** How long a held write is listed in GET /api/programs/writes and reused for an identical write. */
+export const PENDING_DAYS = 7;
 /** How long a revert link works (from the email that carries it). */
 export const REVERT_TTL_DAYS = 7;
-export const PENDING_SUBJECT = 'EarnKit: a program write waits for you';
 
 const DAY_MS = 86_400_000;
 
@@ -24,7 +22,7 @@ export const siteUrl = (): string => (process.env.EARNKIT_URL ?? 'https://earnki
 
 // ---- signed links ----
 
-type Kind = 'program-approve' | 'program-revert';
+type Kind = 'program-revert';
 const macOf = (kind: Kind, writeId: string, expires: number, secret: string) =>
   createHmac('sha256', secret).update(`${kind}:v1:${writeId}:${expires}`).digest('base64url');
 
@@ -51,13 +49,6 @@ function signedTarget(kind: Kind, token: unknown, secret = process.env.EARNKIT_A
 
 export const linkExpired = (t: LinkTarget, now: Date): boolean => now.getTime() / 1000 > t.expires;
 
-/** When an approve link for a write made at `at` stops working (unix seconds). */
-export const approveExpiry = (at: Date): number => Math.floor(at.getTime() / 1000) + APPROVE_TTL_DAYS * 86_400;
-export const approveToken = (writeId: string | number, expires: number): string => signedToken('program-approve', writeId, expires);
-export const approveTarget = (token: unknown): LinkTarget | null => signedTarget('program-approve', token);
-export const approveUrl = (writeId: string | number, expires: number): string =>
-  `${siteUrl()}/api/programs/approve?t=${encodeURIComponent(approveToken(writeId, expires))}`;
-
 /** When a revert link mailed at `at` stops working (unix seconds). */
 export const revertExpiry = (at: Date): number => Math.floor(at.getTime() / 1000) + REVERT_TTL_DAYS * 86_400;
 export const revertToken = (writeId: string | number, expires: number): string => signedToken('program-revert', writeId, expires);
@@ -76,7 +67,7 @@ const hostOf = (url: string | undefined | null): string | null => {
  * The curated sites a submission link may be on to go live, for program `p`'s chains (no chains:
  * the any-chain programs). Never `p` itself. A live file program anchors with its submission and
  * source hosts; a live, fresh API program anchors with its submission host only, and only when the
- * owner approved that link for overlapping chains.
+ * owner approved that link for overlapping chains (an approval from before v3.8; nothing approves now).
  */
 export async function linkAnchors(db: Db, p: Pick<Program, 'id' | 'chains'>, now: Date): Promise<string[]> {
   const chains = p.chains;
@@ -146,49 +137,10 @@ export function officialUrlProblem(officialUrl: string | undefined): string | nu
   return platform ? `official_url: ${host} is on ${platform}, a shared or platform host; send the organizer's own site` : null;
 }
 
-// ---- the owner's email ----
-
-type MailFields = Pick<Program, 'id' | 'title' | 'organizer' | 'source_url' | 'submission_url' | 'official_url' | 'form' | 'pool_source_url'>;
+// ---- the owner's confirm pages ----
 
 /** One line: control characters, line and paragraph separators and runs of whitespace become one space. Pure. */
 export const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\s]+/g, ' ').trim();
-
-const LINK_LABELS: Record<string, string> = { submission_url: 'Submission link', 'form.url': 'Form link', pool_source_url: 'Pool source' };
-
-/**
- * One labelled line per builder link the write carries, each in full, the one that failed the
- * check marked (read from the pending reason, which starts with its field). Pure.
- */
-export function linkLines(p: Pick<Program, 'submission_url' | 'form' | 'pool_source_url'>, reason: string | null): string[] {
-  const failed = reason ? builderLinks(p).find((l) => reason.startsWith(`${l.field} `))?.field : undefined;
-  return builderLinks(p).map((l) => `${LINK_LABELS[l.field]}: ${oneLine(l.url)}${l.field === failed ? ' (did not check out)' : ''}`);
-}
-
-/** The owner's email for a pending write. Plain text; every bot value is on one line (oneLine). Pure. */
-export function pendingMailText(p: MailFields, reason: string, link: string | null): string {
-  return [
-    "The Grok Bot wrote a program change EarnKit couldn't check. It is not live.",
-    '',
-    `Program: ${oneLine(p.title)} (${p.id})`,
-    `Organizer: ${oneLine(p.organizer)}`,
-    ...linkLines(p, reason),
-    `Source page: ${oneLine(p.source_url)}`,
-    `Official site: ${oneLine(p.official_url ?? 'none sent')}`,
-    `Why: ${oneLine(reason)}`,
-    '',
-    link
-      ? `Check the links, then approve it here (a confirm page; the link works for ${APPROVE_TTL_DAYS} days): ${link}`
-      : 'EARNKIT_AUTH_SECRET is not set, so there is no approve link. It stays pending.',
-  ].join('\n');
-}
-
-/** Sends the owner's one email for a pending write (idempotency key program-pending:<id>). Throws on a failed send. */
-export async function mailPending(w: { id: string; at: Date }, p: MailFields, reason: string, mailer?: Mailer): Promise<void> {
-  const link = process.env.EARNKIT_AUTH_SECRET ? approveUrl(w.id, approveExpiry(w.at)) : null;
-  await ownerMail(PENDING_SUBJECT, pendingMailText(p, reason, link), `program-pending:${w.id}`, mailer);
-}
-
-// ---- the owner's confirm pages ----
 
 export const escapeHtml = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

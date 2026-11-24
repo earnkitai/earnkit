@@ -18,7 +18,7 @@ export const METHODS_BY_ROUTE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/link\/[^/]+\/confirm$/, 'POST'],
   [/^\/link\/[^/]+$/, 'GET'],
   [/^\/api\/cron$/, 'POST'],
-  [/^\/api\/programs\/(?:approve|revert)$/, 'GET, HEAD, POST'],
+  [/^\/api\/programs\/revert$/, 'GET, HEAD, POST'],
   [/^\/api\/programs\/reviewers$/, 'POST, OPTIONS'],
   [/^\/api\/programs\/write$/, 'POST'],
   [/^\/api\/(?:programs|programs\/writes|programs\/applications|stats|me\/signed-in)$/, 'GET, HEAD'],

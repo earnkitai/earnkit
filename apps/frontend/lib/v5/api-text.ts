@@ -18,13 +18,16 @@ export const API_ORGANIZER_MAX = 80;
 const URL_MAX = 2048;
 
 const notWritable = (field: string) => `${field}: the API can't set ${field}; the owner adds it by file`;
+/** v3.8 E6: fields only the official-page check sets. */
+export const CHECK_SET = ['new_organizer', 'info_only'] as const;
+const checkSet = (field: string) => `${field}: set by EarnKit's official-page check, never by a write`;
 const unknown = (field: string) => `${field}: not a program field`;
 
 /** The top-level and requirement keys of a raw program that the API refuses: `logo`, and any key the record has not. Pure. */
 export function notWritableFields(raw: Record<string, unknown>): string[] {
   const fields = Object.keys(ProgramFile.shape);
   const top = Object.keys(raw).flatMap((k) =>
-    (NOT_WRITABLE as readonly string[]).includes(k) ? [notWritable(k)] : fields.includes(k) ? [] : [unknown(k)],
+    (NOT_WRITABLE as readonly string[]).includes(k) ? [notWritable(k)] : (CHECK_SET as readonly string[]).includes(k) ? [checkSet(k)] : fields.includes(k) ? [] : [unknown(k)],
   );
   const reqFields = Object.keys(SubmissionRequirement.shape);
   const reqs = Array.isArray(raw.submission_requirements) ? raw.submission_requirements : [];
