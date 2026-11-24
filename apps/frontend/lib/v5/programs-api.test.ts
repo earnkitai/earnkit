@@ -1,6 +1,7 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
+import { flagOn } from './flags';
 import type { Mailer } from './mail';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
@@ -223,7 +224,9 @@ test('a link that does not load is refused', async () => {
     },
   });
   assert.equal(res.status, 400);
-  assert.match(((await res.json()) as { problems: string[] }).problems[0], /^source_url: doesn't load/);
+  // v3.8 G-A: with auto_live on, the official-page check reads source_url itself (wall retry, 5xx shells), so the
+  // probe skips it and the first dead link named is submission_url.
+  assert.match(((await res.json()) as { problems: string[] }).problems[0], flagOn('auto_live') ? /^submission_url: doesn't load/ : /^source_url: doesn't load/);
 });
 
 mainLane('form change waits for approval', async () => {

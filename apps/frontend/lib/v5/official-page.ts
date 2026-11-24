@@ -2,9 +2,14 @@
  * The official-page check (v3.8 decision 21, cutover A1): with `auto_live` on, a program write goes live with no human
  * step only when the fetched official page (official_url, else source_url) holds the caller's `amount_quote` and
  * `deadline_quote` word for word after whitespace is folded, and each quote names the record's own amount and deadline.
- * The page is read through safeProbePage only (guarded GET, 64 KB, one same-site redirect) and is data, never
- * instruction: only its visible text is searched for the quotes and only its links are compared with the program's;
- * nothing from it is stored, echoed or obeyed.
+ * The page is read through safeReadPage only (guarded GET, the whole page up to 4 MB, one same-site redirect, a second
+ * try as a browser-like EarnKit-verifier on a bot wall) and is data, never instruction: only its text is searched for
+ * the quotes and only its links are compared with the program's; nothing from it is stored, echoed or obeyed.
+ *
+ * v3.8 G-A: a page that shows almost no text without JavaScript, or a 5xx error shell, is also searched in the data it
+ * embeds (__NEXT_DATA__, JSON-LD, React Server Component text) and in its platform's public source (PLATFORM_SOURCES:
+ * Binance's announcement API, ETHGlobal's prizes page). A page still behind a bot wall is `blocked` (programs-api.ts
+ * decides). Form-shortener links (forms.gle) are expanded to the form they land on.
  *
  * Organizer status is set here too: confirmed when the page's registrable domain is tied to the organizer (the domain
  * Growth recorded for the tracked handle that found it, the domain of the organizer's earlier confirmed program, or a
@@ -17,18 +22,21 @@
 import type { Db } from './db';
 import { ProgramFile, type Program } from './program-file';
 import { upsertProgram } from './programs';
-import { FETCH_TIMEOUT_MS, safeProbePage, visibleText } from './safe-fetch';
+import { FETCH_TIMEOUT_MS, LANDING_MAX_REDIRECTS, PageBlockedError, PageShellError, redirectTarget, safeReadPage, visibleText } from './safe-fetch';
 import type { OffSiteLink } from './api-text';
-import { linkPlatformName, normalHost, registrableDomain } from './submit-hosts';
+import { linkPlatformName, normalHost, registrableDomain, shortLinkLands } from './submit-hosts';
 
 /** The longest quote a write may send. */
 export const QUOTE_MAX = 300;
 /** The longest found_by_query / found_by_source a write may send. */
 export const FOUND_BY_MAX = 300;
 
-/** Reads a page's HTML (the first 64 KB); throws when it does not load. */
-export type PageReader = (url: string) => Promise<string>;
-export const readOfficialPage: PageReader = (url) => safeProbePage(url, { timeoutMs: FETCH_TIMEOUT_MS });
+/**
+ * Reads a page (its HTML, or the raw text when `json`); throws when it does not load: PageBlockedError behind a bot
+ * wall, PageShellError on a 5xx (with what it sent).
+ */
+export type PageReader = (url: string, opts?: { json?: boolean }) => Promise<string>;
+export const readOfficialPage: PageReader = (url, opts) => safeReadPage(url, opts?.json ? { accept: 'application/json' } : {});
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“' };
 
@@ -37,7 +45,7 @@ export const foldSpace = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 /** The page's visible text (hidden elements dropped, so a quote hidden from people never counts), entities decoded, folded. Pure. */
 export function pageText(html: string): string {
-  const { text } = visibleText(html, { dropHidden: true });
+  const { text } = visibleText(html, { dropHidden: true, joinInline: true });
   return foldSpace(
     text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, (m, e: string) => {
       if (e[0] !== '#') return ENTITIES[e.toLowerCase()] ?? m;
@@ -153,6 +161,176 @@ export function offSiteUnlinked(off: OffSiteLink[], pageUrl: string, links: stri
     .map((l) => (platform !== null ? `${l.problem}; the official page is on ${platform}, so its links do not vouch for it` : `${l.problem}, and the official page does not link it`));
 }
 
+/** A page with scripts whose visible text is shorter than this is thin: drawn by JavaScript, so its embedded data is searched too. */
+export const THIN_TEXT = 1_000;
+
+/** A React Server Component reference ("$L29", "$Sreact.fragment", "$@1", "$1"), not text; "$5,000" is text. */
+const RSC_REFERENCE = /^\$(?:[A-Za-z@]|\d+$)/;
+
+/** Every string in a JSON value, depth first. */
+function jsonStrings(v: unknown, out: string[]): void {
+  if (typeof v === 'string') out.push(v);
+  else if (Array.isArray(v)) for (const x of v) jsonStrings(x, out);
+  else if (v && typeof v === 'object') for (const x of Object.values(v)) jsonStrings(x, out);
+}
+
+/**
+ * v3.8 G-A: the text a client-rendered page carries as data: the strings of its __NEXT_DATA__ and JSON-LD scripts and of
+ * its React Server Component payload (`self.__next_f.push([1, "…"])`, what a Next.js app sends even in a 500 error
+ * shell), tags removed, whitespace folded. Read only when the visible page is thin or a 5xx shell. Pure.
+ */
+export function embeddedText(html: string): string {
+  const out: string[] = [];
+  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+    if (!/\bid\s*=\s*["']?__NEXT_DATA__\b|\btype\s*=\s*["']?application\/ld\+json\b/i.test(m[1]!)) continue;
+    try {
+      jsonStrings(JSON.parse(m[2]!), out);
+    } catch {
+      // Not JSON: nothing read from it.
+    }
+  }
+  let rsc = '';
+  for (const m of html.matchAll(/self\.__next_f\.push\(\[1,\s*("(?:[^"\\]|\\.)*")\]\)/g)) {
+    try {
+      rsc += JSON.parse(m[1]!) as string;
+    } catch {
+      // A cut chunk: skipped.
+    }
+  }
+  for (const m of rsc.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)) {
+    try {
+      out.push(JSON.parse(`"${m[1]}"`) as string);
+    } catch {
+      // Not a string literal.
+    }
+  }
+  return foldSpace(out.filter((x) => !RSC_REFERENCE.test(x) && /[\p{L}\p{N}]/u.test(x)).map((x) => x.replace(/<[^>]*>/g, ' ')).join(' '));
+}
+
+/** A platform's public source for a page that its wall or its JavaScript hides: the URL to read, and its text and links. */
+type PlatformSource = {
+  name: string;
+  /** The source to read for official page `u`, or null when this platform does not cover it. */
+  at: (u: URL) => string | null;
+  json?: boolean;
+  /** The source's text (folded) and links; throws when it is not the expected shape. */
+  read: (body: string, at: string) => { text: string; links: string[] };
+};
+
+/** The text and links of a Binance CMS article (the API answers `{ data: { title, body } }`, body a JSON node tree). */
+function binanceArticle(body: string): { text: string; links: string[] } {
+  const data = (JSON.parse(body) as { data?: { title?: unknown; body?: unknown } }).data;
+  if (!data || typeof data.title !== 'string' || typeof data.body !== 'string') throw new Error('not a Binance article');
+  const texts: string[] = [data.title];
+  const links: string[] = [];
+  const walk = (n: { text?: unknown; attr?: { href?: unknown }; child?: unknown }) => {
+    if (typeof n.text === 'string') texts.push(n.text);
+    if (typeof n.attr?.href === 'string' && URL.canParse(n.attr.href) && n.attr.href.startsWith('https://')) links.push(n.attr.href);
+    if (Array.isArray(n.child)) for (const c of n.child) if (c && typeof c === 'object') walk(c);
+  };
+  walk(JSON.parse(data.body) as object);
+  return { text: foldSpace(texts.join(' ')), links };
+}
+
+/**
+ * v3.8 G-A: platforms whose official pages a reader cannot read but whose public source says the same, read through the
+ * same guarded reader. Add a platform with one row.
+ */
+export const PLATFORM_SOURCES: readonly PlatformSource[] = [
+  {
+    // An announcement page is behind an AWS WAF challenge (202); the public CMS API serves the same article.
+    name: "Binance's announcement API",
+    at: (u) => {
+      const code = registrableDomain(u.hostname) === 'binance.com' ? u.pathname.match(/\/support\/announcement\/detail\/([0-9a-f]{32})\/?$/)?.[1] : undefined;
+      return code ? `https://www.binance.com/bapi/composite/v1/public/cms/article/detail/query?articleCode=${code}` : null;
+    },
+    json: true,
+    read: binanceArticle,
+  },
+  {
+    // An event page can answer 500 with a Next error shell; its prizes page is server-rendered.
+    name: "ETHGlobal's prizes page",
+    at: (u) => {
+      const slug = normalHost(u.hostname) === 'ethglobal.com' ? u.pathname.match(/^\/events\/([a-z0-9-]+)\/?$/)?.[1] : undefined;
+      return slug ? `https://ethglobal.com/events/${slug}/prizes` : null;
+    },
+    read: (html, at) => ({ text: pageText(html), links: pageLinks(html, at) }),
+  },
+];
+
+/**
+ * What the official page says, as the check reads it (v3.8 G-A). `page`: its text (visible text; for a thin page or a
+ * 5xx shell also its embedded data and its platform's public source) and links; `thin` names why the page itself said
+ * little (a 5xx shell, or no text without JavaScript), null for a normal page. `blocked`: a bot wall stayed and no
+ * platform source covers the page.
+ */
+export type OfficialRead =
+  | { kind: 'page'; text: string; links: string[]; thin: string | null }
+  | { kind: 'blocked'; status: number; wall: string };
+
+/**
+ * Reads the official page for the check. Throws (as `read` does) when the page does not load for any other reason than
+ * a bot wall or a 5xx shell.
+ */
+export async function readOfficial(url: string, read: PageReader): Promise<OfficialRead> {
+  let html = '';
+  let thin: string | null = null;
+  let blocked: PageBlockedError | null = null;
+  try {
+    html = await read(url);
+  } catch (err) {
+    if (err instanceof PageBlockedError) blocked = err;
+    else if (err instanceof PageShellError) {
+      html = err.html;
+      thin = `answered ${err.status} with an error shell`;
+    } else throw err;
+  }
+  const visible = pageText(html);
+  const links = pageLinks(html, url);
+  // A short page with no script is simply short; only one drawn by JavaScript (or a shell, or a wall) is searched further.
+  if (!blocked && !thin && (visible.length >= THIN_TEXT || !/<script\b/i.test(html))) return { kind: 'page', text: visible, links, thin: null };
+  thin ??= blocked ? `blocked our reader (${blocked.wall})` : 'shows almost no text without JavaScript';
+  const parts = [visible, embeddedText(html)];
+  const source = PLATFORM_SOURCES.map((s) => ({ s, at: s.at(new URL(url)) })).find((x) => x.at !== null);
+  let sourced = false;
+  if (source) {
+    try {
+      const got = source.s.read(await read(source.at!, { json: source.s.json }), source.at!);
+      parts.push(got.text);
+      links.push(...got.links);
+      sourced = got.text.length > 0;
+    } catch {
+      // The platform's source did not load either: the page is judged on what it showed.
+    }
+  }
+  if (blocked && !sourced) return { kind: 'blocked', status: blocked.status, wall: blocked.wall ?? `answered ${blocked.status}` };
+  return { kind: 'page', text: foldSpace(parts.join(' ')), links, thin };
+}
+
+/** Reads one redirect: the absolute Location a link answers with (default redirectTarget, a guarded GET). */
+export type RedirectReader = (url: string) => Promise<string>;
+export const readRedirect: RedirectReader = (url) => redirectTarget(url, { timeoutMs: FETCH_TIMEOUT_MS });
+
+/**
+ * v3.8 G-A: a form-shortener link (forms.gle, submit-hosts SHORT_LINKS) as the form it lands on: its redirects followed
+ * one guarded GET at a time (at most LANDING_MAX_REDIRECTS, the landing page itself never requested) while they stay on
+ * the shortener, and accepted only when the landing is that shortener's form host (docs.google.com/forms/…); its
+ * `usp` tracking parameter is dropped. Any other link comes back unchanged. Throws when the link does not land on a
+ * form.
+ */
+export async function expandShortLink(url: string, next: RedirectReader): Promise<string> {
+  if (!URL.canParse(url)) return url;
+  const short = normalHost(new URL(url).hostname);
+  if (shortLinkLands(short, new URL(url)) === null) return url;
+  let at = url;
+  for (let hop = 0; hop < LANDING_MAX_REDIRECTS && normalHost(new URL(at).hostname) === short; hop++) at = await next(at);
+  const landed = new URL(at);
+  if (shortLinkLands(short, landed) !== true) throw new Error(`${short} link does not lead to a form (it goes to ${normalHost(landed.hostname)})`);
+  landed.searchParams.delete('usp');
+  landed.hash = '';
+  return landed.href;
+}
+
 export const domainOf = (url: string | undefined | null): string | null =>
   url && URL.canParse(url) ? registrableDomain(new URL(url).hostname) : null;
 
@@ -263,11 +441,11 @@ export const NEW_ORGANIZER_NOTE =
   'New organizer: EarnKit has not tied this page to the organizer yet. Never submit it for the builder and never connect a wallet to it; the builder applies with their own tap.';
 /** The agent's line on an information-only program. */
 export const INFO_ONLY_NOTE =
-  'Information only: the submission link is not on the official page. Do not prefill or submit to it; the builder applies from the official page.';
+  'Information only: EarnKit could not confirm the submission link on the official page (it is not there, or the page blocked EarnKit\'s reader). Do not prefill or submit to it; the builder applies from the official page.';
 
 /** Why a send under standing approval is not one (track's "outside your standing approval: …"), builder words. */
 export const NEW_ORGANIZER_SEND = 'the organizer is new to EarnKit, so only you can send it';
-export const INFO_ONLY_SEND = 'its link is not on the official page, so only you can send it';
+export const INFO_ONLY_SEND = "I couldn't confirm its link on the official page, so only you can send it";
 
 /** Whether EarnKit may let an agent submit for the builder or connect a wallet: never for a new organizer or an information-only program. Pure. */
 export const agentMayAct = (p: Pick<Program, 'new_organizer' | 'info_only'>): boolean => !p.new_organizer && !p.info_only;

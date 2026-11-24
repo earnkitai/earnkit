@@ -120,3 +120,33 @@ export function sameSite(host: string, site: string): boolean {
 /** Whether a host checks out: never on a platform, else on the same site as one of `anchors` (platform anchors never count). */
 export const linkChecksOut = (host: string, anchors: readonly string[]): boolean =>
   linkPlatformName(host) === null && anchors.some((a) => linkPlatformName(a) === null && sameSite(host, a));
+
+/** v3.8 G-A: the form hosts in API_SUBMIT_HOSTS (a form is never where a program's own page lives). */
+const FORM_HOSTS = new Set<string>(['docs.google.com', 'forms.gle', 'typeform.com', 'tally.so', 'airtable.com']);
+
+/**
+ * v3.8 G-A: the platforms organizers publish program pages on (subdomains count): API_SUBMIT_HOSTS without the form
+ * hosts, plus Devpost (a program's own subdomain). A page there that blocks EarnKit's reader is still a program's page.
+ */
+export const PROGRAM_PLATFORMS: readonly string[] = [...API_SUBMIT_HOSTS.filter((h) => !FORM_HOSTS.has(h)), 'devpost.com'];
+
+/** Whether `host` is on a PROGRAM_PLATFORMS platform. */
+export const onProgramPlatform = (host: string): boolean => under(normalHost(host), PROGRAM_PLATFORMS);
+
+/**
+ * v3.8 G-A: the link shorteners the API expands, each with where its links may land. Only form shorteners: a general
+ * shortener (bit.ly) can land anywhere, so it is not expanded and its link is judged as sent.
+ */
+const SHORT_LINKS: Record<string, (landing: URL) => boolean> = {
+  'forms.gle': (u) => normalHost(u.hostname) === 'docs.google.com' && u.pathname.startsWith('/forms/'),
+};
+
+/**
+ * Whether a link on shortener `short` landing at `landing` lands where it may (true or false), or null when `short` is
+ * not a shortener the API expands. Pure.
+ */
+export function shortLinkLands(short: string, landing: URL): boolean | null {
+  const lands = SHORT_LINKS[normalHost(short)];
+  if (!lands) return null;
+  return landing.protocol === 'https:' && lands(landing);
+}

@@ -16,16 +16,42 @@ export class SafeFetchError extends Error {}
  * 429) from a missing page.
  */
 export class HttpStatusError extends SafeFetchError {
-  constructor(readonly status: number) {
-    super(`answered ${status}, not 2xx`);
+  /**
+   * v3.8 G-A: `wall` names the bot wall the answer is (a WAF or CAPTCHA challenge page, `wallMarker`), when it is one,
+   * so a 405 "Human Verification" page reads as a wall like a 403, not as a missing page.
+   */
+  constructor(
+    readonly status: number,
+    readonly wall: string | null = null,
+  ) {
+    super(wall ? `answered ${status}, a bot check (${wall})` : `answered ${status}, not 2xx`);
   }
 }
+
+/**
+ * v3.8 G-A: the official page is behind a bot wall even after the reader's second try (VERIFIER_BROWSER_UA): its status
+ * and the wall it showed. The page exists; its text could not be read.
+ */
+export class PageBlockedError extends HttpStatusError {}
 
 /**
  * The fetch could not be made: DNS, connect, the deadline, or a 5xx (v6.1.15 Task 14 fix round 2). Every other
  * refusal is a definitive answer from the host. Same messages as before.
  */
 export class TransportError extends SafeFetchError {}
+
+/**
+ * v3.8 G-A: the page answered 5xx. `html` is what it sent (a framework's error shell can still carry the page's data,
+ * official-page.ts reads it), '' when that was not HTML.
+ */
+export class PageShellError extends TransportError {
+  constructor(
+    readonly status: number,
+    readonly html: string,
+  ) {
+    super(`answered ${status}, not 200`);
+  }
+}
 
 /** A 3xx response: the status and, when the server sent one, the Location header. */
 export class RedirectError extends SafeFetchError {
@@ -60,7 +86,7 @@ export type Transport = (req: {
   address: string;
   family: 4 | 6;
   signal: AbortSignal;
-  /** Default EarnKit-verifier/1. */
+  /** Default VERIFIER_UA. */
   userAgent?: string;
   /** The Accept header; default text/plain (a probe asks for HTML, PROBE_ACCEPT). */
   accept?: string;
@@ -71,6 +97,26 @@ export type Probe = (url: string) => Promise<void>;
 
 export const FETCH_TIMEOUT_MS = 5_000;
 const FETCH_MAX_BYTES = 4_096;
+/**
+ * v3.8 G-A: how much of an official page the reader reads (safeReadPage): the whole page, up to this hard cap. The
+ * quotes are searched in all of it (Ink Spark's amounts sit past 64 KB, Devpost's past 80 KB).
+ */
+export const PAGE_MAX_BYTES = 4 * 1024 * 1024;
+/** v3.8 G-A: the deadline for one page read (one rung of the reader's ladder, its one same-site hop included). */
+export const PAGE_TIMEOUT_MS = 10_000;
+/** How much of a non-2xx probe answer is read to tell a bot wall from an error. */
+const WALL_SNIFF_BYTES = 16_384;
+
+/**
+ * v3.8 G-A: the reader's user agents. The first try names EarnKit plainly; on a bot wall the reader tries once more
+ * as a browser that still names EarnKit-verifier and links the page saying what it is (/docs#verifier). A full fake
+ * browser string was refused by Devpost's wall where the plain one passed, so the plain one goes first. GET only.
+ */
+export const VERIFIER_UA = 'Mozilla/5.0 (compatible; EarnKit-verifier/1; +https://earnkit.com/docs#verifier)';
+export const VERIFIER_BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 (compatible; EarnKit-verifier/1; +https://earnkit.com/docs#verifier)';
+/** The statuses a bot wall answers with: the reader's second try follows one of these, or a challenge page. */
+const WALL_STATUSES = [403, 405, 429];
 /** How much of a live link's page a probe reads (the rest is never read). */
 const PROBE_MAX_BYTES = 65_536;
 /** A page's <title> is cut to this many characters (security M4). */
@@ -117,6 +163,30 @@ function isHtmlResponse(contentType: string | undefined, body: string): boolean 
   return /^\s*<(!doctype|html)\b/i.test(body.replace(/^\uFEFF/, ''));
 }
 
+/**
+ * Challenge pages of the common bot walls: AWS WAF (DoraHacks, Binance), Cloudflare (Devpost), DataDome, Imperva,
+ * PerimeterX. Judged only on a short page (wallMarker), since a real page can load a wall's script too.
+ */
+const WALL_MARKERS: [RegExp, string][] = [
+  [/<title>\s*Human Verification\s*<\/title>/i, 'Human Verification'],
+  [/AwsWafIntegration|awsWafCookieDomainList|captcha\.awswaf\.com|token\.awswaf\.com/i, 'AWS WAF'],
+  [/<title>\s*Just a moment\.\.\.\s*<\/title>|\bcf_chl_opt\b|challenges\.cloudflare\.com|Attention Required! \| Cloudflare/i, 'Cloudflare'],
+  [/captcha-delivery\.com/i, 'DataDome'],
+  [/_Incapsula_Resource|Incapsula incident/i, 'Imperva'],
+  [/px-captcha|perimeterx/i, 'PerimeterX'],
+];
+
+/**
+ * The bot wall a response is, or null (v3.8 G-A): a short page (visible text under ERROR_TEXT_MAX) carrying a wall's
+ * challenge markers, or a 202 with a short page (Binance's WAF answers 202 with a challenge and no content). Pure.
+ */
+export function wallMarker(status: number, html: string): string | null {
+  if (visibleText(html).text.length >= ERROR_TEXT_MAX) return null;
+  const hit = WALL_MARKERS.find(([re]) => re.test(html));
+  if (hit) return hit[1];
+  return status === 202 ? 'a 202 challenge' : null;
+}
+
 /** A live link that loads but shows an error page; `phrase` is the error text it shows. */
 class ErrorPageError extends SafeFetchError {
   constructor(readonly phrase: string) {
@@ -131,12 +201,15 @@ class ErrorPageError extends SafeFetchError {
  * Next.js RSC chunk holds the default "This page could not be found." tree on every page), a comment
  * or a tag: what is left open at the end is dropped too, never read as visible text. Pure.
  */
-export function visibleText(html: string, opts: { dropHidden?: boolean } = {}): { title: string; text: string } {
+export function visibleText(html: string, opts: { dropHidden?: boolean; joinInline?: boolean } = {}): { title: string; text: string } {
   const title = cleanTitle(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '');
   const shown = html
     .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
     .replace(/<(script|style|noscript|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, ' ');
-  const text = (opts.dropHidden ? dropHiddenElements(shown) : shown)
+  const kept = opts.dropHidden ? dropHiddenElements(shown) : shown;
+  // v3.8 G-A: inline tags join their text as a browser shows it (Devpost's `$<span>10,000</span>` reads "$10,000"), after
+  // hidden elements are gone; every other tag still separates words.
+  const text = (opts.joinInline ? kept.replace(INLINE_TAG, '') : kept)
     .replace(/<[^>]*$/, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
@@ -144,6 +217,9 @@ export function visibleText(html: string, opts: { dropHidden?: boolean } = {}): 
     .trim();
   return { title, text };
 }
+
+/** An opening or closing tag of an element a browser draws inline, inside the line (`visibleText`'s `joinInline`). */
+const INLINE_TAG = /<\/?(?:a|abbr|b|bdi|bdo|cite|code|data|dfn|em|font|i|kbd|mark|q|s|samp|small|span|strong|sub|sup|time|u|var)\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
 
 /** Elements with no content (an `<input type="hidden">` hides nothing else). */
 const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
@@ -334,9 +410,10 @@ function pinnedLookup(address: string, family: 4 | 6) {
 }
 
 /**
- * The https.request options for one vetted fetch (nodeTransport). Pure.
+ * The https.request options for one vetted fetch (nodeTransport): always GET, never HEAD (v3.8 G-A; exported for that
+ * test). Pure.
  */
-function requestOptions({ url, address, family, signal, userAgent, accept }: Parameters<Transport>[0]): https.RequestOptions {
+export function requestOptions({ url, address, family, signal, userAgent, accept }: Parameters<Transport>[0]): https.RequestOptions {
   return {
     protocol: 'https:',
     hostname: url.hostname,
@@ -353,7 +430,7 @@ function requestOptions({ url, address, family, signal, userAgent, accept }: Par
     signal,
     headers: {
       accept: accept ?? 'text/plain',
-      'user-agent': userAgent ?? 'EarnKit-verifier/1',
+      'user-agent': userAgent ?? VERIFIER_UA,
     },
   };
 }
@@ -391,6 +468,11 @@ type FetchOpts = {
    * size (safeProbe). Returns that HTML, or '' when the response isn't HTML.
    */
   probe?: boolean;
+  /**
+   * v3.8 G-A (safeReadPage): any 2xx, 4xx or 5xx answer is returned with its status, the body read up to `maxBytes`
+   * (cut there, never refused for size). A 3xx still throws RedirectError.
+   */
+  page?: boolean;
   userAgent?: string;
   /** The Accept header (default text/plain; a probe always asks for HTML). */
   accept?: string;
@@ -416,10 +498,11 @@ async function safeFetch(
     timeoutMs = FETCH_TIMEOUT_MS,
     maxBytes = FETCH_MAX_BYTES,
     probe = false,
+    page = false,
     userAgent,
     accept,
   }: FetchOpts,
-): Promise<{ body: Buffer; contentType?: string }> {
+): Promise<{ body: Buffer; contentType?: string; status: number }> {
   if (!URL.canParse(url)) throw new SafeFetchError('not a valid link');
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new SafeFetchError('https only');
@@ -458,26 +541,35 @@ async function safeFetch(
       family: first.family,
       signal: controller.signal,
       userAgent,
-      ...(probe ? { accept: PROBE_ACCEPT } : accept && { accept }),
+      ...(accept ? { accept } : probe || page ? { accept: PROBE_ACCEPT } : {}),
     });
     close = res.close;
     if (res.status >= 300 && res.status < 400)
       throw new RedirectError(res.status, res.location);
-    if (probe) {
-      if (res.status < 200 || res.status >= 300)
-        throw new HttpStatusError(res.status);
-      // The start of the page, to tell a real page from an error page. Reading
-      // stops at PROBE_MAX_BYTES (or the deadline); a larger page is judged on what was read.
+    /** The body up to `cap` bytes, the rest never read (or the deadline). */
+    const readUpTo = async (cap: number): Promise<Buffer> => {
       const chunks: Uint8Array[] = [];
       let size = 0;
       for await (const chunk of res.body) {
         if (controller.signal.aborted) break;
-        const part = chunk.subarray(0, PROBE_MAX_BYTES - size);
+        const part = chunk.subarray(0, cap - size);
         chunks.push(part);
         size += part.byteLength;
-        if (size >= PROBE_MAX_BYTES) break;
+        if (size >= cap) break;
       }
-      return { body: Buffer.concat(chunks), contentType: res.contentType };
+      return Buffer.concat(chunks);
+    };
+    if (page) {
+      if (res.status < 200) throw new HttpStatusError(res.status);
+      return { body: await readUpTo(maxBytes), contentType: res.contentType, status: res.status };
+    }
+    if (probe) {
+      // v3.8 G-A: the start of a refusal is read too, to tell a bot wall (a WAF challenge on a 405) from an error.
+      if (res.status < 200 || res.status >= 300)
+        throw new HttpStatusError(res.status, wallMarker(res.status, (await readUpTo(WALL_SNIFF_BYTES)).toString('utf8')));
+      // The start of the page, to tell a real page from an error page. Reading
+      // stops at PROBE_MAX_BYTES (or the deadline); a larger page is judged on what was read.
+      return { body: await readUpTo(PROBE_MAX_BYTES), contentType: res.contentType, status: res.status };
     }
     if (res.status !== 200)
       throw new (res.status >= 500 ? TransportError : SafeFetchError)(`answered ${res.status}, not 200`);
@@ -491,7 +583,7 @@ async function safeFetch(
         throw new SafeFetchError(`larger than ${maxBytes} bytes`);
       chunks.push(chunk);
     }
-    return { body: Buffer.concat(chunks), contentType: res.contentType };
+    return { body: Buffer.concat(chunks), contentType: res.contentType, status: res.status };
   };
   try {
     return await Promise.race([run(), timeout]);
@@ -545,6 +637,89 @@ export async function safeProbePage(
   const phrase = errorPageText(page);
   if (phrase) throw new ErrorPageError(phrase);
   return page;
+}
+
+/** One answer the official-page reader got: its status, its body as text, and the URL that answered. */
+type PageAnswer = { status: number; text: string; contentType?: string; url: string };
+
+/** One guarded page GET as `userAgent`, following one same-site redirect (as safeProbePage). */
+async function readOnce(url: string, userAgent: string, deps: ReadPageDeps): Promise<PageAnswer> {
+  const opts = {
+    resolve: deps.resolve,
+    transport: deps.transport,
+    timeoutMs: deps.timeoutMs ?? PAGE_TIMEOUT_MS,
+    maxBytes: deps.maxBytes ?? PAGE_MAX_BYTES,
+    page: true,
+    userAgent,
+    ...(deps.accept && { accept: deps.accept }),
+  };
+  const get = async (at: string): Promise<PageAnswer> => {
+    const { body, contentType, status } = await safeFetch(at, opts);
+    return { status, text: body.toString('utf8'), contentType, url: at };
+  };
+  try {
+    return await get(url);
+  } catch (err) {
+    if (!(err instanceof RedirectError) || !err.location) throw err;
+    const next = new URL(err.location, url);
+    if (!sameSite(next.hostname, new URL(url).hostname)) throw new SafeFetchError(`redirects to another site (${next.hostname})`);
+    return get(next.href);
+  }
+}
+
+export type ReadPageDeps = {
+  resolve?: Resolver;
+  transport?: Transport;
+  /** Per try; default PAGE_TIMEOUT_MS. */
+  timeoutMs?: number;
+  /** Default PAGE_MAX_BYTES. */
+  maxBytes?: number;
+  /** The Accept header; default HTML first. A JSON read (a platform's public API, official-page.ts) asks for JSON. */
+  accept?: string;
+};
+
+/** The wall an answer is, or null: a WALL_STATUSES status (named by its challenge marker when it shows one), or a challenge page at any status. */
+const wallOf = (a: PageAnswer): string | null =>
+  wallMarker(a.status, a.text) ?? (WALL_STATUSES.includes(a.status) ? `answered ${a.status}` : null);
+
+/**
+ * v3.8 G-A: the official-page reader. A guarded GET (every safeFetch rule: https on 443, a domain name, every resolved
+ * address public and the connection pinned to it, one same-site redirect) that reads the whole page up to
+ * PAGE_MAX_BYTES within PAGE_TIMEOUT_MS. GET only, never HEAD. The first try is VERIFIER_UA; when it meets a bot wall
+ * (403, 405, 429, or a WAF or CAPTCHA challenge page such as AWS WAF's 202) it tries once more as VERIFIER_BROWSER_UA.
+ * Returns the page's text (its HTML; any text when `accept` asks for something other than HTML; '' for a non-HTML
+ * answer to an HTML read). Throws PageBlockedError when the wall stays, PageShellError on a 5xx (with what it sent),
+ * HttpStatusError on any other non-2xx, ErrorPageError on an error page, and SafeFetchError or TransportError when the
+ * fetch could not be made.
+ */
+export async function safeReadPage(url: string, deps: ReadPageDeps = {}): Promise<string> {
+  let answer = await readOnce(url, VERIFIER_UA, deps);
+  let wall = wallOf(answer);
+  if (wall) {
+    answer = await readOnce(url, VERIFIER_BROWSER_UA, deps);
+    wall = wallOf(answer);
+    if (wall) throw new PageBlockedError(answer.status, wall);
+  }
+  const html = deps.accept || isHtmlResponse(answer.contentType, answer.text) ? answer.text : '';
+  if (answer.status >= 500) throw new PageShellError(answer.status, html);
+  if (answer.status >= 300) throw new HttpStatusError(answer.status);
+  const phrase = deps.accept ? null : errorPageText(html);
+  if (phrase) throw new ErrorPageError(phrase);
+  return html;
+}
+
+/**
+ * v3.8 G-A: where a link redirects: one guarded GET (every safeFetch rule) as VERIFIER_UA, returning its 3xx Location
+ * made absolute. The Location itself is never requested here. Throws SafeFetchError when the link does not redirect.
+ */
+export async function redirectTarget(url: string, deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {}): Promise<string> {
+  try {
+    await safeFetchText(url, { ...deps, probe: true, userAgent: VERIFIER_UA });
+  } catch (err) {
+    if (err instanceof RedirectError && err.location && URL.canParse(err.location, url)) return new URL(err.location, url).href;
+    throw err;
+  }
+  throw new SafeFetchError("doesn't redirect");
 }
 
 /** v6.1.18 fix round 1 (L39-5): the most redirects `landingPage` follows. */
@@ -645,7 +820,8 @@ export async function probeLink(
 
 /** Why a probe failed, in the stale check's words. Pure. */
 function deadWhy(err: unknown): ProbeResult {
-  if (err instanceof HttpStatusError) return WALLS.includes(err.status) ? { ok: true } : { ok: false, why: err.status >= 500 ? '5xx' : '4xx' };
+  // v3.8 G-A: a challenge page is a wall whatever its status (DoraHacks' AWS WAF answers 405).
+  if (err instanceof HttpStatusError) return WALLS.includes(err.status) || err.wall ? { ok: true } : { ok: false, why: err.status >= 500 ? '5xx' : '4xx' };
   const msg = err instanceof Error ? err.message : '';
   if (/no answer within/.test(msg)) return { ok: false, why: 'timeout' };
   if (/doesn't resolve|ENOTFOUND|ENODATA|EAI_AGAIN|queryA|queryAaaa/.test(msg)) return { ok: false, why: 'dns' };

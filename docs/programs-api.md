@@ -59,12 +59,12 @@ A write goes through this check instead of the link check and the owner's approv
 
 Send these beside `program` in the upsert body:
 
-- `amount_quote` and `deadline_quote` (required, 1 to 300 characters): words copied exactly from the official page (`official_url`, else `source_url`). EarnKit fetches that page (64 KB, 5 s, no redirect to another site). Each quote must be in the page's visible text, case kept; runs of spaces and line breaks count as one space. Hidden page text never counts. The amount quote must state one of the program's own amounts (`pool_usd`, `max_award_usd` or `min_award_usd`: `$10,000`, `10k`, `$1.5M`). The deadline quote must name `ends_at`'s day (`March 15, 2027`, `Mar 15`, `2027-03-15`; a day either side is allowed for time zones). When `ends_at` is null, it must say the program is rolling.
+- `amount_quote` and `deadline_quote` (required, 1 to 300 characters): words copied exactly from the official page (`official_url`, else `source_url`). EarnKit fetches that page with GET (the whole page up to 4 MB, 10 s, no redirect to another site; see Reader below). Each quote must be in the page's visible text, case kept; runs of spaces and line breaks count as one space. Hidden page text never counts. The amount quote must state one of the program's own amounts (`pool_usd`, `max_award_usd` or `min_award_usd`: `$10,000`, `10k`, `$1.5M`). The deadline quote must name `ends_at`'s day (`March 15, 2027`, `Mar 15`, `2027-03-15`; a day either side is allowed for time zones). When `ends_at` is null, it must say the program is rolling.
 - `found_by_query` and `found_by_source` (required, 1 to 300 characters): the search and the source (an X post, an Exa query) that found the program. Stored on the write.
 - `handle` (optional): the tracked X handle whose post named the program.
 - `evidence_url` (optional): a page EarnKit may fetch to tie the official page to the organizer.
 
-A passing write is live at once, with no approval. Success adds `"organizer": "confirmed" | "new"` and `"info_only": true | false`. A failing write is a 400 and nothing goes live. This lane never answers `pending`.
+A passing write is live at once, with no approval. Success adds `"organizer": "confirmed" | "new"`, `"info_only": true | false`, and `"reason"` when a label applies (why). A failing write is a 400 and nothing goes live. This lane never answers `pending`.
 
 You can't set organizer status: `new_organizer` and `info_only` inside `program` are refused. The organizer is **confirmed** when the official page's domain is one of these:
 
@@ -72,7 +72,15 @@ You can't set organizer status: `new_organizer` and `info_only` inside `program`
 - a domain of the organizer's earlier confirmed program
 - a domain linked from `evidence_url`, when that page is itself on a domain already confirmed for the organizer
 
-Otherwise the program is live as **new organizer**. It is listed with the label, but no agent ever sends it or connects a wallet to it; the builder applies with their own tap. Every later write re-runs the check, so the label clears by itself once one of the rules holds. Your word alone clears nothing. If `submission_url` (or `form.url`) is not linked from the fetched page and is not the page itself, the program is **information only**: listed, with no form prefill and no agent submit.
+Otherwise the program is live as **new organizer**. It is listed with the label, but no agent ever sends it or connects a wallet to it; the builder applies with their own tap. Every later write re-runs the check, so the label clears by itself once one of the rules holds. Your word alone clears nothing. If `submission_url` (or `form.url`) is not linked from the fetched page and is not the page itself, the program is **information only**: listed, with no form prefill and no agent submit. A `forms.gle` link, on the page or in your write, counts as the Google Form it redirects to (EarnKit follows it; a `forms.gle` link that lands anywhere but `docs.google.com/forms/` is refused), and a `forms.gle` `submission_url` is stored as that form.
+
+### Reader
+
+EarnKit's reader sends `Mozilla/5.0 (compatible; EarnKit-verifier/1; +https://earnkit.com/docs#verifier)`. On a bot wall (403, 405, 429, or a WAF or CAPTCHA challenge page such as AWS WAF's 202) it tries once more with a browser-style user agent that still carries `EarnKit-verifier/1` and that address. Then:
+
+- **Still walled** (DoraHacks' AWS WAF, a Devpost Cloudflare check): on a program platform (DoraHacks, Devpost, Devfolio, ETHGlobal, HackQuest, Buidlbox, Gitcoin, Superteam, Karma GAP, Taikai, Akindo, Questbook), or on a domain already tied to the organizer (a recorded `handle`), the write is live **information only** with reason `official page blocked our reader; quotes not verified`. Anywhere else it is refused; record the organizer's handle first, send an `official_url` EarnKit can read, or save it for the builder as a private row (track `add_private`).
+- **A thin page or a 5xx error shell** (drawn by JavaScript): the quotes are also searched in the data the page embeds (`__NEXT_DATA__`, JSON-LD, Next.js server-component text) and in the platform's public source where EarnKit knows one: a Binance announcement is read from Binance's public article API; an ETHGlobal event page adds its `/prizes` page. If the quotes are still not found, the refusal says so and suggests a private row.
+- **A readable page with a wrong quote** is refused, as always.
 
 ### Tracked handles
 

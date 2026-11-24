@@ -196,6 +196,19 @@ The pipeline, in order:
    organizer's on its domain; never on a shared platform domain. Only `new_organizer` drops: `submit` stays `builder`
    (the writer's value is not stored) and `info_only` stays. Audited as `organizer` / `confirmed`; `organizerStatus`
    also confirms any page on a tracked handle's profile domain, so a re-write stays confirmed.
+
+   v3.8 G-A (the reader): the page is read by `safeReadPage` (safe-fetch.ts): GET only, the whole page up to 4 MB in
+   10 s, every SSRF guard kept, first as `VERIFIER_UA` (`Mozilla/5.0 (compatible; EarnKit-verifier/1; +…/docs#verifier)`)
+   and once more as `VERIFIER_BROWSER_UA` on a bot wall (403/405/429 or a challenge page, `wallMarker`).
+   `readOfficial` (official-page.ts) returns the page's text and links; a thin page with scripts or a 5xx shell
+   (`PageShellError`) adds its embedded data (`embeddedText`: `__NEXT_DATA__`, JSON-LD, RSC strings) and its
+   platform's public source (`PLATFORM_SOURCES`: Binance's CMS article API, ETHGlobal `/events/<slug>/prizes`); a page
+   still walled is `blocked`. programs-api.ts `officialCheck`: blocked on a `PROGRAM_PLATFORMS` host (submit-hosts.ts)
+   or a domain confirmed for the organizer goes live `info_only` with `BLOCKED_REASON`, else 400; thin/shell with the
+   quotes missing adds a private-row hint. The link probe in `writeRefusal` skips the URL the check reads, and a probe's
+   challenge-page answer (`HttpStatusError.wall`) is a wall like 403 (also in the daily `probeLink`). forms.gle links
+   (submit-hosts `shortLinkLands`) are expanded one guarded redirect at a time (`expandShortLink`, `redirectTarget`):
+   on the page for the info-only comparison, and in the write, where the form URL replaces the short one.
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program

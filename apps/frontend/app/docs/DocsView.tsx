@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
-import { DOCS_CHECKED, DOCS_DELETE, DOCS_NEXT, DOCS_SEES, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, PROJECT_NAME_LIMIT, SIGN_IN_EXPIRED, SIGN_IN_FROM_LINK } from '../../lib/v5/site-copy';
+import { DOCS_CHECKED, DOCS_DELETE, DOCS_READER, DOCS_NEXT, DOCS_SEES, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, PROJECT_NAME_LIMIT, SIGN_IN_EXPIRED, SIGN_IN_FROM_LINK } from '../../lib/v5/site-copy';
 import DocsNav from './DocsNav';
 import ExpiredNote from './ExpiredNote';
 import InstallCard from './InstallCard';
@@ -81,7 +81,13 @@ export default function DocsView() {
               ))}
             </ul>
           </section>
-          <InfoCard id="checked" card={CARD_RUST} soft="text-s-rust-sub" title={DOCS_CHECKED.title} text={DOCS_CHECKED.text} />
+          <InfoCard id="checked" card={CARD_RUST} soft="text-s-rust-sub" title={DOCS_CHECKED.title} text={DOCS_CHECKED.text}>
+            {/* v3.8 G-A: the address the reader's user agent carries (safe-fetch.ts VERIFIER_UA). */}
+            <h3 id="verifier" className="scroll-mt-24 text-[17px] font-semibold">
+              {DOCS_READER.title}
+            </h3>
+            <p className="text-[15px] leading-[1.6] text-s-rust-sub">{DOCS_READER.text}</p>
+          </InfoCard>
           <InfoCard id="terms" card={CARD_PANEL} soft="text-s-muted" title={DOCS_TERMS.title} text={DOCS_TERMS.text}>
             <Link href="/terms" className="inline-flex min-h-11 items-center text-[15px] text-s-text underline underline-offset-4">
               {DOCS_TERMS.link}
