@@ -5,7 +5,7 @@
  * fails. users is null when not reported.
  */
 import { z } from 'zod';
-import { CHAIN_REGISTRY, chainOfId, isKnownChain } from './chains';
+import { CHAIN_REGISTRY, chainOfId, chainSlugOf, isKnownChain } from './chains';
 import { cleanText } from './controls';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -164,13 +164,15 @@ const words = (v: string) => v.split(/[-_.\s]+/).filter(Boolean);
  * unknown id is a problem line. `mainnet` is the given value otherwise (checked by the caller). Pure.
  */
 function networkOf(o: Record<string, unknown>): { chain: string; mainnet: unknown; problem?: string } {
-  let chain = typeof o.chain === 'string' ? clean(o.chain).trim().toLowerCase() : '';
+  const given = typeof o.chain === 'string' ? clean(o.chain).trim().toLowerCase() : '';
+  // v3.8 G-A: an alias ("bsc", "BNB Chain") reads as its slug.
+  let chain = chainSlugOf(given) ?? given;
   let testnet = o.testnet === true || o.testnet === 'true';
   if (!isKnownChain(chain)) {
     const parts = words(chain);
     const rest = parts.filter((w) => !TESTNET_WORDS.has(w));
     const marked = parts.find((w) => TESTNET_WORDS.has(w));
-    const home = rest.length ? rest.join('-') : marked ? TESTNET_HOME[marked] ?? '' : '';
+    const home = rest.length ? chainSlugOf(rest.join('-')) ?? '' : marked ? TESTNET_HOME[marked] ?? '' : '';
     if (marked && isKnownChain(home)) {
       chain = home;
       testnet = true;
