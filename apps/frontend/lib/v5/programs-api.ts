@@ -25,6 +25,7 @@ import { flagOn } from './flags';
 import {
   FOUND_BY_MAX,
   QUOTE_MAX,
+  domainOf,
   handleKey,
   labelled,
   linksOffPage,
@@ -34,6 +35,7 @@ import {
   pageText,
   quoteProblems,
   readOfficialPage,
+  remarkOrganizer,
   type PageReader,
 } from './official-page';
 import { programProblems } from './program-checks';
@@ -62,6 +64,7 @@ import { ownerDigest } from './owner-digest';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
 import { BUILDER_OWN_NOTE } from './ledger';
+import { registrableDomain } from './submit-hosts';
 import { SENT, sendCounts, sendRows, sendTime, throughEarnkit } from './stats';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
@@ -274,7 +277,7 @@ const sameSet = (a: readonly string[], b: readonly string[]) => isDeepStrictEqua
 class Curated extends Error {}
 
 type Applied =
-  | { kind: 'applied'; result: Exclude<Result, 'closed'> }
+  | { kind: 'applied'; result: Exclude<Result, 'closed'>; remarked?: string[] }
   | { kind: 'pending'; write: { id: string; at: Date }; fresh: boolean; reason: string }
   | { kind: 'not_pending'; state: string };
 /** A bot's write (the link check applies), or the owner's approval of pending write `writeId`. */
@@ -324,7 +327,12 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode, checked: Checked 
       // v3.8 E6r: the automated lane passed the official-page check, so the write goes live as labelled; nothing is held.
       const result = await upsertProgram(checked.live, 'api', deps.now, tx);
       await audit(tx, { program_id: p.id, action: 'upsert', result, reason: checked.reason, body: result === 'unchanged' ? undefined : checked.live, ...found });
-      return { kind: 'applied', result };
+      // v3.8 G-A (item 9): a confirmed write ties its page's domain to its organizer, so that organizer's programs still
+      // labelled new organizer on the same domain are re-marked.
+      const domain = domainOf(officialPageOf(p));
+      const remarked = checked.live.new_organizer || !domain ? []
+        : await remarkOrganizer(tx, { domain, organizer: p.organizer, why: `${p.id} confirmed ${domain} for ${p.organizer}`, now: deps.now, skip: p.id });
+      return { kind: 'applied', result, remarked };
     }
     const old = row?.file ?? null;
     const needsCheck =
@@ -445,20 +453,27 @@ async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): 
   const result = out.kind === 'applied' ? out.result : 'unchanged';
   console.log(`[programs-api] upsert ${p.id} ${result}`);
   if (result !== 'unchanged') deps.onChange(p.id);
+  for (const id of out.kind === 'applied' ? (out.remarked ?? []) : []) deps.onChange(id);
   const labels = checked ? { organizer: checked.live.new_organizer ? 'new' : 'confirmed', info_only: checked.live.info_only === true } : {};
   return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, deps.now), ...labels });
 }
 
-/** v3.8 E6: records (or moves) a tracked X handle and the domain in its own profile. Audited. */
-async function handleAction(handle: string, domain: string): Promise<Response> {
+/**
+ * v3.8 E6: records (or moves) a tracked X handle and the domain in its own profile. Audited. v3.8 G-A (item 9): the
+ * listed programs labelled new organizer whose official page is on that domain are re-marked confirmed in the same
+ * transaction (remarkOrganizer); `confirmed` names them.
+ */
+async function handleAction(handle: string, domain: string, deps: Deps): Promise<Response> {
   const key = handleKey(handle);
-  await sql().begin(async (tx) => {
+  const confirmed = await sql().begin(async (tx) => {
     await tx`INSERT INTO tracked_handles (handle, profile_domain) VALUES (${key}, ${domain})
       ON CONFLICT (handle) DO UPDATE SET profile_domain = EXCLUDED.profile_domain, at = now()`;
     await audit(tx, { program_id: null, action: 'handle', result: 'recorded', reason: `@${key} ${domain}` });
+    return remarkOrganizer(tx, { domain, why: `@${key} ties ${registrableDomain(domain)}`, now: deps.now });
   });
-  console.log(`[programs-api] handle @${key} recorded`);
-  return json({ ok: true, handle: key, profile_domain: domain, result: 'recorded' });
+  console.log(`[programs-api] handle @${key} recorded${confirmed.length > 0 ? `, ${confirmed.length} re-marked confirmed` : ''}`);
+  for (const id of confirmed) deps.onChange(id);
+  return json({ ok: true, handle: key, profile_domain: domain, result: 'recorded', confirmed });
 }
 
 /**
@@ -542,7 +557,7 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
       return refused(400, problems);
     }
     const e = envelope.data;
-    if (e.action === 'handle') return await handleAction(e.handle, e.profile_domain);
+    if (e.action === 'handle') return await handleAction(e.handle, e.profile_domain, full);
     if (e.action === 'close') return await closeAction(e.id, e.reason, full);
     return await upsertAction(e, full, automatedLane(e));
   } catch (err) {
@@ -1013,6 +1028,14 @@ export async function digestGet(request: Request, now = new Date()): Promise<Res
       health: d.health,
       applications: d.applications,
       results: d.results,
+      // v3.8 G-A (item 8): the write API's own writes since the last digest; a create's `write_id` is the revert's.
+      writes: {
+        created: d.writes.created.map((c) => ({ program_id: c.id, title: c.title, write_id: c.writeId ?? null, labels: c.labels, ...(c.revertNote ? { note: c.revertNote } : {}) })),
+        confirmed: d.writes.confirmed.map((c) => ({ program_id: c.id, title: c.title, why: c.why })),
+        refused: d.writes.refused,
+        pending: d.writes.pending,
+        handles: d.writes.handles,
+      },
       mailed: d.sent,
     });
   } catch (err) {

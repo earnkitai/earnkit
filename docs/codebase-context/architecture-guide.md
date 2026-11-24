@@ -187,6 +187,11 @@ The pipeline, in order:
    send. Writes are never held or mailed in this lane (`no-approval.test.ts`). Every other write keeps this step
    until `auto_live` is on for everyone; a follow-up PR then deletes the approval path. Growth records handle domains
    with `{"action":"handle"}` (`tracked_handles`).
+   v3.8 G-A (item 9): a tied domain re-marks the listed programs still labelled new organizer on it
+   (`remarkOrganizer`): recording a handle re-marks every one on its profile domain, a confirmed write re-marks its
+   organizer's on its domain; never on a shared platform domain. Only `new_organizer` drops: `submit` stays `builder`
+   (the writer's value is not stored) and `info_only` stays. Audited as `organizer` / `confirmed`; `organizerStatus`
+   also confirms any page on a tracked handle's profile domain, so a re-write stays confirmed.
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
@@ -465,7 +470,10 @@ adds nothing (v6.1.19 L44-9 carries in missed days, below); a send is dated by `
 `stats.ts`, so a result on an older send is not a send that day and an undated send counts in neither number) answers `sent`,
 `none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
 `owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
-day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
+day. v3.8 G-A (item 8): a create writes no `program_changes` row, so the digest also reads `program_writes` over the
+same window (`digestWrites`): `New live programs` (still listed, with labels and revert), `Organizers confirmed`, and
+one `Writes since the last digest:` line (refused and held counts, handles recorded); the read returns them as
+`writes`. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
 JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minutes), no probe, sweep or digest.
 
 v6.1.19 Task 6 (lane 44), the daily run round 3. A run whose link check failed (the walk threw, or `budget`) builds
