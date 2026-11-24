@@ -3,6 +3,7 @@
  * by the agent, never approved) or get the brief behind one answer kind; unlinked, the sign-in link.
  * Only the linked installation's calls read the record. Approval happens on /me only.
  */
+import { copy } from '../v5/copy';
 import { z } from 'zod';
 import { looksSecret, MAX_ARG_DEPTH } from '../v5/secrets';
 import { inputDetail, inputError, refuse } from '../v5/tool-input';
@@ -236,7 +237,7 @@ async function unlinked(installationId: number, now: Date, setting: boolean, pol
   // L29-20: a get says what signing in does, with the link when there is one; a set saved nothing (a refusal).
   if (!setting) return { show_to_builder: lead(link ? rememberYouAt(link) : REMEMBER_YOU), agent_note: SIGN_IN_NOTE, linked: false, ...(link ? { sign_in: link } : {}) };
   if (!link) return refuse({ show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false });
-  return refuse({ show_to_builder: lead(`Not saved. Sign in once at ${link}, then tell me again.`), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link });
+  return refuse({ show_to_builder: lead(copy().notSavedSignIn(link)), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link });
 }
 
 /** Whether a set carries a policy-shaped key anywhere at its top or one level down (L24-16, L29-4). Pure. */

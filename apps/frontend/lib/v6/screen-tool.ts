@@ -3,6 +3,7 @@
  * results (public rows only); with job_id and outcomes, the program's decisions. Only a linked builder
  * the owner marked a reviewer of the program may call it; every refusal is one line and writes nothing.
  */
+import { copy } from '../v5/copy';
 import { z } from 'zod';
 import { PaymentKeyInput, inputDetail, inputError, refuse } from '../v5/tool-input';
 import { cleanText } from '../v5/controls';
@@ -334,7 +335,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     return line(`Nothing new to queue for ${program.file.title}; ${k} already queued.`, [...fieldNotes, ...job.notes, 'Nothing was queued; their results come with the screens that hold them.'].join(' '));
   const ahead = await queuedAhead(job.id, ctx.now);
   return {
-    show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}${k > 0 ? `; ${k} already queued` : ''}. ${promiseLine(ahead, job.total)}`,
+    show_to_builder: copy().screenQueued(plural(job.total, 'applicant'), program.file.title, k, promiseLine(ahead, job.total)),
     agent_note: [SCREEN_TEXT.queuedNote, ...fieldNotes, ...job.notes].join(' '),
     job_id: job.id,
   };

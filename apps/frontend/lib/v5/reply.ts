@@ -3,6 +3,7 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
+import { COPY_V37, copy } from './copy';
 import { EARNKIT_CUT_NOTE } from './prefill';
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, confirmBar, isConfirmWhat, isProofReadingWhat, listWords, lowerFirst, shortTitle, signInCheck, signInThen, type ProofBar } from '../v6/reply-words';
 import { CONTRACT_ADDRESS, NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
@@ -189,7 +190,7 @@ export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 /** L36-5 (v6.1.18): the rules still to confirm on a gap row. Pure. */
 export const ruleCount = (g: GapProgram): number => [g.gap, ...g.also].filter((x) => x.kind === 'rule').length;
 /** L36-5 (v6.1.18): the one-program ask when the row lists several rules. */
-export const RULES_ACTION = 'Say yes if all of that is you and I draft it.';
+export const RULES_ACTION = COPY_V37.rulesAction;
 /** O2 (v6.1.10): an in-person program that needs only its rule confirmed is listed in the In person block. L38 big 3
  *  (v6.1.18 Task 10): every in-person program with gaps is, never under the step headings (the Monad Blitz bug: only
  *  rule-only ones moved); the default list lists only the rule-only ones (find). Pure. */
@@ -261,8 +262,7 @@ export function doUsersOf(gaps: GapProgram[]): { program: GapProgram; verb: stri
   return null;
 }
 /** L38-3 (v6.1.18): the closing that answers the users question and makes the change in one yes. Pure. */
-export const doUsersClosing = (verb: string, title: string): string =>
-  `Nothing is ready yet. Do real people use it? Say yes and I ${verb}, then apply to ${title}.`;
+export const doUsersClosing = (verb: string, title: string): string => copy().doUsersClosing(verb, title);
 /** Fix round 1 (M3): whether a Say is that closing, so the agent note names it only then. Pure. */
 export const isDoUsersSay = (say: string): boolean => /Do real people use it\? Say yes and I .+, then apply to /.test(say);
 /** L38-3 (v6.1.18): the agent's part of that yes. */
@@ -314,20 +314,18 @@ const weeksOf = (x: Gap): number | null => {
  *  ("tell me the live repo") takes the place of "when {step}". Pure. */
 export function singleStepClosing(x: Gap): string {
   // L36-13 (v6.1.18): a demo video is a link the builder sends.
-  if (x.kind === 'demo_video') return DEMO_CLOSING;
+  if (x.kind === 'demo_video') return copy().demoClosing;
   if (x.setup && telling(x.setup)) return `T${x.setup.slice(1)} and I look again.`;
   return `Tell me when ${stepClause(x) ?? 'that is done'} and I look again.`;
 }
 
 /** L36-13 (v6.1.18): the closing on a demo video step. */
-export const DEMO_CLOSING = 'Send me the demo video link and I fill it in.';
+export const DEMO_CLOSING = COPY_V37.demoClosing;
 /** L36-13 (v6.1.18): how the agent passes the demo video link. */
 export const DEMO_NOTE = 'A demo video gap takes a link: when the builder sends it, pass it as project.demo_url and call find again.';
 
 /** L1f-2 (v6.1.14): the closing when the step's only change is code in a repo: one action, no rule yes before the code exists. */
 export const CODE_CLOSING = singleStepClosing(NEEDS_CODE);
-/** The started question's closing (O3, v6.1.10; L1g-5). */
-const STARTED_CLOSING = 'Tell me when you started and I check it.';
 
 /**
  * The one action under a one-program gap line (v6.1.8, 1b), or null, with the gap whose step it closes on (L1g-5,
@@ -340,7 +338,7 @@ const STARTED_CLOSING = 'Tell me when you started and I check it.';
 function gapActionOf(g: GapProgram, signIn: string | null, draftOnly = false): { action: string | null; step?: Gap } {
   if (g.in_person) return { action: null };
   // L36-5 (v6.1.18): several rules on the row are one ask.
-  if (ruleOnlyGap(g)) return { action: ruleCount(g) > 1 ? RULES_ACTION : 'Say yes if that is you and I draft it.' };
+  if (ruleOnlyGap(g)) return { action: ruleCount(g) > 1 ? copy().rulesAction : 'Say yes if that is you and I draft it.' };
   const all = [g.gap, ...g.also];
   // L38 big 1 (v6.1.18 Task 10): unlinked, the proof waits on the sign-in: it comes first in the action's own sentence
   // (`signIn` is that clause, `signInCheck`); the proof as the only step left is the sign-in, then a look again.
@@ -355,7 +353,7 @@ function gapActionOf(g: GapProgram, signIn: string | null, draftOnly = false): {
   // v6.1.20: no quoted commands.
   if (canDo(real)) return { action: `Say do and I ${doVerb(real, true)} first.` };
   if (real.every(usersQuestion)) return { action: 'Say yes if they do and I draft it.' };
-  if (real.every(startedQuestion)) return { action: STARTED_CLOSING };
+  if (real.every(startedQuestion)) return { action: copy().startedClosing };
   // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
   // L18-2 (v6.1.18): with no code yet, the code is the step whatever else is left (the rest waits on it).
   const step = real.find(needsCode) ?? real.find((x) => x.item === 'repo:public') ?? (real.length === 1 ? real[0] : null);
@@ -598,11 +596,11 @@ export const ruleSay = (n: number, many = false, title?: string): string =>
   // v6.1.20: the bare number, no quotes; the rule named by its program.
   `Say ${n} if ${title ? `the ${title} rule${many ? 's fit' : ' fits'} you` : many ? 'all of that is you' : 'that rule fits you'} and I draft it.`;
 /** L29-34 (v6.1.16 Task 15): the users question, unlinked. */
-export const USERS_UNLINKED = 'Do real people use it? Say yes, sign in, and I check.';
+export const USERS_UNLINKED = COPY_V37.usersUnlinked;
 /** v6.1.20 polish (3): the same when the yes makes the program ready. */
-export const USERS_UNLINKED_APPLY = 'Do real people use it? Say yes, sign in, and I apply.';
+export const USERS_UNLINKED_APPLY = COPY_V37.usersUnlinkedApply;
 /** L1i-3 (v6.1.16.1): the users question with the sign-in link in it, the reply's one sign-in sentence. Pure. */
-export const usersUnlinkedAt = (link: string, then: 'check' | 'apply' = 'check'): string => `Do real people use it? Say yes, sign in at ${link}, and I ${then}.`;
+export const usersUnlinkedAt = (link: string, then: 'check' | 'apply' = 'check'): string => copy().usersUnlinkedAt(link, then);
 /** L1n-2 (v6.1.23): a rule about the license (its words name one). Pure. */
 export const licenseRule = (what: string): boolean => /\blicen[cs]es?\b/i.test(what);
 /** L1n-2 (v6.1.23): a row whose real gaps are all the users question and that carries a rule: the second half of the
@@ -744,7 +742,7 @@ export function closingLine(o: {
   if (o.gaps > 0) {
     // L38-3 (v6.1.18): the users answer and EarnKit's change in one yes, ahead of a rule with no stated amount.
     // Fix round 1 (I1): signed out, no apply is promised: the users question asks for the sign-in that checks it.
-    if (o.doUsers && o.linked === false) return { text: `Nothing is ready yet. ${USERS_UNLINKED}`, offer: 'look_again' };
+    if (o.doUsers && o.linked === false) return { text: `Nothing is ready yet. ${copy().usersUnlinked}`, offer: 'look_again' };
     if (o.doUsers) return { text: doUsersClosing(o.doUsers.verb, o.doUsers.title), offer: 'apply' };
     // L29-28 (v6.1.16 Task 15): the rule Say says what the yes does.
     if (o.firstRule !== null) return { text: `Nothing is ready yet. ${ruleSay(o.firstRule, o.ruleMany, o.ruleTitle)}`, offer: 'rule' };
@@ -759,11 +757,11 @@ export function closingLine(o: {
     const step = o.firstStep ?? null;
     // L29-34 (v6.1.16 Task 15): unlinked, the one ask holds the sign-in that checks it.
     // v6.1.20 polish (3): "and I apply" when the yes makes the program ready; "and I check" only when a check follows.
-    if (step?.users && o.linked === false) return step.more ? { text: `Nothing is ready yet. ${USERS_UNLINKED}`, offer: 'look_again' } : { text: `Nothing is ready yet. ${USERS_UNLINKED_APPLY}`, offer: 'apply' };
-    if (step?.users) return step.more ? { text: 'Nothing is ready yet. Do real people use it? Say yes and I check.', offer: 'look_again' } : { text: 'Nothing is ready yet. Do real people use it? Say yes and I apply.', offer: 'apply' };
+    if (step?.users && o.linked === false) return step.more ? { text: `Nothing is ready yet. ${copy().usersUnlinked}`, offer: 'look_again' } : { text: `Nothing is ready yet. ${copy().usersUnlinkedApply}`, offer: 'apply' };
+    if (step?.users) return step.more ? { text: `Nothing is ready yet. ${copy().usersCheck}`, offer: 'look_again' } : { text: `Nothing is ready yet. ${copy().usersApply}`, offer: 'apply' };
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
-    if (step && !step.users && step.started) return withDo({ text: `Nothing is ready yet. ${STARTED_CLOSING}`, offer: null });
+    if (step && !step.users && step.started) return withDo({ text: `Nothing is ready yet. ${copy().startedClosing}`, offer: null });
     // L1g-5 (v6.1.16): one closing shape for every single step, the gap line names the gap.
     if (step && !step.users) return withDo({ text: `Nothing is ready yet. ${step.gap ? singleStepClosing(step.gap) : `Tell me when ${step.what} is done and I look again.`}`, offer: null });
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
@@ -914,12 +912,8 @@ export const draftedLines = (r: Pick<R, 'drafted'>): string[] => {
   return [`Drafted, waiting for you to send: ${named.slice(0, -1).join(', ')} and ${named.at(-1)}.`];
 };
 
-/** L18-4 (v6.1.18 Task 4): the Say of the question whether a form the builder sends themselves went out. */
-const SENT_SAY = 'Say sent and I note it.';
-/** L41-11 (v6.1.19): the Say of the one question about several forms. */
-const SENT_MANY_SAY = 'Say which you sent and I note them.';
 /** L41-11 (v6.1.19): whether a line ends on a sent question's Say (it offers nothing to apply). Pure. */
-export const endsOnSentSay = (line: string): boolean => line.endsWith(SENT_SAY) || line.endsWith(SENT_MANY_SAY);
+export const endsOnSentSay = (line: string): boolean => line.endsWith(copy().sentSay) || line.endsWith(copy().sentManySay);
 /** L41-11 (v6.1.19): every form the builder sends themselves and the reply asks about: the sent asks, then the
  *  released rows that ask. Pure. */
 export const sentTitles = (r: Pick<R, 'ask_sent'> & { released?: R['released'] }): string[] =>
@@ -937,7 +931,7 @@ export function sentAskOf(r: Pick<R, 'ask_sent' | 'released' | 'not_sent'>): { q
   return { question: sentQuestion(items.map((x) => x.title)), named: items.slice(0, 3).map((x) => x.program_id) };
 }
 /** L41-11 (v6.1.19): the sent question's Say for this many forms. Pure. */
-export const sentSay = (n: number): string => (n === 1 ? SENT_SAY : SENT_MANY_SAY);
+export const sentSay = (n: number): string => (n === 1 ? copy().sentSay : copy().sentManySay);
 /** L18-4, L36-1 (v6.1.18 Task 4); L41-11 (v6.1.19): one line for every sent question in the reply:
  *  "Did you send Codegeist 2026 and Kiroween 2026? Say which you sent and I note them." Pure. */
 export function sentLines(r: Pick<R, 'ask_sent'> & { released?: R['released'] }): string[] {
@@ -953,7 +947,7 @@ export function sentNote(r: Pick<R, 'ask_sent' | 'released'>): string | null {
 
 /** L23-4 (v6.1.16): the results question for each program past its results date, shown once a day per installation. Pure. */
 export const outcomeLines = (r: Pick<R, 'ask_outcome'>, now: Date): string[] =>
-  r.ask_outcome.map((a) => `Results for ${a.title} were due ${dayWords(new Date(a.due_at), now)}. Did you hear back?`);
+  r.ask_outcome.map((a) => copy().outcomeAsk(a.title, dayWords(new Date(a.due_at), now)));
 
 /** What the builder sees. The since line never shows on the first find; `now` reads the claim times. `lastOffer`: the
  *  kind of the last `Say` this installation showed (L24-2, v6.1.16 Task 11); "Your yes stands" only after apply. */
@@ -1549,8 +1543,7 @@ export function openingSentence(o: { name?: string | null; ready: number; held?:
   return nothingFits(name);
 }
 /** v6.1.20: the whole reply when nothing fits (no Say: EarnKit never writes first). Pure. */
-export const nothingFits = (name?: string | null): string =>
-  `Nothing fits${name ? ` ${name}` : ''} yet. Tell me more about it, or its repo link, and I look again.`;
+export const nothingFits = (name?: string | null): string => copy().nothingFits(name);
 
 /** v6.1.20: words that open a verb phrase: a step the builder takes reads "you to {step}". */
 const VERB = /^(turn|set|commit|message|finalize|stake|sign|deploy|use|add|make|publish|open|sign|ship|build|move|put|get|run|tell|join|register|apply|submit|start|create|write|record|post|launch|integrate|send|attend|verify|host|list|enable|connect|fill|pick|choose|book|upload|share|link|complete|finish|have|give|be|keep|update|release|request|reach|form|file|pass|meet|show)\b/i;

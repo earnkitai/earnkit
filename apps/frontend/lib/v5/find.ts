@@ -3,6 +3,7 @@
  * moved since the last find, and the ledger; or one program's details; or, with no project, the
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
+import { COPY_V37, copy } from './copy';
 import { z } from 'zod';
 import { cleanText, quoteName } from './controls';
 import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason, withRecord } from '../v6/builders';
@@ -479,12 +480,12 @@ const hasForm = (row: ProgramRow): boolean => !!row.file.submission_url && row.f
 /** L1l-4 (v6.1.19): an in-person program's own reply with no project and a form says so before its closing. */
 export const ATTEND_ONE = 'You attend in person.';
 /** L1l-8 (v6.1.19): the closing of a closed program's own reply when it was not sent here. */
-export const CLOSED_ONE = 'It is closed; say its name again when it reopens, or tell me about your project and I find what is open.';
+export const CLOSED_ONE = COPY_V37.closedOne;
 /** Fix round 1 (v6.1.19 Task 3, M3): the same with a project given. */
-export const CLOSED_PROJECT_ONE = 'It is closed; say its name again when it reopens, or ask me what is open for this project.';
+export const CLOSED_PROJECT_ONE = COPY_V37.closedProjectOne;
 /** L1k-4 (v6.1.18): the closing of an open online program's own reply with no project. L1n-5 (v6.1.23): the ask names
  *  what to tell. */
-export const NO_PROJECT_ONE = 'Tell me what you build, or its repo link, and I check the fit.';
+export const NO_PROJECT_ONE = COPY_V37.noProjectOne;
 /** L1n-5 (v6.1.23): a file name or a camelCase identifier, never said to the builder. */
 const CODE_WORD = /\b[\w-]+\.(json|toml|ya?ml|md|js|ts|sol)\b|\b[a-z]+[A-Z][A-Za-z]*\b/;
 /** L1n-5 (v6.1.23): rules shown in short on a lookup with no project; the rest are the guide's. */
@@ -642,7 +643,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ? [oneHead(short, moneyOf(p)), `Closed. You applied ${dayWords(sent, ctx.now)}; results ${due ? dayWords(due, ctx.now) : 'not announced'}.`]
       // L1l-8 (v6.1.19): a closed program not sent here ends on what to do next; closed is still said once.
       // Fix round 1 (M3): with a project given, the way on never asks for the project.
-      : [oneHead(short, moneyOf(p)), project ? CLOSED_PROJECT_ONE : CLOSED_ONE]
+      : [oneHead(short, moneyOf(p)), project ? copy().closedProjectOne : copy().closedOne]
     : upcoming
       ? brief
         ? [`${oneHead(short, moneyOf(p))} Not open yet: ${opens}.${briefTail(p, guide.rules)}`]
@@ -656,8 +657,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         // L1n-5 (v6.1.23): with no project (and no ask for the rules), one line and the ask: the description's first
         // sentence and three rules in short; the guide holds the rest.
         : brief
-          ? [`${oneHead(short, moneyOf(p), when)}${briefTail(p, guide.rules)}${p.in_person && hasForm(row) ? ` ${ATTEND_ONE}` : ''}`, p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE]
-          : [oneHead(short, moneyOf(p), when), ...rules.map(ruleAsk), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : NO_PROJECT_ONE];
+          ? [`${oneHead(short, moneyOf(p), when)}${briefTail(p, guide.rules)}${p.in_person && hasForm(row) ? ` ${ATTEND_ONE}` : ''}`, p.in_person && !hasForm(row) ? IN_PERSON_ONE : copy().noProjectOne]
+          : [oneHead(short, moneyOf(p), when), ...rules.map(ruleAsk), ...guideRules, ...(p.in_person && hasForm(row) ? [ATTEND_ONE] : []), p.in_person && !hasForm(row) ? IN_PERSON_ONE : copy().noProjectOne];
   if (heldSince) {
     const heldLine = `Another agent of yours started this one on ${dayWords(new Date(heldSince), ctx.now)}.`;
     // The yes line (the ready closing, last) gives way to it; any other reply gets it as its last line.
@@ -665,7 +666,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     if (verdict?.status === 'ready' && (!p.in_person || show.at(-1) === IN_PERSON_DRAFT)) {
       show[show.length - 1] = heldLine;
       offer = null;
-    } else if (show.at(-1) === IN_PERSON_ONE || show.at(-1) === NO_PROJECT_ONE) show.splice(show.length - 1, 0, heldLine);
+    } else if (show.at(-1) === IN_PERSON_ONE || show.at(-1) === copy().noProjectOne) show.splice(show.length - 1, 0, heldLine);
     // Fix round 1 (N1, v6.1.17): the in-person action stays last, the held line before it (L1k-4: the project ask too).
     else show.push(heldLine);
   }
@@ -743,7 +744,7 @@ export const emptyFilterLine = (name: string, open: number): string =>
 /** Review I4 (v6.1.20): the empty filter's one Say. */
 export const EMPTY_FILTER_SAY = 'Say all and I list them.';
 /** v6.1.20: the open list's ask with no project. */
-export const OPEN_ASK = 'Tell me what you build, or its repo link, and I match it.';
+export const OPEN_ASK = COPY_V37.openAsk;
 /** L38-13 (v6.1.18): the agent line that maps the open full list's numbers to programs. Pure. */
 export const openNumbersNote = (ids: string[]): string =>
   `The full list's numbers are these program_ids in order: ${ids.map((id, i) => `${i + 1} ${id}`).join(', ')}. When the builder says a number, call find with that program_id and the project.`;
@@ -766,7 +767,7 @@ async function openList(ctx: FindContext, problem: string | null, name: string |
   const appsLine = applicationsLine(applications, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : OPEN_ASK;
+  const ask = name ? copy().describeName(name) : copy().openAsk;
   // v6.1.20: one opening with the count, then the nearest five (or every one in the full list), each a sentence.
   const count = `${programs.length} program${programs.length === 1 ? '' : 's'}`;
   const opening = all || programs.length <= OPEN_SHOWN ? `Open now: ${count}, nearest first:` : `Open now: ${count}. The ${OPEN_SHOWN === 5 ? 'five' : OPEN_SHOWN} nearest:`;
@@ -1012,7 +1013,7 @@ const APPLY_ROW = /\bI apply\b|\bthen apply\b|\bstanding approval\b|^Your yes st
 /** FR-1 (fix round 1): the agent note when sign-in must come before any claim or send with the repo. */
 export const SIGN_IN_FIRST_NOTE = 'Sign-in comes before any claim or send with this repo: show the sign-in link, then call find again once the builder has signed in.';
 /** Fix round 1 (M1): the one action when the repo is not the builder's. */
-export const SAY_WHICH_REPO = 'Say which repo is yours.';
+export const SAY_WHICH_REPO = COPY_V37.sayWhichRepo;
 /** L41-8 (v6.1.19): the one action when the repo is not the builder's and something was ready: they send it. Fix
  *  round 1 (I2): with several ready, the one drafted is named. Pure. */
 export const DRAFT_TO_SEND = 'Say yes and I draft it for you to send.';
@@ -1320,7 +1321,7 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   // Fix round 1 (M2): off GitHub with nothing to draft and the gated closing taken away, the reply still ends on an action:
   // the could-not-confirm line (the users question, when the reply asked it, is a kept Say).
   const offClosed = offDraft && !keptSay && !offDraftSay && /\bSay\b/.test(closingLine);
-  const body = against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : SAY_WHICH_REPO]
+  const body = against ? [NOT_YOUR_REPO, '', ...kept, '', drafts ? draftToSend(target.named) : copy().sayWhichRepo]
     : offDraft ? (offDraftSay ? [...kept, '', draftToSend(target.named)] : offClosed ? [...kept, '', CANT_CONFIRM_REPO(key)] : kept)
     // v6.1.20 review C1: a line that keeps the Say stays last; the could-not-confirm sentence goes before it.
     : keptSay ? [...kept.slice(0, -1), CANT_CONFIRM_REPO(key), '', kept.at(-1)!] : [...kept, '', CANT_CONFIRM_REPO(key)];
