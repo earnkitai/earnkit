@@ -27,6 +27,8 @@ import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { sql } from './db';
 import { cachedRepoFacts, cachedRepoId, cachedRepoLink, cachedRepoParent, repoEvidence, repoFacts, repoKey, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { INFO_ONLY_NOTE, NEW_ORGANIZER_NOTE } from './official-page';
+import { catalogPage } from './catalog-page';
+import { flagOn } from './flags';
 import { FULL_RULE_SAY, sendableOf, AGENT_FIELDS, CONTRACT_NOTE, CONTRACT_ADDRESS_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, sentAskOf, sentNote, sentQuestion, sentSay, canDo, closingLine, proofBarOf, unreadNote, READY_DRAFT, gapAction, gapActionStep, gapState, inPersonState, notFitLine, numbered, oneHead, ownSteps, paragraphs, readyState, replyParts, shortened, countedLines, midSentence, hasProof, signInOnly, tonightOf, usersLookup, USERS_NOTE, USERS_RULE_NOTE, isUsersRuleSay, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 import { MANIFEST_GIVE, MANIFEST_LINE, MANIFEST_NOTE, manifestStep, wantsManifest, type ManifestStep } from './funding-manifest';
@@ -1082,6 +1084,9 @@ async function followRename(ctx: FindContext, project: Project | null): Promise<
 }
 
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
+  // v3.8 E9 (A4): the paged catalog read (`track_v2` on); off, `catalog` is an unknown argument as before.
+  if (flagOn('track_v2') && input && typeof input === 'object' && 'catalog' in input)
+    return (await catalogPage((input as { catalog?: unknown }).catalog, ctx.now)) as unknown as FindReply;
   const { i, unread, error } = findInputOf(input);
   if (error) return inputError(error) as unknown as FindReply;
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);

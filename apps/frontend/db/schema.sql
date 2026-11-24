@@ -688,3 +688,12 @@ CREATE TABLE IF NOT EXISTS private_programs (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (owner, id)
 );
+
+-- v3.8 E9 (plan item 6, cutover A6, A9): the track state machine (lib/v6/track-states.ts). The stored status is
+-- unchanged; `stage` (found, registered, needs_build on a held row; interview on an applied one; delivered on a won
+-- one), `held_reason`, `proof` (applied: confirmation page or link, or message reference) and `round` sit beside it.
+-- Additive and idempotent: four nullable columns, no backfill.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS stage text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_reason text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS proof jsonb;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS round text;
