@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
-import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, PROJECT_NAME_LIMIT, SIGN_IN_EXPIRED, SIGN_IN_FROM_LINK } from '../../lib/v5/site-copy';
+import { DOCS_CHECKED, DOCS_DELETE, DOCS_NEXT, DOCS_SEES, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS, PROJECT_NAME_LIMIT, SIGN_IN_EXPIRED, SIGN_IN_FROM_LINK } from '../../lib/v5/site-copy';
 import DocsNav from './DocsNav';
 import ExpiredNote from './ExpiredNote';
 import InstallCard from './InstallCard';
@@ -44,6 +44,24 @@ export default function DocsView() {
               </li>
             ))}
           </ol>
+          {/* v3.8 E16 (plan L8): what happens next, what EarnKit sees, how to delete everything; llms.txt says the same. */}
+          <div className="flex flex-col gap-4 text-[15px] text-s-ink-body">
+            <div>
+              <h2 className="text-[17px] font-semibold text-s-ink">{DOCS_NEXT.title}</h2>
+              <ol className="list-decimal pl-5">
+                {DOCS_NEXT.lines.map((l) => <li key={l}>{l}</li>)}
+              </ol>
+            </div>
+            <div>
+              <h2 className="text-[17px] font-semibold text-s-ink">{DOCS_SEES.title}</h2>
+              <p>{DOCS_SEES.can}</p>
+              <p>{DOCS_SEES.cannot}</p>
+            </div>
+            <div>
+              <h2 className="text-[17px] font-semibold text-s-ink">{DOCS_DELETE.title}</h2>
+              <p>{DOCS_DELETE.text}</p>
+            </div>
+          </div>
         </section>
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">

@@ -38,3 +38,18 @@ test('L46-11 (v6.1.22): the instructions let the agent translate, and llms.txt s
   assert.match(SERVER_INSTRUCTIONS, /in the builder's language when they write in another/);
   assert.ok(LLMS_TEXT.includes(`what is one change away. The agent's rule: ${show}\n`));
 });
+
+test('v3.8 E16 (plan L8): a new builder installs from llms.txt alone: the server, one way per client, what happens next, what EarnKit sees, how to delete', async () => {
+  const { AGENTS, MCP_URL } = await import('./agents');
+  const { DOCS_DELETE, DOCS_NEXT, DOCS_SEES } = await import('./site-copy');
+  assert.ok(LLMS_TEXT.includes(`EarnKit is an MCP server: ${MCP_URL}`));
+  for (const a of AGENTS) assert.ok(LLMS_TEXT.includes(`- ${a.name}:`), `no install line for ${a.name}`);
+  assert.ok(LLMS_TEXT.includes(`- Any other MCP client: add ${MCP_URL} as a remote server`));
+  assert.ok(LLMS_TEXT.includes('Then ask your agent: "What can I earn?"'));
+  // The same words as the /docs install section, so the two never disagree.
+  assert.ok(LLMS_TEXT.includes(`## What happens next\n\n${DOCS_NEXT.lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}\n`));
+  assert.equal(DOCS_NEXT.lines.length, 3);
+  assert.ok(LLMS_TEXT.includes(`${DOCS_SEES.can}\n${DOCS_SEES.cannot}`));
+  assert.ok(LLMS_TEXT.includes(DOCS_DELETE.text));
+  assert.match(DOCS_DELETE.text, /earnkit\.com\/me/);
+});

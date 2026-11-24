@@ -2121,6 +2121,12 @@ unknown and old tool names, the route's too-deep and not-an-object answers) beco
 `copy()`, read at call time by find, reply, track, ledger, record and screen. The old constant names are aliases of
 `COPY_V37`. Design: `docs/design-docs-and-implementation-plans/v3.8-e14-copy-extraction.md`.
 
+## v3.8 E16: install docs and the sign-in limit
+
+/docs#install and llms.txt share `DOCS_NEXT` (three lines), `DOCS_SEES` and `DOCS_DELETE` (site-copy.ts), so a builder
+installs from llms.txt alone. `LIMITS.installConsent` (30 an hour per IP) guards the install consent Connect press;
+over it is `INSTALL_PAGES.limited`. Design: `docs/design-docs-and-implementation-plans/v3.8-e16-limits-install-docs.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the
