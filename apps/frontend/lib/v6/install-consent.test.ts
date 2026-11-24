@@ -92,7 +92,7 @@ test('C1 closed: the callback lands on the consent page, never on the client, an
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type')!, /text\/html/);
   const html = await page.text();
-  const copy = consentCopy('E4 Attacker Agent', 'claude.ai', 'e4-victim');
+  const copy = consentCopy('E4 Attacker Agent', 'claude.ai', { by: 'github', user: { github_id: user.id, login: 'e4-victim', name: null, avatar_url: null, created_at: null } });
   assert.ok(html.includes(copy.title.replace(/"/g, '&quot;')), html);
   assert.ok(html.includes('@e4-victim') && html.includes('claude.ai'));
   assert.ok(html.includes(`name="csrf" value="${csrfOf(c.nonce, SECRET)}"`));
@@ -189,15 +189,21 @@ test('rollback: with install_signin off a consent already shown cannot be finish
 
 test('consent state: its own label, round trip, forged and expired; the copy follows 23.3', () => {
   const user = { github_id: 1, login: 'a', name: null, avatar_url: null, created_at: new Date('2021-01-01T00:00:00Z') };
-  const c = { req: { client_id: 'c', redirect_uri: CB, state: null, code_challenge: 'x' }, user, nonce: 'n', at: 5, exp: 10_000 };
+  const c = { req: { client_id: 'c', redirect_uri: CB, state: null, code_challenge: 'x' }, who: { by: 'github' as const, user }, nonce: 'n', at: 5, exp: 10_000 };
   const s = signConsent(c, SECRET);
   assert.deepEqual(verifyConsent(s, SECRET, new Date(0)), c);
   assert.equal(verifyConsent(s, SECRET, new Date(10_000)), 'expired');
   assert.equal(verifyConsent(s, 'another-secret', new Date(0)), null);
   // An install state never verifies as a consent.
   assert.equal(verifyConsent(signInstallState({ req: c.req, nonce: 'n', exp: 10_000 }, SECRET), SECRET, new Date(0)), null);
-  const copy = consentCopy(null, 'claude.ai', 'a');
-  for (const line of [copy.title, ...copy.lines, ...Object.values(INSTALL_PAGES).map((p) => p.text)]) {
+  const copy = consentCopy(null, 'claude.ai', c.who);
+  // E5 must not change E4's GitHub page: these are E4's lines, word for word.
+  assert.deepEqual(copy.lines, [
+    "You're signed in to GitHub as @a. The agent at claude.ai gets your EarnKit profile.",
+    "EarnKit reads only your public GitHub profile. It can't see your private repos or post for you.",
+  ]);
+  const xCopy = consentCopy(null, 'claude.ai', { by: 'x', user: { x_user_id: '1', handle: 'b', name: null, avatar_url: null, created_at: null } });
+  for (const line of [copy.title, ...copy.lines, ...xCopy.lines, ...Object.values(INSTALL_PAGES).map((p) => p.text)]) {
     assert.doesNotMatch(line, /[;!–—]|token|please|successfully/i, line);
   }
 });

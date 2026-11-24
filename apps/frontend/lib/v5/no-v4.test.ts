@@ -20,6 +20,8 @@ const ENV_ALLOWED = new Set([
   'EARNKIT_SCREEN_OUT',
   // GitHub sign-in for builders (lib/v6/github-auth.ts).
   'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET',
+  // v3.8 E5: X sign-in (lib/v6/x-auth.ts), behind the x_signin flag; the same X app the pre-v5 X sign-in used.
+  'X_CLIENT_ID', 'X_CLIENT_SECRET',
   // v6.1.21: people (lib/v6/people.ts); all optional. (The install sign-in is the install_signin flag, v3.8 E4.)
   'EARNKIT_TEST_INSTALLATIONS', 'EARNKIT_OWNER_LOGINS', 'EARNKIT_DOGFOOD_LOGINS',
   // v6.1.16 (S): the build id keying the page cache (app/lib/cached.ts), inlined at build by next.config.ts from
@@ -45,7 +47,9 @@ const APP_DIRS = new Set([
   'api/stats', 'api/cron',
   // v6.1.17 Task 4: the header's signed-in check, and the page a guide goes to when its ids cannot be read.
   'api/me', 'api/me/signed-in', 'guide-unavailable',
-  'link', 'link/[code]', 'link/[code]/confirm', 'auth', 'auth/github', 'auth/github/callback',
+  'link', 'link/[code]', 'link/[code]/confirm', 'auth', 'auth/github', 'auth/github/callback', 'auth/x',
+  // v3.8 E5: X's callback, at the URI the X app has registered since the pre-v5 X sign-in.
+  'x', 'x/callback',
   'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link', 'me/sent',
 ]);
 

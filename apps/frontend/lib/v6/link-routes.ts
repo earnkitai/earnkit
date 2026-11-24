@@ -8,7 +8,7 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
-import { type PendingAuthorize, publicOrigin } from '../v5/oauth';
+import { type PendingAuthorize, clientNameOf, clientOf, publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { LINK_CONFIRM_LATER, LINK_SIGN_IN_PARTS, ME_ERRORS, ME_LINK_DENIED, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
@@ -16,7 +16,8 @@ import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signInstallState, signState, verifyInstallState, verifyState } from './github-auth';
 import { cookieOf, cookieValue, createSession, legacyClear } from './sessions';
 import { markVerified } from './people';
-import { INSTALL_PAGES, INSTALL_TTL_MS, installCookie, installPage, installSignInOn, toConsent } from './install-consent';
+import { INSTALL_PAGES, INSTALL_TTL_MS, chooser, installCookie, installPage, installSignInOn, toConsent } from './install-consent';
+import { xSignInOn } from './x-auth';
 
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
@@ -245,10 +246,15 @@ export const INSTALL_FAILED = INSTALL_PAGES.failed.text;
 /**
  * Authorize with sign-in on (EARNKIT_FLAGS=install_signin): a nonce cookie, then GitHub with a signed state carrying
  * the checked request. v3.8 E4: the callback goes on to the consent page (lib/v6/install-consent.ts), never to the client.
+ * v3.8 E5: with X sign-in on too (flag `x_signin`), a page to choose GitHub or X instead.
  */
-export function installSignIn(request: Request, req: PendingAuthorize, now: Date = new Date()): Response {
+export async function installSignIn(request: Request, req: PendingAuthorize, now: Date = new Date()): Promise<Response> {
   const nonce = randomBytes(16).toString('base64url');
   const state = signInstallState({ req, nonce, exp: now.getTime() + INSTALL_TTL_MS }, secret());
+  if (xSignInOn()) {
+    const client = await clientOf(req.client_id);
+    return chooser(displayName(clientNameOf(client?.cn)), authorizeUrl(state, publicOrigin(request)), state, nonce);
+  }
   return new Response(null, {
     status: 302,
     headers: { Location: authorizeUrl(state, publicOrigin(request)), 'Set-Cookie': cookieOf(installCookie(), nonce, INSTALL_TTL_MS / 1000), 'Cache-Control': 'no-store' },
@@ -268,7 +274,7 @@ async function installCallback(request: Request, q: URLSearchParams, pending: { 
   if (!ghCode) return installPage('failed');
   try {
     const user = await exchangeCode(ghCode, publicOrigin(request), process.env, deps.gh ?? fetch);
-    return toConsent({ req: pending.req, user, nonce, at: now.getTime() }, now);
+    return toConsent({ req: pending.req, who: { by: 'github', user }, nonce, at: now.getTime() }, now);
   } catch (err) {
     if (!(err instanceof GitHubAuthError)) throw err;
     console.warn(`[install] ${err.message}`);

@@ -17,7 +17,7 @@ import {
 } from '../v5/site-copy';
 import { SENT_ASK_AFTER_HOURS } from '../v5/ledger';
 import { CLAIM_HOURS } from './claims';
-import { type Builder, getRecord } from './builders';
+import { type Builder, getRecord, handleOf } from './builders';
 import { LINK_STATES, OTHER, codeShaped, codeState, deniedCode, linkedBy, liveCode } from './link-routes';
 import type { Draft } from './sessions';
 import { reviewerPrograms } from './reviewers';
@@ -372,7 +372,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     return label ? cleanText(label, 60) || null : null;
   };
   return {
-    login: builder.login,
+    login: handleOf(builder),
     name: builder.name,
     csrf: csrfToken(builder.id, utcDay(now), authSecret(), session),
     blocks: recordBlocks(record, now),
