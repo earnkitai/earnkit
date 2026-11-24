@@ -63,6 +63,22 @@ export type DigestApplications = {
   missed?: { day: string; sent: number }[];
 };
 
+/**
+ * v3.8 G-A (H4, item 8): the programs write API's own writes since the last digest, from program_writes. A create writes
+ * no program_changes row (that table records only changed fields of an existing program), so before this block a day
+ * of live creates read as an empty digest. `created`: programs a write created that are still listed, with the labels
+ * the official-page check gave them and the write that undoes them; `confirmed`: programs re-marked confirmed when
+ * their organizer was tied to their domain; `refused`, `pending`: counts only (GET /api/programs/writes has the
+ * reasons); `handles`: tracked handles recorded, `@handle domain`.
+ */
+export type DigestWrites = {
+  created: { id: string; title: string; labels: string[]; revertUrl: string | null; writeId?: string | null; revertNote?: string }[];
+  confirmed: { id: string; title: string; why: string }[];
+  refused: number;
+  pending: number;
+  handles: string[];
+};
+
 /** v6.1.17 Task 3 (L30-14): a gap over this many hours since the last daily run is named in the digest. */
 export const GAP_HOURS = 26;
 const HOUR = 3_600_000;
@@ -104,7 +120,14 @@ const FIELD_WORDS: Record<string, string> = {
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 /** The email body, or null when the lists are all empty. Pure. */
-export function dailyOwnerText(day: string, changes: DigestChange[], health: DigestHealth, apps?: DigestApplications, results?: DigestResults): string | null {
+export function dailyOwnerText(
+  day: string,
+  changes: DigestChange[],
+  health: DigestHealth,
+  apps?: DigestApplications,
+  results?: DigestResults,
+  writes?: DigestWrites,
+): string | null {
   const blocks: string[] = [];
   // L44-10 (v6.1.19): first, a day whose check failed and that no digest covered.
   if (health.checkFailed) {
@@ -169,6 +192,21 @@ export function dailyOwnerText(day: string, changes: DigestChange[], health: Dig
       return `- ${oneLine(c.title)}: ${words}${revert}`;
     });
     blocks.push(['Changes to live programs', ...lines].join('\n'));
+  }
+  // v3.8 G-A (item 8): the write API's own writes since the last digest.
+  if (writes?.created.length) {
+    blocks.push(['New live programs', ...writes.created.map((c) => {
+      const revert = c.revertUrl ? `\n  Revert: ${c.revertUrl}` : c.writeId ? ` (revert: write ${c.writeId})` : c.revertNote ? ` ${c.revertNote}` : '';
+      return `- ${oneLine(c.title)}${c.labels.length > 0 ? `: ${c.labels.join(', ')}` : ''}${revert}`;
+    })].join('\n'));
+  }
+  if (writes?.confirmed.length) {
+    blocks.push(['Organizers confirmed', ...writes.confirmed.map((c) => `- ${oneLine(c.title)}: organizer confirmed (${oneLine(c.why)})`)].join('\n'));
+  }
+  if (writes && (writes.refused > 0 || writes.pending > 0 || writes.handles.length > 0)) {
+    const parts = [`${writes.refused} refused`, `${writes.pending} held for approval`];
+    if (writes.handles.length > 0) parts.push(`handles recorded: ${writes.handles.join(', ')}`);
+    blocks.push(`Writes since the last digest: ${parts.join(', ')}.`);
   }
   return blocks.length === 0 ? null : [`EarnKit programs: ${day}`, ...blocks].join('\n\n') + '\n';
 }
@@ -235,6 +273,40 @@ async function digestApplications(dayStart: Date, lastDay: string | null): Promi
   };
 }
 
+/**
+ * v3.8 G-A (item 8): the write API's writes in (`since`, `now`] (DigestWrites), from program_writes, the same window as
+ * the changes block. A created program is named while it is still listed (active or upcoming), with its labels as stored
+ * now and its revert (`links`, shared with the changes block). A builder's private program never reaches
+ * program_writes, so nothing here can name one.
+ */
+async function digestWrites(since: Date, now: Date, links: Map<string, Link>, failures: Set<string>, asWrite: boolean): Promise<DigestWrites> {
+  const db = sql();
+  const rows = await db<{ program_id: string | null; action: string; result: string; reason: string | null; file: unknown; status: string | null }[]>`
+    SELECT w.program_id, w.action, w.result, w.reason, p.file, p.status
+    FROM program_writes w LEFT JOIN programs p ON p.id = w.program_id
+    WHERE w.at > ${since} AND w.at <= ${now} ORDER BY w.id`;
+  const out: DigestWrites = { created: [], confirmed: [], refused: 0, pending: 0, handles: [] };
+  const listedNow = (r: (typeof rows)[number]) => r.program_id !== null && (r.status === 'active' || r.status === 'upcoming');
+  for (const r of rows) {
+    if (r.action === 'upsert' && r.result === 'created' && listedNow(r)) {
+      const id = r.program_id!;
+      if (out.created.some((c) => c.id === id)) continue;
+      const f = ProgramFile.safeParse(r.file).data;
+      const labels = [...(f?.new_organizer ? ['new organizer'] : []), ...(f?.info_only ? ['information only'] : [])];
+      if (!links.has(id)) links.set(id, await revertLinkFor(id, now, failures, asWrite));
+      const l = links.get(id)!;
+      out.created.push({
+        id, title: titleOf({ id, file: r.file }), labels, revertUrl: l.url, ...(asWrite && { writeId: l.writeId ?? null }), ...(l.note && { revertNote: l.note }),
+      });
+    } else if (r.action === 'organizer' && r.result === 'confirmed' && listedNow(r)) {
+      out.confirmed.push({ id: r.program_id!, title: titleOf({ id: r.program_id!, file: r.file }), why: r.reason ?? '' });
+    } else if (r.result === 'refused' || r.result === 'curated') out.refused++;
+    else if (r.result === 'pending') out.pending++;
+    else if (r.action === 'handle' && r.result === 'recorded' && r.reason) out.handles.push(r.reason);
+  }
+  return out;
+}
+
 /** v6.1.19 (L44-9): sends on unreported days are carried in from at most this many days back. */
 export const MISSED_DAYS = 14;
 
@@ -294,7 +366,9 @@ function needsOwner(rows: TitleRow[], now: Date): { unreadable: Unreadable[]; to
 export const digestKey = (day: string, body: string) => `owner-digest:${day}:${createHash('sha256').update(body).digest('hex').slice(0, 16)}`;
 
 /** The day's digest as built: the text (null when there is nothing to say) and the parts it was built from. */
-type Gathered = { day: string; text: string | null; changes: DigestChange[]; health: DigestHealth; applications: DigestApplications; results: DigestResults };
+type Gathered = {
+  day: string; text: string | null; changes: DigestChange[]; health: DigestHealth; applications: DigestApplications; results: DigestResults; writes: DigestWrites;
+};
 
 /**
  * Gathers the UTC day's events and builds the digest text. Reads only. `asWrite` (v3.8 E7r, the read): each revertable
@@ -396,11 +470,13 @@ async function gatherDigest(now: Date, asWrite: boolean): Promise<Gathered> {
     const l = links.get(r.id)!;
     changes.push({ id: r.id, title: titleOf(r), fields: r.fields, revertUrl: l.url, ...(asWrite && { writeId: l.writeId ?? null }), ...(l.note && { revertNote: l.note }) });
   }
+
+  const writes = await digestWrites(since, now, links, failures, asWrite);
   if (failures.size > 0) console.error(`[owner-digest] revert links failed: ${[...failures].join(', ')}`);
 
   const applications = await digestApplications(dayStart, last?.day ?? null);
   const results = await digestResults(since, now);
-  return { day, text: dailyOwnerText(day, changes, health, applications, results), changes, health, applications, results };
+  return { day, text: dailyOwnerText(day, changes, health, applications, results, writes), changes, health, applications, results, writes };
 }
 
 /** v3.8 E7r: the owner's digest as a read (GET /api/programs/digest), plus whether the daily email already sent it. */

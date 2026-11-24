@@ -10,11 +10,15 @@
  * Growth recorded for the tracked handle that found it, the domain of the organizer's earlier confirmed program, or a
  * domain linked from an evidence page on a domain already confirmed for the organizer, fetched and checked here);
  * otherwise new organizer. A builder link that is not on the fetched page makes the program information only.
+ *
+ * v3.8 G-A (item 9): a domain tied later re-marks the live programs already labelled new organizer on it
+ * (remarkOrganizer): a recorded handle ties its profile domain, a confirmed write ties its domain to its organizer.
  */
 import type { Db } from './db';
-import type { Program } from './program-file';
+import { ProgramFile, type Program } from './program-file';
+import { upsertProgram } from './programs';
 import { FETCH_TIMEOUT_MS, safeProbePage, visibleText } from './safe-fetch';
-import { normalHost, registrableDomain } from './submit-hosts';
+import { linkPlatformName, normalHost, registrableDomain } from './submit-hosts';
 
 /** The longest quote a write may send. */
 export const QUOTE_MAX = 300;
@@ -155,14 +159,28 @@ async function confirmedDomains(db: Db, p: Pick<Program, 'id' | 'organizer'>, ha
   return out;
 }
 
+/**
+ * v3.8 G-A (item 9): whether a registrable domain can tie an organizer by itself: never a submit, hosting or shared
+ * platform (github.io, devpost.com, dorahacks.io...), where anyone can publish. Pure.
+ */
+export const ownableDomain = (domain: string): boolean => domain.includes('.') && linkPlatformName(domain) === null;
+
+/** v3.8 G-A (item 9): a tracked handle whose profile domain is `domain` (registrable), or null. */
+async function handleOnDomain(db: Db, domain: string): Promise<string | null> {
+  const rows = await db<{ handle: string; profile_domain: string }[]>`
+    SELECT handle, profile_domain FROM tracked_handles WHERE profile_domain = ${domain} OR profile_domain LIKE ${`%.${domain}`} ORDER BY handle`;
+  return rows.find((r) => registrableDomain(r.profile_domain) === domain)?.handle ?? null;
+}
+
 /** An X handle as stored: no @, lower case. Pure. */
 export const handleKey = (handle: string): string => handle.trim().replace(/^@/, '').toLowerCase();
 
 export type OrganizerCheck = { status: 'confirmed' | 'new'; why: string };
 
 /**
- * Decision 21 step 2: confirmed when the official page's domain is the tracked handle's profile domain, a domain of the
- * organizer's earlier confirmed program, or linked from `evidenceUrl` when that page is itself on a domain confirmed for
+ * Decision 21 step 2: confirmed when the official page's domain is the tracked handle's profile domain (v3.8 G-A item 9:
+ * any tracked handle's, on a domain that is not a shared platform, so a program re-marked by remarkOrganizer stays
+ * confirmed when it is written again), a domain of the organizer's earlier confirmed program, or linked from `evidenceUrl` when that page is itself on a domain confirmed for
  * the organizer (fetched here; Growth's word alone clears nothing); new organizer otherwise. The fourth rule (a host
  * platform page the tracked handle's own post links to) needs the post read from X and is not checked: such a page
  * stays new organizer. Never throws for a bad evidence page; it just does not confirm.
@@ -176,6 +194,8 @@ export async function organizerStatus(
   if (!page) return { status: 'new', why: 'the official page has no domain' };
   const known = await confirmedDomains(db, p, o.handle);
   if (known.has(page)) return { status: 'confirmed', why: `${page} is already tied to ${p.organizer}` };
+  const tracked = ownableDomain(page) ? await handleOnDomain(db, page) : null;
+  if (tracked) return { status: 'confirmed', why: `${page} is the profile domain of tracked @${tracked}` };
   const evidence = domainOf(o.evidenceUrl);
   if (o.evidenceUrl && evidence && known.has(evidence)) {
     try {
@@ -187,6 +207,41 @@ export async function organizerStatus(
     }
   }
   return { status: 'new', why: `${page} is not yet tied to ${p.organizer}` };
+}
+
+/**
+ * v3.8 G-A (item 9): drops `new_organizer` from the listed API programs labelled with it whose official page
+ * (official_url, else source_url) is on registrable `domain`, now tied: by a recorded handle (every such program), or,
+ * with `organizer`, by a confirmed write of that organizer (its programs only, compared as organizerKey). Never on a
+ * shared platform domain (ownableDomain). Only the label changes: `submit` stays as the check left it (a new organizer's
+ * write was stored as `submit: 'builder'` and the writer's own value was not kept, so the builder still sends it with
+ * their own tap until the program is written again) and `info_only` is never touched. Each re-mark is upserted (no
+ * program_changes row: the label is not a builder-facing field) and audited as an `organizer` / `confirmed` write with
+ * `why`, which the owner digest lists. In the caller's transaction. Returns the ids re-marked, in id order.
+ */
+export async function remarkOrganizer(
+  tx: Db,
+  o: { domain: string; organizer?: string; why: string; now: Date; skip?: string },
+): Promise<string[]> {
+  const domain = registrableDomain(o.domain);
+  if (!ownableDomain(domain)) return [];
+  const rows = await tx<{ id: string; file: unknown }[]>`
+    SELECT id, file FROM programs
+    WHERE source = 'api' AND status IN ('active', 'upcoming') AND file ? 'new_organizer' AND id <> ${o.skip ?? ''}
+    ORDER BY id FOR UPDATE`;
+  const out: string[] = [];
+  for (const r of rows) {
+    const f = ProgramFile.safeParse(r.file);
+    if (!f.success || domainOf(officialPageOf(f.data)) !== domain) continue;
+    if (o.organizer !== undefined && organizerKey(f.data.organizer) !== organizerKey(o.organizer)) continue;
+    const { new_organizer: _n, ...rest } = f.data;
+    const next = ProgramFile.parse(rest);
+    await upsertProgram(next, 'api', o.now, tx);
+    await tx`INSERT INTO program_writes (program_id, action, result, reason, body)
+      VALUES (${r.id}, 'organizer', 'confirmed', ${o.why}, ${tx.json(JSON.parse(JSON.stringify(next)))})`;
+    out.push(r.id);
+  }
+  return out;
 }
 
 /** The agent's line on a new-organizer program (find with program_id). Never shown to the builder. */
