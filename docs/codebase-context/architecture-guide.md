@@ -513,6 +513,7 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications (v6.1.19: `I sent it` posts to `/me/sent`), agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has its counts, the wins by currency, `last_run_at` (v6.1.17), `applications_via_earnkit` (v6.1.18: sends EarnKit made or drafted), `applications_7d` by send time and `last_check_ok` (v6.1.19), `installs_real`, `people` and `people_real` (v6.1.21: not flagged as tests), and names no one |
+| `/me/start`, `/me/consent`, `/privacy` | v3.8 E12 (`form`): the onboarding form, its save and withdraw, the privacy page |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
@@ -2079,6 +2080,17 @@ traction labelled verified from EarnKit's usage line or builder-stated). `track 
 result on the unsent row; an agent's `applied` must carry `final` whose hash is the passing check's, and the final hash
 is stored on the sent row. It catches numbers and links, not untrue prose. Design:
 `docs/design-docs-and-implementation-plans/v3.8-e11-draft-check.md`.
+
+## v3.8 E12: the onboarding form
+
+Behind `form`. After sign-in, /me sends a builder with no `record.consent` to `/me/start`: one consent step (fill,
+submit, show public work on program pages, public corpus and benchmark), the 18-or-over question and an optional
+wallet; `POST /me/consent` saves it or (from /me) withdraws all four at once. Under 18 or no submit turns agent submit
+and standing approval off. `consent` is EarnKit's own record field, never an agent's patch. `/privacy` states what is
+public, what is private and what the yes covers (decision 28). With `form` on, delete also removes the people row (off: main's delete). Off, /me is main's /me (`meConsent`) and the
+new routes are 404. Listing and the
+corpus must read `consent.list`, `consent.corpus` and `adult` when they ship. Design:
+`docs/design-docs-and-implementation-plans/v3.8-e12-form.md`.
 
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 

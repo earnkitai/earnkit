@@ -32,7 +32,13 @@ test('L31-1 (v6.1.16 Task 17): every route outside Task 5 serves its METHODS_BY_
         // HEAD is Next's GET where the file does not name it.
         if (m !== 'HEAD' || !mod.GET) assert.ok(handler, `${m} ${path} is served`);
         if (handler && path.startsWith('/me/') && m === 'GET') {
-          const r = await handler(new Request(`https://earnkit.test${path}`));
+          // v3.8 E12: /me/consent exists only with `form` on (off it is 404 as on main, consent.test.ts).
+          const flags = process.env.EARNKIT_FLAGS;
+          if (path === '/me/consent') process.env.EARNKIT_FLAGS = 'form';
+          const r = await Promise.resolve(handler(new Request(`https://earnkit.test${path}`))).finally(() => {
+            if (flags === undefined) delete process.env.EARNKIT_FLAGS;
+            else process.env.EARNKIT_FLAGS = flags;
+          });
           assert.equal(r.status, 303);
           assert.equal(r.headers.get('location'), '/me');
         }

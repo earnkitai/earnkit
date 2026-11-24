@@ -51,6 +51,8 @@ const APP_DIRS = new Set([
   // v3.8 E5: X's callback, at the URI the X app has registered since the pre-v5 X sign-in.
   'x', 'x/callback',
   'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink', 'me/link', 'me/sent',
+  // v3.8 E12: the onboarding form, its post, and the privacy page.
+  'me/start', 'me/consent', 'privacy',
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {
