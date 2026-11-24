@@ -2107,6 +2107,14 @@ new routes are 404. Listing and the
 corpus must read `consent.list`, `consent.corpus` and `adult` when they ship. Design:
 `docs/design-docs-and-implementation-plans/v3.8-e12-form.md`.
 
+## v3.8 E13: reply fields and JSON errors
+
+Behind `reply_fields`. `lib/v5/reply-fields.ts` adds `status` (`ok`, `needs_builder`, `refused`, `error`) and `state`
+(one of `REPLY_STATES`, the 23.5 journey; `unchanged` for a refusal or error) after every tool reply's own keys, derived
+from the reply and its arguments in `mcp.ts`'s `run`. Errors that were one text line (busy, invalid input, rate limit,
+unknown and old tool names, the route's too-deep and not-an-object answers) become the same JSON shape
+(`errorReply`). Off, every reply is main's. Design: `docs/design-docs-and-implementation-plans/v3.8-e13-reply-fields.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the

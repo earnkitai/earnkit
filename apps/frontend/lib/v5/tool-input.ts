@@ -13,6 +13,11 @@ import { tooDeep } from './secrets';
 import { cleanText } from './controls';
 import { OLD_TOOLS as OLD_TOOL_NAMES } from './old-tools';
 import { echoName } from './programs';
+import { errorReply, replyFieldsOn } from './reply-fields';
+
+/** v3.8 E13: a refusal the route answers before any tool runs, with `status` and `state` when `reply_fields` is on. */
+const refusedFields = <T extends object>(r: T): T | (T & { status: 'refused'; state: 'unchanged' }) =>
+  replyFieldsOn() ? { ...r, status: 'refused', state: 'unchanged' } : r;
 
 /**
  * L45-19 (v6.1.19): a further payment's key as compared: hidden and control characters removed and the ends trimmed, so
@@ -159,7 +164,7 @@ const idOf = (m: Msg): Id | null => (typeof m.id === 'string' || typeof m.id ===
 const toolLine = (id: Id, agent_note: string) => ({
   jsonrpc: '2.0',
   id,
-  result: { content: [{ type: 'text', text: JSON.stringify(inputError(agent_note)) }], isError: true },
+  result: { content: [{ type: 'text', text: JSON.stringify(refusedFields(inputError(agent_note))) }], isError: true },
 });
 
 /**
@@ -184,7 +189,7 @@ export function answerUnreadable(body: unknown, max: number): { answers: unknown
     const id = idOf(m);
     // L45-19 (v6.1.19): text that was not UTF-8 (read as U+FFFD) is never matched or echoed: one plain line.
     if (!note && args !== undefined && hasReplacement(args)) {
-      if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(refuse({ show_to_builder: NOT_UTF8, agent_note: NOT_UTF8_NOTE })) }], isError: true } });
+      if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(refusedFields(refuse({ show_to_builder: NOT_UTF8, agent_note: NOT_UTF8_NOTE }))) }], isError: true } });
     } else if (note) {
       if (id !== null) answers.push(toolLine(id, note));
     } else if (tooDeep(raw, max + 3)) {
@@ -227,7 +232,9 @@ export function answerParams(body: unknown, old: readonly string[] = OLD_TOOL_NA
       // Fix round 1 (M5): replacement marks dropped too, and a long name cut on a word (`echoName`, its quotes off).
       const shown = cleanText(name.replace(/\uFFFD/g, ''), Infinity);
       const text = NO_TOOL(shown && !(TOOL_NAMES as readonly string[]).includes(shown) ? echoName(shown).slice(1, -1) : '');
-      if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } });
+      // v3.8 E13: with `reply_fields` on, a tool reply's JSON, status refused: tool names are for the agent, never the builder line.
+      const shownText = replyFieldsOn() ? JSON.stringify(errorReply('', text, 'refused')) : text;
+      if (id !== null) answers.push({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: shownText }], isError: true } });
       continue;
     }
     rest.push(raw);

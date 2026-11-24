@@ -2,6 +2,8 @@
  * Agents that installed EarnKit before v5 keep a cached tool list and call its old names. A
  * `tools/call` with one of those names is answered with a refresh message instead of "unknown tool".
  */
+import { errorReply, replyFieldsOn } from './reply-fields';
+
 export const OLD_TOOLS = ['score', 'tell', 'prepare', 'confirm', 'list_programs', 'get_program', 'prepare_submission', 'confirm_entry', 'record_submission', 'launch_token', 'tell_earnkit'];
 
 export const OLD_TOOL_TEXT =
@@ -32,7 +34,9 @@ export function answerOldTools(body: unknown): { answers: unknown[]; rest: unkno
       continue;
     }
     names.push(name);
-    answers.push({ jsonrpc: '2.0', id: (m as Msg).id, result: { content: [{ type: 'text', text: OLD_TOOL_TEXT }], isError: true } });
+    // v3.8 E13: with `reply_fields` on, a tool reply's JSON: no builder line, the refresh message as the agent note.
+    const text = replyFieldsOn() ? JSON.stringify(errorReply('', OLD_TOOL_TEXT, 'refused')) : OLD_TOOL_TEXT;
+    answers.push({ jsonrpc: '2.0', id: (m as Msg).id, result: { content: [{ type: 'text', text }], isError: true } });
   }
   if (answers.length === 0) return { answers, rest: body, names };
   return { answers, rest: rest.length === 0 ? null : Array.isArray(body) ? rest : rest[0], names };
