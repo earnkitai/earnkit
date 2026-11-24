@@ -37,8 +37,8 @@ async function install(clientName: string | null, login?: string) {
 }
 const flagReason = (id: number, reason: string) => sql()`UPDATE people SET test_reason = ${reason}, test_reason_source = 'test-fixture' WHERE id = (SELECT person_id FROM installations WHERE id = ${id})`;
 
-test('the preview flags are the shipping flags with code on main (auto_live since E6r; not private_rows yet)', () => {
-  assert.deepEqual([...PREVIEW_FLAGS], ['auto_live', 'install_signin', 'x_signin', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2']);
+test('the preview flags are the shipping flags with code on main (auto_live since E6r, private_rows since E8r)', () => {
+  assert.deepEqual([...PREVIEW_FLAGS], ['auto_live', 'private_rows', 'install_signin', 'x_signin', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2']);
   assert.ok(PREVIEW_FLAGS.every((f) => (FLAGS as readonly string[]).includes(f)));
   assert.deepEqual([...PREVIEW_REASONS], ['owner', 'test', 'persona', 'dogfood']);
 });

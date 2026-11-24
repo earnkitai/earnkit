@@ -18,6 +18,8 @@ import { z } from 'zod';
 import { sql } from '../v5/db';
 import { programZone } from '../v5/deadline';
 import { getRecord } from './builders';
+import { flagOn } from '../v5/flags';
+import { privatePrograms } from './private-programs';
 
 /** What a held row waits on (plan item 6). */
 export const HELD_REASONS = ['wallet', 'kyc', 'captcha', 'device_prompt', 'missing_demo', 'needs_yes'] as const;
@@ -213,8 +215,10 @@ export async function listTracked(owner: string, builderId: number | null, i: { 
   const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner}`;
   const page = rows.slice(0, limit);
   const zone = (builderId !== null ? (await getRecord(builderId)).person?.timezone : undefined) || 'UTC';
+  // v3.8 E8: a row on one of the owner's private programs (`private_rows` on) reads its title and deadline from that row.
+  const own = flagOn('private_rows') && page.some((r) => !r.file) ? new Map((await privatePrograms(owner)).map((p) => [p.id, p])) : new Map();
   const items = page.map((r): TrackedItem => {
-    const file = r.file;
+    const file = r.file ?? own.get(r.program_id) ?? null;
     const endsAt = file?.ends_at ?? null;
     const programTz = file ? (file.tz ?? (file.summary ? programZone({ summary: file.summary, tz: file.tz }) : 'UTC')) : 'UTC';
     return {

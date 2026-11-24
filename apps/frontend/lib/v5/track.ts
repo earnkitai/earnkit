@@ -19,7 +19,7 @@ import { closeDay, dayWords } from './deadline';
 import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, CANT_CONFIRM_NAME_NOTE, COFOUNDER_CLAIM_NOTE, COFOUNDER_SENT_NOTE, COFOUNDER_STARTED, HELD_SENT_NOTE, OFF_HOST_SENT_NOTE, KEPT_APART, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, OWN_CLAIM_NOTE, CANT_CONFIRM_REPO, SENT_TWICE, SIGN_IN_FIRST, SIGN_IN_USERS, SIGN_IN_USERS_NOTE, claimed, doneItems, gapItemOf, isEarlierRound, type EarlierWin, heldUnder, joinRows, pickRow, projectWords, rekeyByRepoId, repoKeyOf, record, reportOf, saveJoinDecision, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type ParentRepo, type Status } from './ledger';
 import { clock, midSentence, unreadNote } from './reply';
 import { codeChecked, evaluate, itemKey, licenseRead, repoGaps, unlikely } from './eligibility';
-import { eligibilityOf } from './program-file';
+import { PRIVATE_PREFIX, eligibilityOf } from './program-file';
 import { sql } from './db';
 import { PaymentKeyInput, inputDetail, inputError, readLoosely, refuse as refused, type LooseRules } from './tool-input';
 import { AMOUNT_DOT, AMOUNT_UNREAD, KNOWN_CURRENCIES, UNKNOWN_CURRENCY, isUnknownCurrency, readAmount, type UnknownCurrency } from './amount';
@@ -29,6 +29,7 @@ import { flagOn } from './flags';
 import { TRACK_DESCRIPTION } from './tool-text';
 import { CheckInput, DraftFields, checkAndStore, draftGate, storeFinal } from '../v6/drafts';
 import type { DraftCheck } from '../v6/draft-check';
+import { PRIVATE_LIMIT, PRIVATE_SAVED, PRIVATE_UPDATED, PrivateProgramInput, privateProgramOf, privateSavedNote, savePrivate, trackPrivate, type PrivateProgram } from '../v6/private-programs';
 import { EMPTY_RECORD } from '../v6/record';
 import { AFTER_SEND, BEFORE_SEND, LIST_MAX, ListInput, V2Fields, afterWrite, listTracked, splitV2, stageAfterSend, stageLine, type TrackedItem, type V2 } from '../v6/track-states';
 
@@ -70,23 +71,29 @@ export const TrackInput = z
   })
   .strict();
 
+/** v3.8 E8: saving a private program row: `action: add_private` with the program in `private`. */
+const AddPrivateInput = z.object({ action: z.literal('add_private'), private: PrivateProgramInput }).strict();
+
 /**
  * v3.8: the track arguments advertised to agents, by the flags on. Flag off is `TrackInput` itself, so the tool list is
  * unchanged. `track_v2` (E9) adds `action: list` with `limit` and `cursor`, the five new statuses, `held_reason`,
  * `proof`, `round` and `application_id`; `draft_check` (E11) adds `action: check` with `fields` and `proof_links`,
- * and `final` on an agent's applied. With either, program_id and status are not required (an action names neither).
- * Pure given `env`.
+ * and `final` on an agent's applied; `private_rows` (E8) adds `action: add_private` with `private`. With any, program_id
+ * and status are not required (an action names neither). Pure given `env`.
  */
 export function trackAdvertised(env: Record<string, string | undefined> = process.env): z.ZodObject {
   const v2 = flagOn('track_v2', env);
   const draft = flagOn('draft_check', env);
-  if (!v2 && !draft) return TrackInput;
-  const actions = [...(v2 ? ['list'] : []), ...(draft ? ['check'] : [])] as [string, ...string[]];
+  const priv = flagOn('private_rows', env);
+  if (!v2 && !draft && !priv) return TrackInput;
+  const actions = [...(priv ? ['add_private'] : []), ...(v2 ? ['list'] : []), ...(draft ? ['check'] : [])] as [string, ...string[]];
   return TrackInput.extend({
     action: z.enum(actions).optional().describe([
+      ...(priv ? ['add_private: save a program the catalog cannot list (apply by email, a page EarnKit cannot check), visible to this builder only; pass it in private'] : []),
       ...(v2 ? ['list: every tracked application, limit at a time; pass next_cursor as cursor until it is null'] : []),
       ...(draft ? ['check: the draft check on fields (form key to text) for program_id, before an agent sends'] : []),
     ].join('. ')),
+    ...(priv ? { private: PrivateProgramInput.optional() } : {}),
     ...(draft ? {
       fields: DraftFields.optional().describe('check only: the draft, form key to text'),
       proof_links: z.array(z.string().url().max(500)).max(20).optional().describe('check only: links the draft may cite beyond the record'),
@@ -109,9 +116,13 @@ export const V2_TRACK_TEXT =
 export const DRAFT_TRACK_TEXT =
   ' Before an agent sends, call track with action check, program_id and fields (form key to text); it lists unsupported numbers and links, length, filler and never-claim phrases. An agent\'s applied then needs final, the same text the check passed.';
 
+/** v3.8 E8: the words `private_rows` adds. */
+export const PRIVATE_TRACK_TEXT =
+  " With action add_private and private { title, url, organizer, reward, ends_at, tz, note }, save a program the catalog cannot list, for this builder only; track it by the id the reply gives. A private program is never sent by an agent: record the builder's own send with submitted_by builder.";
+
 /** The track description by the flags on (`trackAdvertised`). Pure given `env`. */
 export const trackDescription = (env: Record<string, string | undefined> = process.env): string =>
-  TRACK_DESCRIPTION + (flagOn('track_v2', env) ? V2_TRACK_TEXT : '') + (flagOn('draft_check', env) ? DRAFT_TRACK_TEXT : '');
+  TRACK_DESCRIPTION + (flagOn('private_rows', env) ? PRIVATE_TRACK_TEXT : '') + (flagOn('track_v2', env) ? V2_TRACK_TEXT : '') + (flagOn('draft_check', env) ? DRAFT_TRACK_TEXT : '');
 
 /** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
 type Result = {
@@ -120,6 +131,8 @@ type Result = {
   applications?: TrackedItem[]; total?: number; next_cursor?: string | null;
   /** v3.8 E11: track check's result. */
   check?: DraftCheck;
+  /** v3.8 E8: the id a private program was saved under (add_private). */
+  program_id?: string;
 };
 /** L36-12 (v6.1.18): the next ready program after a send, so the next started needs no find. */
 /** L41-3 (v6.1.19): `rules` are the rules still to confirm when the next program is one yes away; empty when ready. */
@@ -482,6 +495,9 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     final = f.data;
     delete loose.args.final;
   }
+  // v3.8 E8: a private program save (`private_rows` on). Off, `action` is an unknown key and refused as before.
+  const privateOn = flagOn('private_rows');
+  if (privateOn && loose.args.action === 'add_private') return addPrivate(ctx, owner, loose.args, programs);
   let v2: V2 | null = null;
   if (flagOn('track_v2')) {
     if (loose.args.action === 'list') return listAction(ctx, owner, loose.args, programs);
@@ -489,7 +505,7 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     if (split.error) return { ...inputError(split.error), ledger: await summary(owner, programs, ctx.now) };
     loose.args = split.base;
     v2 = split.v2;
-    if (v2.stage === 'interview' || v2.stage === 'delivered') return afterSendAction(ctx, owner, loose.args, v2, programs);
+    if (v2.stage === 'interview' || v2.stage === 'delivered') return afterSendAction(ctx, owner, loose.args, v2, programs, privateOn);
   }
   const parsed = TrackInput.safeParse(caseFolded(loose.args));
   if (!parsed.success) {
@@ -545,6 +561,12 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     await afterWrite(owner, id, given.status, v2, r.application_id);
     return v2.stage ? { ...r, show_to_builder: stageLine(v2.stage, title) } : r;
   };
+  // v3.8 E8: one of this owner's private rows by its id; by its title further down, when no catalog program fits.
+  // Another owner's private id reads as an unknown program, word for word. No catalog id starts with PRIVATE_PREFIX.
+  const onPrivate = async (p: PrivateProgram): Promise<Result> =>
+    withV2({ ...(await trackPrivate(ctx, owner, p, given)), ledger: await summary(owner, programs, ctx.now) }, p.id, p.title);
+  const mine = privateOn && given.program_id.toLowerCase().startsWith(PRIVATE_PREFIX) ? await privateProgramOf(owner, given.program_id) : null;
+  if (mine) return onPrivate(mine);
   const listed = (await getProgram(given.program_id)) ? null : listRef(given.program_id, await lastListIds(ctx.installationId));
   if (listed) given.program_id = listed;
   const raw = given.program_id;
@@ -560,6 +582,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
   // L36-10 (v6.1.18), M4 (v6.1.19): a number the last list does not hold (left it, or past its end) says so.
   const hole = !row && !sentRow && numberish ? listMiss(raw, await lastListIds(ctx.installationId)) : null;
+  const mineByTitle = privateOn && !row && !sentRow && !numberish ? await privateProgramOf(owner, raw) : null;
+  if (mineByTitle) return onPrivate(mineByTitle);
   const acted = !row && !sentRow
     ? await refuse(hole !== null ? LIST_GONE(hole) : unknownProgramLine(suggest, raw), WHICH_PROGRAM_NOTE)
     : await sendGate(row, data) ?? await withV2(await act(ctx, owner, programs, refuse, known ? data : rest), row?.id ?? raw, row ? shortTitle(row.file.title, row.file.short_title) : raw);
@@ -614,18 +638,30 @@ async function listAction(ctx: TrackContext, owner: string, args: Record<string,
   };
 }
 
-/** v3.8 E9: interview or delivered on a sent (or won) application, by program id or name. */
-async function afterSendAction(ctx: TrackContext, owner: string, args: Record<string, unknown>, v2: V2, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
+/** v3.8 E9: interview or delivered on a sent (or won) application, by program id or name; E8: own private rows too (`privateOn`). */
+async function afterSendAction(ctx: TrackContext, owner: string, args: Record<string, unknown>, v2: V2, programs: Awaited<ReturnType<typeof listOpenPrograms>>, privateOn: boolean): Promise<Result> {
   const ledger = () => summary(owner, programs, ctx.now);
   const name = typeof args.program_id === 'string' ? programIdOf(args.program_id) : '';
   const extra = Object.keys(args).filter((k) => k !== 'program_id' && k !== 'status' && k !== 'note');
   if (!name || extra.length > 0) return { ...inputError(`Nothing was recorded. ${!name ? 'program_id: required' : `${extra.join(', ')}: not read with ${v2.stage}`}`), ledger: await ledger() };
-  const row = (await getProgram(name)) ?? (await programByName(name, ctx.now, { strict: true })).row;
-  const id = row?.id ?? name;
-  const title = row ? shortTitle(row.file.title, row.file.short_title) : name;
+  const mine = privateOn && name.toLowerCase().startsWith(PRIVATE_PREFIX) ? await privateProgramOf(owner, name) : null;
+  const row = mine ? null : (await getProgram(name)) ?? (await programByName(name, ctx.now, { strict: true })).row;
+  const id = mine?.id ?? row?.id ?? name;
+  const title = mine?.title ?? (row ? shortTitle(row.file.title, row.file.short_title) : name);
   const done = await stageAfterSend(owner, id, title, v2.stage as 'interview' | 'delivered', v2);
   if (!done.ok) return refused({ show_to_builder: done.show, agent_note: done.note, ledger: await ledger() });
   return { show_to_builder: stageLine(v2.stage!, title), agent_note: `Recorded ${v2.stage} on ${id}.`, ledger: await ledger() };
+}
+
+/** v3.8 E8: `action: add_private`: saves the private row (`savePrivate`) and answers with its id for the agent. */
+async function addPrivate(ctx: TrackContext, owner: string, args: Record<string, unknown>, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
+  const ledger = () => summary(owner, programs, ctx.now);
+  const parsed = AddPrivateInput.safeParse(args);
+  if (!parsed.success) return { ...inputError(`Nothing was recorded. ${inputDetail(parsed.error)}`), ledger: await ledger() };
+  const saved = await savePrivate(owner, parsed.data.private, ctx.now);
+  if ('limited' in saved) return refused({ show_to_builder: PRIVATE_LIMIT, agent_note: 'Nothing was recorded: the daily limit of new private programs is spent.', ledger: await ledger() });
+  const { program, created } = saved;
+  return { show_to_builder: (created ? PRIVATE_SAVED : PRIVATE_UPDATED)(program.title), agent_note: privateSavedNote(program.id), ledger: await ledger(), program_id: program.id };
 }
 
 /**

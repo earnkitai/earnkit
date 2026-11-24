@@ -1,7 +1,8 @@
 /**
  * v3.8 E10: the track import from the Jenil AI ledger export (fixture with the stale-row cases): a dry run writes
  * nothing, --apply writes the plan once (a second run is all unchanged), the hard rows land as the plan says, and a
- * grant with no catalog program is unresolved until --map names one (private rows come with E8).
+ * grant with no catalog program is unresolved until --map names one (private rows with `private_rows` on:
+ * private-programs.test.ts).
  */
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -44,6 +45,9 @@ test('dry run by default: a plan and no writes; --apply writes it once; a second
   assert.equal(dry.lines.find((l) => l.grant === 'some-other-id')?.program_id, 'ti-linked', 'matched by its link');
   assert.equal(dry.lines.find((l) => l.grant === 'dup-of-catalog')?.action, 'not_imported');
   assert.equal(dry.lines.find((l) => l.grant === 'stellar-scf-46')?.why, 'no catalog program: pass --map');
+  // v3.8 E8: with private_rows off, no line or summary field speaks of private rows.
+  assert.equal('private_rows' in dry.summary, false);
+  assert.ok(dry.lines.every((l) => !('private' in l)));
   assert.ok(['delphi', 'ship-or-die'].every((g) => dry.lines.find((l) => l.grant === g)?.action === 'unresolved'));
 
   const applied = await main(['--file', FILE, '--owner', o, '--apply'], quiet, NOW);
