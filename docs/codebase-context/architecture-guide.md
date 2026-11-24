@@ -662,6 +662,10 @@ copied from a template. Tests skip nothing; a run whose output has no failure li
 - `journey.test.ts` walks the whole flow: a stranger, the owner's ledger, a closing program, a Solana repo, and the
   copy rules on every line the builder sees.
 - `no-v4.test.ts` keeps the v4 code, routes, dependencies and env reads out. `site-copy.test.ts` pins the words.
+- `no-token.test.ts` (v3.8 E2) fails on token-launch, token-offer, `$EARN` or airdrop wording in any file under
+  `apps/frontend/{lib,app,scripts,db}`, README.md or integrations/**, and on the bare word token in site copy, llms.txt,
+  the served tool list and server instructions, README.md and integrations/** unless it is an OAuth, bearer, CSRF,
+  access or other credential token. Its allowlist is pinned (OLD_TOOLS `launch_token`, recorded third-party data).
 - Replay: `pnpm -s tsx apps/frontend/scripts/replay.mts <fixture> [--monday]` runs find, track applied, find on a
   scratch database and prints each `show_to_builder` and `agent_note`. `--monday` brings one deadline within a week
   and moves the clock to the next Monday 09:00 UTC so the "Since" line shows.

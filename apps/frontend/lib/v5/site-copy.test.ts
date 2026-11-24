@@ -25,7 +25,7 @@ test('copy rules: no emoji, no em dash, none of the banned words', () => {
   for (const [name, s] of ALL) {
     assert.ok(!EMOJI.test(s), `${name}: emoji in "${s}"`);
     assert.ok(!s.includes('—'), `${name}: em dash in "${s}"`);
-    // L25-22 (v6.1.16): the terms drop "launch a token", so no exception remains.
+    // L25-22 (v6.1.16): the terms drop their old token clause, so no exception remains.
     assert.ok(!BANNED.test(s), `${name}: banned word in "${s}"`);
   }
 });
