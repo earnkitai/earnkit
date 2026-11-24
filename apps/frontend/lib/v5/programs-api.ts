@@ -26,18 +26,20 @@ import {
   FOUND_BY_MAX,
   QUOTE_MAX,
   domainOf,
+  expandShortLink,
   handleKey,
   labelled,
   linksOffPage,
   offSiteUnlinked,
   officialPageOf,
   organizerStatus,
-  pageLinks,
-  pageText,
   quoteProblems,
+  readOfficial,
   readOfficialPage,
   remarkOrganizer,
+  readRedirect,
   type PageReader,
+  type RedirectReader,
 } from './official-page';
 import { programProblems } from './program-checks';
 import { PRIVATE_SHOWN, ProgramFile, categoryOf, isPrivateId, type Program } from './program-file';
@@ -64,6 +66,7 @@ import { findProgramsDir } from './programs-dir';
 import { ownerDigest } from './owner-digest';
 import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
+import { onProgramPlatform } from './submit-hosts';
 import { BUILDER_OWN_NOTE } from './ledger';
 import { registrableDomain } from './submit-hosts';
 import { SENT, sendCounts, sendRows, sendTime, throughEarnkit } from './stats';
@@ -158,20 +161,25 @@ function curatedIds(dir: string | null): Set<string> {
   }
 }
 
-/** A link that must load (safeProbe, 5 s); a 401, 403 or 429 passes (the page is there behind a wall). */
+/**
+ * A link that must load (safeProbe, 5 s); a 401, 403 or 429 passes (the page is there behind a wall), and so does any
+ * answer that is a bot-wall challenge page (v3.8 G-A: DoraHacks' AWS WAF answers 405 "Human Verification").
+ */
 async function probeLink(url: string, probe: Probe): Promise<void> {
   try {
     await probe(url);
   } catch (err) {
-    if (err instanceof HttpStatusError && BOT_WALL_STATUSES.includes(err.status)) return;
+    if (err instanceof HttpStatusError && (BOT_WALL_STATUSES.includes(err.status) || err.wall)) return;
     throw err;
   }
 }
 
 export type WriteDeps = {
   mailer?: Mailer;
-  /** Reads the official page (and an evidence page) for the automated lane's check. Default safeProbePage, 5 s, 64 KB. */
+  /** Reads the official page (and an evidence page) for the automated lane's check. Default safeReadPage (whole page up to 4 MB, bot-wall retry). */
   readPage?: PageReader;
+  /** v3.8 G-A: reads one redirect of a form-shortener link (forms.gle). Default redirectTarget, a guarded GET. */
+  redirect?: RedirectReader;
   /** Resolves when the URL loads; throws when it doesn't. Default safeProbe. */
   probe?: Probe;
   now?: Date;
@@ -187,6 +195,7 @@ type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit'>> & Pick<WriteDeps, 'mai
 const fullDeps = (deps: WriteDeps): Deps => ({
   mailer: deps.mailer,
   readPage: deps.readPage ?? readOfficialPage,
+  redirect: deps.redirect ?? readRedirect,
   probe: deps.probe ?? ((u: string) => safeProbe(u, { timeoutMs: FETCH_TIMEOUT_MS })),
   now: deps.now ?? new Date(),
   programsDir: deps.programsDir === undefined ? findProgramsDir() : deps.programsDir,
@@ -254,8 +263,16 @@ type Refusal = { status: 400 | 409; result: 'refused' | 'curated'; problems: str
  * rules (verified_at as of `at`, the write's time; ends_at as of now), the curated id, the links load. An automated-lane
  * write with every check field (`offSite: 'page'`) whose only rule problems are off-site builder links passes here;
  * officialCheck reads the page and refuses those the page does not link.
+ * v3.8 G-A: `officialRead` is the page the automated lane's official-page check reads itself (with its bot-wall retry,
+ * 5xx-shell and platform-source rules), so that link is not probed here too.
  */
-async function writeRefusal(p: Program, deps: Deps, at: Date = deps.now, offSite: 'refuse' | 'page' = 'refuse'): Promise<Refusal | null> {
+async function writeRefusal(
+  p: Program,
+  deps: Deps,
+  at: Date = deps.now,
+  offSite: 'refuse' | 'page' = 'refuse',
+  officialRead: string | null = null,
+): Promise<Refusal | null> {
   const checks = programProblems(p, at);
   if (checks.length > 0) return { status: 400, result: 'refused', problems: checks };
   let rules = apiRuleProblems(p, at);
@@ -274,6 +291,7 @@ async function writeRefusal(p: Program, deps: Deps, at: Date = deps.now, offSite
   const linkProblems: string[] = [];
   const urls = p.source_url === p.submission_url ? (['source_url'] as const) : (['source_url', 'submission_url'] as const);
   for (const key of urls) {
+    if (p[key] === officialRead) continue;
     try {
       await probeLink(p[key], deps.probe);
     } catch (err) {
@@ -383,10 +401,39 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode, checked: Checked 
 /** Listed to builders now: open, or upcoming. */
 const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, now);
 
+/** v3.8 G-A: the agent's reason on a program whose official page blocked EarnKit's reader. */
+export const BLOCKED_REASON = 'official page blocked our reader; quotes not verified';
+/** v3.8 G-A: the most form-shortener links on an official page the check expands. */
+const PAGE_SHORT_LINKS_MAX = 5;
+
+/** The page's links with each form-shortener link also as the form it lands on (one that does not expand stays as is). */
+async function withExpanded(links: string[], deps: Deps): Promise<string[]> {
+  const out = [...links];
+  let expanded = 0;
+  for (const l of links) {
+    if (expanded >= PAGE_SHORT_LINKS_MAX) break;
+    try {
+      const form = await expandShortLink(l, deps.redirect);
+      if (form !== l) {
+        out.push(form);
+        expanded++;
+      }
+    } catch {
+      // A shortener that does not land on a form adds nothing.
+    }
+  }
+  return out;
+}
+
 /**
  * v3.8 E6: the official-page check for an automated-lane write. Refusal problems when the quotes, found-by fields or
  * page fail (nothing goes live, nobody is mailed); else the record as it goes live, labelled new organizer and
  * information only as the check found. The page's text is only searched, never stored or returned.
+ *
+ * v3.8 G-A: a page that stays behind a bot wall (readOfficial `blocked`) goes live information only, with
+ * BLOCKED_REASON, when it is on a program platform (dorahacks.io, devpost.com, …) or on a domain already tied to the
+ * organizer; else it is refused. A thin page or a 5xx shell whose quotes are not found is refused with a hint to save
+ * it as a private row. A readable page with a wrong quote is refused as before.
  */
 async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise<{ problems: string[] } | Checked> {
   const missing = REQUIRED_CHECK_FIELDS
@@ -394,25 +441,67 @@ async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise
     .map((k) => `${k}: required; ${k.endsWith('quote') ? "copy the official page's words exactly" : 'say which search and source found this program'}`);
   if (missing.length > 0) return { problems: missing };
   const url = officialPageOf(p);
-  let html: string;
+  let page: Awaited<ReturnType<typeof readOfficial>>;
   try {
-    html = await deps.readPage(url);
+    page = await readOfficial(url, deps.readPage);
   } catch (err) {
     return { problems: [`official page: ${url} doesn't load (${(err instanceof Error ? err.message : 'unknown error').slice(0, 160)})`] };
   }
-  const quotes = quoteProblems(p, { amount_quote: e.amount_quote!, deadline_quote: e.deadline_quote! }, pageText(html));
-  if (quotes.length > 0) return { problems: quotes };
-  const links = pageLinks(html, url);
+  const org = () => organizerStatus(sql(), p, { handle: e.handle ?? null, evidenceUrl: e.evidence_url ?? null, read: deps.readPage });
+  if (page.kind === 'blocked') {
+    // v3.8 G-A (items 2 and 6): a blocked page vouches for no off-site builder link.
+    const unvouched = offSiteUnlinked(offSiteLinks(p), url, []);
+    if (unvouched.length > 0) return { problems: unvouched };
+    const o = await org();
+    if (!onProgramPlatform(new URL(url).hostname) && o.status !== 'confirmed')
+      return {
+        problems: [
+          `official page: ${url} blocked our reader (${page.wall}), and it is neither on a known program platform nor on a domain tied to ${p.organizer}; send an official_url EarnKit can read, record the organizer's handle and domain first, or save it for the builder as a private row (track action add_private)`,
+        ],
+      };
+    const reasons = [...(o.status === 'new' ? [`new organizer: ${o.why}`] : []), `information only: ${BLOCKED_REASON}`];
+    return { live: labelled(p, { newOrganizer: o.status === 'new', infoOnly: true }), reason: reasons.join('; ') };
+  }
+  const quotes = quoteProblems(p, { amount_quote: e.amount_quote!, deadline_quote: e.deadline_quote! }, page.text);
+  if (quotes.length > 0)
+    return {
+      problems: page.thin
+        ? [...quotes, `official page: ${url} ${page.thin}, so EarnKit could not read the quotes there; send an official_url whose page states them, or save it for the builder as a private row (track action add_private)`]
+        : quotes,
+    };
+  const links = await withExpanded(page.links, deps);
   // v3.8 G-A (item 6): a builder link off the source's site and the platform list passes only when the page links it.
   const unlinked = offSiteUnlinked(offSiteLinks(p), url, links);
   if (unlinked.length > 0) return { problems: unlinked };
   const off = linksOffPage(p, url, links);
-  const org = await organizerStatus(sql(), p, { handle: e.handle ?? null, evidenceUrl: e.evidence_url ?? null, read: deps.readPage });
+  const o = await org();
   const reasons = [
-    ...(org.status === 'new' ? [`new organizer: ${org.why}`] : []),
-    ...(off.length > 0 ? [`information only: ${off.join(', ')} not on the official page`] : []),
+    ...(o.status === 'new' ? [`new organizer: ${o.why}`] : []),
+    ...(off.length > 0 ? [`information only: ${[...new Set(off)].join(', ')} not on the official page`] : []),
   ];
-  return { live: labelled(p, { newOrganizer: org.status === 'new', infoOnly: off.length > 0 }), reason: reasons.length > 0 ? reasons.join('; ') : null };
+  return { live: labelled(p, { newOrganizer: o.status === 'new', infoOnly: off.length > 0 }), reason: reasons.length > 0 ? reasons.join('; ') : null };
+}
+
+/**
+ * v3.8 G-A: the program with each form-shortener builder link (submission_url, form.url) as the form it lands on
+ * (expandShortLink), so a forms.gle link is checked and stored as its docs.google.com form; problems when one does not
+ * land on a form.
+ */
+async function expandBuilderLinks(p: Program, deps: Deps): Promise<{ program: Program } | { problems: string[] }> {
+  const problems: string[] = [];
+  const expand = async (field: string, url: string) => {
+    try {
+      return await expandShortLink(url, deps.redirect);
+    } catch (err) {
+      problems.push(`${field}: ${(err instanceof Error ? err.message : 'unknown error').slice(0, 160)}; send the form's own link`);
+      return url;
+    }
+  };
+  const submission_url = await expand('submission_url', p.submission_url);
+  const formUrl = p.form?.url;
+  const form = p.form && formUrl ? { ...p.form, url: formUrl === p.submission_url ? submission_url : await expand('form.url', formUrl) } : p.form;
+  if (problems.length > 0) return { problems };
+  return { program: { ...p, submission_url, ...(form && { form }) } };
 }
 
 /** Whether the write carries every field officialCheck requires, so the page will be read. Pure. */
@@ -429,8 +518,13 @@ async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): 
     await auditRefusal('upsert', raw.id, 'refused', problems, found);
     return refused(400, problems);
   }
-  const p = parsed.data;
-  const refusal = await writeRefusal(p, deps, deps.now, automated && hasCheckFields(e) ? 'page' : 'refuse');
+  const expanded = await expandBuilderLinks(parsed.data, deps);
+  if ('problems' in expanded) {
+    await auditRefusal('upsert', parsed.data.id, 'refused', expanded.problems, found);
+    return refused(400, expanded.problems);
+  }
+  const p = expanded.program;
+  const refusal = await writeRefusal(p, deps, deps.now, automated && hasCheckFields(e) ? 'page' : 'refuse', automated ? officialPageOf(p) : null);
   if (refusal) {
     await auditRefusal('upsert', p.id, refusal.result, refusal.problems, found);
     return refused(refusal.status, refusal.problems);
@@ -472,7 +566,9 @@ async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): 
   console.log(`[programs-api] upsert ${p.id} ${result}`);
   if (result !== 'unchanged') deps.onChange(p.id);
   for (const id of out.kind === 'applied' ? (out.remarked ?? []) : []) deps.onChange(id);
-  const labels = checked ? { organizer: checked.live.new_organizer ? 'new' : 'confirmed', info_only: checked.live.info_only === true } : {};
+  const labels = checked
+    ? { organizer: checked.live.new_organizer ? 'new' : 'confirmed', info_only: checked.live.info_only === true, ...(checked.reason && { reason: checked.reason }) }
+    : {};
   return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, deps.now), ...labels });
 }
 

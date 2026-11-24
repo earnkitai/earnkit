@@ -309,7 +309,8 @@ test('/docs: the seven sections, under 470 words, the copy rules', () => {
   // (Task 13 fix round 1, N1): the ruled lines added the words.
   // v3.8 E16 (plan L8): the install section's next, sees and delete lines add about 100 words, capped on their own
   // (under 120) in site-copy.test.ts; the docs' 230-word cards cap is unchanged.
-  assert.ok(words < 580, `docs page is ${words} words`);
+  // v3.8 G-A: the Reader note (#verifier, the address the page reader's user agent carries) adds 41 words (601 now).
+  assert.ok(words < 610, `docs page is ${words} words`);
   // L25-4, L25-8, L25-11 (v6.1.16): the other-agent line under the tabs, the approval line, the results promise.
   for (const line of ['Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.', 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.', 'Results come once a day, within 24 hours,'])
     assert.ok(t.includes(line), line);

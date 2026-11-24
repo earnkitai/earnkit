@@ -1,7 +1,7 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
 import { AGENTS, MCP_URL, type Agent } from './agents';
 import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SHOW_REPLY, TRACK_DESCRIPTION } from './tool-text';
-import { APPROVAL_LINE, DOCS_DELETE, DOCS_NEXT, DOCS_SEES } from './site-copy';
+import { APPROVAL_LINE, DOCS_DELETE, DOCS_NEXT, DOCS_READER, DOCS_SEES } from './site-copy';
 
 /** llms.txt's first session step (L25-7, v6.1.16): find first, record once signed in. */
 export const LLMS_SESSION_FIRST = 'The agent calls find with the project it is in; once signed in, record with get.';
@@ -91,6 +91,10 @@ https://earnkit.com/programs.
 The programs API is public and read only: https://earnkit.com/api/programs
 (?category=grant|hackathon|investment|bounty, ?status=active|upcoming).
 Counts only: https://earnkit.com/api/stats
+
+## Reader
+
+${DOCS_READER.text}
 
 ## What EarnKit does not do
 

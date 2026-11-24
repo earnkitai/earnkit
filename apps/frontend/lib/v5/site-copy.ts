@@ -152,6 +152,14 @@ export const DOCS_CHECKED = {
   // v6.1.15: never "owner" for EarnKit (concept picks). L25-12 (v6.1.16): no "weekly"; how long a dead page stays.
   text: 'EarnKit and a research bot check every program. Links are probed daily; a program whose page stays down leaves the list within about two weeks.',
 };
+/**
+ * v3.8 G-A: what EarnKit's page reader is, for site owners who see it in their logs; /docs#verifier (the address its
+ * user agent carries) and llms.txt's Reader section say it.
+ */
+export const DOCS_READER = {
+  title: 'Reader',
+  text: "EarnKit's reader checks program pages with plain GETs, as EarnKit-verifier/1. If a bot check blocks it, it tries once more as a browser that still names EarnKit-verifier/1. It never solves a challenge or signs in.",
+};
 export const DOCS_TERMS = { title: 'Terms', text: 'What EarnKit reads, stores and never does.', link: 'Read the terms' };
 
 export const TERMS_TITLE = 'Terms';
