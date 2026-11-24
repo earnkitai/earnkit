@@ -184,21 +184,32 @@ function urlParts(p: Program): { field: string; value: string; sends: boolean }[
   ];
 }
 
+/** A link builders are sent to whose host is neither on the source's site nor a known submit platform, and why. */
+export type OffSiteLink = { field: string; url: string; problem: string };
+
+/**
+ * The builder links (submission_url, pool_source_url, form.url) whose host is neither on the source's site nor a known
+ * submit platform, once source_url and the link itself are clean (a dirty one is refused by apiUrlProblem). Pure.
+ */
+export function offSiteLinks(p: Program): OffSiteLink[] {
+  const parts = urlParts(p);
+  const dirty = parts.flatMap(({ field, value }) => apiUrlProblem(field, value) ?? []);
+  if (dirty.some((x) => x.startsWith('source_url:'))) return [];
+  const source = new URL(p.source_url).hostname;
+  return parts.flatMap(({ field, value, sends }) => {
+    if (!sends || dirty.some((x) => x.startsWith(`${field}:`))) return [];
+    const u = new URL(value);
+    if (apiSubmitHostAllowed(u.hostname, source, u.pathname)) return [];
+    return [{ field, url: value, problem: `${field}: ${normalHost(u.hostname)} is neither on ${sourceSiteName(source)} (the source's domain) nor a known submit platform` }];
+  });
+}
+
 /**
  * Every problem with a program's links: each URL's hygiene (apiUrlProblem), then, once source_url
  * is clean, every link builders are sent to (submission_url, pool_source_url, form.url) is on the
- * source's site or a known submit platform.
+ * source's site or a known submit platform (offSiteLinks).
  */
 export function apiUrlProblems(p: Program): string[] {
-  const parts = urlParts(p);
-  const problems = parts.flatMap(({ field, value }) => apiUrlProblem(field, value) ?? []);
-  if (problems.some((x) => x.startsWith('source_url:'))) return problems;
-  const source = new URL(p.source_url).hostname;
-  for (const { field, value, sends } of parts) {
-    if (!sends || problems.some((x) => x.startsWith(`${field}:`))) continue;
-    const u = new URL(value);
-    if (!apiSubmitHostAllowed(u.hostname, source, u.pathname))
-      problems.push(`${field}: ${normalHost(u.hostname)} is neither on ${sourceSiteName(source)} (the source's domain) nor a known submit platform`);
-  }
-  return problems;
+  const problems = urlParts(p).flatMap(({ field, value }) => apiUrlProblem(field, value) ?? []);
+  return [...problems, ...offSiteLinks(p).map((l) => l.problem)];
 }

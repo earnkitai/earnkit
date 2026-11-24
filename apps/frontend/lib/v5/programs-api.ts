@@ -17,7 +17,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { revalidatePath } from 'next/cache';
 import type postgres from 'postgres';
 import { z } from 'zod';
-import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
+import { apiTextProblems, apiUrlProblems, notWritableFields, offSiteLinks } from './api-text';
 import { sql, type Db } from './db';
 import { bearerMatches, json, readBody } from './http';
 import { ownerMailEnabled, type Mailer } from './mail';
@@ -29,6 +29,7 @@ import {
   handleKey,
   labelled,
   linksOffPage,
+  offSiteUnlinked,
   officialPageOf,
   organizerStatus,
   pageLinks,
@@ -202,6 +203,8 @@ const Domain = z.string().trim().toLowerCase().regex(/^(?=.{4,253}$)([a-z0-9-]{1
 
 /** v3.8 E6r: the upsert fields only the automated lane reads; sending any of them asks for that lane. */
 const CHECK_FIELDS = ['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source', 'handle', 'evidence_url'] as const;
+/** Of those, the ones officialCheck requires. */
+const REQUIRED_CHECK_FIELDS = ['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source'] as const;
 
 const Envelope = z.discriminatedUnion('action', [
   z.object({
@@ -248,12 +251,20 @@ type Refusal = { status: 400 | 409; result: 'refused' | 'curated'; problems: str
 
 /**
  * The checks after the parse, or null when the program passes: programs:check's rules, the API
- * rules (verified_at as of `at`, the write's time; ends_at as of now), the curated id, the links load.
+ * rules (verified_at as of `at`, the write's time; ends_at as of now), the curated id, the links load. An automated-lane
+ * write with every check field (`offSite: 'page'`) whose only rule problems are off-site builder links passes here;
+ * officialCheck reads the page and refuses those the page does not link.
  */
-async function writeRefusal(p: Program, deps: Deps, at: Date = deps.now): Promise<Refusal | null> {
+async function writeRefusal(p: Program, deps: Deps, at: Date = deps.now, offSite: 'refuse' | 'page' = 'refuse'): Promise<Refusal | null> {
   const checks = programProblems(p, at);
   if (checks.length > 0) return { status: 400, result: 'refused', problems: checks };
-  const rules = apiRuleProblems(p, at);
+  let rules = apiRuleProblems(p, at);
+  // v3.8 G-A (item 6): off-site builder links alone wait for officialCheck, which allows the ones the page links. With
+  // any other problem the write is refused here, every problem named.
+  if (offSite === 'page') {
+    const off = new Set(offSiteLinks(p).map((l) => l.problem));
+    if (rules.every((x) => off.has(x))) rules = [];
+  }
   if (at !== deps.now && p.status === 'active' && dateStatus(p, deps.now) === 'closed')
     rules.push('ends_at: has passed; an active program needs a future ends_at or null');
   if (rules.length > 0) return { status: 400, result: 'refused', problems: rules };
@@ -378,7 +389,7 @@ const live = (p: Program, now: Date) => p.status === 'upcoming' || isOpenAt(p, n
  * information only as the check found. The page's text is only searched, never stored or returned.
  */
 async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise<{ problems: string[] } | Checked> {
-  const missing = (['amount_quote', 'deadline_quote', 'found_by_query', 'found_by_source'] as const)
+  const missing = REQUIRED_CHECK_FIELDS
     .filter((k) => e[k] === undefined)
     .map((k) => `${k}: required; ${k.endsWith('quote') ? "copy the official page's words exactly" : 'say which search and source found this program'}`);
   if (missing.length > 0) return { problems: missing };
@@ -391,7 +402,11 @@ async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise
   }
   const quotes = quoteProblems(p, { amount_quote: e.amount_quote!, deadline_quote: e.deadline_quote! }, pageText(html));
   if (quotes.length > 0) return { problems: quotes };
-  const off = linksOffPage(p, url, pageLinks(html, url));
+  const links = pageLinks(html, url);
+  // v3.8 G-A (item 6): a builder link off the source's site and the platform list passes only when the page links it.
+  const unlinked = offSiteUnlinked(offSiteLinks(p), url, links);
+  if (unlinked.length > 0) return { problems: unlinked };
+  const off = linksOffPage(p, url, links);
   const org = await organizerStatus(sql(), p, { handle: e.handle ?? null, evidenceUrl: e.evidence_url ?? null, read: deps.readPage });
   const reasons = [
     ...(org.status === 'new' ? [`new organizer: ${org.why}`] : []),
@@ -399,6 +414,9 @@ async function officialCheck(p: Program, e: UpsertEnvelope, deps: Deps): Promise
   ];
   return { live: labelled(p, { newOrganizer: org.status === 'new', infoOnly: off.length > 0 }), reason: reasons.length > 0 ? reasons.join('; ') : null };
 }
+
+/** Whether the write carries every field officialCheck requires, so the page will be read. Pure. */
+const hasCheckFields = (e: UpsertEnvelope): boolean => REQUIRED_CHECK_FIELDS.every((k) => e[k] !== undefined);
 
 /** An upsert. `automated` (v3.8 E6r) sends it through the official-page check; else main's lane, held writes mailed. */
 async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): Promise<Response> {
@@ -412,7 +430,7 @@ async function upsertAction(e: UpsertEnvelope, deps: Deps, automated: boolean): 
     return refused(400, problems);
   }
   const p = parsed.data;
-  const refusal = await writeRefusal(p, deps);
+  const refusal = await writeRefusal(p, deps, deps.now, automated && hasCheckFields(e) ? 'page' : 'refuse');
   if (refusal) {
     await auditRefusal('upsert', p.id, refusal.result, refusal.problems, found);
     return refused(refusal.status, refusal.problems);

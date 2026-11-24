@@ -185,7 +185,9 @@ The pipeline, in order:
    includes `auto_live`), `official-page.ts` fetches the official page. The
    write goes live only if the quotes are on the page and name the record's amount and deadline; otherwise it is a 400.
    A domain the check can't tie to the organizer is live as `new_organizer`, and a builder link not on the page makes
-   it `info_only`. Either label forces `submit: builder`, so find marks it `needs_click` and track refuses a standing
+   it `info_only`. v3.8 G-A (item 6): in this lane a builder link off the source's site and the submit-platform list
+   is not refused up front when it is the write's only rule problem (`writeRefusal` with `offSite: 'page'`); it passes when the official page links that
+   exact URL and the page is not on a shared or submit platform (`offSiteUnlinked`), else it is a 400. Either label forces `submit: builder`, so find marks it `needs_click` and track refuses a standing
    send. Writes are never held or mailed in this lane (`no-approval.test.ts`). Every other write keeps this step
    until `auto_live` is on for everyone; a follow-up PR then deletes the approval path. Growth records handle domains
    with `{"action":"handle"}` (`tracked_handles`).
