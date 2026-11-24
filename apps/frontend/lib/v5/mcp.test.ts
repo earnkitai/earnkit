@@ -6,6 +6,18 @@ import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRU
 import { SESSION_START } from './tool-text';
 import { PROJECT_DESCRIPTION } from './project-input';
 import { clientIp, windowStart } from './rate-limit';
+import { flagOn } from './flags';
+import { DRAFT_TRACK_TEXT, PRIVATE_TRACK_TEXT, V2_TRACK_TEXT } from './track';
+
+// v3.8 flags-on suite: with reply_fields on (E13) a busy or limit line is the JSON of a tool reply, status and state last.
+const busyText = (line: string) =>
+  flagOn('reply_fields') ? JSON.stringify({ show_to_builder: line, agent_note: 'Nothing was changed. Call again in a minute with the same arguments.', status: 'error', state: 'unchanged' }) : line;
+const limitText = (line: string, seconds: number) =>
+  flagOn('reply_fields')
+    ? JSON.stringify({ show_to_builder: line, agent_note: 'Nothing was changed. Call again after retry_after_seconds.', retry_after_seconds: seconds, status: 'refused', state: 'unchanged' })
+    : line;
+// v3.8 flags-on suite: private_rows (E8), track_v2 (E9) and draft_check (E11) each add an action to track, so program_id and status are not required.
+const trackActions = flagOn('private_rows') || flagOn('track_v2') || flagOn('draft_check');
 
 after(() => sql().end());
 
@@ -28,10 +40,12 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
     "What the builder did, on program_id (the id, the name, or the number from the last find list): started (a claim before filling), applied (with submitted_by, agent when left out, and fields_used: the field keys from find's fields), rejected, no_result, held (the builder said stop: send nothing until they say go), skipped (for good), unskip (a skipped program may come back), gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find), or won (with amount_usd as dollars, 5000 or 1234.56, converting 5k to 5000; or amount with currency): amount_usd may carry cents, amount reads 5k, $2,500.50, 2000 EUR or €2000, and with no currency a win keeps its own; a further payment of a win already recorded is won again with that payment's amount and payment: { key } naming it, a key of your own that a retry repeats; it adds to the total once; won again without payment corrects the amount. A win with no application here is recorded as the builder's own send. A program that has not opened takes a win only with outside true, for a win from outside EarnKit such as an earlier round. Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
-  assert.equal(tools[1].description, TRACK_DESCRIPTION);
+  // v3.8 flags-on suite: each track flag appends its own words, in this order (trackDescription, E8, E9, E11).
+  assert.equal(tools[1].description, TRACK_DESCRIPTION + (flagOn('private_rows') ? PRIVATE_TRACK_TEXT : '') + (flagOn('track_v2') ? V2_TRACK_TEXT : '') + (flagOn('draft_check') ? DRAFT_TRACK_TEXT : ''));
   const props = (i: number) => (tools[i].inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
   assert.ok('project_id' in props(0));
-  assert.deepEqual(Object.keys(props(0)), ['project', 'program_id', 'project_id', 'ask', 'filter']);
+  // v3.8 flags-on suite: track_v2 (E9) adds find's catalog page argument (withCatalog).
+  assert.deepEqual(Object.keys(props(0)), flagOn('track_v2') ? ['project', 'program_id', 'project_id', 'ask', 'filter', 'catalog'] : ['project', 'program_id', 'project_id', 'ask', 'filter']);
   assert.deepEqual(['project_id', 'submitted_by', 'fields_used'].filter((k) => k in props(1)), ['project_id', 'submitted_by', 'fields_used']);
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
@@ -94,7 +108,7 @@ test('find and track refuse unknown keys: no builder text, the keys named in the
 test('track, record and screen advertise the same strict schemas they enforce inside (C35)', async () => {
   const tools = await mcpListTools(await ctx());
   const schema = (i: number) => tools[i].inputSchema as { properties: Record<string, { enum?: string[]; type?: string }>; required?: string[]; additionalProperties?: unknown };
-  assert.deepEqual(schema(1).required, ['program_id', 'status']);
+  assert.deepEqual(schema(1).required, trackActions ? undefined : ['program_id', 'status']);
   assert.equal(schema(1).additionalProperties, false);
   assert.equal(schema(1).properties.amount_usd.type, 'number');
   assert.equal(schema(2).additionalProperties, false);
@@ -196,7 +210,7 @@ test('a database error is the busy line', async () => {
   // An id past Postgres's integer range: the database refuses the query.
   const r = await mcpCall({ installationId: 2 ** 40, builderId: null, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
   assert.equal(r.isError, true);
-  assert.equal(r.text, 'EarnKit is busy. Try again in a minute.');
+  assert.equal(r.text, busyText('EarnKit is busy. Try again in a minute.'));
 });
 
 const seed = (key: string, count: number) =>
@@ -211,12 +225,12 @@ test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as 
   assert.equal(ok.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', ok.text);
   const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
-  assert.equal(busy.text, OWN_LIMIT);
+  assert.equal(busy.text, limitText(OWN_LIMIT, 3_600));
   assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const f = await mcpCall(c, 'find', {});
-  assert.equal(f.text, OWN_LIMIT);
+  assert.equal(f.text, limitText(OWN_LIMIT, 3_600));
   const later = await mcpCall({ ...c, now: new Date(NOW.getTime() + 48 * 60_000) }, 'find', {});
-  assert.equal(later.text, "Your agent has used this hour's limit. Try again in about 12 minutes.");
+  assert.equal(later.text, limitText("Your agent has used this hour's limit. Try again in about 12 minutes.", 720));
   assert.deepEqual(later.structured, { retry_after_seconds: 720 });
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(next.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', next.text);
@@ -227,7 +241,7 @@ test('the per-IP floor: the 601st call from one address in an hour is the addres
   await seed('mcpIp:203.0.113.9', 600);
   const busy = await mcpCall({ ...c, ip: '203.0.113.9' }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
-  assert.equal(busy.text, ADDRESS_LIMIT);
+  assert.equal(busy.text, limitText(ADDRESS_LIMIT, 3_600));
   assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(other.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', other.text);
@@ -248,12 +262,12 @@ test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refus
       texts.set(text, (texts.get(text) ?? 0) + 1);
     }
   }
-  assert.deepEqual([...texts], [[OWN_LIMIT, 480]]);
+  assert.deepEqual([...texts], [[limitText(OWN_LIMIT, 3_600), 480]]);
   const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${'mcpIp:' + ip} AND window_start = ${windowStart(NOW, 3_600_000)}`;
   assert.equal(w.count, 120);
   // Through the server: A is refused with the line and retry_after_seconds; B on the same address is served.
   const refused = await mcpCall({ ...a, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(refused.text, OWN_LIMIT);
+  assert.equal(refused.text, limitText(OWN_LIMIT, 3_600));
   assert.deepEqual(refused.structured, { retry_after_seconds: 3_600 });
   const mate = await mcpCall({ ...b, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(mate.reply!.show_to_builder, 'I do not know a program called "no-such". Say its full name.', mate.text);

@@ -65,6 +65,8 @@ test('A8: off, nothing changes; on, an agent send without a passing check of the
   const id = `dc-${Math.random().toString(36).slice(2, 8)}`;
   await upsertProgram(program(id), 'file', NOW);
   assert.equal(trackAdvertised({}), TrackInput);
+  const saved = process.env.EARNKIT_FLAGS;
+  delete process.env.EARNKIT_FLAGS; // v3.8 flags-on suite: the "off" half asserts draft_check off; restored in finally
   assert.equal((await track(c, { action: 'check', program_id: id, fields: {} })).refused, true, 'off: action is unknown');
 
   process.env.EARNKIT_FLAGS = 'draft_check';
@@ -99,7 +101,8 @@ test('A8: off, nothing changes; on, an agent send without a passing check of the
     const [after] = await sql()`SELECT status, final_hash FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = ${id}`;
     assert.deepEqual({ ...after }, { status: 'applied', final_hash: draftHash(good) });
   } finally {
-    delete process.env.EARNKIT_FLAGS;
+    if (saved === undefined) delete process.env.EARNKIT_FLAGS;
+    else process.env.EARNKIT_FLAGS = saved;
   }
 });
 

@@ -2,6 +2,7 @@ import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from '../v5/db';
+import { flagOn } from '../v5/flags';
 import { windowStart } from '../v5/rate-limit';
 import { linkInstallation, upsertBuilder } from './builders';
 import { githubOAuthFetch } from './fixtures/github-oauth';
@@ -409,7 +410,9 @@ test('v3.8 E3: a fresh GitHub callback verifies the person (by, at, the account 
   await deleteBuilder(p.builder_id, later);
   const [gone] = await sql()<{ builder_id: number | null; verified_by: string | null; verified_at: Date | null; account_created_at: Date | null }[]>`
     SELECT builder_id, verified_by, verified_at, account_created_at FROM people WHERE id = ${personId}`;
-  assert.deepEqual(gone, { builder_id: null, verified_by: null, verified_at: null, account_created_at: null });
+  // v3.8 flags-on suite: with `form` on, delete deletes the person row itself (v3.8-e12-*.md); off, it stays cleared.
+  if (flagOn('form')) assert.equal(gone, undefined);
+  else assert.deepEqual(gone, { builder_id: null, verified_by: null, verified_at: null, account_created_at: null });
 });
 
 test('v3.8 E3: the owner (jenil04, jenilt) signs in verified and labelled owner, with no env list set', async () => {

@@ -14,6 +14,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { getRecord, linkInstallation, saveRecord, upsertBuilder } from '../v6/builders';
 import { approvePath, mergeRecord } from '../v6/record';
 import { evidence, liveRows } from '../v6/fixtures/evidence-builder';
+import { flagOn } from './flags';
+import { TEST_PROOF } from './fixtures/send';
 /** L29-7 (v6.1.16 Task 15): every ready program of a find reply: what the agent may send, in person and the builder's to send. */
 const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unknown[]) ?? []), ...((r.in_person as unknown[]) ?? []), ...((r.you_send as unknown[]) ?? [])];
 
@@ -36,8 +38,10 @@ const CLOSINGS = [
   /^Sign in at \S+, then say \d+ if the [^\n]+ rules? fits? you and I draft it\.$/,
   /^Say yes and (?:tell me [^\n]+, and )?I apply to all \d+(, or say do \d+ and I [^\n]+ first)?\.$/,
   /^Say yes and tell me [^\n]+, and I (?:apply to (?!all \d+)|draft )[^\n]+\.$/,
-  /^Do real people use it\? Say yes(, sign in( at \S+)?,)? and I check\.$/,
-  /^Do real people use it\? Say yes and I [^\n]+, then apply to [^\n]+\.$/,
+  // v3.8 flags-on suite: copy_v38 (E15) rewrites the users closings (asks 6 and 7: the check is EarnKit's, signed out the one ask is the sign-in link).
+  ...(flagOn('copy_v38')
+    ? [/^(?:Sign in and |Sign in here: \S+\. Then )?I'll check whether real people use it\.$/, /^Say yes and I'll [^\n]+, check it has real users, then apply to [^\n]+\.$/]
+    : [/^Do real people use it\? Say yes(, sign in( at \S+)?,)? and I check\.$/, /^Do real people use it\? Say yes and I [^\n]+, then apply to [^\n]+\.$/]),
   /^Say yes and I apply to (?!all \d+\b)[^\n]+\.$/,
   /^[^\n]+ is over your limit\. Say yes and I apply\.$/,
   /^Say yes and I draft (all \d+|it|[^\n]+) for you to send\.$/,
@@ -46,9 +50,10 @@ const CLOSINGS = [
   // L46-2 (v6.1.20): a draft the builder can have now.
   /^Say \d+ and I draft [^\n]+ for you to send\.$/,
   /^Say yes and I start the in-person applications\.$/,
-  /^Nothing fits [^\n]*yet\. Tell me more about it, or its repo link, and I look again\.$/,
+  // v3.8 flags-on suite: copy_v38 asks 11 and 8 (nothing fits, the demo video) promise what EarnKit does instead of asking.
+  flagOn('copy_v38') ? /^Nothing fits [^\n]*yet\. I'll show you new programs as they open\.$/ : /^Nothing fits [^\n]*yet\. Tell me more about it, or its repo link, and I look again\.$/,
   /^(Tell me when [^\n]+|Tell me the active repo) and I look again\.$/,
-  /^Send me the demo video link and I fill it in\.$/,
+  flagOn('copy_v38') ? /^I'll look for a public demo video and add it\.$/ : /^Send me the demo video link and I fill it in\.$/,
   /^Say a number and I show what that program asks\.$/,
   // L24-11 (v6.1.16 Task 11): the one standing-approval line.
   /^Applying now to [^\n]+ under your standing approval\. (Say stop and I hold any of them|Say yes and I also apply to [^\n]+)\.$/,
@@ -79,7 +84,9 @@ async function find(id: number, slug: string, over: Record<string, unknown> = {}
   return r.reply!;
 }
 async function track(id: number, args: Record<string, unknown>) {
-  const r = await mcpCall(ctx(id, replayFetch('earnkit').fetch), 'track', args);
+  // v3.8 flags-on suite: an applied carries the proof track_v2 needs (E9).
+  const proved = flagOn('track_v2') && args.status === 'applied' ? { ...args, proof: TEST_PROOF } : args;
+  const r = await mcpCall(ctx(id, replayFetch('earnkit').fetch), 'track', proved);
   assert.equal(r.isError, false, r.text);
   seen.push(r.reply!.show_to_builder as string);
   return r.reply!;
@@ -95,7 +102,9 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   // its hub", v6.1.3 R4) are the program's, not EarnKit asking who they are.
   // L29-34 (v6.1.16 Task 15): the users question's ruled sign-in checks the product, it never asks who they are.
   const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person \(\d+\):\n(\d+\. [^\n]*\n?)+/m, '')
-    .replace(/Do real people use it\? Say yes, sign in( at \S+)?, and I check\./, '');
+    .replace(/Do real people use it\? Say yes, sign in( at \S+)?, and I check\./, '')
+    // v3.8 flags-on suite: copy_v38's users question signed out (ask 7, plan 23.4/23.5: the one ask is the sign-in link) is the same ruled sign-in.
+    .replace(/(Sign in and|Sign in here: \S+\. Then) I'll check whether real people use it\./, '');
   assert.doesNotMatch(ours, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
   assert.equal(reply.as_reported, false);
 });
@@ -198,7 +207,15 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   // L29-32 (v6.1.16 Task 15): started has no builder text; the note names it.
   assert.equal(started.show_to_builder, '');
   assert.match(started.agent_note as string, /^Started Arbitrum Mentorship Program: Cohort 2\. /);
-  const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
+  // v3.8 flags-on suite: the send as an agent makes it with the shipping flags: proof (E9) and a passing check of the
+  // required answers sent as final (E11); the subject is the standing approval.
+  const form = (await getProgram(top))!.file;
+  const sent = Object.fromEntries(form.submission_requirements.filter((r) => r.required && r.type !== 'file').map((r) => [r.key, form.title.replace(/—/g, '-')]));
+  if (flagOn('draft_check')) await call(new Date(t1.getTime() + 90_000), 'track', { action: 'check', program_id: top, fields: sent });
+  const applied = await call(new Date(t1.getTime() + 120_000), 'track', {
+    program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit',
+    ...(flagOn('track_v2') ? { proof: TEST_PROOF } : {}), ...(flagOn('draft_check') ? { final: sent } : {}),
+  });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
   // F1 (v6.1.10): the find held it back ("Before I send") for answers only the builder gives that the record lacks,
   // so naming every key does not make the send one under standing approval.

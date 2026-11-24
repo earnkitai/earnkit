@@ -43,6 +43,7 @@ const noteOf = (r: Response) => new URL(r.headers.get('location') ?? '/', 'https
 const deps = { now: NOW };
 
 test('off: /me/consent is 404 and nothing is saved', async () => {
+  delete process.env.EARNKIT_FLAGS; // v3.8 flags-on suite: the subject is the form flag off; afterEach clears it again
   const s = await signedIn();
   const r = await consentPost(post({ csrf: s.csrf, action: 'save', fill: 'on', adult: 'yes' }, s.cookie), deps);
   assert.equal(r.status, 404);
@@ -50,6 +51,7 @@ test('off: /me/consent is 404 and nothing is saved', async () => {
 });
 
 test('off: /me is main\'s /me (no redirect to the form, no consent section), even with answers saved', async () => {
+  delete process.env.EARNKIT_FLAGS; // v3.8 flags-on suite: the subject is the form flag off; afterEach clears it again
   const s = await signedIn();
   assert.deepEqual(await meConsent(s.b.id), { start: false });
   process.env.EARNKIT_FLAGS = 'form';
@@ -61,6 +63,7 @@ test('off: /me is main\'s /me (no redirect to the form, no consent section), eve
 });
 
 test('off: GET /me/consent is 404 as on main; on, a 303 to /me', async () => {
+  delete process.env.EARNKIT_FLAGS; // v3.8 flags-on suite: the subject is the form flag off; afterEach clears it again
   assert.equal((await consentGet(new Request('https://earnkit.test/me/consent'))).status, 404);
   process.env.EARNKIT_FLAGS = 'form';
   const on = await consentGet(new Request('https://earnkit.test/me/consent'));

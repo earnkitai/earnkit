@@ -8,8 +8,11 @@ import { ProgramFile } from './program-file';
 import { findProgramsDir } from './programs-api';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { namedFirst, track } from './track';
+import { namedFirst, track as rawTrack } from './track';
+import { checkDraft, track } from './fixtures/send';
 import { lastGaps, markFind } from './installations';
+import { copy } from './copy';
+import { flagOn } from './flags';
 
 after(() => sql().end());
 
@@ -24,7 +27,7 @@ test('the six replies', async () => {
   await upsertProgram(programFixture({ id: 't6-a', title: 'Alpha Grant', max_award_usd: 9000 }), 'file', NOW);
   const say = async (input: unknown) => (await track(c, input)).show_to_builder;
   assert.equal(await say({ program_id: 't6-a', status: 'applied' }), 'Sent Alpha Grant.');
-  assert.equal(await say({ program_id: 't6-a', status: 'won', amount_usd: 5000 }), 'Tracked: $5,000 from Alpha Grant.');
+  assert.equal(await say({ program_id: 't6-a', status: 'won', amount_usd: 5000 }), copy().won('$5,000', 'Alpha Grant'));
   // One result per program (v6.1.7): each result on its own program.
   await upsertProgram(programFixture({ id: 't6-a2', title: 'Alpha Two' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 't6-a3', title: 'Alpha Three' }), 'file', NOW);
@@ -64,8 +67,8 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   const second = await track(c, { program_id: 't7-one', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   assert.equal(second.show_to_builder, 'Already sent on Nov 4.');
   assert.equal(second.agent_note, 'Nothing was recorded.');
-  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0 })).show_to_builder, 'Tell me the amount as a number, like 5000 for $5,000.' /* L31-5 */);
-  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Tracked: $3,000 from One Grant.');
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0 })).show_to_builder, copy().amountUnread /* L31-5 */);
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, copy().won('$3,000', 'One Grant'));
   // L16-2 (v6.1.16): no_result over a result is refused; L45-2 (v6.1.19): over a win it names the win kept.
   const rej = await track(c, { program_id: 't7-one', status: 'no_result' });
   assert.equal(rej.show_to_builder, 'One Grant already has a win here ($3,000); say won again with the new amount to change it.');
@@ -91,7 +94,7 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3), L45-2 (v6.1.19): won $100 then rej
   await upsertProgram(programFixture({ id: 't7-fix', title: 'Fix Grant', max_award_usd: 5000 }), 'file', NOW);
   await upsertProgram(programFixture({ id: 't7-fix2', title: 'Fix Two', max_award_usd: 5000 }), 'file', NOW);
   await track(c, { program_id: 't7-fix2', status: 'applied' });
-  assert.equal((await track(c, { program_id: 't7-fix2', status: 'won', amount_usd: 100 })).show_to_builder, 'Tracked: $100 from Fix Two.');
+  assert.equal((await track(c, { program_id: 't7-fix2', status: 'won', amount_usd: 100 })).show_to_builder, copy().won('$100', 'Fix Two'));
   const kept = await track(c, { program_id: 't7-fix2', status: 'rejected' });
   assert.equal(kept.show_to_builder, 'Fix Two already has a win here ($100); say won again with the new amount to change it.');
   assert.equal(kept.refused, true);
@@ -107,7 +110,7 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3), L45-2 (v6.1.19): won $100 then rej
   assert.equal(pay.agent_note, 'Nothing was recorded.');
   assert.equal(await hist(), before);
   const won = await track(c, { program_id: 't7-fix', status: 'won', amount_usd: 150 });
-  assert.equal(won.show_to_builder, 'Tracked: $150 from Fix Grant.');
+  assert.equal(won.show_to_builder, copy().won('$150', 'Fix Grant'));
   assert.deepEqual([won.ledger.applied, won.ledger.won, won.ledger.won_usd, won.ledger.rejected], [2, 2, 250, 0]);
   const rows = await sql()`SELECT status, amount_usd, corrected FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 't7-fix' ORDER BY id OFFSET ${before}`;
   assert.deepEqual(rows.map((x) => [x.status, Number(x.amount_usd), x.corrected]), [['won', 150, true]]);
@@ -138,7 +141,7 @@ test('a result for a program gone from the catalog uses the title stored when it
   await track(c, { program_id: 't7-gone', status: 'applied' });
   await sql()`DELETE FROM programs WHERE id = 't7-gone'`;
   const r = await track(c, { program_id: 't7-gone', status: 'won', amount_usd: 2500 });
-  assert.equal(r.show_to_builder, 'Tracked: $2,500 from Gone Grant.');
+  assert.equal(r.show_to_builder, copy().won('$2,500', 'Gone Grant'));
   assert.equal(r.ledger.won_usd, 2500);
 });
 
@@ -353,7 +356,7 @@ test('gap_done with an item the program does not have is refused, and the rememb
   assert.deepEqual([u.show_to_builder, u.agent_note], ['', 'Nothing was recorded. item did not match any gap of t6-gapbad; the items are chain:arc, repo; fix it and call again.']);
   // C11 (v6.1.7): without an item, the agent gets the same list; L45-15 (v6.1.19): the builder is asked on the program named.
   const none = await track(c, { program_id: 't6-gapbad', status: 'gap_done' });
-  assert.deepEqual([none.show_to_builder, none.agent_note], ['Which change did you finish on Test Grants?', 'Items for this program: chain:arc, repo. Call track gap_done with one of them.']);
+  assert.deepEqual([none.show_to_builder, none.agent_note], [copy().whichChangeOn('Test Grants'), 'Items for this program: chain:arc, repo. Call track gap_done with one of them.']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE installation_id = ${c.installationId}`)[0].n, 0);
 });
 
@@ -372,7 +375,7 @@ test('TrackInput caps: program_id and item at 80, amount_usd finite and at least
     // L31-5 (v6.1.16 Task 17): an unreadable amount is the one bad-amount line. L45-15 (v6.1.19): an amount_usd that is
     // no number is the agent's slip: the builder is asked for the amount, the agent hears the argument.
     const slip = input.status === 'won' && input.amount_usd !== -1;
-    assert.equal(r.show_to_builder, input.status !== 'won' ? '' : slip ? 'Tell me the amount.' : 'Tell me the amount as a number, like 5000 for $5,000.', JSON.stringify(input));
+    assert.equal(r.show_to_builder, input.status !== 'won' ? '' : slip ? copy().tellAmount : copy().amountUnread, JSON.stringify(input));
     assert.match(r.agent_note, slip ? /^Nothing was recorded\. amount_usd must be a number \(5000 or 1234\.56\)\. / : /^Nothing was recorded\. (program_id|item|amount_usd): .+\.$/, JSON.stringify(input));
   }
   const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
@@ -600,7 +603,7 @@ test('Review Focus 4 (v6.1.9 N2): recording an old win today does not use tonigh
   const sent = await track({ ...linked, now: threeDaysAgo }, { program_id: 'rf4-old', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
   assert.equal(sent.show_to_builder, 'Sent rf4-old.');
   // The result lands today: it moves `at`, never the send time.
-  assert.equal((await track(linked, { program_id: 'rf4-old', status: 'won', amount_usd: 1000 })).show_to_builder, 'Tracked: $1,000 from rf4-old.');
+  assert.equal((await track(linked, { program_id: 'rf4-old', status: 'won', amount_usd: 1000 })).show_to_builder, copy().won('$1,000', 'rf4-old'));
   const [old] = await sql()`SELECT sent_at, at FROM applications WHERE owner = ${owner} AND program_id = 'rf4-old'`;
   assert.equal((old.sent_at as Date).toISOString(), threeDaysAgo.toISOString());
   assert.equal((old.at as Date).toISOString(), NOW.toISOString());
@@ -762,7 +765,7 @@ test('v6.1.9: a second skip says it is already skipped', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 'sk-two', title: 'Skip Two' }), 'file', NOW);
   assert.equal((await track(c, { program_id: 'sk-two', status: 'skipped' })).show_to_builder, 'Skipped Skip Two for good. Say unskip and I bring it back.');
-  assert.equal((await track(c, { program_id: 'sk-two', status: 'skipped' })).show_to_builder, 'Already skipped.');
+  assert.equal((await track(c, { program_id: 'sk-two', status: 'skipped' })).show_to_builder, copy().alreadySkipped);
 });
 
 test('v6.1.9: the night routine\'s find before a send under standing approval leaves the overnight report for the morning', async () => {
@@ -882,6 +885,13 @@ test('F1 fix round 2 (v6.1.10): five real programs, a send naming every key is o
     const i = { program_id: id, status: 'applied' as const, submitted_by: 'agent' as const, fields_used: every, project };
     assert.ok((await unvouchedAtSend(linked, i, row)).includes(key), id);
     const r = await track(linked, i);
+    // v3.8 flags-on suite: with draft_check on, an agent sends only a draft checked on a started row (E11), and a program
+    // the catalog holds closed is never started: the send stops at its started and nothing is written.
+    if (flagOn('draft_check') && row.file.status === 'closed') {
+      assert.deepEqual([r.show_to_builder, r.refused], [`${row.file.title} is not open; nothing to start.`, true], id);
+      assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].n, 0, id);
+      continue;
+    }
     assert.match(r.show_to_builder, /Sent, but outside your standing approval: [^.]+\.$/, id);
     assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].auto_applied, false, id);
   }
@@ -1091,10 +1101,10 @@ test('F6 (v6.1.12): a code step marked done on a project with no repo asks to be
   await upsertProgram(programFixture({ id: 'f6-live', title: 'F6 Live', eligibility: [{ kind: 'live_product' }] }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'f6-chain', title: 'F6 Chain', eligibility: [{ kind: 'chain', value: 'arc' }] as never }), 'file', NOW);
   const bare = await track(c, { program_id: 'f6-chain', status: 'gap_done', item: 'chain:arc', project: { name: 'No Repo' } });
-  assert.deepEqual([bare.show_to_builder, bare.agent_note], ['Tracked. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']);
+  assert.deepEqual([bare.show_to_builder, bare.agent_note], [copy().tellWhenLive, copy().tellWhenLiveNote]);
   assert.doesNotMatch(bare.show_to_builder, /repo/);
   const none = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product' });
-  assert.equal(none.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
+  assert.equal(none.show_to_builder, copy().tellWhenLive);
   // With a repo the read is the check.
   const repo = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product', project: { name: 'Has Repo', repo_url: 'https://github.com/a/b' } });
   assert.deepEqual([repo.show_to_builder, repo.agent_note], ['Tracked. I check the repo on the next look.', 'Call find again so the repo is re-read.']);
@@ -1128,7 +1138,7 @@ test('final fix (v6.1.12, Task 2 I1): a result on an id held as sent is that id,
   // The sent program leaves the catalog; its id still starts the other one's.
   await sql()`DELETE FROM programs WHERE id = 'ff-held'`;
   const won = await track(c, { program_id: 'ff-held', status: 'won', amount_usd: 1000 });
-  assert.equal(won.show_to_builder, 'Tracked: $1,000 from Held Grant.');
+  assert.equal(won.show_to_builder, copy().won('$1,000', 'Held Grant'));
   const rows = await sql()`SELECT program_id, status FROM applications WHERE installation_id = ${c.installationId} ORDER BY program_id`;
   assert.deepEqual(rows.map((r) => [r.program_id, r.status]), [['ff-held', 'won']]);
 });
@@ -1271,6 +1281,12 @@ test('Task 1 review I1 and I2 (v6.1.13): the send is judged on the find\'s repor
   const P2 = { name: 'Chain Name App', description: 'An app on Base.', chains: [{ chain: 'base', mainnet: true }] };
   const f2 = (await find(linked, { project: P2, filter: { all: true } })) as unknown as { ready: { program_id: string }[] };
   assert.ok(!f2.ready.some((x) => x.program_id === 'i1-bar-p2'));
+  // v3.8 flags-on suite: with draft_check on the agent starts and checks first; started under find's own project (a
+  // started with the repo saves the name's report with it, rememberName), so the send is still judged on the find's.
+  if (flagOn('draft_check')) {
+    assert.equal((await rawTrack(linked, { program_id: 'i1-bar-p2', status: 'started', project: { name: 'Chain Name App' } })).refused, undefined);
+    await checkDraft(linked, 'i1-bar-p2');
+  }
   assert.equal((await send('i1-bar-p2', { name: 'Chain Name App', repo_url: 'https://github.com/ada/chain-name-app', private: true })).show_to_builder, 'Sent, but outside your standing approval: it was still a step away.');
   assert.equal(await auto('i1-bar-p2'), false);
 });
@@ -1373,6 +1389,13 @@ test('L13-6 (v6.1.14): a send under standing approval to a program that has not 
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } }, 'builder', NOW).record, NOW);
   await upsertProgram(programFixture({ id: 'l136-soon', title: 'Soon Grant', category: 'grant', status: 'upcoming', opens_note: 'Opens Nov 11' }), 'file', NOW);
   const r = await track({ ...c, builderId: b.id }, { program_id: 'l136-soon', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
+  // v3.8 flags-on suite: with draft_check on, an agent sends only a draft checked on a started row (E11), and a program
+  // that has not opened is never started: the send stops at its started and nothing is written.
+  if (flagOn('draft_check')) {
+    assert.deepEqual([r.show_to_builder, r.agent_note, r.refused], ['Soon Grant is not open; nothing to start.', 'Do not submit this one; call find for what is open.', true]);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'l136-soon'`)[0].n, 0);
+    return;
+  }
   assert.equal(r.show_to_builder, 'Sent, but outside your standing approval: it has not opened yet.');
   assert.match(r.agent_note, /^Recorded as applied, not under standing approval\./);
   const [row] = await sql()`SELECT status, auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'l136-soon'`;
@@ -1501,7 +1524,7 @@ test('R8 (L17-1): 30 parallel skips by one agent on a fresh program write one ro
   const out = await Promise.all(Array.from({ length: 30 }, () => track(a, { program_id: 'r8-skip', status: 'skipped' })));
   const says = out.map((r) => r.show_to_builder);
   assert.equal(says.filter((s) => s === 'Skipped Skip Race for good. Say unskip and I bring it back.').length, 1);
-  assert.equal(says.filter((s) => s === 'Already skipped.').length, 29);
+  assert.equal(says.filter((s) => s === copy().alreadySkipped).length, 29);
   assert.deepEqual((await histOf(owner, 'r8-skip')).map((h) => h.status), ['skipped']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'r8-skip'`)[0].n, 1);
 });
@@ -1512,7 +1535,8 @@ test('R9 (L17-1): 30 parallel skips after a send write no skip row, each answere
   await track(a, { program_id: 'r9-sent', status: 'applied', submitted_by: 'agent' });
   const out = await Promise.all(Array.from({ length: 30 }, (_, k) => track(k % 2 ? a : c, { program_id: 'r9-sent', status: 'skipped' })));
   assert.deepEqual([...new Set(out.map((r) => r.show_to_builder))], ['That one was already sent; nothing to skip.']);
-  assert.deepEqual((await histOf(owner, 'r9-sent')).map((h) => h.status), ['applied']);
+  // v3.8 flags-on suite: with draft_check on, the agent's send is started, checked, then sent (E11): the started is history too.
+  assert.deepEqual((await histOf(owner, 'r9-sent')).map((h) => h.status), flagOn('draft_check') ? ['started', 'applied'] : ['applied']);
   const [row] = await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'r9-sent'`;
   assert.equal(row.status, 'applied');
 });
@@ -1558,7 +1582,7 @@ test('L22-2, L22-3, L22-7, L25-13 (v6.1.16): track takes amount and currency; a 
   await upsertProgram(programFixture({ id: 't22-cents', title: 'Cents Grant', max_award_usd: 100_000 }), 'file', NOW);
   const say = async (input: Record<string, unknown>) => (await track(c, input)).show_to_builder;
   for (const id of ['t22-eur', 't22-cents']) await say({ program_id: id, status: 'applied' });
-  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: 2000, currency: 'EUR' }), 'Tracked: EUR 2,000 from Euro Grant.');
+  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: 2000, currency: 'EUR' }), copy().won('EUR 2,000', 'Euro Grant'));
   // L45-2 (v6.1.19): a rejection never erases the win.
   assert.equal(await say({ program_id: 't22-eur', status: 'rejected' }), 'Euro Grant already has a win here (EUR 2,000); say won again with the new amount to change it.');
   assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: '€2,000' }), 'Already recorded; nothing new.');
@@ -1569,7 +1593,7 @@ test('L22-2, L22-3, L22-7, L25-13 (v6.1.16): track takes amount and currency; a 
   // Named dollars keep both currencies, never replacing (L22-3).
   assert.equal(await say({ program_id: 't22-eur', status: 'won', amount_usd: 1000, payment: { key: 'p3' } }), 'Tracked: $1,000 more from Euro Grant, $1,000 and EUR 3,000 in total.');
   const r = await track(c, { program_id: 't22-cents', status: 'won', amount_usd: 1234.56 });
-  assert.equal(r.show_to_builder, 'Tracked: $1,234.56 from Cents Grant.');
+  assert.equal(r.show_to_builder, copy().won('$1,234.56', 'Cents Grant'));
   assert.deepEqual([r.ledger.won_usd, r.ledger.won_other], [2234.56, [{ currency: 'EUR', amount: 3000 }]]);
   const [row] = await sql()`SELECT amount_usd, amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 't22-cents'`;
   assert.deepEqual([Number(row.amount_usd), row.amounts], [1234.56, { USD: 1234.56 }]);
@@ -1577,7 +1601,7 @@ test('L22-2, L22-3, L22-7, L25-13 (v6.1.16): track takes amount and currency; a 
   assert.deepEqual(h.map((x) => `${Number(x.amount)} ${x.currency}`).sort(), ['1000 USD', '2000 EUR', '2500 EUR', '500 EUR']);
   // L22-6: a dot-thousands amount has its own line; an unreadable one the unread line.
   assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: '5.000' }), 'Amount not read: use a dot only for cents, no thousands separator.');
-  assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: 'lots' }), 'Tell me the amount as a number, like 5000 for $5,000.');
+  assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: 'lots' }), copy().amountUnread);
 });
 
 test('L25-13 (v6.1.16): the track description says amount_usd may carry cents', async () => {
@@ -1600,10 +1624,10 @@ test('L31-5 (v6.1.16 Task 17, ruling 43): one bad-amount line on track; the dot-
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't17-amt', title: 'Amount Grant', max_award_usd: 9000 }), 'file', NOW);
   await track(c, { program_id: 't17-amt', status: 'applied' });
-  const UNREAD = 'Tell me the amount as a number, like 5000 for $5,000.';
+  const UNREAD = copy().amountUnread;
   for (const [args, line] of [
     // L45-15 (v6.1.19): amount_usd as text is the agent's slip: the builder is asked for the amount.
-    [{ amount: 'abc' }, UNREAD], [{ amount: '2,500.50.1' }, UNREAD], [{ amount_usd: -500 }, UNREAD], [{ amount_usd: '5,000' }, 'Tell me the amount.'],
+    [{ amount: 'abc' }, UNREAD], [{ amount: '2,500.50.1' }, UNREAD], [{ amount_usd: -500 }, UNREAD], [{ amount_usd: '5,000' }, copy().tellAmount],
     [{ amount: '5.000' }, 'Amount not read: use a dot only for cents, no thousands separator.'],
   ] as [Record<string, unknown>, string][]) {
     const r = await track(c, { program_id: 't17-amt', status: 'won', ...args });
@@ -1680,10 +1704,10 @@ test('L24-17: gap_done with no item on a rule program asks which rule; the note 
   await upsertProgram(programFixture({ id: 'l24t-rule', title: 'Rule Only Grant', eligibility: [{ kind: 'rule', note: 'a first-time founder' }] }), 'file', NOW);
   const r = await track(c, { program_id: 'l24t-rule', status: 'gap_done' });
   // L45-15 (v6.1.19): the builder named the program, so the ask names it too.
-  assert.equal(r.show_to_builder, 'Which change did you finish on Rule Only Grant?');
+  assert.equal(r.show_to_builder, copy().whichChangeOn('Rule Only Grant'));
   assert.match(r.agent_note, /^The rule item is rule:[0-9a-f]{8}\./);
   await upsertProgram(programFixture({ id: 'l24t-change', title: 'Change Grant', eligibility: [{ kind: 'live_product' }] }), 'file', NOW);
-  assert.equal((await track(c, { program_id: 'l24t-change', status: 'gap_done' })).show_to_builder, 'Which change did you finish on Change Grant?');
+  assert.equal((await track(c, { program_id: 'l24t-change', status: 'gap_done' })).show_to_builder, copy().whichChangeOn('Change Grant'));
 });
 
 test('L24-1: another agent named in a track line goes through quoteName', async () => {
@@ -1786,7 +1810,7 @@ test('Review Focus 20 (L28-1, v6.1.16 Task 14): two committers on one repo make 
   assert.equal((await rowsOf(a2.owner, 'l28-one')).length, 0);
   assert.deepEqual((await rowsOf(a1.owner, 'l28-one')).map((r) => [r.status, r.project_id, r.repo_key]), [['applied', 'https://github.com/org/r', 'https://github.com/org/r']]);
   // A co-founder's win on that repo adds nothing once the team's win is in.
-  assert.equal((await track(a1, { program_id: 'l28-one', status: 'won', amount_usd: 3000, project: R })).show_to_builder, 'Tracked: $3,000 from Team Grant.');
+  assert.equal((await track(a1, { program_id: 'l28-one', status: 'won', amount_usd: 3000, project: R })).show_to_builder, copy().won('$3,000', 'Team Grant'));
   // Controller ruling: never the other builder's result; the committer's strong tie names the sender only.
   const won = await track(later, { program_id: 'l28-one', status: 'won', amount_usd: 3000, project: R });
   assert.equal(won.show_to_builder, 'Already sent for this repo on Nov 4 by "a1".');
@@ -1849,7 +1873,8 @@ test('L28-4 (v6.1.16 Task 14): one builder, two projects, one program: two appli
   assert.equal((await send(c, 'l28-two', app)).show_to_builder, 'Sent Two Grant.');
   assert.equal((await track(c, { program_id: 'l28-two', status: 'started', project: clock })).show_to_builder, '');
   assert.equal((await send(c, 'l28-two', clock)).show_to_builder, 'Sent Two Grant.');
-  assert.deepEqual((await rowsOf(c.owner, 'l28-two')).map((r) => r.project_id), ['https://github.com/carol/app', 'https://github.com/carol/clock']);
+  // v3.8 flags-on suite: both rows are stamped NOW, so ORDER BY at ties; the two applications are read in key order.
+  assert.deepEqual((await rowsOf(c.owner, 'l28-two')).map((r) => r.project_id).sort(), ['https://github.com/carol/app', 'https://github.com/carol/clock']);
   const again = await track(c, { program_id: 'l28-two', status: 'started', project: app });
   assert.equal(again.show_to_builder, 'Two Grant was already sent for "App".');
   assert.equal(again.refused, true);
@@ -1980,7 +2005,7 @@ test('M3, step 5 (Task 14 fix round 1): a rename and a transfer keep the results
   await seedRead('carol-m3/old', [], 515151);
   const OLD = { name: 'Clock', description: 'Tells time.', repo_url: 'https://github.com/carol-m3/old' };
   await send(c, 'l28-m3a', OLD);
-  assert.match((await track(c, { program_id: 'l28-m3a', status: 'won', amount_usd: 100, project: OLD })).show_to_builder, /^Tracked: \$100 from Won Grant\./);
+  assert.match((await track(c, { program_id: 'l28-m3a', status: 'won', amount_usd: 100, project: OLD })).show_to_builder, (flagOn('copy_v38') ? /^Won Grant paid \$100\. It's on your record\./ : /^Tracked: \$100 from Won Grant\./));
   assert.equal((await track(c, { program_id: 'l28-m3b', status: 'gap_done', item: ruleItem('a solo maker'), project: OLD })).show_to_builder, 'Tracked: that rule fits you.');
   // Renamed: GitHub's id is the same; the old link now answers with the new one.
   const renamed = async (key: string, contributors?: string[]) => {
@@ -2235,6 +2260,17 @@ test('L35-4 (v6.1.16.1 Task 2, Review Focus 8): a co-founder\'s second started i
   // Bob's claim first; alice's send over it is recorded and clears it; bob's form went out too, and is recorded.
   assert.equal((await track(bob, { program_id: 'l35-c-g2', status: 'started', project: T })).show_to_builder, '');
   const a = await send(at(alice, 1), 'l35-c-g2', T);
+  // v3.8 flags-on suite: with draft_check on, an agent sends only a draft checked on its own started row (E11), and
+  // alice's started is refused over bob's live claim (above): her agent stops there, writes nothing, and bob's send is his.
+  if (flagOn('draft_check')) {
+    assert.deepEqual([a.show_to_builder, a.refused], ["Your co-founder's agent started this one on Nov 4.", true]);
+    const b = await send(at(bob, 2), 'l35-c-g2', T);
+    assert.deepEqual([b.show_to_builder, b.agent_note], ['Sent L35 Claim 2.', 'Call find again for the updated applications.']);
+    assert.deepEqual((await rowsOf(alice.owner, 'l35-c-g2')).map((r) => r.status), []);
+    assert.deepEqual((await rowsOf(bob.owner, 'l35-c-g2')).map((r) => r.status), ['applied']);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l35-c-g2' AND claimed_at IS NOT NULL AND status = 'started'`)[0].n, 0);
+    return;
+  }
   assert.equal(a.show_to_builder, 'Sent L35 Claim 2.');
   assert.match(a.agent_note, /^Recorded\. A co-founder's agent had started this one too; its claim is cleared\./);
   const b = await send(at(bob, 2), 'l35-c-g2', T);
@@ -2392,6 +2428,8 @@ test('X2, I2 (Task 2 fix round 1): a fork owner\'s claim taken before the parent
   const FORK = { name: 'T', description: 'A fork.', repo_url: 'https://github.com/fo-x2/t-fork' };
   assert.equal((await track(fo, { program_id: 'x2-g', status: 'started', project: FORK })).show_to_builder, '');
   assert.equal((await send(at(px, 1), 'x2-g', { name: 'T', description: 'The original.', repo_url: 'https://github.com/px2/t' })).show_to_builder, 'Sent X2 Grant.');
+  // v3.8 flags-on suite: with draft_check on, the fork's agent checks its draft before the send (E11); the rows are read after it.
+  await checkDraft(at(fo, 2), 'x2-g');
   const before = await fullRows(fo.owner, 'x2-g');
   const r = await send(at(fo, 2), 'x2-g', FORK);
   assert.equal(r.show_to_builder, 'Already sent for this repo by another builder on Nov 4.');
@@ -2879,17 +2917,17 @@ test('L45-3 (v6.1.19): a win under one dollar, once converted, is refused and wr
   await track(c, { program_id: 'l45-tiny', status: 'applied' });
   for (const args of [{ amount_usd: 0.001 }, { amount_usd: 0.004 }, { amount_usd: 0.5 }, { amount: '0,500' }]) {
     const r = await track(c, { program_id: 'l45-tiny', status: 'won', ...args });
-    assert.equal(r.show_to_builder, 'Tell me the amount, 1 dollar or more.', JSON.stringify(args));
+    assert.equal(r.show_to_builder, copy().underADollar('USD'), JSON.stringify(args));
     assert.equal(r.refused, true);
   }
   // v6.1.19.1 (L47-1): the whole-dollar line is for US dollars only; another currency under a dollar has its own.
   for (const args of [{ amount: 100, currency: 'JPY' }, { amount: '0.00005 ETH' }, { amount: '0.01 SOL' }]) {
     const r = await track(c, { program_id: 'l45-tiny', status: 'won', ...args });
-    assert.equal(r.show_to_builder, 'That amount is too small to record. Tell me the amount and its currency.', JSON.stringify(args));
+    assert.equal(r.show_to_builder, copy().underADollar('JPY'), JSON.stringify(args));
     assert.equal(r.refused, true);
   }
   assert.equal((await sql()`SELECT status FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l45-tiny'`)[0].status, 'applied');
-  assert.equal((await track(c, { program_id: 'l45-tiny', status: 'won', amount_usd: 1 })).show_to_builder, 'Tracked: $1 from Tiny Grant.');
+  assert.equal((await track(c, { program_id: 'l45-tiny', status: 'won', amount_usd: 1 })).show_to_builder, copy().won('$1', 'Tiny Grant'));
 });
 
 test('L45-4 (v6.1.19, fix round 1): an unknown currency is refused by name; a coin is weighed against the cap at its upper bound, never as 0', async () => {
@@ -2907,13 +2945,13 @@ test('L45-4 (v6.1.19, fix round 1): an unknown currency is refused by name; a co
   // 5,000 BTC never fits a $5,000 cap; a coin amount under the cap at its upper bound is kept in BTC, never converted.
   assert.equal((await track(c, { program_id: 'l45-btc', status: 'won', amount: '5000 BTC' })).show_to_builder, "Over the program's $5,000 cap; nothing recorded.");
   const btc = await track(c, { program_id: 'l45-btc', status: 'won', amount: '0.01 BTC' });
-  assert.equal(btc.show_to_builder, 'Tracked: BTC 0.01 from Coin Grant.');
+  assert.equal(btc.show_to_builder, copy().won('BTC 0.01', 'Coin Grant'));
   assert.doesNotMatch(btc.agent_note, /rate/);
   // Fix round 1 (M1): a further amount with no currency over a JPY win is weighed as JPY: 100 JPY is under a dollar.
   await upsertProgram(programFixture({ id: 'l45-jpy', title: 'Yen Grant', max_award_usd: 5000 }), 'file', NOW);
   await track(c, { program_id: 'l45-jpy', status: 'applied' });
   await track(c, { program_id: 'l45-jpy', status: 'won', amount: 10_000, currency: 'JPY' });
-  assert.equal((await track(c, { program_id: 'l45-jpy', status: 'won', amount: 100, payment: { key: 'j2' } })).show_to_builder, 'That amount is too small to record. Tell me the amount and its currency.');
+  assert.equal((await track(c, { program_id: 'l45-jpy', status: 'won', amount: 100, payment: { key: 'j2' } })).show_to_builder, copy().underADollar('JPY'));
   // A known rate still converts for the cap.
   assert.equal((await track(c, { program_id: 'l45-cur', status: 'won', amount: '6000 EUR' })).show_to_builder, "Over the program's $5,000 cap; nothing recorded.");
 });
@@ -2929,11 +2967,11 @@ test('L45-15 (v6.1.19): amount arguments the agent got wrong ask the builder onl
     [{ amount_usd: 50, currency: 'EUR' }, 'Nothing was recorded. amount_usd is US dollars; send amount with currency for another currency.'],
   ] as [Record<string, unknown>, string][]) {
     const r = await track(c, { program_id: 'l45-arg', status: 'won', ...args });
-    assert.equal(r.show_to_builder, 'Tell me the amount.', JSON.stringify(args));
+    assert.equal(r.show_to_builder, copy().tellAmount, JSON.stringify(args));
     assert.equal(r.agent_note, note, JSON.stringify(args));
   }
   // An amount the builder said that cannot be read keeps its own line.
-  assert.equal((await track(c, { program_id: 'l45-arg', status: 'won', amount: 'NaN' })).show_to_builder, 'Tell me the amount as a number, like 5000 for $5,000.');
+  assert.equal((await track(c, { program_id: 'l45-arg', status: 'won', amount: 'NaN' })).show_to_builder, copy().amountUnread);
 });
 
 test('L45-10, L45-15 (v6.1.19): a gap item copied with spaces, hidden characters or another case is the program\'s own; another program\'s item is the agent\'s slip', async () => {
@@ -3045,9 +3083,9 @@ test('L46-13 (v6.1.20): no Next is ready, but the next ready program waits on th
     await markFind(c.installationId, NOW, undefined, 'name:lacker');
     await markList(c.installationId, 'h', NOW, ['l4613-a', 'l4613-b']);
     const r = await send(c, 'l4613-a', P, 'builder');
-    assert.equal(r.show_to_builder, 'Sent Sent Grant. Needs Grant is next; it needs your LinkedIn first.');
+    assert.equal(r.show_to_builder, `Sent Sent Grant. ${copy().nextLacks({ title: 'Needs Grant', needs: ['your LinkedIn'] })}`);
     const { NEXT_LACKS } = await import('./track');
-    assert.equal(NEXT_LACKS({ title: 'X', needs: ['a', 'b', 'c'] }), 'X is next; it needs a and b first.');
+    assert.equal(NEXT_LACKS({ title: 'X', needs: ['a', 'b', 'c'] }), flagOn('copy_v38') ? 'X is next. It still needs a and b from you.' : 'X is next; it needs a and b first.');
   } finally {
     await sql()`DELETE FROM programs WHERE id IN ('l4613-a', 'l4613-b')`;
   }
@@ -3066,7 +3104,7 @@ test('L47-1 (v6.1.19.1): a coin win keeps its places (up to 8), fiat keeps 2; st
     await upsertProgram(programFixture({ id, title: 'Coin Grant', max_award_usd: 5000 }), 'file', NOW);
     await track(c, { program_id: id, status: 'applied' });
     const r = await track(c, { program_id: id, status: 'won', ...args });
-    assert.equal(r.show_to_builder, `Tracked: ${said} from Coin Grant.`, id);
+    assert.equal(r.show_to_builder, copy().won(said, 'Coin Grant'), id);
     const [row] = await sql()`SELECT amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = ${id}`;
     assert.deepEqual(row.amounts, stored, id);
     assert.equal(JSON.stringify(row.amounts), JSON.stringify(stored), id);
@@ -3098,7 +3136,7 @@ test('L47-2 (v6.1.19.1): a win on a second name-only project of the same program
   // A win with no project on a program with one row still takes that row.
   await upsertProgram(programFixture({ id: 'l472-one', title: 'One Grant', max_award_usd: 5000 }), 'file', NOW);
   await track(c, { program_id: 'l472-one', status: 'applied', project: { name: 'Solo' } });
-  assert.equal((await track(c, { program_id: 'l472-one', status: 'won', amount_usd: 50 })).show_to_builder, 'Tracked: $50 from One Grant.');
+  assert.equal((await track(c, { program_id: 'l472-one', status: 'won', amount_usd: 50 })).show_to_builder, copy().won('$50', 'One Grant'));
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-one'`)[0].n, 1);
 });
 
@@ -3107,7 +3145,7 @@ test('L47-2 review I2 (v6.1.19.1): a win that names no project, after a find on 
   await upsertProgram(programFixture({ id: 'l472-i2', title: 'Pee Grant', max_award_usd: 5000 }), 'file', NOW);
   await track(c, { program_id: 'l472-i2', status: 'applied', project: { name: 'Proj A' } });
   await markFind(c.installationId, NOW, undefined, 'name:proj b');
-  assert.equal((await track(c, { program_id: 'l472-i2', status: 'won', amount_usd: 500 })).show_to_builder, 'Tracked: $500 from Pee Grant.');
+  assert.equal((await track(c, { program_id: 'l472-i2', status: 'won', amount_usd: 500 })).show_to_builder, copy().won('$500', 'Pee Grant'));
   const rows = await sql()`SELECT project_id, status, amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l472-i2'`;
   assert.deepEqual(rows.map((r) => [r.project_id, r.status, r.amounts]), [['name:proj a', 'won', { USD: 500 }]]);
 });
@@ -3130,7 +3168,7 @@ test('L47-8 (v6.1.22): gap_done after the Next line says one sentence and needs 
     const next = (r as { next?: { program_id: string; rules: { item: string }[] } }).next!;
     assert.equal(next.program_id, 'l478-b');
     const gd = await track(c, { program_id: 'l478-b', status: 'gap_done', item: next.rules[0].item, project: P });
-    assert.equal(gd.show_to_builder, 'Noted; I apply now.');
+    assert.equal(gd.show_to_builder, copy().nextNoted);
     assert.equal(gd.agent_note, NEXT_GAP_NOTE('l478-b'));
     assert.equal(NEXT_GAP_NOTE('herodevs-sustainability-fund'), 'The builder\'s yes to the Next line covers the send: call track started with program_id herodevs-sustainability-fund and fill the form from next.fields; no find needed.');
     const started = await track(c, { program_id: 'l478-b', status: 'started', project: P });
@@ -3266,7 +3304,7 @@ test('L47-S1 (v6.1.22): the Next note carries a second one-yes program, so a no 
     // Its rules are remembered as the Next line's: the yes to it needs no find.
     assert.equal((await lastGaps(c.installationId))['l47s1-c'].next, true);
     const gd = await track(c, { program_id: 'l47s1-c', status: 'gap_done', item: alt.rules[0].item, project: P });
-    assert.equal(gd.show_to_builder, 'Noted; I apply now.');
+    assert.equal(gd.show_to_builder, copy().nextNoted);
   } finally {
     await sql()`DELETE FROM programs WHERE id IN ('l47s1-a', 'l47s1-b', 'l47s1-c')`;
   }
@@ -3297,7 +3335,7 @@ test('I3 (v6.1.22 final fix round): the Next yes promises the send only when it 
     assert.equal(theirs.show_to_builder, 'Noted.');
     // Linked on their own named project: the yes covers the send.
     const ok = await yes(c, { name: 'Own Tool', description: 'A tool.' }, 'name:own tool');
-    assert.equal(ok.show_to_builder, 'Noted; I apply now.');
+    assert.equal(ok.show_to_builder, copy().nextNoted);
     for (const t of [out.show_to_builder, theirs.show_to_builder]) assert.doesNotMatch(t, /apply|draft|—/);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'l47i3'`;

@@ -92,6 +92,23 @@ const listed = async () => {
   return ((await res.json()) as { programs: { id: string; submission_url: string }[] }).programs;
 };
 
+/**
+ * v3.8 flags-on suite: these tests are main's approval lane, kept while `auto_live` is off (v3.8-e6r-auto-live.md: a
+ * write without the check's fields is held and mailed). They clear EARNKIT_FLAGS so they pass in the flags-on run too;
+ * the automated lane with auto_live on is auto-live.test.ts and no-approval.test.ts.
+ */
+const mainLane = (name: string, fn: () => Promise<void>) =>
+  test(name, async () => {
+    const saved = process.env.EARNKIT_FLAGS;
+    delete process.env.EARNKIT_FLAGS;
+    try {
+      await fn();
+    } finally {
+      if (saved === undefined) delete process.env.EARNKIT_FLAGS;
+      else process.env.EARNKIT_FLAGS = saved;
+    }
+  });
+
 test('the API is 404 without the token set, 401 with a wrong one', async () => {
   delete process.env.EARNKIT_PROGRAMS_TOKEN;
   assert.equal((await writePost(post({ action: 'upsert', program: {} }))).status, 404);
@@ -110,7 +127,7 @@ test('a body over 256 KB is 413; not JSON is 400', async () => {
   assert.equal((await writePost(bad)).status, 400);
 });
 
-test('a new program on an unknown site is 202 pending and emails the owner once', async () => {
+mainLane('a new program on an unknown site is 202 pending and emails the owner once', async () => {
   const p = body({ id: 'api-new-unknown' });
   const first = await write(p);
   assert.equal(first.status, 202);
@@ -127,7 +144,7 @@ test('a new program on an unknown site is 202 pending and emails the owner once'
   assert.equal(sent.length, 1);
 });
 
-test('a program on a curated site for its chains goes live at once', async () => {
+mainLane('a program on a curated site for its chains goes live at once', async () => {
   const p = body({
     id: 'api-base-live',
     source_url: 'https://www.base.org/grants-new',
@@ -142,7 +159,7 @@ test('a program on a curated site for its chains goes live at once', async () =>
   assert.equal((await write(p)).json.result, 'unchanged');
 });
 
-test('a write with chains: [solana] is accepted', async () => {
+mainLane('a write with chains: [solana] is accepted', async () => {
   const res = await write(body({ id: 'api-solana', chains: ['solana'] }));
   assert.equal(res.json.ok, true);
   assert.ok([200, 202].includes(res.status));
@@ -154,7 +171,7 @@ test('an unknown chain slug is refused with the schema message', async () => {
   assert.deepEqual(res.json.problems, ['chains.0: not a known chain (chains.ts)']);
 });
 
-test('an Optimism URL is accepted', async () => {
+mainLane('an Optimism URL is accepted', async () => {
   const res = await write(
     body({
       id: 'api-optimism',
@@ -209,7 +226,7 @@ test('a link that does not load is refused', async () => {
   assert.match(((await res.json()) as { problems: string[] }).problems[0], /^source_url: doesn't load/);
 });
 
-test('form change waits for approval', async () => {
+mainLane('form change waits for approval', async () => {
   const p = body({ id: 'api-form', title: 'Form Grants' });
   assert.equal((await write(p)).json.result, 'pending');
   const approved = await approve('api-form');
@@ -237,7 +254,7 @@ test('form change waits for approval', async () => {
   assert.deepEqual((await getProgram('api-form'))?.file.form, form);
 });
 
-test('a change outside the link, chains and form on a live program goes live at once', async () => {
+mainLane('a change outside the link, chains and form on a live program goes live at once', async () => {
   const p = body({ id: 'api-reward', title: 'Reward Grants' });
   await write(p);
   await approve('api-reward');
@@ -247,7 +264,7 @@ test('a change outside the link, chains and form on a live program goes live at 
   assert.equal((await getProgram('api-reward'))?.file.max_award_usd, 8000);
 });
 
-test('a change to min_tier, sign_in or submit on a live program waits for approval', async () => {
+mainLane('a change to min_tier, sign_in or submit on a live program waits for approval', async () => {
   const p = body({ id: 'api-tier', title: 'Tier Grants' });
   await write(p);
   await approve('api-tier');
@@ -269,7 +286,7 @@ test('the API cannot set reviewers_contact', async () => {
   assert.deepEqual(res.json.problems, ["reviewers_contact: the API can't set reviewers_contact; the owner adds it by file"]);
 });
 
-test('an approve link is single use, and a bad token changes nothing', async () => {
+mainLane('an approve link is single use, and a bad token changes nothing', async () => {
   await write(body({ id: 'api-once', title: 'Once Grants' }));
   const w = await pendingId('api-once');
   const t = encodeURIComponent(approveToken(w.id, approveExpiry(w.at)));
@@ -288,7 +305,7 @@ const appliedWrite = async (programId: string, result: string) => {
 const revertReq = (w: { id: string; at: Date }, method = 'POST') =>
   new Request(`https://earnkit.com/api/programs/revert?t=${encodeURIComponent(revertToken(w.id, revertExpiry(w.at)))}`, { method });
 
-test('revert puts the program back as it was before that write, once', async () => {
+mainLane('revert puts the program back as it was before that write, once', async () => {
   const p = body({ id: 'api-revert', title: 'Revert Grants' });
   await write(p);
   await approve('api-revert');
@@ -304,7 +321,7 @@ test('revert puts the program back as it was before that write, once', async () 
   assert.equal((await revertPost(revertReq(w))).status, 409);
 });
 
-test('reverting the write that created a program closes it', async () => {
+mainLane('reverting the write that created a program closes it', async () => {
   await write(body({ id: 'api-revert-new', title: 'New Revert Grants' }));
   await approve('api-revert-new');
   const w = await appliedWrite('api-revert-new', 'created');
@@ -313,7 +330,7 @@ test('reverting the write that created a program closes it', async () => {
   assert.ok(!(await listed()).some((x) => x.id === 'api-revert-new'));
 });
 
-test('close: an api program closes; a curated one is 409', async () => {
+mainLane('close: an api program closes; a curated one is 409', async () => {
   await write(body({ id: 'api-close', source_url: 'https://www.base.org/close-me', submission_url: 'https://www.base.org/close-me/apply' }));
   const res = await writePost(post({ action: 'close', id: 'api-close', reason: 'the round ended' }), { mailer, probe });
   assert.equal(res.status, 200);
@@ -323,7 +340,7 @@ test('close: an api program closes; a curated one is 409', async () => {
   assert.equal(curated.status, 409);
 });
 
-test('writesGet: the audit rows without bodies, and the pending writes', async () => {
+mainLane('writesGet: the audit rows without bodies, and the pending writes', async () => {
   await write(body({ id: 'api-writes', title: 'Writes Grants' }));
   const res = await writesGet(new Request('https://earnkit.com/api/programs/writes', { headers: { authorization: `Bearer ${TOKEN}` } }));
   assert.equal(res.status, 200);
@@ -333,7 +350,7 @@ test('writesGet: the audit rows without bodies, and the pending writes', async (
   assert.equal(out.pending.find((w) => w.program_id === 'api-writes')?.title, 'Writes Grants');
 });
 
-test('a write that only changes form.url off the curated sites is pending; approving applies it', async () => {
+mainLane('a write that only changes form.url off the curated sites is pending; approving applies it', async () => {
   const p = body({
     id: 'api-form-url',
     source_url: 'https://www.base.org/form-url',
@@ -359,7 +376,7 @@ test('a builder link on a site that is neither the source nor a submit platform 
   assert.ok((res.json.problems as string[]).some((x) => x.startsWith('form.url: evil.example is neither')));
 });
 
-test('a pool_source_url change off the curated sites is pending', async () => {
+mainLane('a pool_source_url change off the curated sites is pending', async () => {
   const p = body({
     id: 'api-pool',
     source_url: 'https://www.base.org/pool',
@@ -400,7 +417,7 @@ test('pendingMailText keeps every value on one line', () => {
   assert.ok(!text.split('\n').some((l) => l.startsWith('Approve here')));
 });
 
-test('a pending write caused by form.url shows every link, in the email and on the approve page', async () => {
+mainLane('a pending write caused by form.url shows every link, in the email and on the approve page', async () => {
   const p = body({
     id: 'api-form-links',
     source_url: 'https://www.base.org/form-links',
@@ -632,7 +649,7 @@ test('L42-6, L42-2: agent is the installation that recorded the send, not the on
 const bearerRevert = (writeId: unknown, auth = `Bearer ${TOKEN}`) =>
   revertPost(new Request('https://earnkit.com/api/programs/revert', { method: 'POST', headers: { authorization: auth }, body: JSON.stringify({ write_id: writeId }) }));
 
-test('v3.8 E7r: GET /api/programs/digest is a bearer read; a revertable change names its write id, which the bearer revert takes once', async () => {
+mainLane('v3.8 E7r: GET /api/programs/digest is a bearer read; a revertable change names its write id, which the bearer revert takes once', async () => {
   const get = (auth = `Bearer ${TOKEN}`) => digestGet(new Request('https://earnkit.com/api/programs/digest', { headers: { authorization: auth } }));
   assert.equal((await get('Bearer wrong')).status, 401);
   const p = body({ id: 'api-digest', title: 'Digest Grants' });
@@ -664,7 +681,7 @@ test('v3.8 E7r: GET /api/programs/digest is a bearer read; a revertable change n
   assert.equal((await bearerRevert('999999999')).status, 404);
 });
 
-test('v3.8 E7r: without an Authorization header, revert is the signed link exactly as before', async () => {
+mainLane('v3.8 E7r: without an Authorization header, revert is the signed link exactly as before', async () => {
   const p = body({ id: 'api-link-revert', title: 'Link Revert Grants' });
   await write(p);
   await approve('api-link-revert');

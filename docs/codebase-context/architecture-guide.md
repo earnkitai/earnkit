@@ -672,6 +672,12 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 
 `export DATABASE_URL=postgresql://localhost:5432/earnkit_test` then `pnpm test` (all files) or
 `pnpm -s tsx --test --import ./apps/frontend/lib/v5/fixtures/test-guard.ts apps/frontend/lib/v5/<file>.test.ts`.
+v3.8 flags-on suite: `pnpm test:flags-on` runs the same files with every `PREVIEW_FLAGS` flag on (preload
+`fixtures/flags-on.ts` after test-guard). Every test passes in both runs: flag-dependent copy is asserted through
+`copy()` or per `flagOn(...)`, setup sends go through `fixtures/send.ts` (proof and a passing draft check as an agent
+would), and a test of a flag-off path sets `EARNKIT_FLAGS` itself. In track, E11's draft gate runs inside `act` after
+the refusals that carry their own builder line (in person, a rule, not your repo, already sent here) and steps aside
+for an installation unlinked meanwhile, so the ledger's own line is never hidden by the gate's empty one.
 `test-guard.ts` clears vendor keys, refuses any network but this machine, and gives each test file its own database
 copied from a template. Tests skip nothing; a run whose output has no failure lines is green.
 

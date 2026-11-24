@@ -1,6 +1,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
+import { copy } from '../v5/copy'; // v3.8 flags-on suite: queued and won lines come from the copy table (E14/E15, E18)
+import { flagOn } from '../v5/flags';
 import { mcpCall } from '../v5/fixtures/mcp-call';
 import { programFixture } from '../v5/fixtures/program';
 import { connectInstallation, saveInstallation } from '../v5/installations';
@@ -66,7 +68,7 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const r = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.equal(r.isError, false, r.text);
   assert.match(r.reply!.job_id as string, /^[A-Za-z0-9_-]{16}$/);
-  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue. Results come once a day, within 24 hours.');
+  assert.equal(r.reply!.show_to_builder, copy().screenQueued('2 applicants', 'Grants scr-queue', 0, 'Results come once a day, within 24 hours.'));
   assert.equal(r.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.');
   const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
   assert.equal(w.count, 1);
@@ -241,10 +243,10 @@ test('B14: the promise counts the queue ahead against the daily run of SCREEN_BA
   const a = await reviewerOf('scr-big');
   const many = Array.from({ length: 200 }, (_, k) => ({ ref: `m-${k}`, name: `App ${k}` }));
   const first = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-big', applicants: many });
-  assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big. Results come once a day, within 24 hours.');
+  assert.equal(first.reply!.show_to_builder, copy().screenQueued('200 applicants', 'Grants scr-big', 0, 'Results come once a day, within 24 hours.'));
   const b = await reviewerOf('scr-after');
   const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
-  assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after. Results within 2 days.');
+  assert.equal(second.reply!.show_to_builder, copy().screenQueued('2 applicants', 'Grants scr-after', 0, 'Results within 2 days.'));
 });
 
 test('L26-6 (v6.1.16): 200, 200 and 100 from one reviewer: 1, 2 and 3 days, never "ahead of yours"; 201 and 501 are refused', async () => {
@@ -256,9 +258,9 @@ test('L26-6 (v6.1.16): 200, 200 and 100 from one reviewer: 1, 2 and 3 days, neve
   for (const [i, [from, n]] of [[0, 200], [200, 200], [400, 100]].entries())
     replies.push((await mcpCall({ ...a, now: new Date(EARLY.getTime() + i * 60_000) }, 'screen', { program_id: 'scr-l266', applicants: list(from, n) })).reply!.show_to_builder as string);
   assert.deepEqual(replies, [
-    'Queued 200 applicants for Grants scr-l266. Results come once a day, within 24 hours.',
-    'Queued 200 applicants for Grants scr-l266. Results within 2 days.',
-    'Queued 100 applicants for Grants scr-l266. Results within 3 days.',
+    copy().screenQueued('200 applicants', 'Grants scr-l266', 0, 'Results come once a day, within 24 hours.'),
+    copy().screenQueued('200 applicants', 'Grants scr-l266', 0, 'Results within 2 days.'),
+    copy().screenQueued('100 applicants', 'Grants scr-l266', 0, 'Results within 3 days.'),
   ]);
   for (const n of [201, 501]) {
     const over = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-l266', applicants: list(1_000, n) });
@@ -275,7 +277,7 @@ test('C2 (v6.1.13): over 200 applicants or outcomes is one line that says to sen
   assert.match(over.reply!.agent_note as string, /^Nothing was queued\./);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-cap'`)[0].n, 0);
   const ok = await mcpCall(c, 'screen', { program_id: 'scr-cap', applicants: list(200) });
-  assert.match(ok.reply!.show_to_builder as string, /^Queued 200 applicants/);
+  assert.match(ok.reply!.show_to_builder as string, flagOn('copy_v38') ? /^Got all 200 applicants/ : /^Queued 200 applicants/);
   const jobId = ok.reply!.job_id as string;
   const outcomes = (n: number) => Array.from({ length: n }, (_, k) => ({ ref: `c-${k % 200}`, outcome: 'rejected' }));
   const tooMany = await mcpCall(c, 'screen', { job_id: jobId, outcomes: outcomes(201) });
@@ -290,7 +292,7 @@ test('Low 18 (v6.1.13), L15-15 (v6.1.14): an applicant repeated exactly is scree
   const c = await reviewerOf('scr-rep');
   const same = [...Array.from({ length: 199 }, () => ({ ref: 'same', name: 'Same' })), { name: 'Same', ref: 'same' }];
   const q = await mcpCall(c, 'screen', { program_id: 'scr-rep', applicants: same });
-  assert.match(q.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-rep\. /);
+  assert.match(q.reply!.show_to_builder as string, flagOn('copy_v38') ? /^Got 1 applicant for Grants scr-rep\. / : /^Queued 1 applicant for Grants scr-rep\. /);
   const jobId = q.reply!.job_id as string;
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${jobId}`)[0].n, 1);
   for (const amount of [{ amount_usd: 0 }, { amount_usd: -5 }, { amount: 'lots' }, { amount: '2,000', currency: 'euros!' }, { amount_usd: 5, currency: 'EUR' }]) {
@@ -394,7 +396,9 @@ test('L15-4 (v6.1.14): applicant fields the screen does not read are named in th
     { ref: 'i-2', name: 'Old key', repo: 'https://github.com/acme/old' },
   ] });
   assert.equal(q.isError, false, q.text);
-  assert.match(q.reply!.show_to_builder as string, /^Queued 2 applicants for Grants scr-ign\. Results (come once a day, within 24 hours|within \d+ days)\.$/);
+  assert.match(q.reply!.show_to_builder as string, flagOn('copy_v38')
+      ? /^Got all 2 applicants for Grants scr-ign\. Results (come once a day, within 24 hours|within \d+ days)\. Ask me any time to see how far it's got\.$/
+      : /^Queued 2 applicants for Grants scr-ign\. Results (come once a day, within 24 hours|within \d+ days)\.$/);
   assert.equal(q.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged. '
     + 'Unknown applicant fields ignored: github, website, contract_address. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }]. '
     + 'Merged, one ref given more than once: i-1. Contracts left out, not read: solana (i-1).');
@@ -598,7 +602,9 @@ test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply c
   assert.equal(first.isError, false, first.text);
   const more = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: [...APPLICANTS, { ref: 'r-3', name: 'Third', repo_url: 'https://github.com/acme/third' }] });
   // The promise after it depends on the shared queue ahead (other tests' rows), so only the head is pinned.
-  assert.match(more.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-already; 2 already queued\. Results (come once a day, within 24 hours|within \d+ days)\.$/);
+  assert.match(more.reply!.show_to_builder as string, flagOn('copy_v38')
+      ? /^Got 1 applicant for Grants scr-already, 2 were already queued\. Results (come once a day, within 24 hours|within \d+ days)\. Ask me any time to see how far it's got\.$/
+      : /^Queued 1 applicant for Grants scr-already; 2 already queued\. Results (come once a day, within 24 hours|within \d+ days)\.$/);
   assert.match(more.reply!.agent_note as string, new RegExp(`Already queued: r-1 \\(row r-1 of screen ${first.reply!.job_id}\\) and r-2 \\(row r-2 of screen ${first.reply!.job_id}\\)\\.$`));
   assert.ok(more.reply!.job_id);
   const none = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: APPLICANTS });
@@ -674,7 +680,7 @@ test('Review Focus 11 (v6.1.16): $1,000 tracked + $2,500.50 and EUR 2,000 screen
   const before = await readStats(NOW);
   const { b, post } = await sentTo(['rf11-a', 'rf11-b', 'rf11-c']);
   const t = await mcpCall(b, 'track', { program_id: 'rf11-a', status: 'won', amount_usd: 1000 });
-  assert.equal(t.reply!.show_to_builder, 'Tracked: $1,000 from Grants rf11-a.');
+  assert.equal(t.reply!.show_to_builder, copy().won('$1,000', 'Grants rf11-a'));
   const cents = await post('rf11-b', [{ outcome: 'won', amount: '$2,500.50' }]);
   assert.equal(cents.reply.show_to_builder, 'Recorded 1 outcome.');
   const eur = await post('rf11-c', [{ outcome: 'won', amount: 2000, currency: 'EUR' }]);
@@ -750,7 +756,7 @@ test('L22-6 (v6.1.16): the seven spellings read the same on the screen as on tra
   const tracked: string[] = [];
   for (const [i, amount] of spellings.entries()) tracked.push((await mcpCall(b, 'track', { program_id: `${ids[i]}-t`, status: 'won', amount })).reply!.show_to_builder as string);
   assert.deepEqual(tracked, [
-    ...['$5,000', '$5,000', '$5,000', '$5,000', '$5,000', 'EUR 5,000', 'GBP 5,000'].map((m, i) => `Tracked: ${m} from Grants ${ids[i]}-t.`),
+    ...['$5,000', '$5,000', '$5,000', '$5,000', '$5,000', 'EUR 5,000', 'GBP 5,000'].map((m, i) => copy().won(m, `Grants ${ids[i]}-t`)),
   ]);
   const dot = await mcpCall(b, 'track', { program_id: `${ids[0]}-t`, status: 'won', amount: '5.000', payment: { key: 'x' } });
   assert.equal(dot.reply!.show_to_builder, 'Amount not read: use a dot only for cents, no thousands separator.');
@@ -794,7 +800,7 @@ test('M2 (v6.1.16 Task 8 fix round 1): 10000.004 on a $10,000 cap is refused on 
   }
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = 'm2-b'`)[0].status, 'applied');
   // Under the cap a sub-cent amount is stored to the cent.
-  assert.equal((await mcpCall(b, 'track', { program_id: 'm2-b', status: 'won', amount_usd: 9999.994 })).reply!.show_to_builder, 'Tracked: $9,999.99 from Grants m2-b.');
+  assert.equal((await mcpCall(b, 'track', { program_id: 'm2-b', status: 'won', amount_usd: 9999.994 })).reply!.show_to_builder, copy().won('$9,999.99', 'Grants m2-b'));
 });
 
 test('L31-5 (v6.1.16 Task 17, ruling 43): one bad-amount line on the screen; the dot-thousands form keeps its own', async () => {

@@ -10,7 +10,11 @@ import { replayFetch } from './fixtures/github';
 import { openCatalogProgram } from './fixtures/program';
 import { mcpCall as mcpCallRaw } from './fixtures/mcp-call';
 import { builderRules, builderRulesV2 } from './fixtures/builder-rules';
-import { COPY_V38 } from './copy';
+import { COPY_V38, copy } from './copy';
+import { flagOn } from './flags';
+import { track as sendTrack } from './fixtures/send';
+/** v3.8 flags-on suite: the users question signed out, its link or none (E15 usersLookup). */
+const usersSignIn = (link: string | null, then: 'check' | 'apply') => copy().usersLookup({ rule: null, linked: false, link, then });
 
 /** v6.1.20 review I5: every find reply this file gets (gated or not), walked by the contract at the end. */
 const findReplies: string[] = [];
@@ -324,9 +328,10 @@ test('find with program_id and no project: the money, the rules list, no link an
   assert.equal(r.reply!.show_to_builder, [
     "Base Builder Grant Program (up to $5,000, rolling). Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. In short: the Base team provides grants very selectively; for builders exclusively building on Base right now; you're past the idea stage, with a live product that's getting used; and 2 more in the guide.",
     '',
-    'Tell me what you build, or its repo link, and I check the fit.',
+    copy().noProjectOne, // v3.8 flags-on suite: the copy table's line (E15).
   ].join('\n'));
-  assert.equal(r.reply!.agent_note, 'Call find with the project for whether you fit.');
+  // v3.8 flags-on suite: copy_v38 adds its open note after it (E15 openNote).
+  assert.equal(r.reply!.agent_note, flagOn('copy_v38') ? `Call find with the project for whether you fit.\n${COPY_V38.openNote}` : 'Call find with the project for whether you fit.');
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
   assert.equal(none.reply!.guide, null);
 });
@@ -406,7 +411,7 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   assert.equal(ask.reply!.show_to_builder, [
     'FLOSS/fund ($10,000 to $100,000). It needs real users first.',
     '',
-    'Do real people use it? Say yes, sign in, and I apply.',
+    usersSignIn(null, 'apply'), // v3.8 flags-on suite: the copy table's line (E15).
   ].join('\n'));
   assert.ok((ask.reply!.agent_note as string).split('\n').includes('On yes, call find again with users: true.'));
   const yes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...CLI, users: true } });
@@ -476,9 +481,10 @@ test('find with program_id: a closed program is closed, an upcoming one not open
     // Low 20 (v6.1.13): closed is said once and no rules are listed, with a project or without. L1l-8 (v6.1.19): it
     // ends on the reopen line.
     // Fix round 1 (M3): with a project, the way on never asks for the project.
-    assert.match(show, /^(Shut|Past) Grants \([^\n]*\)\.\n\nIt is closed; say its name again when it reopens, or ask me what is open for this project\.$/, show);
+    // v3.8 flags-on suite: copy_v38 has its own reopen line, the same with a project or without (E15 closedOne, closedProjectOne).
+    assert.match(show, flagOn('copy_v38') ? /^(Shut|Past) Grants \([^\n]*\)\.\n\nIt's closed\. If it reopens, it'll show up in your list again\.$/ : /^(Shut|Past) Grants \([^\n]*\)\.\n\nIt is closed; say its name again when it reopens, or ask me what is open for this project\.$/, show);
     const bare = (await mcpCall(ctx(id), 'find', { program_id: pid })).reply!.show_to_builder as string;
-    assert.equal(bare, show.replace('ask me what is open for this project.', 'tell me about your project and I find what is open.'));
+    assert.equal(bare, flagOn('copy_v38') ? show : show.replace('ask me what is open for this project.', 'tell me about your project and I find what is open.'));
     assert.doesNotMatch(show, /draft|Apply at|https?:/);
     // With a project the rules list waits to be asked for (v6.1.8, 1b).
     assert.doesNotMatch(show, /^Rules:/m);
@@ -590,7 +596,7 @@ test('L1g-2 (v6.1.15): a name-only project gets the open list, closing on what i
   assert.equal(r.isError, false, r.text);
   const show = r.reply!.show_to_builder as string;
   assert.match(show, /^Open now: \d+ programs\. The five nearest:\n\n/);
-  assert.equal(show.split('\n').find((l) => l.startsWith('Tell me')), 'Tell me what Lumen does in a line, or its repo link, and I match it.');
+  assert.equal(show.split('\n').find((l) => l.startsWith(flagOn('copy_v38') ? 'Next' : 'Tell me')), copy().describeName('Lumen')); // v3.8 flags-on suite: the copy table's line (E15).
   assert.ok(!show.includes('Tell me which project'));
 });
 
@@ -605,7 +611,8 @@ test('find with no project: the open list and the ask for the project', async ()
   assert.ok(lines.filter((l) => l.trim() !== '').length <= 10, show);
   assert.equal(lines.filter((l) => /^[^\n]+ \([^\n]+\)\.$/.test(l) && !l.startsWith('Tell me')).length, 5, show);
   for (const line of lines.slice(1).filter((l) => l !== '')) assert.ok(line.endsWith('.'), line);
-  assert.doesNotMatch(show, /I'll/);
+  // v3.8 flags-on suite: copy_v38's closing (E15 openAsk) is an I'll line; nothing above it is.
+  assert.doesNotMatch(flagOn('copy_v38') ? lines.slice(0, -1).join('\n') : show, /I'll/);
   // L1i-6 (v6.1.16.1): each line keeps its close and in person.
   assert.equal(lines.slice(1, 6).join('\n'), [
     '',
@@ -614,7 +621,7 @@ test('find with no project: the open list and the ask for the project', async ()
     'Meta VR Start Developer Competition 2026 ($1,000,000 in prizes, closes in 14 days).',
     'Alliance ALL19 ($400,000 at admission, closes in 14 days, in person).',
   ].join('\n'));
-  assert.equal(lines.at(-1), 'Tell me what you build, or its repo link, and I match it.');
+  assert.equal(lines.at(-1), copy().openAsk); // v3.8 flags-on suite: the copy table's line (E15).
   // Template row 12 (v6.1.15): the overflow is its own sentence, with a capital.
   assert.match(lines[0], /^Open now: \d+ programs\. The five nearest:$/);
   assert.ok(!lines.some((l) => /^and \d+ more/.test(l)));
@@ -663,12 +670,14 @@ test('a result past due is asked once', async () => {
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'f-due', title: 'Due Grant', results_due: { date: '2026-11-01' } }), 'file', NOW);
   try {
-    const t = await mcpCall(ctx(id), 'track', { program_id: 'f-due', status: 'applied' });
-    assert.equal(t.isError, false, t.text);
+    // v3.8 flags-on suite: sent as an agent sends with the flags on (E9 proof, E11 checked final); off, plain track.
+    const t = await sendTrack(ctx(id), { program_id: 'f-due', status: 'applied' });
+    assert.ok(!t.refused, JSON.stringify(t));
     const first = await mcpCall(ctx(id), 'find', { project: PROJECT });
     assert.deepEqual(first.reply!.ask_outcome, [{ program_id: 'f-due', title: 'Due Grant', due_at: '2026-11-01T00:00:00.000Z' }]);
     // L23-4 (v6.1.16): the builder text asks, once a day for this installation.
-    assert.match(first.reply!.show_to_builder as string, /\nResults for Due Grant were due Nov 1\. Did you hear back\?\n/);
+    // v3.8 flags-on suite: E15 outcomeAsk.
+    assert.match(first.reply!.show_to_builder as string, flagOn('copy_v38') ? /\nDue Grant was due to announce results Nov 1\. I'll check for them\.\n/ : /\nResults for Due Grant were due Nov 1\. Did you hear back\?\n/);
     assert.match(first.reply!.agent_note as string, /Due Grant/);
     const second = await mcpCall(ctx(id), 'find', { project: PROJECT });
     assert.deepEqual(second.reply!.ask_outcome, []);
@@ -1320,7 +1329,7 @@ test('a failed own read keeps the stored tier line; a broken link never fails fi
     const openLines = (open.reply!.show_to_builder as string).split('\n');
     // L38-31 (v6.1.18): no sign-in line with no project; the link stays in the JSON.
     assert.ok(!openLines.some((l) => l.includes(link)), openLines.join('\n'));
-    assert.equal(openLines.at(-1), 'Tell me what you build, or its repo link, and I match it.');
+    assert.equal(openLines.at(-1), copy().openAsk); // v3.8 flags-on suite: the copy table's line (E15).
     assert.ok(openLines.filter((l) => l.trim() !== '').length <= 10, openLines.join('\n'));
     for (const line of openLines.slice(1, -2).filter((l) => l !== '')) assert.ok(line.endsWith('.'), line);
   });
@@ -1392,7 +1401,8 @@ const OPEN_STEPS = (name: string) => `Nothing is ready to send for ${name} yet. 
 const ALSO_IP = (more: number) => `Also open: Alliance ALL19 ($400,000, closes in 14 days), in person with long odds. ${more} more in the full list, any time you ask.`;
 const YC_ROW = (n = 2) => `${n}. Y Combinator Winter 2027 Batch ($500,000), in person with long odds, needs a YC account and your answers, so I can draft it today.`;
 /** v6.1.20 polish (4): the step stays the action, the in-person draft offered beside it. */
-const STEP_OR_YC = (step: string, n = 2) => `Say ${n} and I draft Y Combinator for you to send, or ${step.charAt(0).toLowerCase()}${step.slice(1).replace(/\.$/, '').replace(/ and I look again$/, '')}.`;
+// v3.8 flags-on suite: an I'll step (E15 copy) keeps its capital, as lowerFirst does.
+const STEP_OR_YC = (step: string, n = 2) => `Say ${n} and I draft Y Combinator for you to send, or ${/^I\b/.test(step) ? step.charAt(0) : step.charAt(0).toLowerCase()}${step.slice(1).replace(/\.$/, '').replace(/ and I look again$/, '')}.`;
 const CODE_STEP = (empty = false) => `Tell me when the code is in a${empty ? '' : ' public'} repo and I look again.`;
 /** L38 big 3 (v6.1.18 Task 10): the More to do first heading for one row. */
 // L29-26 (v6.1.16 Task 15): one line each, no blank lines.
@@ -1484,7 +1494,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
       '',
       'Repo reads are paused until tomorrow, so this is from what you told me.',
       '',
-      'Do real people use it? Say yes, sign in, and I apply.',
+      copy().usersUnlinkedApply, // v3.8 flags-on suite: the copy table's line (E15).
     ].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
@@ -1530,7 +1540,7 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
     '',
     'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list, any time you ask.',
     '',
-    'Do real people use it? Say yes, sign in at https://earnkit.com/link/abc, and I check.',
+    usersSignIn('https://earnkit.com/link/abc', 'check'), // v3.8 flags-on suite: the copy table's line (E15).
   ].join('\n'));
   assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in/i.test(x)).length, 1, show);
   assert.ok(!show.includes(`Sign in once at ${link} and I read your repo for proof and remember you.`));
@@ -1540,7 +1550,7 @@ test('L1i-3 (v6.1.16.1, Review Focus 2): signed out with a link, the users quest
   assert.equal(full.split(/(?<=[.?!])\s+/).filter((x) => /sign in/i.test(x)).length, 1, full);
   assert.equal(full.split(link).length, 2, full);
   assert.ok(!/I read your repo for proof/.test(full), full);
-  assert.ok(full.endsWith(`Do real people use it? Say yes, sign in at ${link}, and I check.`), full);
+  assert.ok(full.endsWith(usersSignIn(link, 'check')), full); // v3.8 flags-on suite: the copy table's line (E15).
 });
 
 // Placed beside L1i-3, so it sees the same catalog (later tests add ready programs).
@@ -1551,7 +1561,7 @@ test('Task 2 (v6.1.16.1, Task 1 leftover): after an unlink, a find closing on th
   assert.equal(await unlinkInstallation(id, builderId, NOW), true);
   const d = await mcpCall({ installationId: id, builderId: null, now: new Date(NOW.getTime() + H), gh: dash.fetch, linkUrl: async () => link }, 'find', { project: SAAS });
   const show = d.reply!.show_to_builder as string;
-  assert.equal(show.split('\n').at(-1), `Do real people use it? Say yes, sign in at ${link}, and I check.`, show);
+  assert.equal(show.split('\n').at(-1), usersSignIn(link, 'check'), show); // v3.8 flags-on suite: the copy table's line (E15).
   assert.ok(show.includes('This agent was unlinked from your account.'), show);
   assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in/i.test(x)).length, 1, show);
   assert.equal(show.split(link).length, 2, show);
@@ -1565,7 +1575,7 @@ test('L1j-1, L1j-3, L1j-6 (v6.1.17, Review Focus 1 and 3): the lane 1j personas:
     const c = { ...(await dashCtx()), linkUrl: async () => link };
     const show = (await mcpCall(c, 'find', { project: SAAS, ...(all ? { filter: { all: true } } : {}) })).reply!.show_to_builder as string;
     assert.equal(show.split(/(?<=[.?!])\s+/).filter((x) => /sign in/i.test(x)).length, 1, show);
-    assert.equal(show.split('\n').at(-1), `Do real people use it? Say yes, sign in at ${link}, and I check.`, show);
+    assert.equal(show.split('\n').at(-1), usersSignIn(link, 'check'), show); // v3.8 flags-on suite: the copy table's line (E15).
   }
   // Personas 1, 5, 10, 17, 19, 20, 22, 23 and 27: two of four ready rows shown, the other two counted.
   const vr = (await mcpCall(await dashCtx(), 'find', { project: VR })).reply!.show_to_builder as string;
@@ -1668,7 +1678,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
       '',
       'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 21 more in the full list, any time you ask.',
       '',
-      'Do real people use it? Say yes, sign in, and I check.',
+      copy().usersUnlinked, // v3.8 flags-on suite: the copy table's line (E15).
     ].join('\n'),
   );
   assert.match(d.reply!.agent_note as string, /^The full list holds \d+ more; show it when the builder asks for all, more or the full list\. Call find with filter\.all for it\.$/m);
@@ -2054,7 +2064,7 @@ test('fix round 1 (v6.1.14, T7-F1, T7-F2): an owner-only link meets no bar; gap_
   // T7-F2: the code step shown is the step gap_done takes, for a program that does not require a repo too.
   const done = await mcpCall(c, 'track', { program_id: 'solana-foundation-grants', status: 'gap_done', item: 'repo', project: SOL });
   assert.equal(done.isError, false, done.text);
-  assert.equal(done.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
+  assert.equal(done.reply!.show_to_builder, copy().tellWhenLive); // v3.8 flags-on suite: the copy table's line (E15).
   // The read settles it: with no repo yet the step still shows.
   const again = await mcpCall(c, 'find', { project: SOL });
   assert.match(again.reply!.show_to_builder as string, /^1\. Solana Foundation Grants \(milestone grants\) needs the code in a repo, then 1 more step\. I looked again and did not find code in a repo; it stays a step\.$/m);
@@ -2284,7 +2294,7 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       '',
       ALSO_IP(19),
       '',
-      STEP_OR_YC('Send me the demo video link and I fill it in.', 4),
+      STEP_OR_YC(copy().demoClosing, 4), // v3.8 flags-on suite: the copy table's line (E15).
     ].join('\n'),
   );
   // An Atlassian Forge app sees Codegeist the same way.
@@ -2561,7 +2571,7 @@ test('B10: the first find after an unlink says so with the sign-in link, once; t
   const listShow = list.reply!.show_to_builder as string;
   assert.equal(list.reply!.linked_notice, line);
   // Fix round 1 (I3): the ask stays last, the notice before it.
-  assert.ok(listShow.endsWith(`\n\n${line}\n\nTell me what you build, or its repo link, and I match it.`), listShow);
+  assert.ok(listShow.endsWith(`\n\n${line}\n\n${copy().openAskUnlinked}`), listShow); // v3.8 flags-on suite: the copy table's line (E15).
   assert.equal(listShow.split(link).length, 2, listShow);
   // No sign-in configured: the notice alone.
   const third = await linkedWith(OWNER_RECORD);
@@ -3494,27 +3504,26 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
   const id = await installation();
   const first = await mcpCall(ctx(id), 'find', { project: PROJECT });
   assert.doesNotMatch(first.reply!.show_to_builder as string, /Nothing new/);
+  // v3.8 flags-on suite (order): the test seeds its own since line, Alliance's deadline moved and back between the two
+  // lists (the change a test file run whole leaves behind from 'a deadline moved since the last find'), so it reads the
+  // same run alone or whole.
+  const alliance = (await getProgram('alliance-all19'))!.file;
+  await upsertProgram({ ...alliance, ends_at: '2026-11-25T23:59:59Z' }, 'file', new Date(NOW.getTime() + H));
+  await upsertProgram(alliance, 'file', new Date(NOW.getTime() + 2 * H));
   const again = await mcpCall(ctx(id, new Date(NOW.getTime() + 10 * H)), 'find', { project: PROJECT });
   assert.equal(again.reply!.nothing_new_since, NOW.toISOString());
   // With nothing else moved (the since line empty), it sits after the money lines (pinned in reply.test). v6.1.17: this
   // catalog fills the 10 lines with rows and the And-more line (L1j-3), and the since line gives way first (fix round 1 I1).
+  // v3.8 flags-on suite (order): the rows and the And-more count are what this file's earlier tests seeded, so the money
+  // lines are pinned against a first list of the same catalog at the same hour, byte for byte, the since line between
+  // them and the closing; run whole, that is the list pinned before (4 ready, Night Grant to Demo Grant, 40 more).
   const show = again.reply!.show_to_builder as string;
-  assert.equal(show, [
-    'For EarnKit, 4 programs are ready to send now.',
-    '',
-    '1. Night Grant (up to $5,000).',
-    '2. Live Link Grant (up to $5,000).',
-    '3. Contact Grant (up to $5,000).',
-    '4. S4 Codes Grant (up to $5,000) needs you to add Base Builder Codes to the app first.',
-    '5. Berg Grant (up to $5,000) needs a demo video link (a short screen recording of it working) first.',
-    '6. Demo Grant (up to $5,000) needs a demo video link (a short screen recording of it working) first.',
-    '',
-    'Also open: Y Combinator Winter 2027 Batch ($500,000) and Alliance ALL19 ($400,000, closes in 14 days), both in person with long odds. 40 more in the full list, any time you ask.',
-    '',
-    'Since Nov 4: Alliance ALL19: deadline moved to Nov 18.',
-    '',
-    'Sign in so I know the repo is yours, then say yes and tell me the number of founders and your top 3 successes, and I apply to all 4, or say do 4 and I add the codes first.',
-  ].join('\n'));
+  const fresh = (await mcpCall(ctx(await installation(), new Date(NOW.getTime() + 10 * H)), 'find', { project: PROJECT })).reply!.show_to_builder as string;
+  const paras = fresh.split('\n\n');
+  assert.match(paras[0], /^For EarnKit, (1 program is|\d+ programs are) ready to send now\.$/, fresh);
+  assert.match(paras[2], /^Also open: Y Combinator Winter 2027 Batch \(\$500,000\) and Alliance ALL19 \(\$400,000, closes in 14 days\), both in person with long odds\. \d+ more in the full list, any time you ask\.$/, fresh);
+  assert.equal(paras.length, 4, fresh);
+  assert.equal(show, [...paras.slice(0, 3), 'Since Nov 4: Alliance ALL19: deadline moved to Nov 18.', paras[3]].join('\n\n'));
   const [row] = await sql()`SELECT last_list_hash, last_list_at FROM installations WHERE id = ${id}`;
   assert.match(row.last_list_hash, /^[0-9a-f]{64}$/);
   assert.equal(row.last_list_at.toISOString(), new Date(NOW.getTime() + 10 * H).toISOString());

@@ -1,6 +1,7 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
+import { flagOn } from '../v5/flags';
 import { replayFetch } from '../v5/fixtures/github';
 import { programFixture } from '../v5/fixtures/program';
 import { upsertProgram } from '../v5/programs';
@@ -70,7 +71,9 @@ test('workQueue reads a two-applicant job over the recorded fakes: tiers, becaus
   assert.ok(Array.isArray(or.because) && or.because.length > 0);
   assert.match(or.line, /^(live|used): .+\.$/);
   assert.ok(or.rows.length > 0);
-  assert.ok(or.rows.every((r: { basis: string }) => ['github', 'explorer', 'site', 'earnkit'].includes(r.basis)));
+  // v3.8 flags-on suite: with screen_v2 the worker also reads packages, public rows with basis `registry` (v3.8-e18-screen-v2.md).
+  const PUBLIC = flagOn('screen_v2') ? ['github', 'explorer', 'site', 'earnkit', 'registry'] : ['github', 'explorer', 'site', 'earnkit'];
+  assert.ok(or.rows.every((r: { basis: string }) => PUBLIC.includes(r.basis)));
   assert.ok(or.read_at instanceof Date);
   const [job] = await sql()`SELECT done, total, finished_at FROM screen_jobs WHERE id = ${j.id}`;
   assert.deepEqual([job.done, job.total], [2, 2]);

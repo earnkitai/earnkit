@@ -4,6 +4,7 @@ import { sql } from './db';
 import { saveInstallation } from './installations';
 import { POST } from '../../app/mcp/route';
 import { OLD_TOOL_TEXT } from './old-tools';
+import { flagOn } from './flags';
 
 after(() => sql().end());
 
@@ -13,6 +14,10 @@ const token = 'ek_oldtools_' + Math.random().toString(36).slice(2);
 const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` };
 const post = (body: unknown) => POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body: JSON.stringify(body) }));
 const call = (id: number, name: string, args: unknown = {}) => ({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } });
+// v3.8 flags-on suite: with reply_fields on (E13) an old or unknown tool's line is the agent note of a refused reply, no builder line.
+const agentLine = (line: string) => (flagOn('reply_fields') ? JSON.stringify({ show_to_builder: '', agent_note: line, status: 'refused', state: 'unchanged' }) : line);
+// v3.8 flags-on suite: with reply_fields on (E13) a refusal carries status refused and state unchanged after its own keys.
+const refusal = (r: { show_to_builder: string; agent_note: string; refused: true }) => (flagOn('reply_fields') ? { ...r, status: 'refused', state: 'unchanged' } : r);
 type Msg = { id: number; result: { isError?: boolean; content: { text: string }[] } };
 
 test('old tool names get the refresh message as an error result', async () => {
@@ -24,7 +29,7 @@ test('old tool names get the refresh message as an error result', async () => {
     const m = (await r.json()) as Msg;
     assert.equal(m.id, 7);
     assert.equal(m.result.isError, true);
-    assert.equal(m.result.content[0].text, TEXT);
+    assert.equal(m.result.content[0].text, agentLine(TEXT));
   }
 });
 
@@ -34,13 +39,13 @@ test('find still works, and in a batch only the old call is answered directly', 
   assert.equal((await post(init)).status, 200);
   const f = (await (await post(call(2, 'find', { project: { name: 'X', description: 'An app.' } }))).json()) as Msg;
   assert.notEqual(f.result.isError, true);
-  assert.notEqual(f.result.content[0].text, TEXT);
+  assert.notEqual(f.result.content[0].text, agentLine(TEXT));
   const batch = (await (await post([call(3, 'score'), call(4, 'find', { project: { name: 'X', description: 'An app.' } })])).json()) as Msg[];
   assert.equal(batch.length, 2);
   const byId = new Map(batch.map((m) => [m.id, m]));
-  assert.equal(byId.get(3)!.result.content[0].text, TEXT);
+  assert.equal(byId.get(3)!.result.content[0].text, agentLine(TEXT));
   assert.equal(byId.get(3)!.result.isError, true);
-  assert.notEqual(byId.get(4)!.result.content[0].text, TEXT);
+  assert.notEqual(byId.get(4)!.result.content[0].text, agentLine(TEXT));
 });
 
 const raw = (body: string) => POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }));
@@ -58,7 +63,7 @@ test('B4 (Review Focus 3): a call nested 10,000 levels deep answers the plain li
     assert.equal(m.id, 9);
     // L29-9, L29-10 (v6.1.16 Task 15): an input error: isError true, no builder text, the fix in the note.
     assert.equal(m.result.isError, true);
-    assert.deepEqual(plain(m), { show_to_builder: '', agent_note: 'The arguments were nested too deep; fix it and call again.', refused: true });
+    assert.deepEqual(plain(m), refusal({ show_to_builder: '', agent_note: 'The arguments were nested too deep; fix it and call again.', refused: true }));
   }
   // In a batch with a secret elsewhere: the deep call is answered, the other still runs (scrubbed).
   const key = 'sk_live_' + 'a1'.repeat(12);
@@ -238,7 +243,7 @@ test('L45-19 (v6.1.19): bytes that are not UTF-8 in a tool call answer one plain
   assert.equal(r.status, 200);
   const m = (await r.json()) as Msg;
   assert.equal(m.result.isError, true);
-  assert.deepEqual(plain(m), { show_to_builder: 'I could not read that.', agent_note: 'Nothing was done. Part of the arguments was not valid UTF-8; send the text as UTF-8 and call again.', refused: true });
+  assert.deepEqual(plain(m), refusal({ show_to_builder: 'I could not read that.', agent_note: 'Nothing was done. Part of the arguments was not valid UTF-8; send the text as UTF-8 and call again.', refused: true }));
 });
 
 test('L45-8 (v6.1.19): a batch whose members share an id answers each of them', async () => {
@@ -274,14 +279,14 @@ test('L45-17 (v6.1.19): bad params are -32602, a boolean id -32600, and an unkno
   ]) {
     const m = (await (await post(call(46, name))).json()) as Msg;
     assert.equal(m.result.isError, true);
-    assert.equal(m.result.content[0].text, text, name);
+    assert.equal(m.result.content[0].text, agentLine(text), name);
   }
 });
 
 test('fix round 1 (M5): the unknown-tool reply drops replacement marks and cuts a long name on a word', async () => {
   await saveInstallation(token, null);
   const long = (await (await post(call(47, 'apply now to the very long program name that keeps going'))).json()) as Msg;
-  assert.equal(long.result.content[0].text, 'No tool apply now to the very long program name... The tools are find, track, record and screen.');
+  assert.equal(long.result.content[0].text, agentLine('No tool apply now to the very long program name... The tools are find, track, record and screen.'));
   const head = Buffer.from('{"jsonrpc":"2.0","id":48,"method":"tools/call","params":{"name":"ap');
   const body = Buffer.concat([head, Buffer.from([0xff]), Buffer.from('ply","arguments":{}}}')]);
   const m = (await (await POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }))).json()) as Msg;
