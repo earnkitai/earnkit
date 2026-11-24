@@ -14,8 +14,8 @@ bounties. EarnKit is the brain; the builder's AI agent is the hands.
 - The agent holds the builder's memory, drafts the personal parts, fills the form in its own browser when the
   builder says yes, and reports back with `track`.
 - EarnKit never submits a form, never holds or asks for a wallet, never writes prose (no LLM), never asks the
-  builder who they are. Install is one MCP URL and an anonymous OAuth approval (the v6.1.21 install sign-in switch,
-  `EARNKIT_INSTALL_SIGNIN`, is disabled until it has a consent step).
+  builder who they are. Install is one MCP URL and an anonymous OAuth approval; with `EARNKIT_FLAGS=install_signin`
+  (v3.8 E4) it is a GitHub sign-in and an EarnKit consent page instead.
 
 One Next.js app (`apps/frontend`) on Railway, one Postgres database, one daily job. Nothing else runs.
 
@@ -516,7 +516,7 @@ The run reads `CRON_SECRET` trimmed, so a trailing newline neither fails its 32-
 | `/api/programs/applications` | v6.1.18 Task 5 (L18-5): the owner's list of every send (`applicationsGet` in `programs-api.ts`; programs bearer, 404 while the API is off, 401 on a wrong token). `?since=<ISO>` filters the rows, `limit` 1 to 500 (default 100); `totals` and `by_program` are all time (`agent`, `drafted`, `reported`, `auto`); each row names the builder by GitHub login, the agent by client name and says `through_earnkit`. v6.1.19 Task 1 (lane 42): `since` is `parseSince` (a real date, UTC when no zone; a dated row by its send time, an undated one by `at`); rows by `sendTime` desc, undated last with `sent_at` null; `reported` per row; `submitted_by` null lists as `agent`; `agent` is the installation that recorded the send (`applications.sent_by_installation_id`, set by both applied inserts in `ledger.record`, never by a result); the programs token and `CRON_SECRET` are read trimmed (`secretMatches`); never an email, a sign-in code, the owner key or an installation id |
 | `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
-| `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth (the install sign-in switch is disabled in v6.1.21) |
+| `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth (or, with `EARNKIT_FLAGS=install_signin`, GitHub sign-in then `/install/consent`, v3.8 E4) |
 
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`.
@@ -642,9 +642,8 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: `/link` and the callback answer 503) |
-| `EARNKIT_INSTALL_SIGNIN` | v6.1.21: disabled in this release. The value is read, `github` logs `install sign-in is disabled in this release` once, and authorize stays the anonymous approval whatever it is. The GitHub sign-in at install waits for a consent step (C1 of the PR #153 review); do not set it |
 | `EARNKIT_TEST_INSTALLATIONS`, `EARNKIT_OWNER_LOGINS`, `EARNKIT_DOGFOOD_LOGINS` | v6.1.21, optional comma lists (installation ids; GitHub logins or X handles, case-insensitive) that flag a person as a test (`people.test_reason` `test`, `owner`, `dogfood`); the logins match proven identities only (a builder's login, a legacy X sign-in), never a claimed repo owner. Set in Railway they flag new installs and links; for people that already exist, export them in the shell and run the backfill's `--reflag` (the script never sees Railway's variables). Unset flags nothing but the client-name patterns |
-| `EARNKIT_FLAGS` | v3.8 first ship: a comma list of feature flag names that are on (`lib/v5/flags.ts`: `auto_live`, `x_signin`, `private_rows`, `track_v2`, `draft_check`, `form`, `reply_fields`, `copy_v38`, `screen_v2`). Unset or empty turns every flag off (the shipped behaviour); unknown names are ignored; trimmed, case-insensitive. Rollback is the list without the name and a restart. The test guard clears it |
+| `EARNKIT_FLAGS` | v3.8 first ship: a comma list of feature flag names that are on (`lib/v5/flags.ts`: `auto_live`, `x_signin`, `private_rows`, `track_v2`, `draft_check`, `form`, `reply_fields`, `copy_v38`, `screen_v2`, `install_signin`). Unset or empty turns every flag off (the shipped behaviour); unknown names are ignored; trimmed, case-insensitive. Rollback is the list without the name and a restart. The test guard clears it. `install_signin` (v3.8 E4) turns on the install sign-in (needs the GitHub OAuth app): authorize goes to GitHub (`read:user`), then `/install/consent`; only Connect there issues a code that names the builder. Off is the anonymous approval, and turning it off is the rollback: a sign-in under way ends on the failed page |
 | `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
 
 `lib/v5/no-v4.test.ts` fails if any code reads a variable outside this list.
@@ -2007,12 +2006,17 @@ underscores, spaces or the ends, in a name that has a separator; so `Personal As
 real). Only env-list reasons reach a builder's person at link; a client-name reason stays on the installation's old
 person. `/api/stats` `installs_real` leaves flagged people out.
 
-The OAuth approval stays anonymous. The GitHub sign-in at install (`installSignIn`, install-kind state,
-`__Host-ek_install` nonce cookie, `installCallback`; the code carries `b`, and `installOnce` links in its own
-transaction) is kept in the code but disabled (`INSTALL_SIGNIN_ENABLED = false`): it has no EarnKit consent step, so
-a returning GitHub user could be linked to another person's client. `EARNKIT_INSTALL_SIGNIN=github` only logs that it
-is disabled; an install state at the callback gets the plain install failure text (`INSTALL_FAILED`, it does not talk
-about linking) and no code. Turning it on waits for a consent page.
+The OAuth approval is anonymous unless `EARNKIT_FLAGS=install_signin` (v3.8 E4, `installSignInOn` in
+`lib/v6/install-consent.ts`). Then authorize sets the `__Host-ek_install` nonce cookie and goes to GitHub with an
+install-kind state; the callback (`installCallback`) checks the nonce, reads the GitHub user (the token is used once and
+dropped) and 303s to `GET /install/consent?s=<consent state>` (`signConsent`, its own MAC label, 15 minutes). The page
+names the agent, its redirect host and the GitHub login, with Connect and Not now. Nothing is written before
+`POST /install/consent` passes: Origin is ours, the nonce cookie matches the state, and the form's `csrf` is
+`csrfOf(nonce)` (an HMAC of the cookie value). Connect upserts the builder, `markVerified(by 'github', at the callback
+time)`, and 303s to the client with a code carrying `b`; `installOnce` links in its own transaction, so the same GitHub
+account on two installs is one builder and one person. This closes C1 of the PR #153 review: a link someone else built
+can walk a browser through GitHub's silent re-approval but cannot press Connect. Denied (GitHub's Cancel), Not now,
+expired and failed end on plain text pages (`INSTALL_PAGES`), each with one next step, and clear the cookie.
 
 `pnpm tsx apps/frontend/scripts/people-backfill.mts [--apply] [--since YYYY-MM-DD]` backfills people for older
 installations; `--reflag [--apply]` re-evaluates every person's reason from the env lists and client names (never

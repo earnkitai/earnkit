@@ -8,7 +8,7 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
-import { OAuthError, type PendingAuthorize, issueCode, publicOrigin } from '../v5/oauth';
+import { type PendingAuthorize, publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { LINK_CONFIRM_LATER, LINK_SIGN_IN_PARTS, ME_ERRORS, ME_LINK_DENIED, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
@@ -16,11 +16,10 @@ import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signInstallState, signState, verifyInstallState, verifyState } from './github-auth';
 import { cookieOf, cookieValue, createSession, legacyClear } from './sessions';
 import { markVerified } from './people';
+import { INSTALL_PAGES, INSTALL_TTL_MS, installCookie, installPage, installSignInOn, toConsent } from './install-consent';
 
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
-/** The install sign-in's nonce cookie (v6.1.21): `__Host-` in production, as the session cookie is. */
-const installCookie = () => (process.env.NODE_ENV === 'production' ? '__Host-ek_install' : 'ek_install');
 export const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 /** One expired wording everywhere (L21-17, v6.1.16): /me's alert and the /link pages say the same. */
 export const EXPIRED = ME_ERRORS.linkExpired;
@@ -239,75 +238,61 @@ export async function deniedCode(code: string): Promise<boolean> {
   return (await sql()`SELECT 1 FROM link_codes WHERE code = ${hash(code)} AND used_at IS NULL AND expires_at = created_at`).length > 0;
 }
 
-/**
- * C1 (v6.1.21): the install sign-in is disabled in this release. It has no EarnKit consent step, so a builder who had
- * authorized the GitHub app before could be linked to another person's client in one click. The code stays behind
- * this switch for a later release that adds a consent page; until then no build turns it on.
- */
-export const INSTALL_SIGNIN_ENABLED = false as boolean;
-export const INSTALL_SIGNIN_DISABLED = 'install sign-in is disabled in this release';
-let warnedDisabled = false;
-
-/**
- * Whether authorize asks for a GitHub sign-in first: EARNKIT_INSTALL_SIGNIN=github, the OAuth app set up, and the
- * release switch on (`enabled`, INSTALL_SIGNIN_ENABLED; tests of the dormant path pass true). With the switch off the
- * value is read, logged once, and authorize stays anonymous.
- */
-export function installSignInOn(env: Record<string, string | undefined> = process.env, enabled: boolean = INSTALL_SIGNIN_ENABLED): boolean {
-  const wanted = env.EARNKIT_INSTALL_SIGNIN === 'github';
-  if (wanted && !enabled) {
-    if (!warnedDisabled) console.warn(`[install] ${INSTALL_SIGNIN_DISABLED}`);
-    warnedDisabled = true;
-    return false;
-  }
-  return wanted && oauthConfigured(env);
-}
-
+export { installSignInOn };
 /** M7 (v6.1.21): an install sign-in that did not finish; it says nothing about linking. No code is issued. */
-export const INSTALL_FAILED = 'Connecting EarnKit failed: the GitHub sign-in did not finish. Ask your agent to connect EarnKit again.';
-const installFailed = () =>
-  new Response(INSTALL_FAILED, { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': cookieOf(installCookie(), '', 0) } });
+export const INSTALL_FAILED = INSTALL_PAGES.failed.text;
 
-/** Authorize with sign-in on (v6.1.21, disabled: see INSTALL_SIGNIN_ENABLED): a nonce cookie, then GitHub with a signed state carrying the checked request. */
+/**
+ * Authorize with sign-in on (EARNKIT_FLAGS=install_signin): a nonce cookie, then GitHub with a signed state carrying
+ * the checked request. v3.8 E4: the callback goes on to the consent page (lib/v6/install-consent.ts), never to the client.
+ */
 export function installSignIn(request: Request, req: PendingAuthorize, now: Date = new Date()): Response {
   const nonce = randomBytes(16).toString('base64url');
-  const state = signInstallState({ req, nonce, exp: now.getTime() + TTL_MS }, secret());
+  const state = signInstallState({ req, nonce, exp: now.getTime() + INSTALL_TTL_MS }, secret());
   return new Response(null, {
     status: 302,
-    headers: { Location: authorizeUrl(state, publicOrigin(request)), 'Set-Cookie': cookieOf(installCookie(), nonce, TTL_MS / 1000), 'Cache-Control': 'no-store' },
+    headers: { Location: authorizeUrl(state, publicOrigin(request)), 'Set-Cookie': cookieOf(installCookie(), nonce, INSTALL_TTL_MS / 1000), 'Cache-Control': 'no-store' },
   });
 }
 
-/** The callback for an install state: GitHub's user becomes a builder, and the client gets a code that names them. */
-async function installCallback(request: Request, ghCode: string | null, pending: { req: PendingAuthorize; nonce: string } | null, deps: { gh?: typeof fetch }): Promise<Response> {
+/**
+ * The callback for an install state: GitHub's user is read (the token is used once and dropped), then the consent page.
+ * Nothing is written here: a cancelled sign-in leaves no builder, no person and no code. GitHub's own "Cancel"
+ * (error=access_denied) is the denied page.
+ */
+async function installCallback(request: Request, q: URLSearchParams, pending: { req: PendingAuthorize; nonce: string }, now: Date, deps: { gh?: typeof fetch }): Promise<Response> {
   const nonce = cookieValue(request.headers.get('cookie'), installCookie());
-  if (!pending || !nonce || !same(nonce, pending.nonce) || !ghCode) return installFailed();
+  if (!nonce || !same(nonce, pending.nonce)) return installPage('failed');
+  if (q.get('error') === 'access_denied') return installPage('denied');
+  const ghCode = q.get('code');
+  if (!ghCode) return installPage('failed');
   try {
     const user = await exchangeCode(ghCode, publicOrigin(request), process.env, deps.gh ?? fetch);
-    const at = new Date();
-    const builder = await upsertBuilder(user, at);
-    await markVerified({ builderId: builder.id, login: builder.login, by: 'github', at, accountCreatedAt: user.created_at });
-    const back = await issueCode(pending.req, { builderId: builder.id }, publicOrigin(request));
-    return new Response(null, { status: 302, headers: { Location: back.toString(), 'Set-Cookie': cookieOf(installCookie(), '', 0), 'Cache-Control': 'no-store' } });
+    return toConsent({ req: pending.req, user, nonce, at: now.getTime() }, now);
   } catch (err) {
-    if (err instanceof GitHubAuthError) console.warn(`[install] ${err.message}`);
-    else if (!(err instanceof OAuthError)) throw err;
-    return installFailed();
+    if (!(err instanceof GitHubAuthError)) throw err;
+    console.warn(`[install] ${err.message}`);
+    return installPage('failed');
   }
 }
 
 /** GET /auth/github/callback: signs the GitHub user in and sends them to /me?link=<code> to confirm the link there. */
-export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fetch; installSignIn?: boolean } = {}): Promise<Response> {
+export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fetch } = {}): Promise<Response> {
   return guarded(request, async () => {
     const now = deps.now ?? new Date();
     const q = new URL(request.url).searchParams;
     const linked = verifyState(q.get('state') ?? '', secret(), now);
     if (!linked) {
-      const install = verifyInstallState(q.get('state') ?? '', secret(), now);
-      if (!install) return toPage(FAILED_PATH);
-      // C1/M7 (v6.1.21): with the switch off an install state (none is issued) never signs in or issues a code.
-      if (!(deps.installSignIn ?? INSTALL_SIGNIN_ENABLED)) return installFailed();
-      return installCallback(request, q.get('code'), install, deps);
+      const raw = q.get('state') ?? '';
+      const install = verifyInstallState(raw, secret(), now);
+      if (!install) {
+        // Signed but past its 15 minutes (it verifies at the epoch): the expired page, not the link one.
+        if (verifyInstallState(raw, secret(), new Date(0))) return installPage('expired');
+        return toPage(FAILED_PATH);
+      }
+      // M7 (v6.1.21): with install_signin off (the rollback) an install state never signs in or issues a code.
+      if (!installSignInOn()) return installPage('failed');
+      return installCallback(request, q, install, now, deps);
     }
     const nonce = cookieValue(request.headers.get('cookie'), LINK_COOKIE);
     const ghCode = q.get('code');

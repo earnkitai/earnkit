@@ -8,6 +8,8 @@ type Env = Record<string, string | undefined>;
 
 export const FLAGS = [
   'auto_live', 'x_signin', 'private_rows', 'track_v2', 'draft_check', 'form', 'reply_fields', 'copy_v38', 'screen_v2',
+  // v3.8 E4: GitHub sign-in and the consent page on the install path (lib/v6/install-consent.ts).
+  'install_signin',
 ] as const;
 export type Flag = (typeof FLAGS)[number];
 

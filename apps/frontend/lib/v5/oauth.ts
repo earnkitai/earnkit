@@ -75,7 +75,7 @@ export function isAllowedRedirectUri(uri: string) {
 /** `r`: the redirect URIs; `n`: the registration nonce; `cn`: the registered name, cleaned. */
 export type ClientPayload = { r: string[]; n?: string; cn?: string };
 /** `a`: the resource (audience) the code was issued for; absent in codes from before v6.1.16. */
-/** `b`: the builder who signed in with GitHub at the install (v6.1.21, EARNKIT_INSTALL_SIGNIN=github, disabled in this release); absent for an anonymous approval. */
+/** `b`: the builder who signed in with GitHub at the install (v6.1.21, EARNKIT_FLAGS=install_signin, after the consent page); absent for an anonymous approval. */
 type CodePayload = { c: string; r: string; ch: string; e: number; n: string; a?: string; b?: number };
 
 /** The MCP resource URL for an origin (RFC 8707): what a token is issued for. Pure. */

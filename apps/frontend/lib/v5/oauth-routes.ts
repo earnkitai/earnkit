@@ -1,6 +1,7 @@
 /**
  * The OAuth register, authorize and token endpoints (app/oauth/<name>/route.ts re-export them),
- * rate limited per IP and per client. Authorize approves at once and redirects with a code.
+ * rate limited per IP and per client. Authorize approves at once and redirects with a code (or, with the install
+ * sign-in on, goes through GitHub and the consent page first).
  * Refusals are logged by limit and redirect host only, never a client id or token.
  */
 import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
@@ -83,7 +84,7 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
       throw err;
     }
     // The nonce is spent and the installation saved in one transaction; a parallel exchange that spent it first wins.
-    // v6.1.21: a code issued after a GitHub sign-in (disabled in this release) names the builder; the installation links
+    // v6.1.21: a code issued after the install sign-in and its consent page (v3.8 E4) names the builder; the installation links
     // as a /me link does, in installOnce's transaction (M3), so a failed link spends no nonce and saves nothing.
     const installed = await installOnce(token, nonce, clientName, audience, builderId);
     if (installed === null) return await codeReused(token);
@@ -99,13 +100,12 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
 /** L35-5 (v6.1.16.1 Task 2): the client deps with the caller's address block (an injected block stays). */
 const callerClient = (request: Request, client: ClientDeps | undefined): ClientDeps => ({ block: blockOf(clientIp(request.headers)), ...client });
 
-type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps; installSignIn?: boolean };
+type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown>; client?: ClientDeps };
 const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
 
 /**
- * Anonymous approval: a valid request is sent straight back to its client with a code. The GitHub sign-in at install
- * (`installSignIn`, EARNKIT_INSTALL_SIGNIN=github) is disabled in v6.1.21 until it has a consent step (C1): whatever the
- * value, authorize stays anonymous. `installSignIn` in deps is for tests of the dormant path only.
+ * Anonymous approval: a valid request is sent straight back to its client with a code. With EARNKIT_FLAGS=install_signin
+ * (v3.8 E4) it goes to GitHub first, then EarnKit's consent page, and only a Connect there sends the client a code.
  */
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
@@ -113,7 +113,7 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     const client = callerClient(request, deps.client);
     const checked = await checkAuthorize(new URL(request.url).searchParams, client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
-    if (installSignInOn(process.env, deps.installSignIn)) return installSignIn(request, checked.req);
+    if (installSignInOn()) return installSignIn(request, checked.req);
     return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), client), 302);
   } catch (err) {
     if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });

@@ -39,7 +39,7 @@ export function signState(payload: { code: string; nonce: string; exp: number },
 export type PendingInstall = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string; resource?: string };
 
 /**
- * A state of the install kind (EARNKIT_INSTALL_SIGNIN=github): the pending authorize request and the browser's nonce.
+ * A state of the install kind (EARNKIT_FLAGS=install_signin): the pending authorize request and the browser's nonce.
  * Signed under its own MAC label with `k: 'install'`, so it never verifies as a link-code state and the reverse. Pure.
  */
 export function signInstallState(payload: { req: PendingInstall; nonce: string; exp: number }, secret: string): string {
