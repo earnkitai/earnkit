@@ -207,3 +207,17 @@ test('consent state: its own label, round trip, forged and expired; the copy fol
     assert.doesNotMatch(line, /[;!–—]|token|please|successfully/i, line);
   }
 });
+
+test('v3.8 E16 (plan L9): sign-in attempts are limited per address: the 31st Connect press in an hour is the limited page', async () => {
+  const addr = `203.0.113.${Math.floor(Math.random() * 200) + 20}`;
+  const press = () =>
+    consentPost(new Request(`${ORIGIN}/install/consent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN, 'x-forwarded-for': addr },
+      body: new URLSearchParams({ s: 'nope' }).toString(),
+    }));
+  for (let i = 0; i < 30; i++) assert.notEqual((await press()).status, 429);
+  const r = await press();
+  assert.equal(r.status, 429);
+  assert.equal(await r.text(), INSTALL_PAGES.limited.text);
+});

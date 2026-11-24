@@ -9,6 +9,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { flagOn } from '../v5/flags';
 import { readParams } from '../v5/http';
+import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { displayName } from '../v5/installations';
 import { OAuthError, clientNameOf, clientOf, issueCode, publicOrigin } from '../v5/oauth';
 import { escapeHtml } from '../v5/programs-pending';
@@ -31,6 +32,8 @@ export const INSTALL_PAGES = {
   denied: { status: 200, text: "You said no on GitHub, so nothing was connected. Ask your agent to connect EarnKit again when you're ready." },
   cancelled: { status: 200, text: "Nothing was connected. Ask your agent to connect EarnKit again when you're ready." },
   expired: { status: 400, text: 'This sign-in expired, so nothing was connected. Ask your agent to connect EarnKit again.' },
+  // v3.8 E16 (plan L9): the sign-in attempts limit (`LIMITS.installConsent`).
+  limited: { status: 429, text: 'Too many sign-ins from your network this hour, so nothing was connected. Try again in an hour.' },
 } as const;
 export type InstallPage = keyof typeof INSTALL_PAGES;
 
@@ -221,6 +224,13 @@ export async function consentPost(request: Request, deps: Deps = {}): Promise<Re
   if (!installSignInOn()) return installPage('failed');
   // Browsers send Origin on every form POST; none, or another site's, is refused.
   if (request.headers.get('origin') !== publicOrigin(request)) return installPage('failed');
+  // v3.8 E16 (plan L9): sign-in attempts per address; a refused press counts and connects nothing.
+  try {
+    await enforce('installConsent', clientIp(request.headers), INSTALL_PAGES.limited.text);
+  } catch (err) {
+    if (err instanceof RateLimitError) return installPage('limited');
+    throw err;
+  }
   const form = await readParams(request, MAX_FORM);
   if (!form) return installPage('failed');
   const ok = checked(request, form.get('s') ?? '', deps.now ?? new Date());

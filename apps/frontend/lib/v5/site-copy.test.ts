@@ -319,6 +319,8 @@ test('/llms.txt keeps the label before a second command: "Then approve it:" sits
  * that ends in a colon is a heading that introduces a list ("Ready to apply (3):", "Open now:", "Rules:") and is skipped.
  */
 const LABELS = new Set([
+  // v3.8 E16: the install section's headings.
+  'DOCS_NEXT.title', 'DOCS_SEES.title', 'DOCS_DELETE.title',
   'CTA_INSTALL', 'NAV_INSTALL', 'NAV_RECORD', 'NAV_INSTALL_SHORT', 'EARN_TITLE', 'EARN_ALL', 'ROLLING', 'NOT_OPEN_YET', 'CLOSED', 'PROGRAMS_TITLE', 'ART_CREDIT',
   'GUIDE_FIELDS_TITLE', 'GUIDE_RULES_TITLE', 'GUIDE_ELIGIBILITY_TITLE', 'GUIDE_FOCUS_TITLE', 'GUIDE_ROUNDS_TITLE', 'GUIDE_BEST_BET_TITLE',
   'GUIDE_SOURCES_TITLE', 'NOT_FOUND_BIG', 'NOT_FOUND_TITLE', 'NOT_FOUND_METADATA', 'DOCS_NAV', 'DOCS_INSTALL_TITLE',
@@ -417,4 +419,12 @@ test('L24-12, L24-14 (v6.1.16 Task 11): the cap label asks first; the status lin
   assert.deepEqual(copy.mePolicyStatus({ on: true, perDay: 3, kinds: ['grants', 'hackathons', 'bounties'], cap: null }, 0), ['On: up to 3 a day, grants, hackathons and bounties.', 'Sent under it: 0.']);
   assert.deepEqual(copy.mePolicyStatus({ on: false, perDay: 3, kinds: [], cap: null }, 0), ['Off.', 'Sent under it: 0.']);
   for (const v of Object.values(copy.ME_LABELS)) assert.doesNotMatch(v, /night/i, v);
+});
+
+test('v3.8 E16 (plan L8, 23.3): the install section is short and plain: three next lines, what EarnKit sees, delete; under 120 words', () => {
+  const parts = [copy.DOCS_NEXT.title, ...copy.DOCS_NEXT.lines, copy.DOCS_SEES.title, copy.DOCS_SEES.can, copy.DOCS_SEES.cannot, copy.DOCS_DELETE.title, copy.DOCS_DELETE.text];
+  const words = parts.join(' ').split(/\s+/).filter(Boolean).length;
+  assert.ok(words < 120, `install section is ${words} words`);
+  for (const p of parts) assert.doesNotMatch(p, /[—–;!]|\p{Extended_Pictographic}|\b(kindly|please note|successfully|in order to|token)\b/iu, p);
+  assert.equal(copy.DOCS_NEXT.lines.length, 3);
 });

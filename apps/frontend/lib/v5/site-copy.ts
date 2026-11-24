@@ -92,6 +92,29 @@ export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 /** The intro line above the install tabs already says it connects at once, so no step says it again (v6.1.8, Task 6). */
 export const DOCS_STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?'];
+/**
+ * v3.8 E16 (plan L8): the install section's rest, shared word for word with llms.txt so a builder (or their agent)
+ * can install from either alone: what happens next in three lines, what EarnKit can and cannot see, and how to delete
+ * everything. Capped on its own (site-copy.test.ts), apart from the docs' 230-word cap.
+ */
+export const DOCS_NEXT = {
+  title: 'What happens next',
+  lines: [
+    'Your agent asks EarnKit what your project can earn and shows the programs, money first.',
+    'Sign in once with GitHub from its link, and all your agents share one record.',
+    'Say yes and your agent fills the form and sends it. Nothing goes without your yes.',
+  ],
+};
+export const DOCS_SEES = {
+  title: 'What EarnKit sees',
+  can: 'EarnKit sees your public repos and pages, what your agent sends it, and the record you save.',
+  cannot: "It can't see your private code, your files, your inbox or your wallet keys.",
+};
+export const DOCS_DELETE = {
+  title: 'Delete everything',
+  text: 'Open earnkit.com/me, type your GitHub login and press Delete everything. Your record and applications go at once.',
+};
+
 export const DOCS_SESSION = {
   title: 'How a session goes',
   // L25-9 (v6.1.16): who submits, in one sentence.

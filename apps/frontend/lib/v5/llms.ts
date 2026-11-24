@@ -1,7 +1,7 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
 import { AGENTS, MCP_URL, type Agent } from './agents';
 import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SHOW_REPLY, TRACK_DESCRIPTION } from './tool-text';
-import { APPROVAL_LINE } from './site-copy';
+import { APPROVAL_LINE, DOCS_DELETE, DOCS_NEXT, DOCS_SEES } from './site-copy';
 
 /** llms.txt's first session step (L25-7, v6.1.16): find first, record once signed in. */
 export const LLMS_SESSION_FIRST = 'The agent calls find with the project it is in; once signed in, record with get.';
@@ -33,6 +33,19 @@ ${AGENTS.map(connectLines).join('\n')}
 Every agent's steps: https://earnkit.com/docs#install
 
 Then ask your agent: "What can I earn?"
+
+## ${DOCS_NEXT.title}
+
+${DOCS_NEXT.lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}
+
+## ${DOCS_SEES.title}
+
+${DOCS_SEES.can}
+${DOCS_SEES.cannot}
+
+## ${DOCS_DELETE.title}
+
+${DOCS_DELETE.text}
 
 ## How a session goes
 
