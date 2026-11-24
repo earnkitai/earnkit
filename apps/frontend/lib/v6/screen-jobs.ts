@@ -22,7 +22,9 @@ import { getBuilder, getRecord } from './builders';
 import type { Row } from './evidence';
 import { listWords } from './reply-words';
 import { currentReviewerLine } from './tier-words';
-import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
+import { flagOn } from '../v5/flags';
+import { ordinals } from './ordinal';
+import { type Flag, REVIEW_ORDER, type Thresholds, type Tier, TIERS } from './tiers';
 
 /** L45-9 (v6.1.19): how an outcome's ref that is empty after cleaning is named. */
 export const EMPTY_REF = '(empty name)';
@@ -49,7 +51,7 @@ export const ScreenApplicant = z
   .strip();
 export type ScreenApplicant = z.infer<typeof ScreenApplicant>;
 
-export const PUBLIC_BASES: ReadonlySet<Row['basis']> = new Set(['github', 'explorer', 'site', 'earnkit']);
+export const PUBLIC_BASES: ReadonlySet<Row['basis']> = new Set(['github', 'explorer', 'site', 'earnkit', 'registry']);
 /** Rows whose value is the applicant's site's own words (security M4). */
 const SITE_TEXT: ReadonlySet<string> = new Set(['live.title']);
 export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
@@ -98,7 +100,12 @@ export type ScreenResults = {
   totals: Record<Tier | 'pending', number>;
   /** `result` and `amount` (L22-12, v6.1.16): the program's outcome posted for the applicant, its money in the one format. */
   /** `read_at` (L26-4, v6.1.16 Task 12): when the applicant was read, once; a row keeps its own only when it was read earlier (a cache). */
-  applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; result: 'won' | 'rejected' | 'shortlisted' | null; amount: string | null; read_at?: string | null; rows?: ShownRow[] }[];
+  /**
+   * v3.8 E18 (`screen_v2`): `ordinal` is the applicant's place inside its tier across the whole job (`ordinal_of` the
+   * tier's size) with the reasons that carried it; absent on every applicant while fewer than ORDINAL_FLOOR are placed
+   * on read evidence, and always with the flag off.
+   */
+  applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; result: 'won' | 'rejected' | 'shortlisted' | null; amount: string | null; read_at?: string | null; rows?: ShownRow[]; ordinal?: number; ordinal_of?: number; ordinal_reasons?: string[] }[];
 };
 export type JobStatus = { id: string; program_id: string; total: number; done: number; finished: boolean; expired: boolean; last_run_left: number };
 
@@ -442,7 +449,11 @@ type ApplicantRow = {
   ref: string; name: string; status: string; tier: string | null; flags: Flag[] | null; because: string[] | null; line: string | null; rows: Row[] | null;
   outcome: 'won' | 'rejected' | 'shortlisted' | null; amount_usd: string | null; amounts: unknown; amount_given: string | null; currency: string | null;
 };
+/** Main's order, kept while `screen_v2` is off; on, REVIEW_ORDER (the CLI report's), unread last. */
 const ORDER: (Tier | null)[] = ['used', 'live', 'building', 'unverified', 'flagged', null];
+const ORDER_V2: (Tier | null)[] = [...REVIEW_ORDER, null];
+/** Sorts an applicant with no ordinal after those with one. */
+const NO_ORDINAL = Number.MAX_SAFE_INTEGER;
 
 /**
  * The results, one page of PAGE_SIZE applicants (L15-3, v6.1.14; the totals count them all). Pages follow the order the
@@ -462,12 +473,16 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
     if (UNREAD.includes(r.status)) totals.pending++;
     else if (tierOf(r)) totals[tierOf(r)!]++;
   }
+  const v2 = flagOn('screen_v2');
+  const order = v2 ? ORDER_V2 : ORDER;
+  const places = v2 ? ordinals(rows.filter((r) => !UNREAD.includes(r.status)).map((r) => ({ ref: r.ref, tier: tierOf(r), rows: r.rows ?? [] }))) : new Map();
   const start = (page - 1) * PAGE_SIZE;
   const next_page = start + PAGE_SIZE < rows.length ? page + 1 : null;
   const applicants = rows
     .slice(start, start + PAGE_SIZE)
     .map((r) => {
       const read = !UNREAD.includes(r.status);
+      const o = places.get(r.ref);
       return {
         // M2 (v6.1.15 fix round 1): a row read before v6.1.15 carries the rule `unfunded`; it reads as today's id. alias until v6.1.16
         // Task 11 fix round 1 (N3): a row queued before v6.1.16 is cleaned when read.
@@ -477,9 +492,10 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
         result: r.outcome ?? null,
         amount: r.outcome === 'won' ? amountsText(keptAmounts({ ...r, outcome: 'won' })) || null : null,
         ...(read && readOnce((r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown))),
+        ...(o && { ordinal: o.ordinal, ordinal_of: o.of, ordinal_reasons: o.reasons }),
       };
     })
-    .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));
+    .sort((a, b) => order.indexOf(a.tier) - order.indexOf(b.tier) || (a.ordinal ?? NO_ORDINAL) - (b.ordinal ?? NO_ORDINAL));
   return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, last_run_left: s.last_run_left, page, next_page, totals, applicants };
 }
 

@@ -5,6 +5,7 @@
  * one-line error; the job advances either way and is finished when every applicant is.
  */
 import { sql } from '../v5/db';
+import { flagOn } from '../v5/flags';
 import { repoKey } from '../v5/repo-facts';
 import { resolveRepo, sharedContributors } from './applicants';
 import type { Budget } from './code';
@@ -89,7 +90,8 @@ export async function workQueue(o: {
   const { evidence: read = readEvidence, ...rest } = o.deps ?? {};
   // One allowance for the call: once it stops, later repos wait (their copies under 7 days stand).
   const budget: Budget = rest.budget ?? { remaining: null, stopped: false };
-  const d: EvidenceDeps = { ...rest, budget, now: o.now };
+  // v3.8 E18: package downloads are read only with screen_v2 on.
+  const d: EvidenceDeps = { ...rest, budget, now: o.now, packages: flagOn('screen_v2') };
   const only = o.jobId !== undefined ? sql()`AND a.job_id = ${o.jobId}` : sql()``;
   const stale = new Date(o.now.getTime() - TAKEN_MS);
   const free = () => sql()`(a.status = 'queued' OR (a.status = 'reading' AND a.taken_at < ${stale}))`;
