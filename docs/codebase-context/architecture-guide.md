@@ -2063,6 +2063,14 @@ cursor, and a full read equals the database count (A4). `trackAdvertised` / `tra
 `person.timezone`. Dedup stays program x canonical project (identity index); no unique index on round. Design:
 `docs/design-docs-and-implementation-plans/v3.8-e9-track-states.md`.
 
+## v3.8 E10: the track import
+
+`scripts/track-import.mts` (lib/v6/track-import.ts) imports the Jenil AI ledger export into one owner's track rows in
+the E9 state model, with the known hard rows fixed (`HARD_ROWS`). Dry run unless `--apply`, as people-backfill. A grant
+goes to its catalog program (by id or link), else stays unresolved until `--map` names one (no private rows: E8 is
+held); nothing is invented (no link, no zone for a date-only deadline, no dollar amount for credits). Design:
+`docs/design-docs-and-implementation-plans/v3.8-e10-track-import.md`.
+
 ## v6.1.22: journey campaign round 14 (lanes 47, 1m and 46)
 
 Plan `v6.1.22-journeys-14-plan.md`. This section is the current word where an older section reads otherwise (the

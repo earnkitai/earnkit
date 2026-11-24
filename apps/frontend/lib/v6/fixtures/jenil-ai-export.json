@@ -1,0 +1,17 @@
+{
+  "as_of": "2026-11-23T15:36:15.300Z",
+  "source": "jenil_ai.grants",
+  "count": 10,
+  "grants": [
+    { "id": "ti-catalog", "name": "Catalog Grant", "org": "Org", "url": "https://elsewhere.example/x", "amount_usd": 5000, "deadline": "2026-12-01", "stage": "submitted", "notes": "Sent.", "submitted_on": "2026-11-02", "won_on": null, "kind": "cash", "updated_at": "2026-11-02T00:00:00Z" },
+    { "id": "some-other-id", "name": "Matched By Link", "org": "Org", "url": "https://ti-link.example/apply/", "amount_usd": 1000, "deadline": null, "stage": "won", "notes": "Won.", "submitted_on": "2026-10-01", "won_on": "2026-11-01", "kind": "cash", "updated_at": "2026-11-01T00:00:00Z" },
+    { "id": "dup-of-catalog", "name": "Catalog Grant", "org": "Org", "url": "https://elsewhere.example/x", "amount_usd": 5000, "deadline": null, "stage": "duplicate", "notes": "Duplicate.", "submitted_on": null, "won_on": null, "kind": "cash", "updated_at": null },
+    { "id": "fe-builders-challenge", "name": "Fe Builders Challenge", "org": "Fe", "url": "https://fe.example/challenge", "amount_usd": 3000, "deadline": "2026-11-24", "stage": "submitted", "notes": "Registered as FE-041.", "submitted_on": "2026-11-10", "won_on": null, "kind": "cash", "updated_at": null },
+    { "id": "paypal-ai-hackathon-allowance", "name": "PayPal AI Hackathon (Allowance)", "org": "PayPal", "url": "https://paypal.example/hack", "amount_usd": 10000, "deadline": "2026-11-12", "stage": "held", "notes": "Held.", "submitted_on": null, "won_on": null, "kind": "cash", "updated_at": null },
+    { "id": "tavily-startups", "name": "Tavily for Startups", "org": "Tavily", "url": "https://tavily.example/startups", "amount_usd": 1000, "deadline": null, "stage": "submitted", "notes": "Auto-applied.", "submitted_on": "2026-11-04", "won_on": null, "kind": "cash", "updated_at": null },
+    { "id": "aiven-startups", "name": "Aiven for Startups", "org": "Aiven", "url": "https://aiven.example/startups", "amount_usd": 12000, "deadline": null, "stage": "found", "notes": "No email.", "submitted_on": null, "won_on": null, "kind": "credits", "updated_at": null },
+    { "id": "soonami-venturethon", "name": "soonami Venturethon 11", "org": "soonami", "url": "https://soonami.example/v11", "amount_usd": 20000, "deadline": "2026-11-27", "stage": "accepted", "notes": "Accepted.", "submitted_on": null, "won_on": null, "kind": "cash", "updated_at": null },
+    { "id": "stellar-scf-46", "name": "Stellar SCF #46 Build Award", "org": "Stellar", "url": "https://stellar.example/scf", "amount_usd": 50000, "deadline": "2026-11-09", "stage": "held", "notes": "Draft ready.", "submitted_on": null, "won_on": null, "kind": "cash", "updated_at": null },
+    { "id": "credits-win", "name": "Cloud Credits", "org": "Cloud", "url": "https://cloud.example/credits", "amount_usd": 25000, "deadline": null, "stage": "accepted", "notes": "Credits granted.", "submitted_on": "2026-10-20", "won_on": "2026-11-01", "kind": "credits", "updated_at": null }
+  ]
+}
