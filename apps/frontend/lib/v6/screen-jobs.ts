@@ -106,6 +106,8 @@ export type ScreenResults = {
    * on read evidence, and always with the flag off.
    */
   applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; result: 'won' | 'rejected' | 'shortlisted' | null; amount: string | null; read_at?: string | null; rows?: ShownRow[]; ordinal?: number; ordinal_of?: number; ordinal_reasons?: string[] }[];
+  /** v3.8 E18 fix (`screen_v2`): set when some places inside a tier were left off this page to fit RESULTS_CAP. */
+  ordinals_cut?: true;
 };
 export type JobStatus = { id: string; program_id: string; total: number; done: number; finished: boolean; expired: boolean; last_run_left: number };
 
@@ -454,6 +456,37 @@ const ORDER: (Tier | null)[] = ['used', 'live', 'building', 'unverified', 'flagg
 const ORDER_V2: (Tier | null)[] = [...REVIEW_ORDER, null];
 /** Sorts an applicant with no ordinal after those with one. */
 const NO_ORDINAL = Number.MAX_SAFE_INTEGER;
+/** L26-4 (v6.1.16 Task 12): a results reply's cap, serialized; PAGE_SIZE keeps main's page under it. */
+export const RESULTS_CAP = 20_480;
+/**
+ * v3.8 E18 fix: the bytes a results page leaves for the reply around it (screen-tool's builder line and agent note,
+ * job_id, next_page, and `status` and `state` with `reply_fields` on), at their longest with room to spare.
+ */
+export const RESULTS_ENVELOPE = 1_024;
+
+type PageApplicant = ScreenResults['applicants'][number];
+/**
+ * v3.8 E18 fix (`screen_v2`): the places inside a tier are what the flag adds to a page, so they get only the bytes
+ * left under RESULTS_CAP: over it, the reasons go first, then the places, the last applicant on the page first (so the
+ * page's order still holds). With every place gone the page is main's. `fixed`: the bytes of the results past the
+ * applicants. Whether any was cut. Mutates `page`.
+ */
+function fitOrdinals(page: PageApplicant[], fixed: number): boolean {
+  let size = fixed + Buffer.byteLength(JSON.stringify(page));
+  const over = () => size + Buffer.byteLength(',"ordinals_cut":true') + RESULTS_ENVELOPE > RESULTS_CAP;
+  if (size + RESULTS_ENVELOPE <= RESULTS_CAP) return false;
+  let cut = false;
+  const drop = (a: PageApplicant, keys: (keyof PageApplicant)[]) => {
+    if (!keys.some((k) => k in a)) return;
+    const before = Buffer.byteLength(JSON.stringify(a));
+    for (const k of keys) delete a[k];
+    size -= before - Buffer.byteLength(JSON.stringify(a));
+    cut = true;
+  };
+  for (const keys of [['ordinal_reasons'], ['ordinal', 'ordinal_of']] as (keyof PageApplicant)[][])
+    for (let k = page.length - 1; k >= 0 && over(); k--) drop(page[k], keys);
+  return cut;
+}
 
 /**
  * The results, one page of PAGE_SIZE applicants (L15-3, v6.1.14; the totals count them all). Pages follow the order the
@@ -496,7 +529,10 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       };
     })
     .sort((a, b) => order.indexOf(a.tier) - order.indexOf(b.tier) || (a.ordinal ?? NO_ORDINAL) - (b.ordinal ?? NO_ORDINAL));
-  return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, last_run_left: s.last_run_left, page, next_page, totals, applicants };
+  const out: ScreenResults = { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, last_run_left: s.last_run_left, page, next_page, totals, applicants };
+  // Off, no place is on the page and the page is main's, byte for byte.
+  if (places.size > 0 && fitOrdinals(applicants, Buffer.byteLength(JSON.stringify({ ...out, applicants: [] })) - 2)) out.ordinals_cut = true;
+  return out;
 }
 
 /** L23-13 (v6.1.16): days a swept job's own row is kept as a tombstone, so its id still answers expired. */

@@ -32,6 +32,15 @@ const some = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
 /** Whether the new reply fields are on (`reply_fields`). */
 export const replyFieldsOn = (): boolean => flagOn('reply_fields');
 
+const longest = (xs: readonly string[]) => xs.reduce((a, b) => (b.length > a.length ? b : a));
+/** The most bytes `status` and `state` add to a serialized reply: a comma and both keys at their longest values. */
+export const REPLY_FIELDS_BYTES = Buffer.byteLength(`,${JSON.stringify({ status: longest(REPLY_STATUSES), state: longest(REPLY_STATES) }).slice(1, -1)}`);
+/**
+ * The bytes a capped reply leaves for `status` and `state`, which `mcp.ts` adds after the tool has capped its reply:
+ * REPLY_FIELDS_BYTES with `reply_fields` on, 0 off (so a capped reply is byte for byte what it was).
+ */
+export const replyFieldsBudget = (): number => (replyFieldsOn() ? REPLY_FIELDS_BYTES : 0);
+
 /** A track status as the journey state it leaves the builder in. */
 const TRACK_STATE: Record<string, ReplyState> = {
   started: 'started', applied: 'sent', won: 'won', rejected: 'rejected', no_result: 'waiting', held: 'on_hold',

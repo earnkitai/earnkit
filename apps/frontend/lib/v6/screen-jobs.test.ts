@@ -409,8 +409,9 @@ test('a site title row a reviewer sees carries the fixed note: text from the sit
   assert.equal(seen.find((x) => x.key === 'live.url_ok')!.note, null);
 });
 
-test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when read earlier; a page of the 200-row fixture is under 20 KB', async () => {
-  const r = await reviewer('jobs-size');
+/** L26-4: a 200-applicant job, every applicant read live with 18 rows (the repo rows read 3 days earlier). */
+async function sizedJob(name: string) {
+  const r = await reviewer(name);
   const j = await job(r, Array.from({ length: 200 }, (_, k) => ({ ref: `s-${String(k).padStart(3, '0')}`, name: `Applicant Project ${k}`, repo_url: `https://github.com/acme/app-${k}`, live_url: `https://app-${k}.example/` })));
   const at = NOW.toISOString();
   const older = new Date(NOW.getTime() - 3 * 86_400_000).toISOString();
@@ -418,6 +419,11 @@ test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when
     'live.url_ok', 'live.title', 'live.status', 'onchain[0].senders_90d', 'onchain[0].outside_senders_90d', 'onchain[0].tx_90d', 'onchain[0].deployed_at', 'team.account_ages_days'];
   const rows = keys.map((key, i) => ({ key, value: key === 'live.title' ? 'Applicant project: a wallet that splits bills' : i * 7, basis: key.startsWith('live') ? 'site' : key.startsWith('onchain') ? 'explorer' : 'github', read_at: key.startsWith('repo') ? older : at, note: key.includes('senders') ? 'sampled 50' : null }));
   await sql()`UPDATE screen_applicants SET status = 'done', tier = 'live', read_at = ${NOW}, line = 'live: the site answers and the contract has 90 senders in 90 days.', because = ${sql().json(['the site answers', 'the contract has 90 senders in 90 days'])}, rows = ${sql().json(rows)} WHERE job_id = ${j.id}`;
+  return { r, j, at, older };
+}
+
+test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when read earlier; a page of the 200-row fixture is under 20 KB', async () => {
+  const { r, j, at, older } = await sizedJob('jobs-size');
   const page = (await jobResults(j.id, r.builderId, NOW))!;
   assert.equal(page.applicants.length, 10);
   const a = page.applicants[0];
@@ -426,6 +432,36 @@ test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when
   assert.equal(a.rows!.find((x) => x.key === 'repo.stars')!.read_at, older);
   const size = Buffer.byteLength(JSON.stringify({ show_to_builder: 'x'.repeat(200), agent_note: 'y'.repeat(300), job_id: j.id, results: page, next_page: page.next_page }));
   assert.ok(size < 20_480, `${size}`);
+});
+
+test('v3.8 E18 fix (screen_v2 on): a page of the 200-row fixture with the places and status/state stays under 20 KB; the places that fit stay', async () => {
+  const { RESULTS_CAP, RESULTS_ENVELOPE } = await import('./screen-jobs');
+  const { REPLY_FIELDS_BYTES } = await import('../v5/reply-fields');
+  const { r, j } = await sizedJob('jobs-size-v2');
+  const flags = process.env.EARNKIT_FLAGS;
+  process.env.EARNKIT_FLAGS = 'screen_v2';
+  try {
+    const page = (await jobResults(j.id, r.builderId, NOW))!;
+    assert.equal(page.applicants.length, 10);
+    // The reply around the page fits the envelope, with status and state.
+    assert.ok(500 + REPLY_FIELDS_BYTES < RESULTS_ENVELOPE);
+    const size = Buffer.byteLength(JSON.stringify({ show_to_builder: 'x'.repeat(200), agent_note: 'y'.repeat(300), job_id: j.id, results: page, next_page: page.next_page, status: 'needs_builder', state: 'not_signed_in' }));
+    assert.ok(size < RESULTS_CAP, `${size}`);
+    assert.equal(page.ordinals_cut, true);
+    // The places left are the page's first: an applicant without one sorts after those with one.
+    const placed = page.applicants.map((a) => a.ordinal !== undefined);
+    assert.deepEqual(placed, [...placed].sort((a, b) => Number(b) - Number(a)));
+    for (const a of page.applicants) assert.ok(a.ordinal_reasons === undefined || a.ordinal !== undefined, a.ref);
+    // A small page keeps every place and its reasons, and says nothing was cut.
+    const small = await job(r, Array.from({ length: 12 }, (_, k) => ({ ref: `m-${k}`, name: `Small ${k}`, live_url: `https://small-${k}.example/` })));
+    await sql()`UPDATE screen_applicants SET status = 'done', tier = 'live', read_at = ${NOW}, line = 'live', rows = ${sql().json([])} WHERE job_id = ${small.id}`;
+    const p2 = (await jobResults(small.id, r.builderId, NOW))!;
+    assert.equal(p2.ordinals_cut, undefined);
+    for (const a of p2.applicants) assert.ok(a.ordinal !== undefined && Array.isArray(a.ordinal_reasons), a.ref);
+  } finally {
+    if (flags === undefined) delete process.env.EARNKIT_FLAGS;
+    else process.env.EARNKIT_FLAGS = flags;
+  }
 });
 
 test('#15 (v6.1.15), L35-23 (v6.1.17): a sampled-senders row is shown as outside_senders_90d only, the old key gone', async () => {

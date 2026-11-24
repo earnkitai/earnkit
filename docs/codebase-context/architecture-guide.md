@@ -2114,6 +2114,8 @@ Behind `reply_fields`. `lib/v5/reply-fields.ts` adds `status` (`ok`, `needs_buil
 from the reply and its arguments in `mcp.ts`'s `run`. Errors that were one text line (busy, invalid input, rate limit,
 unknown and old tool names, the route's too-deep and not-an-object answers) become the same JSON shape
 (`errorReply`). Off, every reply is main's. Design: `docs/design-docs-and-implementation-plans/v3.8-e13-reply-fields.md`.
+The keys are added after a tool caps its reply, so find (`capFind`) and record (`recordTool`) cap at their cap minus
+`replyFieldsBudget()` (`REPLY_FIELDS_BYTES` on, 0 off). Design: `v3.8-flag-on-reply-caps.md`.
 
 ## v3.8 E14: the copy table
 
@@ -2155,7 +2157,9 @@ Behind `screen_v2`. `lib/v6/ordinal.ts` orders applicants inside each tier by po
 building in the job). `jobResults` adds `ordinal`, `ordinal_of`, `ordinal_reasons` and sorts by tier then ordinal. The
 CLI report adds `order in <tier>`. `lib/v6/packages.ts` reads npm and PyPI downloads for packages whose registry links
 the repo (`readEvidence({ packages })`, uncached; rows with basis `registry`). `tiers.ts` `REVIEW_ORDER` is the one
-reviewer order (flagged before unverified), which the tool's results use when the flag is on. Off, everything is
+reviewer order (flagged before unverified), which the tool's results use when the flag is on. The places get only the
+bytes a page has left under `RESULTS_CAP` (20 KB) less `RESULTS_ENVELOPE` (`fitOrdinals`: reasons, then places, the
+page's last applicant first; `ordinals_cut` and `ORDINALS_CUT_NOTE` say so). Off, everything is
 main's. Reviewer-only; never in builder copy. Design:
 `docs/design-docs-and-implementation-plans/v3.8-e18-screen-v2.md`.
 

@@ -7,6 +7,7 @@ import { copy } from '../v5/copy';
 import { z } from 'zod';
 import { looksSecret, MAX_ARG_DEPTH } from '../v5/secrets';
 import { inputDetail, inputError, refuse } from '../v5/tool-input';
+import { replyFieldsBudget } from '../v5/reply-fields';
 import { nextNeedsOf, type NextNeed } from '../v5/installations';
 import { recordValue } from '../v5/prefill';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
@@ -376,7 +377,9 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   const r = await recordReply(ctx, input);
   const i = RecordInput.safeParse(input);
   const kind = i.success && typeof i.data.get === 'string' ? i.data.get : null;
-  return recordReplyCap(kind && r.answers ? kindPage(r, kind, i.success ? (i.data.page ?? 1) : 1) : r);
+  // v3.8 E13 fix: room for the `status` and `state` mcp.ts adds after (0 with `reply_fields` off).
+  const cap = RECORD_REPLY_CAP - replyFieldsBudget();
+  return recordReplyCap(kind && r.answers ? kindPage(r, kind, i.success ? (i.data.page ?? 1) : 1, cap) : r, cap);
 }
 
 /** Fix round 1 (I2): the agent line when a kind has more answers past this page. */
