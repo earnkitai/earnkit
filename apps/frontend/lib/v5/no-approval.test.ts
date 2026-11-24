@@ -15,6 +15,7 @@ import { sql } from './db';
 import type { Mailer } from './mail';
 import { getProgram } from './programs';
 import { writePost } from './programs-api';
+import { withFlagPreview } from './flags';
 
 after(() => sql().end());
 
@@ -112,14 +113,14 @@ const CHECK = {
 };
 
 const send = async (id: string, extra: Record<string, unknown>, preview = false) => {
-  const res = await writePost(
+  const res = await withFlagPreview(preview, () => writePost(
     new Request('https://earnkit.com/api/programs/write', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'upsert', program: program(id), ...extra }),
     }),
-    { mailer, probe: async () => {}, readPage: async () => page(id), preview: async () => preview },
-  );
+    { mailer, probe: async () => {}, readPage: async () => page(id) },
+  ));
   const pending = await sql()`SELECT 1 FROM program_writes WHERE program_id = ${id} AND result = 'pending'`;
   return { status: res.status, json: (await res.json()) as Record<string, unknown>, pending: pending.length };
 };

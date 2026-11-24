@@ -7,7 +7,8 @@
  * v3.8 E6r (decision 21): the automated lane. An upsert goes through the official-page check (official-page.ts: the
  * quotes on the page, organizer status, information only) when `auto_live` is on, when the writer asks for it by sending
  * the check's fields (Growth's writer: amount_quote, deadline_quote, found_by_*, handle, evidence_url), or when the
- * caller is the owner or a test-preview account (lib/v6/preview-caller.ts). It goes live with no approval when the
+ * caller is the owner or a test account (main's flag preview, lib/v6/flag-preview.ts, puts `auto_live` on for them in
+ * their own requests; the route runs in their flag context). It goes live with no approval when the
  * check passes and is refused when it fails. Every other write keeps the held lane above, approval email and link
  * included, until auto_live is on for everyone (the approval path is deleted in a follow-up PR then).
  */
@@ -35,7 +36,6 @@ import {
   readOfficialPage,
   type PageReader,
 } from './official-page';
-import { previewCaller } from '../v6/preview-caller';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, type Program } from './program-file';
 import { dateStatus, getProgram, isOpenAt, upsertProgram } from './programs';
@@ -168,8 +168,6 @@ export type WriteDeps = {
   mailer?: Mailer;
   /** Reads the official page (and an evidence page) for the automated lane's check. Default safeProbePage, 5 s, 64 KB. */
   readPage?: PageReader;
-  /** Whether the request is from the owner or a test-preview account. Default previewCaller. */
-  preview?: (request: Request) => Promise<boolean>;
   /** Resolves when the URL loads; throws when it doesn't. Default safeProbe. */
   probe?: Probe;
   now?: Date;
@@ -180,7 +178,7 @@ export type WriteDeps = {
   /** After a write changed a program. Default programsChanged. */
   onChange?: (id: string) => void;
 };
-type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit' | 'preview'>> & Pick<WriteDeps, 'mailer'>;
+type Deps = Required<Omit<WriteDeps, 'mailer' | 'limit'>> & Pick<WriteDeps, 'mailer'>;
 
 const fullDeps = (deps: WriteDeps): Deps => ({
   mailer: deps.mailer,
@@ -464,14 +462,11 @@ async function handleAction(handle: string, domain: string): Promise<Response> {
 }
 
 /**
- * v3.8 E6r: whether an upsert takes the automated lane: `auto_live` on, the writer sent any of the check's fields
- * (Growth's writer asking for the check), or the caller is the owner or a test-preview account. Else main's lane.
+ * v3.8 E6r: whether an upsert takes the automated lane: `auto_live` on (for everyone, or in an owner/test caller's
+ * request through the flag preview), or the writer sent any of the check's fields (Growth's writer asking for the
+ * check). Else main's lane.
  */
-async function automatedLane(request: Request, e: UpsertEnvelope, preview: (request: Request) => Promise<boolean>): Promise<boolean> {
-  if (flagOn('auto_live')) return true;
-  if (CHECK_FIELDS.some((k) => e[k] !== undefined)) return true;
-  return preview(request);
-}
+const automatedLane = (e: UpsertEnvelope): boolean => flagOn('auto_live') || CHECK_FIELDS.some((k) => e[k] !== undefined);
 
 /**
  * Sets a program's status to closed, in the record and the column, with a program_changes row.
@@ -549,7 +544,7 @@ export async function writePost(request: Request, deps: WriteDeps = {}): Promise
     const e = envelope.data;
     if (e.action === 'handle') return await handleAction(e.handle, e.profile_domain);
     if (e.action === 'close') return await closeAction(e.id, e.reason, full);
-    return await upsertAction(e, full, await automatedLane(request, e, deps.preview ?? previewCaller));
+    return await upsertAction(e, full, automatedLane(e));
   } catch (err) {
     console.error(`[programs-api] write failed: ${errTag(err)}`);
     return json({ ok: false, error: BUSY }, 503, { 'Retry-After': '30' });

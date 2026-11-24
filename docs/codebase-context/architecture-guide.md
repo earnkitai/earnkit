@@ -179,7 +179,8 @@ The pipeline, in order:
    live at once and appears in the owner's daily digest with a revert link.
    v3.8 E6r: the automated lane skips this step. When `auto_live` is on, the writer sends the official-page check's
    fields (Growth: `amount_quote`, `deadline_quote`, `found_by_*`, `handle`, `evidence_url`), or the caller is the
-   owner or a test-preview account (`lib/v6/preview-caller.ts`), `official-page.ts` fetches the official page. The
+   owner or a test account (the write route runs in the /me session's flag context, and the owner/test flag preview
+   includes `auto_live`), `official-page.ts` fetches the official page. The
    write goes live only if the quotes are on the page and name the record's amount and deadline; otherwise it is a 400.
    A domain the check can't tie to the organizer is live as `new_organizer`, and a builder link not on the page makes
    it `info_only`. Either label forces `submit: builder`, so find marks it `needs_click` and track refuses a standing
@@ -2064,12 +2065,14 @@ the script always exits 0, so it can never fail a deploy. Find it in the deploy 
 ## Owner/test flag preview (v3.8)
 
 Design: `design-docs-and-implementation-plans/v3.8-owner-test-flag-preview.md`. With `EARNKIT_FLAGS` unset, an owner or
-test caller's request runs with every shipping flag on (`PREVIEW_FLAGS`: install_signin, x_signin, track_v2,
-draft_check, form, reply_fields, copy_v38, screen_v2; not auto_live or private_rows, which have no code). `flags.ts`
+test caller's request runs with every shipping flag on (`PREVIEW_FLAGS`: auto_live, install_signin, x_signin,
+track_v2, draft_check, form, reply_fields, copy_v38, screen_v2; not private_rows, which has no code). `auto_live` (E6r)
+sends an owner/test session's program writes through the automated check; `/api/programs/write` resolves the caller by
+the /me session. `flags.ts`
 holds a per-request `AsyncLocalStorage` context; `lib/v6/flag-preview.ts` resolves the caller once per request: `/mcp`
 by the token's installation (its person, linked builder and the builder's person), the /me routes and pages, `/privacy`,
 `/oauth/authorize`, `/auth/github/callback`, `/auth/x`, `/x/callback` and `/install/consent` by the browser's /me
-session. A caller is a preview one when a person of theirs is flagged owner, test, persona or dogfood (not repro), or an
+session (and `/api/programs/write`, E6r). A caller is a preview one when a person of theirs is flagged owner, test, persona or dogfood (not repro), or an
 env list names them (`envListReason`, the built-in owner logins included). No identity, a real builder, or a failed
 lookup: exactly `EARNKIT_FLAGS`. The install sign-in is previewed only for a browser that already holds an owner/test
 /me session; a fresh browser is unknown until it signs in. Cron, scripts and the screen worker have no caller. Nothing

@@ -1,7 +1,8 @@
 /**
  * v3.8 E6r: while `auto_live` is off for normal traffic, a normal program add (no check fields, not the owner or a
  * test-preview caller) keeps main's approval path, so no add gets stuck: it is held, the owner is emailed an approve
- * link, the link's confirm page opens and approving puts the program live. Also the preview-caller check itself.
+ * link, the link's confirm page opens and approving puts the program live. Also the route's flag context: an owner or
+ * test /me session takes the automated lane (main's flag preview turns `auto_live` on for it), a normal builder does not.
  * Deleted with the approval path in the follow-up PR (land when auto_live is on for everyone).
  */
 import { after, afterEach, beforeEach, test } from 'node:test';
@@ -12,7 +13,7 @@ import { getProgram } from './programs';
 import { approveGet, approvePost, writePost } from './programs-api';
 import { PENDING_SUBJECT } from './programs-pending';
 import { upsertBuilder } from '../v6/builders';
-import { previewCaller } from '../v6/preview-caller';
+import { withSessionFlags } from '../v6/flag-preview';
 import { cookieName, createSession } from '../v6/sessions';
 
 after(() => sql().end());
@@ -110,16 +111,24 @@ const cookieFor = async (login: string, githubId: number, testReason: string | n
   const b = await upsertBuilder({ github_id: githubId, login, name: null, avatar_url: null }, new Date());
   if (testReason) await sql()`INSERT INTO people (builder_id, test_reason, test_reason_source) VALUES (${b.id}, ${testReason}, 'test') ON CONFLICT (builder_id) DO UPDATE SET test_reason = EXCLUDED.test_reason`;
   const { token } = await createSession(b.id, new Date());
-  return new Request('https://earnkit.com/api/programs/write', { method: 'POST', headers: { cookie: `${cookieName()}=${token}` } });
+  return `${cookieName()}=${token}`;
 };
 
-test('previewCaller: the owner logins and test-preview people are preview callers; a normal builder and no session are not', async () => {
-  assert.equal(await previewCaller(await cookieFor('jenil04', 9_640_001, null)), true);
-  assert.equal(await previewCaller(await cookieFor('jenilt', 9_640_002, null)), true);
+/** Status of a write with no check fields, run as the route runs it (in the session's flag context). 400 = automated lane refused it (no quotes); 202 = held. */
+const laneFor = async (cookie: string | null, id: string): Promise<number> => {
+  const headers: Record<string, string> = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+  if (cookie) headers.cookie = cookie;
+  const request = new Request('https://earnkit.com/api/programs/write', { method: 'POST', headers, body: JSON.stringify({ action: 'upsert', program: program(id) }) });
+  return (await withSessionFlags(request, () => writePost(request, { mailer, probe, readPage: async () => '' }))).status;
+};
+
+test("the route's flag context: owner and test sessions take the automated lane, a normal builder and no session keep main's", async () => {
+  assert.equal(await laneFor(await cookieFor('jenil04', 9_640_001, null), 'aw-owner-login'), 400);
+  assert.equal(await laneFor(await cookieFor('jenilt', 9_640_002, null), 'aw-owner-login2'), 400);
   for (const [i, reason] of (['test', 'persona', 'dogfood', 'owner'] as const).entries())
-    assert.equal(await previewCaller(await cookieFor(`aw-${reason}`, 9_640_010 + i, reason)), true, reason);
-  assert.equal(await previewCaller(await cookieFor('aw-normal-builder', 9_640_020, null)), false);
-  assert.equal(await previewCaller(await cookieFor('aw-repro', 9_640_021, 'repro')), false);
-  assert.equal(await previewCaller(new Request('https://earnkit.com/api/programs/write', { method: 'POST' })), false);
-  assert.equal(await previewCaller(new Request('https://earnkit.com/x', { headers: { cookie: `${cookieName()}=not-a-session` } })), false);
+    assert.equal(await laneFor(await cookieFor(`aw-${reason}`, 9_640_010 + i, reason), `aw-lane-${reason}`), 400, reason);
+  assert.equal(await laneFor(await cookieFor('aw-normal-builder', 9_640_020, null), 'aw-lane-normal'), 202);
+  assert.equal(await laneFor(await cookieFor('aw-repro', 9_640_021, 'repro'), 'aw-lane-repro'), 202);
+  assert.equal(await laneFor(null, 'aw-lane-none'), 202);
+  assert.equal(await laneFor(`${cookieName()}=not-a-session`, 'aw-lane-bad'), 202);
 });
