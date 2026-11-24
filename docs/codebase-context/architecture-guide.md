@@ -607,6 +607,12 @@ keys from tool-call bodies before anything sees them.
 
 `apps/frontend/db/schema.sql`, additive and safe to run twice (`pnpm db:migrate`, run before each deploy).
 
+v3.8 additive-only guard: `db-migrate.mts` first runs `checkSchema` (`lib/v6/schema-guard.ts`, static) and exits 1
+before any SQL if a statement drops, truncates, deletes, updates, retypes, renames, sets NOT NULL, revokes, is a DO
+block or function, or creates a table/index without IF NOT EXISTS, unless its exact normalized text is in
+`lib/v6/schema-allowlist.ts` (the 31 reviewed idempotent statements, each with its reason). A new such statement needs
+a reviewed allowlist entry in the same PR; `schema-guard.test.ts` keeps the list free of stale entries.
+
 | Table | Holds |
 |---|---|
 | `programs` | Every program: the whole record in `file`, plus mirrored columns and source (`file` or `api`) |
